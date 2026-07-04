@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Fixture: formulaire</title></head>
+<body>
+  <h1>Formulaire</h1>
+  <label for="name">Nom</label>
+  <input id="name" type="text" value="">
+  <label for="email">Email</label>
+  <input id="email" type="email" value="preset@example.test">
+  <select id="choice">
+    <option value="a">A</option>
+    <option value="b">B</option>
+  </select>
+  <button id="submit-btn" type="button">Envoyer</button>
+  <div id="result" data-state="idle"></div>
+  <script>
+    document.getElementById('submit-btn').addEventListener('click', () => {
+      const r = document.getElementById('result');
+      r.dataset.state = 'submitted';
+      r.textContent = 'OK:' + document.getElementById('name').value;
+    });
+    document.getElementById('name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('submit-btn').click();
+    });
+  </script>
+</body>
+</html>

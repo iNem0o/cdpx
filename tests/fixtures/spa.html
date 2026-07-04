@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Fixture: SPA</title></head>
+<body>
+  <h1>Contenu différé</h1>
+  <div id="app">Chargement…</div>
+  <script>
+    // Délai fixe: teste `cdpx wait` (le contenu N'EXISTE PAS au load event).
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.id = 'late-content';
+      el.textContent = 'Contenu arrivé après 300ms';
+      document.getElementById('app').replaceChildren(el);
+    }, 300);
+  </script>
+</body>
+</html>

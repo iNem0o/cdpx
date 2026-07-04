@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cdpx"
+version = "0.1.0"
+description = "CLI de primitives Chrome DevTools Protocol pour agents de dev (Symfony / e-commerce / SEO)"
+requires-python = ">=3.11"
+dependencies = ["websockets>=12"]
+
+[project.scripts]
+cdpx = "cdpx.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

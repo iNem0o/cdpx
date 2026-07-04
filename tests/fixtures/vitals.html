@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture: vitals</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    #hero { display: block; width: 320px; height: 180px; background: #1b6; color: white; }
+    #shift { height: 20px; background: #ddd; }
+  </style>
+</head>
+<body>
+  <h1>Vitals</h1>
+  <div id="hero">Largest content candidate</div>
+  <button id="inp-button">Interaction</button>
+  <div id="shift">shift target</div>
+  <script>
+    setTimeout(() => {
+      document.getElementById('shift').style.marginTop = '48px';
+    }, 80);
+    document.getElementById('inp-button').addEventListener('click', () => {
+      const start = performance.now();
+      while (performance.now() - start < 24) {}
+      document.body.dataset.clicked = '1';
+    });
+  </script>
+</body>
+</html>

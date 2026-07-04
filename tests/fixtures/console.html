@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Fixture: console</title></head>
+<body>
+  <h1>Console</h1>
+  <script>
+    console.log('fixture-log', 42);
+    console.warn('fixture-warn');
+    console.error('fixture-error');
+    setTimeout(() => { throw new Error('fixture-uncaught'); }, 50);
+  </script>
+</body>
+</html>

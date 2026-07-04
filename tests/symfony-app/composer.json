@@ -1,0 +1,20 @@
+{
+  "type": "project",
+  "require": {
+    "php": ">=8.3",
+    "symfony/framework-bundle": "^7.3",
+    "symfony/runtime": "^7.3",
+    "symfony/twig-bundle": "^7.3",
+    "symfony/web-profiler-bundle": "^7.3"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "symfony/runtime": true
+    }
+  }
+}

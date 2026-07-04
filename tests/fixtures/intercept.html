@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Fixture: interception</title></head>
+<body>
+  <h1>Interception Fetch</h1>
+  <pre id="intercept-result">pending</pre>
+  <script>
+    async function statusOf(path) {
+      try {
+        const response = await fetch(path, {method: path.includes('echo') ? 'POST' : 'GET'});
+        return `${path}:${response.status}`;
+      } catch (e) {
+        return `${path}:ERR`;
+      }
+    }
+    Promise.all([
+      statusOf('/api/json'),
+      statusOf('/api/status/500'),
+      statusOf('/api/slow?ms=120'),
+      statusOf('/api/echo')
+    ]).then(items => {
+      document.getElementById('intercept-result').textContent = items.join('|');
+    });
+  </script>
+</body>
+</html>

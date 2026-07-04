@@ -1,0 +1,7 @@
+.used-rule {
+  color: #123;
+}
+
+.unused-rule {
+  color: #f00;
+}

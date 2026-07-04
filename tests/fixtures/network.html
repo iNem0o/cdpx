@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Fixture: réseau</title></head>
+<body>
+  <h1>Activité réseau</h1>
+  <script>
+    // 1 succès, 1 erreur 500, 1 lent: profil réseau connu d'avance.
+    fetch('/api/json');
+    fetch('/api/status/500');
+    fetch('/api/slow?ms=150');
+  </script>
+</body>
+</html>

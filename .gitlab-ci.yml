@@ -1,0 +1,38 @@
+stages:
+  - test
+
+check:
+  image: python:3.12-slim
+  stage: test
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends make
+    - make setup
+  script:
+    - make check
+
+e2e:chrome:
+  image: docker:29
+  stage: test
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker build -t cdpx-ci .
+    - docker run --rm cdpx-ci make test-e2e
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_MERGE_REQUEST_ID
+
+e2e:symfony:
+  image: docker:29
+  stage: test
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
+    - docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"

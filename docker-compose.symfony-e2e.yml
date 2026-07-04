@@ -1,0 +1,22 @@
+services:
+  symfony:
+    build:
+      context: ./tests/symfony-app
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$s=@fsockopen('127.0.0.1',8000); exit($$s?0:1);"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  cdpx:
+    build:
+      context: .
+    environment:
+      SYMFONY_E2E_URL: http://symfony:8000
+    depends_on:
+      symfony:
+        condition: service_healthy
+    command: ["python3", "-m", "pytest", "tests/e2e/test_e2e_symfony.py", "-v"]
