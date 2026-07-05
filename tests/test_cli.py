@@ -163,6 +163,65 @@ def test_screenshot_format_jpeg(mock, capsys, tmp_path):
     assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "jpeg"
 
 
+def test_record_cli_executes_and_journals(mock, capsys, tmp_path):
+    journal = tmp_path / "j.ndjson"
+    code, out, _ = run(mock, capsys, "record", "-o", str(journal), "--", "goto", "http://a.test/")
+    data = json.loads(out)
+    assert code == 0 and data["ok"] is True and data["recorded"] == 1
+    assert mock.commands_for("Page.navigate") == [{"url": "http://a.test/"}]
+    event = json.loads(journal.read_text().splitlines()[0])
+    assert event["action"] == ["goto", "http://a.test/"]  # le `--` ne fuit pas dans le journal
+
+
+def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path):
+    journal = tmp_path / "j.ndjson"
+    journal.write_text('{"action":["click","#gone"],"ok":true}\n', encoding="utf-8")
+    mock.on_eval("getBoundingClientRect", None)
+    code, out, _ = run(mock, capsys, "replay", str(journal))
+    data = json.loads(out)
+    assert code == 1  # divergence = erreur d'exécution, JSON structuré conservé
+    assert data["ok"] is False and data["divergence"].startswith("event 0:")
+
+
+def test_replay_cli_green_journal_exits_0(mock, capsys, tmp_path):
+    journal = tmp_path / "j.ndjson"
+    journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
+    code, out, _ = run(mock, capsys, "replay", str(journal))
+    data = json.loads(out)
+    assert code == 0 and data == {
+        "path": str(journal),
+        "events": 1,
+        "played": 1,
+        "ok": True,
+    }
+
+
+def test_emulate_composed_action_runs_in_same_connection(mock, capsys):
+    code, out, _ = run(mock, capsys, "emulate", "mobile", "--", "goto", "http://a.test/")
+    data = json.loads(out)
+    assert code == 0 and data["applied"] is True
+    assert data["action"]["result"]["ok"] is True
+    # le preset est posé AVANT l'action, dans la même connexion
+    methods = [m for (_t, m, _p) in mock.commands]
+    assert methods.index("Emulation.setDeviceMetricsOverride") < methods.index("Page.navigate")
+
+
+def test_origin_guard_composed_commands_follow_action_verb(mock, capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    journal = tmp_path / "j.ndjson"
+    # record avec verbe mutant: refusé (aucune commande CDP émise)
+    code, _, err = run(mock, capsys, "record", "-o", str(journal), "--", "click", "#x")
+    assert code == 1 and "mutation refusée" in err and mock.commands == []
+    # replay: mutant en bloc (le journal peut contenir n'importe quoi),
+    # refusé tant que l'onglet est sur une origine hors liste (about:blank)
+    journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
+    code, _, err = run(mock, capsys, "replay", str(journal))
+    assert code == 1 and "mutation refusée" in err and mock.commands == []
+    # record avec verbe de lecture: permis même hors liste
+    code, out, _ = run(mock, capsys, "record", "-o", str(journal), "--", "goto", "http://a.test/")
+    assert code == 0 and json.loads(out)["ok"] is True
+
+
 def test_error_path_exit_code_and_stderr(mock, capsys):
     mock.on_eval("kaboom", {"raw": {"exceptionDetails": {"text": "TypeError: kaboom"}}})
     code, _, err = run(mock, capsys, "eval", "kaboom()")

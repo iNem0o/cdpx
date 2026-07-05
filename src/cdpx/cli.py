@@ -20,12 +20,20 @@ import sys
 
 from cdpx import __version__, discovery, output
 from cdpx.client import CDPClient, CDPError, CDPTimeout
-from cdpx.primitives import advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
+
+
+def _action(args) -> list[str]:
+    """Action composée (REMAINDER), débarrassée du séparateur `--` initial."""
+    action = getattr(args, "action", None) or []
+    return action[1:] if action and action[0] == "--" else action
 
 
 def _client(args) -> CDPClient:
     target = discovery.pick_page(args.host, args.port, args.target)
-    advanced.assert_origin_allowed(args.command, target.get("url"), os.environ.get("CDPX_ORIGINS"))
+    advanced.assert_origin_allowed(
+        args.command, target.get("url"), os.environ.get("CDPX_ORIGINS"), action=_action(args)
+    )
     return CDPClient(target["webSocketDebuggerUrl"], timeout=args.timeout)
 
 
@@ -179,17 +187,13 @@ def cmd_profiler(args) -> None:
 
 
 def cmd_dom_diff(args) -> None:
-    action = args.action
-    if action and action[0] == "--":
-        action = action[1:]
     with _client(args) as c:
-        _out(args, dev.dom_diff(c, action))
+        _out(args, dev.dom_diff(c, _action(args)))
 
 
 def cmd_intercept(args) -> None:
-    if args.action and args.action[0] == "--":
-        args.action = args.action[1:]
-    if len(args.action) != 2 or args.action[0] != "goto":
+    action = _action(args)
+    if len(action) != 2 or action[0] != "goto":
         raise ValueError("intercept supporte: -- goto <url>")
     with _client(args) as c:
         _out(
@@ -197,7 +201,7 @@ def cmd_intercept(args) -> None:
             advanced.intercept_goto(
                 c,
                 args.rule,
-                args.action[1],
+                action[1],
                 timeout=args.timeout,
                 settle=args.settle,
             ),
@@ -205,8 +209,17 @@ def cmd_intercept(args) -> None:
 
 
 def cmd_emulate(args) -> None:
+    action = _action(args)
     with _client(args) as c:
-        _out(args, advanced.emulate(c, preset=args.preset, reset=args.reset))
+        res = advanced.emulate(c, preset=args.preset, reset=args.reset)
+        if action:
+            # Les overrides meurent avec la connexion: agir sous émulation
+            # exige d'exécuter l'action DANS cette connexion (cf. e2e).
+            res["action"] = {
+                "argv": action,
+                "result": actions.run_action(c, action, timeout=args.timeout),
+            }
+        _out(args, res)
 
 
 def cmd_vitals(args) -> None:
@@ -239,12 +252,16 @@ def cmd_frame(args) -> None:
 
 
 def cmd_record(args) -> None:
-    action = args.action[1:] if args.action and args.action[0] == "--" else args.action
-    _out(args, advanced.record(args.output, action))
+    with _client(args) as c:
+        _out(args, advanced.record(c, args.output, _action(args)))
 
 
-def cmd_replay(args) -> None:
-    _out(args, advanced.replay(args.path, max_actions=args.max_actions))
+def cmd_replay(args) -> int:
+    with _client(args) as c:
+        res = advanced.replay(c, args.path, max_actions=args.max_actions)
+    _out(args, res)
+    # divergence = erreur d'exécution: JSON structuré sur stdout, exit 1
+    return 0 if res.get("ok") else 1
 
 
 # -- parseur ---------------------------------------------------------------------
@@ -372,9 +389,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("action", nargs=argparse.REMAINDER)
     s.set_defaults(func=cmd_intercept)
 
-    s = sub.add_parser("emulate", help="émulation mobile/réseau/CPU")
+    s = sub.add_parser("emulate", help="émulation mobile/réseau/CPU (+ action composée)")
     s.add_argument("preset", nargs="?", choices=["mobile", "slow-3g", "cpu-4x"])
     s.add_argument("--reset", action="store_true")
+    s.add_argument("action", nargs=argparse.REMAINDER, help="-- goto <url> | click <sel> | ...")
     s.set_defaults(func=cmd_emulate)
 
     s = sub.add_parser("vitals", help="Core Web Vitals basiques")
@@ -394,12 +412,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("selector")
     s.set_defaults(func=cmd_frame)
 
-    s = sub.add_parser("record", help="journaliser une action en NDJSON compact")
+    s = sub.add_parser("record", help="exécuter une action et la journaliser en NDJSON")
     s.add_argument("-o", "--output", default="cdpx-record.ndjson")
     s.add_argument("action", nargs=argparse.REMAINDER)
     s.set_defaults(func=cmd_record)
 
-    s = sub.add_parser("replay", help="rejouer/valider un journal NDJSON")
+    s = sub.add_parser("replay", help="rejouer un journal NDJSON, stop à la divergence")
     s.add_argument("path")
     s.set_defaults(func=cmd_replay)
 
@@ -409,8 +427,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        args.func(args)
-        return 0
+        code = args.func(args)
+        return code or 0
     except (
         CDPError,
         CDPTimeout,

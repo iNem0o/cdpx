@@ -9,13 +9,24 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from cdpx.client import CDPClient, CDPTimeout
-from cdpx.primitives import js, nav
+from cdpx.client import CDPClient, CDPError, CDPTimeout
+from cdpx.primitives import actions, inputs, js, nav
 
-# Commandes qui mutent la page: refusées hors CDPX_ORIGINS. dom-diff exécute
-# de vraies actions (click/type/key/eval). record/replay rejoindront le set
-# quand leur rejeu ouvrira une connexion navigateur.
-MUTATING_COMMANDS = {"click", "type", "key", "eval", "intercept", "dom-diff"}
+# Garde d'origine (CDPX_ORIGINS): mutations refusées hors liste, lectures
+# permises. Les commandes composées (dom-diff, record, emulate) sont classées
+# par le VERBE de leur action; replay est mutant en bloc (le journal peut
+# contenir n'importe quelle action).
+ALWAYS_MUTATING = {"click", "type", "key", "eval", "intercept", "replay"}
+COMPOSED_COMMANDS = {"dom-diff", "record", "emulate"}
+
+ACTION_ERRORS = (
+    ValueError,
+    TimeoutError,
+    CDPError,
+    CDPTimeout,
+    js.JSException,
+    inputs.ElementNotFound,
+)
 
 PRESETS = {
     "mobile": {
@@ -39,8 +50,21 @@ PRESETS = {
 }
 
 
-def assert_origin_allowed(command: str, current_url: str | None, origins: str | None) -> None:
-    if command not in MUTATING_COMMANDS or not origins:
+def command_mutates(command: str, action: list[str] | None = None) -> bool:
+    if command in ALWAYS_MUTATING:
+        return True
+    if command in COMPOSED_COMMANDS:
+        return bool(action) and action[0] in actions.MUTATING_VERBS
+    return False
+
+
+def assert_origin_allowed(
+    command: str,
+    current_url: str | None,
+    origins: str | None,
+    action: list[str] | None = None,
+) -> None:
+    if not origins or not command_mutates(command, action):
         return
     parsed = urllib.parse.urlparse(current_url or "")
     origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
@@ -239,16 +263,36 @@ def frame_text(client: CDPClient, selector: str) -> dict:
     return {"selector": selector, "text": js.evaluate(client, expr)}
 
 
-def record(path: str, action: list[str]) -> dict:
-    event = {"action": action, "ok": True, "ts": round(time.time(), 3)}
+def record(client: CDPClient, path: str, action: list[str]) -> dict:
+    """Exécute l'action puis la journalise (résultat compris) en NDJSON.
+
+    L'échec est journalisé (ok:false + erreur) AVANT d'être relancé: le journal
+    reste la trace fidèle de ce qui s'est réellement passé.
+    """
+    error: Exception | None = None
+    try:
+        result: dict = actions.run_action(client, action)
+        ok = True
+    except ACTION_ERRORS as e:
+        result = {"error": str(e)}
+        ok = False
+        error = e
+    event = {"action": action, "ok": ok, "result": result, "ts": round(time.time(), 3)}
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
-    return {"path": str(out), "recorded": 1}
+    if error is not None:
+        raise error
+    return {"path": str(out), "recorded": 1, "ok": ok}
 
 
-def replay(path: str, max_actions: int | None = None) -> dict:
+def replay(client: CDPClient, path: str, max_actions: int | None = None) -> dict:
+    """Rejoue un journal NDJSON action par action, arrêt à la première divergence.
+
+    Toute la validation (syntaxe, actions présentes, budget) se fait AVANT la
+    première exécution: un journal invalide ne touche jamais le navigateur.
+    """
     events = []
     for lineno, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
         if not line:
@@ -260,6 +304,7 @@ def replay(path: str, max_actions: int | None = None) -> dict:
                 "path": path,
                 "ok": False,
                 "events": len(events),
+                "played": 0,
                 "divergence": f"line {lineno}: {e.msg}",
             }
         if not isinstance(event.get("action"), list):
@@ -267,20 +312,34 @@ def replay(path: str, max_actions: int | None = None) -> dict:
                 "path": path,
                 "ok": False,
                 "events": len(events),
+                "played": 0,
                 "divergence": f"line {lineno}: action manquante",
             }
         events.append(event)
     if max_actions is not None and len(events) > max_actions:
         raise ValueError(f"budget --max-actions dépassé: {len(events)} > {max_actions}")
+    played = 0
     for index, event in enumerate(events):
         if event.get("ok") is not True:
             return {
                 "path": path,
                 "events": len(events),
+                "played": played,
                 "ok": False,
-                "divergence": f"event {index}: ok=false",
+                "divergence": f"event {index}: ok=false journalisé",
             }
-    return {"path": path, "events": len(events), "ok": True}
+        try:
+            actions.run_action(client, event["action"])
+        except ACTION_ERRORS as e:
+            return {
+                "path": path,
+                "events": len(events),
+                "played": played,
+                "ok": False,
+                "divergence": f"event {index}: {e}",
+            }
+        played += 1
+    return {"path": path, "events": len(events), "played": played, "ok": True}
 
 
 def _parse_rule(rule: str) -> dict:

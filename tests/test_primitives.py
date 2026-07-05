@@ -507,19 +507,82 @@ def test_frame_text_reads_iframe_content(mock, client):
     assert advanced.frame_text(client, "#child-marker")["text"] == "iframe text"
 
 
-def test_record_and_replay_ndjson(tmp_path):
+def test_record_executes_action_and_journals_result(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
-    advanced.record(str(path), ["click", "#submit"])
-    assert path.read_text().startswith('{"action":["click","#submit"],')
-    assert advanced.replay(str(path)) == {"path": str(path), "events": 1, "ok": True}
-    with pytest.raises(ValueError):
-        advanced.replay(str(path), max_actions=0)
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    res = advanced.record(client, str(path), ["click", "#submit"])
+    assert res["ok"] is True and res["recorded"] == 1
+    # l'action a été réellement exécutée (protocole émis), pas seulement journalisée
+    assert [m["type"] for m in mock.commands_for("Input.dispatchMouseEvent")] == [
+        "mouseMoved",
+        "mousePressed",
+        "mouseReleased",
+    ]
+    event = json.loads(path.read_text().splitlines()[0])
+    assert event["action"] == ["click", "#submit"]
+    assert event["ok"] is True
+    assert event["result"]["clicked"] == "#submit"
+
+
+def test_record_journals_failure_then_raises(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    mock.on_eval("getBoundingClientRect", None)  # élément introuvable
+    with pytest.raises(inputs.ElementNotFound):
+        advanced.record(client, str(path), ["click", "#missing"])
+    event = json.loads(path.read_text().splitlines()[0])
+    assert event["ok"] is False and event["action"] == ["click", "#missing"]
+    assert "#missing" in event["result"]["error"]
+
+
+def test_replay_reexecutes_journal_against_browser(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    advanced.record(client, str(path), ["goto", "http://site.test/"])
+    advanced.record(client, str(path), ["click", "#submit"])
+    mock.commands.clear()
+    res = advanced.replay(client, str(path))
+    assert res == {"path": str(path), "events": 2, "played": 2, "ok": True}
+    # le rejeu a bien ré-émis navigation puis clic, dans l'ordre du journal
+    methods = [m for (_t, m, _p) in mock.commands]
+    assert methods.index("Page.navigate") < methods.index("Input.dispatchMouseEvent")
+
+
+def test_replay_stops_at_first_divergence(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text(
+        '{"action":["goto","http://site.test/"],"ok":true}\n'
+        '{"action":["click","#gone"],"ok":true}\n'
+        '{"action":["goto","http://after.test/"],"ok":true}\n',
+        encoding="utf-8",
+    )
+    mock.on_eval("getBoundingClientRect", None)  # le clic rejoué échoue
+    res = advanced.replay(client, str(path))
+    assert res["ok"] is False and res["played"] == 1
+    assert res["divergence"].startswith("event 1:")
+    # arrêt net: l'action suivante du journal n'a pas été rejouée
+    assert [p.get("url") for p in mock.commands_for("Page.navigate")] == ["http://site.test/"]
+
+
+def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
     path.write_text('{"action":["click","#submit"],"ok":false}\n', encoding="utf-8")
-    assert advanced.replay(str(path))["divergence"] == "event 0: ok=false"
+    res = advanced.replay(client, str(path))
+    assert res["ok"] is False and res["divergence"] == "event 0: ok=false journalisé"
+    assert mock.commands == []  # un enregistrement en échec ne se rejoue pas
+
+
+def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n{not-json}\n', "utf-8")
+    res = advanced.replay(client, str(path))
+    assert res["ok"] is False and res["divergence"].startswith("line 2:")
+    assert mock.commands == []  # journal corrompu -> rien n'est rejoué
     path.write_text('{"ok":true}\n', encoding="utf-8")
-    assert advanced.replay(str(path))["divergence"] == "line 1: action manquante"
-    path.write_text("{not-json}\n", encoding="utf-8")
-    assert advanced.replay(str(path))["divergence"].startswith("line 1:")
+    assert advanced.replay(client, str(path))["divergence"] == "line 1: action manquante"
+    path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n' * 3, encoding="utf-8")
+    with pytest.raises(ValueError):
+        advanced.replay(client, str(path), max_actions=2)
+    assert mock.commands == []  # budget dépassé -> rien n'est rejoué
 
 
 def test_origin_guard_blocks_mutations_only_when_configured():
@@ -529,16 +592,42 @@ def test_origin_guard_blocks_mutations_only_when_configured():
     advanced.assert_origin_allowed("click", "http://shop.test/page", "http://*.test")
 
 
-def test_origin_guard_set_matches_commands_that_mutate_the_page():
-    # Contrat de sécurité: toute commande qui mute la page est dans le set, rien d'autre.
-    # record/replay entreront ici quand leur rejeu réel ouvrira une connexion (Phase 2).
-    assert advanced.MUTATING_COMMANDS == {
-        "click",
-        "type",
-        "key",
-        "eval",
-        "intercept",
-        "dom-diff",
-    }
+def test_origin_guard_classifies_commands_by_effective_mutation():
+    # Contrat de sécurité: mutations refusées hors CDPX_ORIGINS, lectures permises.
+    # Pour les commandes composées, c'est le VERBE de l'action qui décide.
+    mutates = advanced.command_mutates
+    assert all(mutates(c) for c in ("click", "type", "key", "eval", "intercept"))
+    assert mutates("replay")  # le journal rejoué peut contenir n'importe quelle action
+    assert not mutates("text") and not mutates("goto") and not mutates("seo")
+    for composed in ("dom-diff", "record", "emulate"):
+        assert mutates(composed, ["click", "#x"])
+        assert mutates(composed, ["eval", "1"])
+        assert not mutates(composed, ["goto", "http://x.test/"])
+        assert not mutates(composed, [])
+    assert not mutates("emulate", None)  # emulate --reset seul: lecture/neutralisation
+
+
+def test_origin_guard_checks_composed_action_verb():
     with pytest.raises(ValueError):
-        advanced.assert_origin_allowed("dom-diff", "https://prod.example/", "http://*.test")
+        advanced.assert_origin_allowed(
+            "dom-diff", "https://prod.example/", "http://*.test", action=["click", "#x"]
+        )
+    advanced.assert_origin_allowed(
+        "dom-diff", "https://prod.example/", "http://*.test", action=["goto", "http://a.test/"]
+    )
+    with pytest.raises(ValueError):
+        advanced.assert_origin_allowed("replay", "https://prod.example/", "http://*.test")
+
+
+def test_run_action_dispatches_and_rejects_unknown(mock, client):
+    from cdpx.primitives import actions
+
+    res = actions.run_action(client, ["goto", "http://site.test/"])
+    assert res["ok"] is True
+    assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/"}]
+    mock.on_eval("2 + 2", 4)
+    assert actions.run_action(client, ["eval", "2 + 2"]) == {"value": 4}
+    with pytest.raises(ValueError):
+        actions.run_action(client, ["shell", "rm -rf /"])
+    with pytest.raises(ValueError):
+        actions.run_action(client, [])

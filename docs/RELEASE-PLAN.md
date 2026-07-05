@@ -72,23 +72,23 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 2 — record/replay: rejeu réel
 
-- [ ] 2.1 Interpréteur d'actions partagé `src/cdpx/primitives/actions.py`
+- [x] 2.1 Interpréteur d'actions partagé `src/cdpx/primitives/actions.py`
       (extraction de `dev._run_action` + actions goto/wait), utilisé par
-      dom-diff/record/replay. Non-régression: protocole dom-diff identique.
-- [ ] 2.2 `record` exécute ET journalise: client ouvert via `_client` (guard
-      actif), action exécutée, NDJSON `{action, ok, result, ts}`; échec →
-      ok:false journalisé + exit 1.
-- [ ] 2.3 `replay` rejoue: validations conservées (NDJSON invalide, action
-      manquante, budget AVANT exécution), exécution séquentielle, arrêt à la
-      première divergence (`{"ok": false, "divergence": ...}` exit 1). Tests
-      mock: rejeu vert (séquence CDP = journal), divergence stoppe net, journal
-      corrompu → aucun protocole émis.
-- [ ] 2.4 e2e `test_record_replay_real` (record sur form.html, replay vert,
-      replay divergent) + fiche `orchestration-control.md` + PRIMITIVES.md.
-- [ ] 2.5 `emulate <preset> -- <action...>` (forme composée): applique le
-      preset puis exécute l'action DANS LA MÊME connexion (seule façon d'agir
-      sous émulation, cf. constat 1.2). Tests mock (séquence preset puis
-      action) + e2e (goto sous mobile → screen.width 390 pendant l'action).
+      dom-diff/record/replay/emulate. Non-régression protocole dom-diff OK.
+- [x] 2.2 `record` exécute ET journalise (NDJSON `{action, ok, result, ts}`;
+      échec → ok:false journalisé puis exception → exit 1). Guard actif.
+- [x] 2.3 `replay` rejoue: validation complète AVANT exécution, arrêt à la
+      première divergence (exit 1, JSON `{"ok": false, "divergence": ...}`,
+      champ `played`). NOTE: le guard est passé d'un set de noms à
+      `command_mutates(command, action)` — les commandes composées
+      (dom-diff/record/emulate) sont classées par le VERBE de leur action
+      (click/type/key/eval mutent; goto/wait lisent); replay mutant en bloc.
+- [x] 2.4 e2e `test_record_replay_real` (record agit sur form.html, rejeu vert
+      sur onglet vierge, journal altéré → divergence event 2) + fiche
+      `orchestration-control.md` (globs + gap réécrit). PRIMITIVES.md: Phase 7.
+- [x] 2.5 `emulate <preset> -- <action...>` (forme composée, même connexion).
+      Tests mock (preset avant action) + e2e (`screen.width` 390 + UA mobile
+      pendant l'action).
 
 ## Phase 3 — Filet tests CLI + e2e
 

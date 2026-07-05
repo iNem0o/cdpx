@@ -23,7 +23,7 @@ import pytest
 
 from cdpx import discovery
 from cdpx.client import CDPClient
-from cdpx.primitives import advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
 from cdpx.testing.e2e import attach_screenshot
 
 CHROME_BIN = next(
@@ -216,6 +216,53 @@ def test_origin_guard_cli_real(chrome, fixtures_http, evidence_case):
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
     assert proc.returncode == 1
     assert "mutation refusée" in proc.stderr
+
+
+def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path):
+    journal = tmp_path / "session.ndjson"
+    base = fixtures_http.base_url
+    tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
+            advanced.record(c, str(journal), ["goto", f"{base}/form.html"])
+            advanced.record(c, str(journal), ["type", "#name", "Léo", "--clear"])
+            advanced.record(c, str(journal), ["click", "#submit-btn"])
+            assert js.get_text(c, "#result")["text"] == "OK:Léo"  # record a bien AGI
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, tab["id"])
+    # rejeu intégral sur un onglet vierge: le parcours se reconstruit seul
+    tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
+            res = advanced.replay(c, str(journal))
+            assert res["ok"] is True and res["played"] == 3
+            assert js.get_text(c, "#result")["text"] == "OK:Léo"
+            attach_screenshot(evidence_case, c, "replay-final")
+            # journal altéré (sélecteur disparu) -> divergence, arrêt net
+            journal.write_text(
+                journal.read_text().replace("#submit-btn", "#gone"), encoding="utf-8"
+            )
+            broken = advanced.replay(c, str(journal))
+            assert broken["ok"] is False and broken["played"] == 2
+            assert broken["divergence"].startswith("event 2:")
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, tab["id"])
+
+
+def test_emulate_composed_action_real(chrome, fixtures_http, evidence_case):
+    # Agir sous émulation = action dans la MÊME connexion (les overrides
+    # meurent avec elle): la page voit le device mobile pendant le goto.
+    tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
+            advanced.emulate(c, "mobile")
+            result = actions.run_action(c, ["goto", f"{fixtures_http.base_url}/index.html"])
+            assert result["ok"] is True
+            assert js.evaluate(c, "screen.width") == 390
+            assert "cdpx-mobile" in js.evaluate(c, "navigator.userAgent")
+            attach_screenshot(evidence_case, c, "mobile-final")
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, tab["id"])
 
 
 def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):

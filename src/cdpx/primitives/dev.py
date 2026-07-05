@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 
 from cdpx.client import CDPClient
-from cdpx.primitives import inputs, js
+from cdpx.primitives import actions, js
 
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
@@ -135,7 +135,7 @@ def _scenario_signals(headers: dict[str, object]) -> dict:
 
 def dom_diff(client: CDPClient, action: list[str]) -> dict:
     before = _snapshot(client)
-    _run_action(client, action)
+    actions.run_action(client, action)
     after = _snapshot(client)
     diff = list(difflib.unified_diff(before, after, fromfile="before", tofile="after", lineterm=""))
     return {
@@ -148,22 +148,3 @@ def dom_diff(client: CDPClient, action: list[str]) -> dict:
 
 def _snapshot(client: CDPClient) -> list[str]:
     return json.loads(js.evaluate(client, DOM_SNAPSHOT_JS))
-
-
-def _run_action(client: CDPClient, action: list[str]) -> None:
-    if not action:
-        raise ValueError("action dom-diff manquante")
-    name, rest = action[0], action[1:]
-    if name == "click" and len(rest) == 1:
-        inputs.click(client, rest[0])
-    elif name == "type" and len(rest) >= 2:
-        clear = "--clear" in rest[2:]
-        inputs.type_text(client, rest[0], rest[1], clear=clear)
-    elif name == "key" and len(rest) == 1:
-        inputs.press_key(client, rest[0])
-    elif name == "eval" and rest:
-        js.evaluate(client, " ".join(rest), await_promise=True)
-    else:
-        raise ValueError(
-            "action dom-diff supportée: click <sel>, type <sel> <txt>, key <k>, eval <js>"
-        )
