@@ -3,6 +3,7 @@
 namespace App;
 
 use App\Controller\ProfilerTargetController;
+use App\Controller\ScenarioController;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Bundle\TwigBundle\TwigBundle;
@@ -61,5 +62,21 @@ final class Kernel extends BaseKernel
         $routes
             ->add('profiler_target', '/profiler-target')
             ->controller([ProfilerTargetController::class, '__invoke']);
+
+        $routes
+            ->add('scenario_profiler', '/scenario/profiler/{case}')
+            ->controller([ScenarioController::class, 'profiler']);
+
+        $routes
+            ->add('scenario_vitals', '/scenario/vitals/{case}')
+            ->controller([ScenarioController::class, 'vitals']);
+
+        $routes
+            ->add('scenario_rgaa', '/scenario/rgaa/{case}')
+            ->controller([ScenarioController::class, 'rgaa']);
+
+        $routes
+            ->add('scenario_front', '/scenario/front/{case}')
+            ->controller([ScenarioController::class, 'front']);
     }
 }

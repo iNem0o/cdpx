@@ -255,6 +255,46 @@ def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
     assert res["profiler_url"].endswith("/_profiler/fixed-token")
 
 
+def test_profiler_extracts_cdpx_scenario_signals(mock, client, fixtures_http):
+    link = f"{fixtures_http.base_url}/_profiler/fixed-token"
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": f"{fixtures_http.base_url}/api/profiler-sim",
+                        "status": 200,
+                        "headers": {
+                            "X-Debug-Token-Link": link,
+                            "X-CDPX-Scenario": "profiler.degraded",
+                            "X-CDPX-Profiler-Time-Ms": "42",
+                            "X-CDPX-Profiler-Memory-Kb": "768",
+                            "X-CDPX-Profiler-Db-Queries": "7",
+                            "X-CDPX-Profiler-Db-Duplicate-Queries": "2",
+                            "X-CDPX-Profiler-Cache-Hit": "0",
+                            "X-CDPX-Profiler-Payload-Bytes": "2048",
+                        },
+                    },
+                },
+            }
+        ]
+    )
+
+    res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim")
+
+    assert res["signals"] == {
+        "scenario": "profiler.degraded",
+        "time_ms": 42,
+        "memory_kb": 768,
+        "db_queries": 7,
+        "db_duplicate_queries": 2,
+        "cache_hit": False,
+        "payload_bytes": 2048,
+    }
+
+
 def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):
     before = ["<body>", '  <div#result[data-state="idle"]>']
     after = ["<body>", '  <div#result[data-state="submitted"]>', '    "OK:Léo"']

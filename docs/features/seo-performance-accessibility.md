@@ -2,10 +2,10 @@
 id = "seo-performance-accessibility"
 title = "SEO, performance and accessibility audits"
 status = "validated"
-summary = "Audit rendered SEO contracts, Web Vitals, accessibility tree and JS/CSS coverage."
+summary = "Audit rendered SEO contracts, Web Vitals, accessibility tree, RGAA-like front checks and JS/CSS coverage."
 entrypoints = ["cdpx seo", "cdpx vitals", "cdpx a11y", "cdpx coverage"]
-path_globs = ["src/cdpx/primitives/audit.py", "src/cdpx/primitives/advanced.py", "tests/fixtures/seo*.html", "tests/fixtures/vitals.html", "tests/fixtures/coverage.html", "tests/fixtures/coverage.css", "tests/fixtures/coverage.js", "tests/fixtures/iframe.html", "tests/fixtures/child.html"]
-test_globs = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_vitals*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*"]
+path_globs = ["src/cdpx/primitives/audit.py", "src/cdpx/primitives/advanced.py", "tests/fixtures/seo*.html", "tests/fixtures/vitals.html", "tests/fixtures/coverage.html", "tests/fixtures/coverage.css", "tests/fixtures/coverage.js", "tests/fixtures/iframe.html", "tests/fixtures/child.html", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
+test_globs = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_vitals*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*", "tests/e2e/test_e2e_symfony.py::test_symfony_vitals*", "tests/e2e/test_e2e_symfony.py::test_symfony_rgaa*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md", "docs/milestones/M4-seo-perf.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -18,6 +18,11 @@ entrypoint = "cdpx seo"
 id = "measure-vitals"
 title = "Measure basic Web Vitals after optional interaction"
 entrypoint = "cdpx vitals"
+
+[[journeys]]
+id = "audit-front-accessibility"
+title = "Audit deterministic front accessibility checks"
+entrypoint = "cdpx a11y"
 
 [[scenarios]]
 id = "audit-rendered-seo-and-a11y"
@@ -42,6 +47,30 @@ when = "cdpx vitals collects the supported browser performance signals."
 then = "The result is reported with test coverage and a screenshot-backed e2e scenario."
 tests = ["tests/test_primitives.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_vitals*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "compare-symfony-vitals"
+journey = "measure-vitals"
+title = "Compare Symfony baseline and degraded vitals pages"
+ui_text = "The report compares deterministic Symfony performance variants."
+report_text = "This scenario proves Web Vitals, Performance metrics and screenshots can be orchestrated against Symfony baseline/degraded pages."
+given = "The Symfony scenario engine exposes `/scenario/vitals/baseline` and `/scenario/vitals/degraded`."
+when = "cdpx collects vitals, browser metrics, scenario metadata and screenshots for both variants."
+then = "The report shows the variant deltas and links the JSON evidence, JUnit, logs and screenshot."
+tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_vitals_compare_baseline_degraded"]
+expected_proofs = ["junit", "json", "screenshot"]
+
+[[scenarios]]
+id = "audit-symfony-rgaa-subset"
+journey = "audit-front-accessibility"
+title = "Audit deterministic Symfony RGAA subset"
+ui_text = "The report separates automated RGAA-like checks from full RGAA coverage."
+report_text = "This scenario proves headings, landmarks, labels, focus visibility and contrast-token checks can be validated deterministically without claiming full RGAA coverage."
+given = "The Symfony scenario engine exposes accessible and regressed pages under `/scenario/rgaa/{case}`."
+when = "cdpx reads the accessibility tree and deterministic DOM checks for both variants."
+then = "The report includes JSON checks, scope text, JUnit, logs and screenshot evidence."
+tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_rgaa_subset_checks_are_deterministic"]
+expected_proofs = ["junit", "json", "screenshot"]
 +++
 
 ## Intent
@@ -54,16 +83,21 @@ source of truth.
 - Check title, metas, canonical, h1, hreflang, JSON-LD, image alt and links.
 - Read compact accessibility tree information.
 - Measure Web Vitals and JS/CSS coverage.
+- Compare Symfony baseline/degraded performance and a deterministic RGAA-like subset.
 
 ## Validation
 
 Fixtures include clean, broken and edge SEO cases plus vitals and coverage
-pages.
+pages. The Symfony Docker scenario engine adds deterministic vitals and
+front-accessibility variants.
 
 ## Evidence
 
 Expected evidence is JUnit and screenshots from Chrome e2e audit scenarios.
+Symfony scenarios also attach JSON vitals, metrics and RGAA-subset checks.
 
 ## Known gaps
 
-Vitals are intentionally basic and local-fixture oriented.
+Vitals are intentionally basic and local-fixture oriented. RGAA coverage is a
+small deterministic automated subset and is not presented as a complete RGAA
+audit.
