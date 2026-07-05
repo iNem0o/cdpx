@@ -129,6 +129,27 @@ def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
     assert "mutation refusée" in err
 
 
+def test_origin_guard_blocks_dom_diff(mock, capsys, monkeypatch):
+    # dom-diff exécute de vraies mutations (click/type/key/eval): même garde que click.
+    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    code, _, err = run(mock, capsys, "dom-diff", "--", "click", "#x")
+    assert code == 1
+    assert "mutation refusée" in err
+    assert mock.commands == []  # le guard tire avant la moindre commande CDP
+
+
+def test_origin_guard_allows_dom_diff_on_allowed_origin(mock, capsys, monkeypatch):
+    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    tid = next(iter(mock.targets))
+    mock.targets[tid]["url"] = "http://demo.test/page"
+    mock.on_eval("__cdpx_dom_snapshot", json.dumps(["<body>"]), json.dumps(["<body>", "  <p>"]))
+    mock.on_eval(
+        "getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10})
+    )
+    code, out, _ = run(mock, capsys, "dom-diff", "--", "click", "#x")
+    assert code == 0 and json.loads(out)["changed"] is True
+
+
 def test_screenshot(mock, capsys, tmp_path):
     dest = tmp_path / "s.png"
     code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest))

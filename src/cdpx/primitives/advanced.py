@@ -12,7 +12,10 @@ from pathlib import Path
 from cdpx.client import CDPClient, CDPTimeout
 from cdpx.primitives import js, nav
 
-MUTATING_COMMANDS = {"click", "type", "key", "eval", "intercept", "replay"}
+# Commandes qui mutent la page: refusées hors CDPX_ORIGINS. dom-diff exécute
+# de vraies actions (click/type/key/eval). record/replay rejoindront le set
+# quand leur rejeu ouvrira une connexion navigateur.
+MUTATING_COMMANDS = {"click", "type", "key", "eval", "intercept", "dom-diff"}
 
 PRESETS = {
     "mobile": {

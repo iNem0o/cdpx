@@ -48,10 +48,12 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 1 — Corrections code
 
-- [ ] 1.1 Garde d'origine: `MUTATING_COMMANDS = {click, type, key, eval,
-      intercept, dom-diff, record, replay}` (advanced.py). Tests: dom-diff
-      refusé hors CDPX_ORIGINS (exit 1, aucune commande CDP émise), autorisé
-      sinon; assertion du contenu exact du set.
+- [x] 1.1 Garde d'origine: `MUTATING_COMMANDS = {click, type, key, eval,
+      intercept, dom-diff}` (advanced.py). Tests: dom-diff refusé hors
+      CDPX_ORIGINS (exit 1, aucune commande CDP émise), autorisé sinon;
+      assertion du contenu exact du set. Ajustement HARNESS §6: record/replay
+      n'entrent dans le set qu'en Phase 2, quand leur passage par `_client()`
+      rend le garde-fou effectivement appliqué (pas de règle sans enforcement).
 - [ ] 1.2 Fix `emulate --reset`: `Emulation.setDeviceMetricsOverride`
       width/height/scale 0 + mobile:false (au lieu de clear seul), reset UA
       (`setUserAgentOverride ""`), network, CPU. e2e de reproduction d'abord

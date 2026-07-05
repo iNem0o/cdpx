@@ -502,3 +502,18 @@ def test_origin_guard_blocks_mutations_only_when_configured():
     with pytest.raises(ValueError):
         advanced.assert_origin_allowed("click", "https://prod.example/", "http://*.test")
     advanced.assert_origin_allowed("click", "http://shop.test/page", "http://*.test")
+
+
+def test_origin_guard_set_matches_commands_that_mutate_the_page():
+    # Contrat de sécurité: toute commande qui mute la page est dans le set, rien d'autre.
+    # record/replay entreront ici quand leur rejeu réel ouvrira une connexion (Phase 2).
+    assert advanced.MUTATING_COMMANDS == {
+        "click",
+        "type",
+        "key",
+        "eval",
+        "intercept",
+        "dom-diff",
+    }
+    with pytest.raises(ValueError):
+        advanced.assert_origin_allowed("dom-diff", "https://prod.example/", "http://*.test")
