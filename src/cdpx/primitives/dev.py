@@ -24,7 +24,18 @@ SCENARIO_SIGNAL_HEADERS = {
     "x-cdpx-profiler-db-queries": ("db_queries", int),
     "x-cdpx-profiler-db-duplicate-queries": ("db_duplicate_queries", int),
     "x-cdpx-profiler-cache-hit": ("cache_hit", lambda value: value == "1"),
+    "x-cdpx-profiler-cache-state": ("cache_state", str),
     "x-cdpx-profiler-payload-bytes": ("payload_bytes", int),
+    "x-cdpx-profiler-twig-renders": ("twig_renders", int),
+    "x-cdpx-profiler-twig-render-ms": ("twig_render_ms", int),
+    "x-cdpx-profiler-stopwatch-sections": ("stopwatch_sections", int),
+    "x-cdpx-profiler-http-client": ("http_client", str),
+    "x-cdpx-profiler-http-client-ms": ("http_client_ms", int),
+    "x-cdpx-profiler-messenger": ("messenger", str),
+    "x-cdpx-profiler-queue-depth": ("queue_depth", int),
+    "x-cdpx-profiler-route-outcome": ("route_outcome", str),
+    "x-cdpx-profiler-response-status": ("response_status", int),
+    "x-cdpx-profiler-expected": ("expected", str),
 }
 
 DOM_SNAPSHOT_JS = r"""

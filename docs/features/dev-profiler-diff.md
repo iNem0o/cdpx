@@ -2,7 +2,7 @@
 id = "dev-profiler-diff"
 title = "Developer diagnostics"
 status = "validated"
-summary = "Read and compare Symfony profiler data, then compare DOM before/after a browser action."
+summary = "Read and compare Symfony profiler data, deterministic framework diagnostics, then compare DOM before/after a browser action."
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "make docker-symfony-e2e"]
 path_globs = ["src/cdpx/primitives/dev.py", "tests/fixtures/profiler*.html", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
 test_globs = ["tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
@@ -41,9 +41,9 @@ id = "compare-symfony-profiler-variants"
 journey = "compare-profiler-variants"
 title = "Compare Symfony profiler variants"
 ui_text = "The report compares deterministic Symfony profiler variants."
-report_text = "This scenario proves baseline/degraded, Doctrine-like N+1, cache hit/miss and controlled payload/time signals are available as structured Symfony evidence."
-given = "The Symfony scenario engine exposes profiler cases under `/scenario/profiler/{case}`."
-when = "cdpx navigates each case, follows the real WebProfiler token and extracts scenario signals from response headers."
+report_text = "This scenario proves baseline/degraded, Doctrine-like N+1, duplicate query bursts, cache hit/miss/stale, Twig render cost, Stopwatch sections, HTTP client outcomes, Messenger signals, routing outcomes and response cache headers are available as structured Symfony evidence."
+given = "The Symfony scenario engine exposes profiler and diagnostic cases under `/scenario/profiler/{case}`."
+when = "cdpx navigates each case, follows the real WebProfiler token and extracts stable `X-CDPX-*` collector signals from response headers."
 then = "The report links JSON comparison evidence, profiler tokens, Docker logs, JUnit and screenshots to the developer diagnostics feature."
 tests = ["tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants"]
 expected_proofs = ["junit", "json", "screenshot"]
@@ -81,7 +81,7 @@ full browser session manually.
 ## User journeys
 
 - Navigate to a Symfony route and follow profiler token headers.
-- Compare baseline/degraded, Doctrine-like N+1, cache hit/miss and controlled payload/time signals.
+- Compare baseline/degraded, Doctrine-like N+1, duplicate query bursts, cache hit/miss/stale, Twig render cost, Stopwatch sections, HTTP client outcomes, Messenger signals, routing outcomes and response cache headers.
 - Take a stable DOM diff around a browser action.
 
 ## Validation
@@ -96,8 +96,8 @@ verdict.
 
 Expected evidence is JUnit and screenshots for Chrome fixture scenarios. The
 Symfony portal adds `.proof/symfony-e2e.log`,
-`.proof/symfony-e2e-junit.xml`, profiler comparison JSON, DOM diff JSON and
-browser screenshots when Docker is available.
+`.proof/symfony-e2e-junit.xml`, profiler diagnostic comparison JSON, DOM diff
+JSON and browser screenshots when Docker is available.
 
 ## Known gaps
 

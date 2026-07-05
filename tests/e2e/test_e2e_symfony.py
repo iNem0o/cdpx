@@ -79,14 +79,183 @@ def rgaa_checks(c: CDPClient) -> dict:
 JSON.stringify((() => {
   const labels = new Set(Array.from(document.querySelectorAll('label[for]')).map(l => l.htmlFor));
   const inputs = Array.from(document.querySelectorAll('input, textarea, select'));
+  const named = (el) => (el.innerText || el.getAttribute('aria-label') || '').trim()
+    || (el.querySelector('img')?.getAttribute('alt') || '').trim();
+  const checks = {
+    images: {
+      informative_alt: Boolean(document.querySelector('img[src*="info"][alt]:not([alt=""])')),
+      decorative_alt_empty: Boolean(document.querySelector('img[src*="decorative"][alt=""]')),
+      linked_image_named: Boolean(document.querySelector('a img[alt]:not([alt=""])'))
+    },
+    frames: {
+      iframe_title: Array.from(document.querySelectorAll('iframe')).every(f => f.title)
+    },
+    colors: {
+      contrast_token: document.body.dataset.contrastToken === 'AA',
+      not_color_only: (document.querySelector('.badge')?.innerText || '').trim().length > 0
+    },
+    media: {
+      captions_or_transcript: Boolean(
+        document.querySelector('video track[kind="captions"], a[href="#transcript"]')
+      )
+    },
+    tables: {
+      caption: Boolean(document.querySelector('table caption')),
+      th_scope_or_headers: Boolean(document.querySelector('th[scope], td[headers]'))
+    },
+    links: {
+      accessible_names: Array.from(document.querySelectorAll('a[href]')).every(a => named(a)),
+      no_ambiguous_links: !Array.from(document.querySelectorAll('a[href]')).some(
+        a => named(a).toLowerCase() === 'click here'
+      ),
+      image_links_named: Array.from(document.querySelectorAll('a img')).every(
+        img => (img.getAttribute('alt') || '').trim()
+      )
+    },
+    scripts: {
+      name_role_value_state: Boolean(document.querySelector('button[aria-pressed]'))
+    },
+    mandatory: {
+      lang: Boolean(document.documentElement.lang),
+      title: Boolean(document.title),
+      viewport: Boolean(document.querySelector('meta[name="viewport"]')),
+      landmark: Boolean(document.querySelector('main')),
+      single_h1: document.querySelectorAll('h1').length === 1
+    },
+    structure: {
+      heading_order: document.querySelectorAll('h1').length === 1
+    },
+    presentation: {
+      reflow_basic: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      text_not_truncated: Boolean(document.querySelector('.clip-check'))
+    },
+    forms: {
+      labels: inputs.every(el => labels.has(el.id) || Boolean(el.getAttribute('aria-label'))),
+      required: Array.from(document.querySelectorAll('[required]')).every(
+        el => el.hasAttribute('required')
+      ),
+      errors_described: Boolean(
+        document.querySelector('[role="alert"]')
+        && document.querySelector('form[aria-describedby]')
+      ),
+      fieldset_legend: Boolean(document.querySelector('fieldset legend'))
+    },
+    navigation: {
+      skip_link: Boolean(document.querySelector('a[href="#content"]')),
+      focus_order: Array.from(document.querySelectorAll('a[href], button, input')).length >= 3,
+      focus_visible: document.body.dataset.focusVisible === 'true',
+      keyboard_activation: !Array.from(document.querySelectorAll('[onclick]')).some(
+        el => el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button'
+      )
+    },
+    consultation: {
+      zoom_reflow_basic: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      content_not_hidden: Boolean(document.querySelector('main'))
+    }
+  };
+  const specs = [
+    ['images', 'images', ['1.1', '1.2', '1.6'], checks.images],
+    ['cadres/iframes', 'frames', ['2.1'], checks.frames],
+    ['couleurs', 'colors', ['3.1', '3.2'], checks.colors],
+    ['multimédia', 'media', ['4.1'], checks.media],
+    ['tableaux', 'tables', ['5.4', '5.6', '5.7'], checks.tables],
+    ['liens', 'links', ['6.1', '6.2'], checks.links],
+    ['scripts/composants', 'scripts', ['7.1', '7.3'], checks.scripts],
+    ['éléments obligatoires', 'mandatory', ['8.3', '8.5', '8.6', '8.9'], checks.mandatory],
+    ['structuration', 'structure', ['9.1'], checks.structure],
+    ['présentation', 'presentation', ['10.11', '10.12'], checks.presentation],
+    ['formulaires', 'forms', ['11.1', '11.2', '11.10'], checks.forms],
+    ['navigation', 'navigation', ['12.7', '12.8', '12.9'], checks.navigation],
+    ['consultation', 'consultation', ['13.8', '13.9'], checks.consultation]
+  ];
+  const reports = specs.map(([theme, key, criteria, themeChecks]) => {
+    const passed = Object.values(themeChecks).every(Boolean);
+    return {
+      theme,
+      criteria,
+      automated_scope: 'automated subset; deterministic DOM/accessibility-tree probes only',
+      status: passed ? 'pass' : 'fail',
+      checks: themeChecks,
+      limitations: [
+        'Static checks do not validate content relevance or full assistive technology behavior.',
+        'This is not a complete RGAA conformance audit.'
+      ]
+    };
+  });
   return {
     h1_count: document.querySelectorAll('h1').length,
     has_main_landmark: Boolean(document.querySelector('main')),
-    all_inputs_labelled: inputs.every(el =>
-      labels.has(el.id) || Boolean(el.getAttribute('aria-label'))
-    ),
-    focus_visible: document.body.dataset.focusVisible === 'true',
-    contrast_token: document.body.dataset.contrastToken || null
+    all_inputs_labelled: checks.forms.labels,
+    focus_visible: checks.navigation.focus_visible,
+    contrast_token: document.body.dataset.contrastToken || null,
+    automated_scope: document.body.dataset.automatedScope,
+    reports
+  };
+})())
+""",
+    )
+    return json.loads(raw)
+
+
+def vitals_diagnostics(c: CDPClient) -> dict:
+    raw = js.evaluate(
+        c,
+        """
+JSON.stringify((() => {
+  const vitals = window.__cdpxVitals || {};
+  const meta = window.__cdpxVitalsMeta || {};
+  const thresholds = meta.thresholds || {};
+  const rate = (metric, value) => {
+    const t = thresholds[metric] || {};
+    if (value <= (t.good ?? 0)) return 'good';
+    if (value <= (t.poor ?? 0)) return 'needs-improvement';
+    return 'poor';
+  };
+  const nav = performance.getEntriesByType('navigation')[0] || {};
+  const fcp = performance.getEntriesByName('first-contentful-paint')[0] || {};
+  const resources = performance.getEntriesByType('resource').map((entry) => ({
+    name: entry.name,
+    initiatorType: entry.initiatorType,
+    duration: Math.round(entry.duration || 0),
+    transferSize: entry.transferSize || 0
+  }));
+  const bucket = (predicate) => resources.filter(predicate);
+  return {
+    thresholds,
+    core_web_vitals: {
+      lcp: {value_ms: vitals.lcp || 0, rating: rate('lcp', vitals.lcp || 0)},
+      inp: {value_ms: vitals.inp || 0, rating: rate('inp', vitals.inp || 0)},
+      cls: {value: vitals.cls || 0, rating: rate('cls', vitals.cls || 0)}
+    },
+    lcp_attribution: meta.lcp || {},
+    navigation_timing: {
+      ttfb_ms: Math.max(0, Math.round((nav.responseStart || 0) - (nav.requestStart || 0))),
+      fcp_ms: Math.round(fcp.startTime || 0),
+      dom_complete_ms: Math.round(nav.domComplete || 0)
+    },
+    resource_timing: {
+      total: resources.length,
+      css: bucket((r) => r.initiatorType === 'link' && r.name.includes('/style/')).length,
+      js: bucket((r) => r.initiatorType === 'script').length,
+      images: bucket((r) => r.initiatorType === 'img').length,
+      font: bucket((r) => r.name.includes('/font/')).length,
+      critical: meta.critical_resources || {}
+    },
+    cls_attribution: {
+      expected_shift_count: meta.cls?.expected_shift_count || 0,
+      expected_max_shift: meta.cls?.expected_max_shift || 0
+    },
+    inp_attribution: {
+      target: meta.inp?.target || null,
+      expected_event_duration_ms: meta.inp?.expected_event_duration_ms || 0,
+      expected_long_tasks: meta.inp?.expected_long_tasks || 0
+    },
+    emulation_variants: meta.emulation || {},
+    limitations: [
+      'Browser support controls whether INP/event timing attribution appears.',
+      'LoAF-like long task attribution may be unavailable.',
+      'Local deterministic pages expose expected attribution metadata for stable CI comparison.'
+    ]
   };
 })())
 """,
@@ -188,8 +357,22 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
         "degraded",
         "doctrine-normal",
         "doctrine-n-plus-one",
+        "doctrine-duplicates",
         "cache-miss",
         "cache-hit",
+        "cache-stale",
+        "twig-light",
+        "twig-heavy",
+        "stopwatch-sections",
+        "http-client-success",
+        "http-client-error",
+        "http-client-timeout",
+        "messenger-sync",
+        "messenger-queued",
+        "routing-redirect",
+        "routing-404",
+        "routing-500",
+        "headers-cache",
     ]
     try:
         with client as c:
@@ -232,6 +415,22 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     assert comparison["doctrine-n-plus-one"]["db_duplicate_queries"] > 0
     assert comparison["cache-miss"]["cache_hit"] is False
     assert comparison["cache-hit"]["cache_hit"] is True
+    assert comparison["cache-stale"]["cache_state"] == "stale"
+    assert (
+        comparison["doctrine-duplicates"]["db_duplicate_queries"]
+        > (comparison["doctrine-n-plus-one"]["db_duplicate_queries"])
+    )
+    assert comparison["twig-heavy"]["twig_renders"] > comparison["twig-light"]["twig_renders"]
+    assert comparison["stopwatch-sections"]["stopwatch_sections"] >= 4
+    assert comparison["http-client-success"]["http_client"] == "success"
+    assert comparison["http-client-error"]["http_client"] == "error"
+    assert comparison["http-client-timeout"]["http_client"] == "timeout"
+    assert comparison["messenger-sync"]["messenger"] == "sync-handled"
+    assert comparison["messenger-queued"]["queue_depth"] == 3
+    assert comparison["routing-redirect"]["response_status"] == 302
+    assert comparison["routing-404"]["response_status"] == 404
+    assert comparison["routing-500"]["response_status"] == 500
+    assert comparison["headers-cache"]["expected"] == "cache-headers-present"
 
 
 @pytest.mark.scenario(
@@ -256,6 +455,7 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
             )
             baseline_metrics = audit.metrics(c)
             baseline_expected = expected_from_page(c)
+            baseline_diagnostics = vitals_diagnostics(c)
             degraded = advanced.vitals(
                 c,
                 f"{SYMFONY_URL}/scenario/vitals/degraded",
@@ -264,6 +464,7 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
             )
             degraded_metrics = audit.metrics(c)
             degraded_expected = expected_from_page(c)
+            degraded_diagnostics = vitals_diagnostics(c)
             screenshot(
                 c,
                 tmp_path,
@@ -279,11 +480,13 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
             "vitals": baseline,
             "metrics": baseline_metrics,
             "expected": baseline_expected,
+            "diagnostics": baseline_diagnostics,
         },
         "degraded": {
             "vitals": degraded,
             "metrics": degraded_metrics,
             "expected": degraded_expected,
+            "diagnostics": degraded_diagnostics,
         },
     }
     if evidence_case is not None:
@@ -299,6 +502,87 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
     assert baseline_expected["layout_shift"] is False
     assert degraded_expected["interaction_work_ms"] > baseline_expected["interaction_work_ms"]
     assert degraded_expected["payload_blocks"] > baseline_expected["payload_blocks"]
+    assert baseline_diagnostics["thresholds"]["lcp"]["good"] == 2500
+    assert degraded_diagnostics["cls_attribution"]["expected_shift_count"] >= 1
+    assert (
+        degraded_diagnostics["inp_attribution"]["expected_event_duration_ms"]
+        > (baseline_diagnostics["inp_attribution"]["expected_event_duration_ms"])
+    )
+
+
+@pytest.mark.scenario(
+    feature="seo-performance-accessibility",
+    journey="measure-vitals",
+    scenario_id="seo-performance-accessibility.symfony-vitals-diagnostic-attribution",
+    proves=[
+        "Symfony exposes deterministic LCP, CLS, INP and resource timing diagnostic routes.",
+        "Core Web Vitals remain primary while attribution and emulation metadata are explicit.",
+    ],
+)
+def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, evidence_case):
+    wait_for_symfony(SYMFONY_URL)
+    target, client = open_tab(chrome)
+    cases = [
+        "lcp-image",
+        "lcp-text",
+        "cls-injected-banner",
+        "inp-long-task",
+        "resource-blocking",
+    ]
+    evidence = {}
+    emulation = {}
+    try:
+        with client as c:
+            for case in cases:
+                if case == "inp-long-task":
+                    emulation[case] = advanced.emulate(c, "cpu-4x")
+                elif case == "resource-blocking":
+                    emulation[case] = advanced.emulate(c, "slow-3g")
+                result = advanced.vitals(
+                    c,
+                    f"{SYMFONY_URL}/scenario/vitals/{case}",
+                    click_selector="#inp-button",
+                    settle=1.0,
+                )
+                diagnostics = vitals_diagnostics(c)
+                expected = expected_from_page(c)
+                evidence[case] = {
+                    "vitals": result,
+                    "diagnostics": diagnostics,
+                    "expected": expected,
+                    "applied_emulation": emulation.get(case),
+                }
+                advanced.emulate(c, reset=True)
+            screenshot(
+                c,
+                tmp_path,
+                "symfony-vitals-diagnostics.png",
+                evidence_case,
+                "Symfony vitals diagnostics",
+            )
+    finally:
+        close_tab(chrome, target)
+
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Symfony vitals diagnostic attribution",
+            evidence,
+            "symfony-vitals-diagnostic-attribution.json",
+        )
+
+    assert evidence["lcp-image"]["diagnostics"]["lcp_attribution"]["type"] == "image"
+    assert evidence["lcp-image"]["diagnostics"]["lcp_attribution"]["selector"] == "#hero-image"
+    assert evidence["lcp-text"]["diagnostics"]["lcp_attribution"]["type"] == "text"
+    assert (
+        evidence["cls-injected-banner"]["diagnostics"]["cls_attribution"]["expected_shift_count"]
+        >= 1
+    )
+    assert (
+        evidence["inp-long-task"]["diagnostics"]["inp_attribution"]["expected_event_duration_ms"]
+        >= 90
+    )
+    assert evidence["resource-blocking"]["diagnostics"]["resource_timing"]["critical"]["js"] == 3
+    assert evidence["resource-blocking"]["diagnostics"]["resource_timing"]["js"] >= 3
 
 
 @pytest.mark.scenario(
@@ -344,9 +628,8 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
             "expected": regression_expected,
             "a11y_nodes": regression_tree["count"],
         },
-        "scope": (
-            "Automated subset: headings, landmark, labels, focus visibility and contrast token."
-        ),
+        "scope": "Automated subset: deterministic RGAA-themed DOM and accessibility probes.",
+        "claim": "This evidence does not claim complete RGAA conformance.",
     }
     if evidence_case is not None:
         evidence_case.attach_json(
@@ -363,6 +646,31 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
     assert regression["has_main_landmark"] is False
     assert regression["all_inputs_labelled"] is False
     assert regression["focus_visible"] is False
+    expected_themes = {
+        "images",
+        "cadres/iframes",
+        "couleurs",
+        "multimédia",
+        "tableaux",
+        "liens",
+        "scripts/composants",
+        "éléments obligatoires",
+        "structuration",
+        "présentation",
+        "formulaires",
+        "navigation",
+        "consultation",
+    }
+    baseline_reports = {item["theme"]: item for item in baseline["reports"]}
+    regression_reports = {item["theme"]: item for item in regression["reports"]}
+    assert set(baseline_reports) == expected_themes
+    assert set(regression_reports) == expected_themes
+    assert all(
+        item["automated_scope"].startswith("automated subset") for item in baseline_reports.values()
+    )
+    assert all(item["limitations"] for item in baseline_reports.values())
+    assert all(item["status"] == "pass" for item in baseline_reports.values())
+    assert any(item["status"] == "fail" for item in regression_reports.values())
 
 
 @pytest.mark.scenario(

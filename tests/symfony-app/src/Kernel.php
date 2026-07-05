@@ -78,5 +78,9 @@ final class Kernel extends BaseKernel
         $routes
             ->add('scenario_front', '/scenario/front/{case}')
             ->controller([ScenarioController::class, 'front']);
+
+        $routes
+            ->add('scenario_resource', '/scenario/resource/{kind}/{name}')
+            ->controller([ScenarioController::class, 'resource']);
     }
 }
