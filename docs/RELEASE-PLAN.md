@@ -142,21 +142,21 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 6 — README + garde-fous docs
 
-- [ ] 6.1 README.md FR complet: pitch, installation (profil Chrome jetable),
+- [x] 6.1 README.md FR complet: pitch, installation (profil Chrome jetable),
       démarrage rapide, **Contrat CLI** (sorties, exit codes, connexion,
       CDPX_ORIGINS, budgets), **tableau des 8 features** (lien par fiche),
       **index des 29 commandes**, qualité & preuve (lecture du cockpit),
       docs annexes, licence.
-- [ ] 6.2 `tests/test_docs.py`: chaque sous-commande dans README ET
+- [x] 6.2 `tests/test_docs.py`: chaque sous-commande dans README ET
       PRIMITIVES.md; chaque fiche feature liée dans README; options globales +
       CDPX_ORIGINS + exit codes mentionnés; tout fence `cdpx ...` parsé par
       `build_parser()` (exemples toujours valides).
 
 ## Phase 7 — PRIMITIVES.md + VALIDATION.md
 
-- [ ] PRIMITIVES.md: catalogue unique groupé par les 8 features (liens fiches),
+- [x] PRIMITIVES.md: catalogue unique groupé par les 8 features (liens fiches),
       + `pdf`, + `--format`, + rejeu réel, mention « planifié » supprimée.
-- [ ] VALIDATION.md: vues réelles de la SPA, politique Symfony; tableau
+- [x] VALIDATION.md: vues réelles de la SPA, politique Symfony; tableau
       `| Milestone | Preuve |` conservé tel quel (parse_validation_matrix).
 
 ## Phase 8 — Packaging, QA, CI
