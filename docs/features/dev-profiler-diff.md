@@ -1,106 +1,284 @@
 +++
 id = "dev-profiler-diff"
-title = "Developer diagnostics"
+title = "Diagnostics développeur"
 status = "validated"
-summary = "Read and compare Symfony profiler data, deterministic framework diagnostics, then compare DOM before/after a browser action."
+summary = "Lire et comparer les données du profiler Symfony et des diagnostics framework déterministes, puis comparer le DOM avant/après une action navigateur."
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "make docker-symfony-e2e"]
 path_globs = ["src/cdpx/primitives/dev.py", "tests/fixtures/profiler*.html", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
-test_globs = ["tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
+test_globs = ["tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
 docs = ["docs/PRIMITIVES.md", "docs/milestones/M2-boucle-symfony.md"]
 expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
 id = "read-profiler"
-title = "Read Symfony profiler from a browser navigation"
+title = "Lire le profiler Symfony depuis une navigation navigateur"
 entrypoint = "cdpx profiler"
 
 [[journeys]]
 id = "compare-profiler-variants"
-title = "Compare deterministic Symfony profiler variants"
+title = "Comparer des variantes déterministes du profiler Symfony"
 entrypoint = "make docker-symfony-e2e"
 
 [[journeys]]
 id = "diff-dom-action"
-title = "Compare DOM before and after an action"
+title = "Comparer le DOM avant et après une action"
 entrypoint = "cdpx dom-diff"
 
 [[scenarios]]
 id = "read-symfony-profiler"
 journey = "read-profiler"
-title = "Read Symfony profiler data from navigation"
-ui_text = "The agent can open a Symfony page and follow profiler evidence."
-report_text = "This scenario proves that framework diagnostics are reachable from browser navigation. `make proof` automatically attempts the real Docker Symfony portal, records unavailable Docker as an explicit non-blocking status, and blocks the verdict when Docker is available but the Symfony scenario fails."
-given = "A fixture or Symfony test app exposes profiler-like headers and pages."
-when = "cdpx reads profiler data after navigation during Chrome e2e and, when Docker is available, the Symfony e2e portal."
-then = "The report links profiler tests, Docker status, JUnit, logs, JSON profiler output and screenshots to the developer diagnostics feature."
+title = "Lire les données du profiler Symfony depuis une navigation"
+ui_text = "L'agent peut ouvrir une page Symfony et suivre les preuves du profiler."
+report_text = "Ce scénario prouve que les diagnostics framework sont accessibles depuis une navigation navigateur. `make proof` tente automatiquement le vrai portail Docker Symfony, enregistre un Docker indisponible comme statut explicite non bloquant, et bloque le verdict quand Docker est disponible mais que le scénario Symfony échoue."
+given = "Une fixture ou l'app de test Symfony expose des en-têtes et pages de type profiler."
+when = "cdpx lit les données du profiler après navigation pendant l'e2e Chrome et, quand Docker est disponible, via le portail e2e Symfony."
+then = "Le rapport lie les tests profiler, le statut Docker, JUnit, logs, la sortie profiler JSON et les captures d'écran à la feature diagnostics développeur."
 tests = ["tests/test_primitives.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_symfony.py::*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "compare-symfony-profiler-variants"
 journey = "compare-profiler-variants"
-title = "Compare Symfony profiler variants"
-ui_text = "The report compares deterministic Symfony profiler variants."
-report_text = "This scenario proves baseline/degraded, Doctrine-like N+1, duplicate query bursts, cache hit/miss/stale, Twig render cost, Stopwatch sections, HTTP client outcomes, Messenger signals, routing outcomes and response cache headers are available as structured Symfony evidence."
-given = "The Symfony scenario engine exposes profiler and diagnostic cases under `/scenario/profiler/{case}`."
-when = "cdpx navigates each case, follows the real WebProfiler token and extracts stable `X-CDPX-*` collector signals from response headers."
-then = "The report links JSON comparison evidence, profiler tokens, Docker logs, JUnit and screenshots to the developer diagnostics feature."
+title = "Comparer les variantes du profiler Symfony"
+ui_text = "Le rapport compare des variantes déterministes du profiler Symfony."
+report_text = "Ce scénario prouve que baseline/dégradé, N+1 façon Doctrine, rafales de requêtes dupliquées, cache hit/miss/stale, coût de rendu Twig, sections Stopwatch, issues du client HTTP, signaux Messenger, issues de routing et en-têtes de cache de réponse sont disponibles comme preuves Symfony structurées."
+given = "Le moteur de scénarios Symfony expose des cas profiler et diagnostics sous `/scenario/profiler/{case}`."
+when = "cdpx navigue chaque cas, suit le vrai token WebProfiler et extrait les signaux collecteurs stables `X-CDPX-*` des en-têtes de réponse."
+then = "Le rapport lie les preuves JSON de comparaison, les tokens profiler, les logs Docker, JUnit et les captures d'écran à la feature diagnostics développeur."
 tests = ["tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "diff-dom-after-action"
 journey = "diff-dom-action"
-title = "Compare DOM before and after a browser action"
-ui_text = "The report explains what changed in the DOM after an action."
-report_text = "This scenario proves that DOM changes can be compared around a controlled browser action and reviewed as developer evidence."
-given = "A fixture page has a stable before state and a user action that mutates DOM."
-when = "cdpx records DOM before and after the action."
-then = "The diff is available as structured test evidence with browser screenshots for e2e coverage."
-tests = ["tests/test_primitives.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*"]
+title = "Comparer le DOM avant et après une action navigateur"
+ui_text = "Le rapport explique ce qui a changé dans le DOM après une action."
+report_text = "Ce scénario prouve que les changements du DOM peuvent être comparés autour d'une action navigateur contrôlée et passés en revue comme preuve développeur."
+given = "Une page fixture a un état avant stable et une action utilisateur qui mute le DOM."
+when = "cdpx enregistre le DOM avant et après l'action."
+then = "Le diff est disponible comme preuve de test structurée avec des captures d'écran navigateur pour la couverture e2e."
+tests = ["tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "symfony-front-state-regression"
 journey = "diff-dom-action"
-title = "Compare Symfony front state before and after action"
-ui_text = "The report shows a deterministic Symfony front state transition."
-report_text = "This scenario proves a Symfony route can expose a controlled front state and cdpx can capture the DOM diff after a browser action."
-given = "The Symfony scenario engine exposes `/scenario/front/states`."
-when = "cdpx snapshots DOM, clicks the state transition button and snapshots DOM again."
-then = "The DOM diff and screenshot are attached as Symfony proof evidence."
+title = "Comparer l'état front Symfony avant et après action"
+ui_text = "Le rapport montre une transition d'état front Symfony déterministe."
+report_text = "Ce scénario prouve qu'une route Symfony peut exposer un état front contrôlé et que cdpx peut capturer le diff DOM après une action navigateur."
+given = "Le moteur de scénarios Symfony expose `/scenario/front/states`."
+when = "cdpx capture le DOM, clique le bouton de transition d'état et capture le DOM à nouveau."
+then = "Le diff DOM et la capture d'écran sont attachés comme preuves Symfony."
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_front_state_dom_diff"]
 expected_proofs = ["junit", "json", "screenshot"]
 +++
 
-## Intent
+## Intention
 
-Give framework-aware diagnostic feedback without requiring the agent to parse a
-full browser session manually.
+Donner un retour diagnostique conscient du framework sans obliger l'agent à
+dépouiller manuellement une session navigateur complète. `cdpx profiler`
+remonte les données du WebProfiler Symfony depuis une simple navigation;
+`cdpx dom-diff` transforme "qu'est-ce qui a changé à l'écran ?" en un diff
+DOM stable et relisible; `make docker-symfony-e2e` prouve le tout contre une
+vraie application Symfony sous Docker.
 
-## User journeys
+## Usage
 
-- Navigate to a Symfony route and follow profiler token headers.
-- Compare baseline/degraded, Doctrine-like N+1, duplicate query bursts, cache hit/miss/stale, Twig render cost, Stopwatch sections, HTTP client outcomes, Messenger signals, routing outcomes and response cache headers.
-- Take a stable DOM diff around a browser action.
+Options globales et codes de sortie: voir la section Contrat CLI du README.
+
+### `cdpx profiler`
+
+Synopsis: `cdpx profiler url [--settle S]`
+
+Navigue vers `url`, repère l'en-tête `X-Debug-Token-Link` dans les réponses
+réseau (repli sur `X-Debug-Token` en reconstruisant l'URL
+`/_profiler/<token>`), puis récupère la page du profiler Symfony côté cdpx.
+La sortie expose le token, l'URL du profiler, `profiler_status` — le statut
+HTTP **réel** de la réponse profiler (plus un 200 codé en dur) —, la taille
+du corps, les panels (JSON parsé si le profiler répond en JSON, enveloppe
+`raw` sinon) et les signaux collecteurs déterministes `X-CDPX-*` du moteur
+de scénarios.
+
+Options propres:
+
+- `url` (positionnel, requis) — route de l'app Symfony à profiler.
+- `--settle S` — fenêtre en secondes de collecte des événements réseau après
+  le chargement, le temps que la réponse portant le token arrive
+  (défaut: 0.2).
+
+```bash
+# Lire le profiler d'une route locale
+cdpx profiler http://127.0.0.1:8000/produit/42
+
+# Laisser plus de temps aux réponses lentes
+cdpx profiler http://127.0.0.1:8000/produit/42 --settle 1.0
+```
+
+Sortie (extrait réaliste):
+
+```json
+{
+  "token": "a1b2c3",
+  "url": "http://127.0.0.1:8000/produit/42",
+  "status": 200,
+  "profiler_url": "http://127.0.0.1:8000/_profiler/a1b2c3",
+  "profiler_status": 200,
+  "profiler_bytes": 48213,
+  "panels": {"raw": {"content_type": "text/html; charset=UTF-8", "bytes": 48213}},
+  "signals": {
+    "scenario": "profiler-baseline",
+    "time_ms": 42,
+    "memory_kb": 8192,
+    "db_queries": 4,
+    "cache_state": "hit"
+  }
+}
+```
+
+Pièges et cas d'erreur:
+
+- Si aucune réponse ne porte `X-Debug-Token-Link` ni `X-Debug-Token`
+  (profiler désactivé, environnement `prod`), la commande échoue avec
+  `header X-Debug-Token-Link/X-Debug-Token introuvable` (exit 1).
+- Un `profiler_status` différent de 200 (token expiré, profiler purgé) est
+  désormais rapporté tel quel: c'est au lecteur du rapport d'en tirer les
+  conséquences, pas à cdpx de le masquer.
+- `signals` n'est peuplé que face au moteur de scénarios cdpx (en-têtes
+  `X-CDPX-*`); sur une app Symfony ordinaire, il reste `{}` — c'est normal.
+- `--settle` trop court = token raté si la réponse arrive tard; augmenter la
+  fenêtre plutôt que de relancer en boucle.
+
+### `cdpx dom-diff`
+
+Synopsis: `cdpx dom-diff -- <action>`
+
+Prend un instantané normalisé du DOM (balises, id, classes triées, attributs
+`data-*`, textes), exécute **une** action, reprend un instantané, puis rend
+un diff unifié stable. Usecase: vérifier qu'un clic ouvre bien l'off-canvas
+panier, qu'un submit affiche l'erreur attendue, qu'une route SPA remplace le
+bon fragment — sans relire deux pages HTML complètes.
+
+Les actions acceptées viennent de l'interpréteur partagé
+(`src/cdpx/primitives/actions.py`), le même que `record`, `replay` et
+`emulate`:
+
+- `goto <url>` — naviguer.
+- `wait <selecteur>` — attendre un sélecteur CSS.
+- `click <selecteur>` — cliquer un élément.
+- `type <selecteur> <texte> [--clear]` — taper du texte (option `--clear`
+  pour vider le champ avant).
+- `key <touche>` — presser une touche (Enter, Tab, Escape, ArrowUp/Down).
+- `eval <js>` — évaluer du JavaScript.
+
+Options propres:
+
+- `action` (positionnel, reste de la ligne) — l'action à encadrer; le
+  séparateur `--` est supporté et recommandé pour isoler l'action des
+  options de cdpx.
+
+```bash
+# Le clic ouvre-t-il l'off-canvas panier ?
+cdpx dom-diff -- click "#offcanvas-cart"
+
+# Diff entre la page courante et une autre route (lecture pure)
+cdpx dom-diff -- goto http://127.0.0.1:8000/panier
+
+# La saisie déclenche-t-elle l'autocomplétion ?
+cdpx dom-diff -- type "#recherche" "chaussures trail" --clear
+```
+
+Sortie:
+
+```json
+{
+  "action": ["click", "#offcanvas-cart"],
+  "changed": true,
+  "diff": [
+    "--- before",
+    "+++ after",
+    "@@ -12,6 +12,9 @@",
+    "   <div#offcanvas-cart.cart>",
+    "+    <div.cart-panel.open>",
+    "+      \"1 article - 89,00 EUR\""
+  ],
+  "lines": 6
+}
+```
+
+Pièges et cas d'erreur:
+
+- **Sécurité**: avec `CDPX_ORIGINS` défini, `dom-diff` portant une action
+  mutante (`click`, `type`, `key`, `eval`) est refusé hors des origines
+  autorisées (`mutation refusée hors CDPX_ORIGINS`, exit 1); avec `goto` ou
+  `wait`, c'est une lecture permise.
+- Une action absente ou inconnue échoue avec le rappel d'usage de
+  l'interpréteur (exit 2 pour une erreur d'usage).
+- `changed: false` avec `diff: []` est un résultat valide: l'action n'a rien
+  mué — précieux pour détecter un bouton mort.
+- Le diff est borné par `--limit` (50 lignes par défaut); passer `--full`
+  pour un diff complet sur les grosses mutations.
+
+### `make docker-symfony-e2e`
+
+Synopsis: `make docker-symfony-e2e`
+
+Lance la suite e2e profiler contre une **vraie** application Symfony servie
+par Docker (`docker-compose.symfony-e2e.yml` + `tests/symfony-app/`): le
+moteur de scénarios déterministes expose les cas `/scenario/profiler/{case}`
+(baseline/dégradé, N+1, requêtes dupliquées, cache hit/miss/stale, coût
+Twig, Stopwatch, client HTTP, Messenger, routing, en-têtes de cache) et
+`/scenario/front/states` pour le diff DOM. C'est la preuve que
+`cdpx profiler` et `cdpx dom-diff` fonctionnent face à un vrai WebProfiler,
+pas seulement face aux fixtures.
+
+Options propres: aucune (cible Make sans paramètre; Docker et Docker Compose
+doivent être installés et démarrables).
+
+```bash
+make docker-symfony-e2e
+```
+
+Les preuves produites atterrissent dans `.proof/` (`symfony-e2e.log`,
+`symfony-e2e-junit.xml`, JSON de comparaison profiler, diff DOM JSON,
+captures d'écran).
+
+Pièges et cas d'erreur:
+
+- Docker absent: la cible échoue localement, mais `make proof` enregistre ce
+  cas comme statut `unavailable` explicite et non bloquant.
+- Docker présent mais scénario Symfony en échec: le verdict global de
+  `make proof` est bloqué — un vrai échec ne se déguise pas en absence.
+- Le premier lancement construit l'image Symfony: prévoir un temps de build
+  initial avant que les scénarios ne s'exécutent.
+
+## Parcours utilisateur
+
+- Naviguer vers une route Symfony et suivre les en-têtes de token du
+  profiler.
+- Comparer baseline/dégradé, N+1 façon Doctrine, rafales de requêtes
+  dupliquées, cache hit/miss/stale, coût de rendu Twig, sections Stopwatch,
+  issues du client HTTP, signaux Messenger, issues de routing et en-têtes de
+  cache de réponse.
+- Prendre un diff DOM stable autour d'une action navigateur.
 
 ## Validation
 
-Unit fixtures simulate profiler headers, including `X-CDPX-*` scenario signals.
-`make proof` also attempts the Docker Symfony portal automatically: Docker
-unavailable is reported as `unavailable` and non-blocking for local portability,
-while a failed Symfony run with Docker available blocks the global proof
-verdict.
+Les fixtures unitaires simulent les en-têtes du profiler, y compris les
+signaux de scénario `X-CDPX-*`. `make proof` tente aussi automatiquement le
+portail Docker Symfony: Docker indisponible est rapporté comme `unavailable`
+et non bloquant pour préserver la portabilité locale, tandis qu'un run
+Symfony en échec avec Docker disponible bloque le verdict global de preuve.
 
-## Evidence
+## Preuves
 
-Expected evidence is JUnit and screenshots for Chrome fixture scenarios. The
-Symfony portal adds `.proof/symfony-e2e.log`,
-`.proof/symfony-e2e-junit.xml`, profiler diagnostic comparison JSON, DOM diff
-JSON and browser screenshots when Docker is available.
+Les preuves attendues sont JUnit et captures d'écran pour les scénarios
+Chrome sur fixtures. Le portail Symfony ajoute `.proof/symfony-e2e.log`,
+`.proof/symfony-e2e-junit.xml`, le JSON de comparaison des diagnostics
+profiler, le JSON de diff DOM et des captures d'écran navigateur quand
+Docker est disponible.
 
-## Known gaps
+## Limites connues
 
-Docker availability itself is environment-dependent; absence is visible in the
-report and can be resolved by installing Docker, then rerunning `make proof` or
-`make docker-symfony-e2e`.
+La disponibilité de Docker dépend de l'environnement; son absence est
+visible dans le rapport et se résout en installant Docker puis en relançant
+`make proof` ou `make docker-symfony-e2e`.

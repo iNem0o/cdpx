@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cdpx.proofing.markdown import render_markdown
+
 FEATURES_DIR = Path("docs/features")
 IGNORED_PATH_PARTS = {
     ".git",
@@ -27,6 +29,22 @@ IGNORED_PATH_PARTS = {
     "dist",
 }
 FEATURE_STATUSES = {"planned", "active", "validated", "deprecated"}
+
+# Ratchet: nombre maximal de tests rattachés par test_globs "legacy" (sans
+# scénario documenté). Il ne peut que BAISSER — un dépassement est une
+# violation bloquante, pour que la dette narrative ne recroisse jamais.
+LEGACY_WARNING_BUDGET = 0
+
+# Sections obligatoires du corps Markdown (FR, affichées telles quelles dans
+# le rapport de preuve). "Usage" porte la doc utilisateur par entrypoint.
+REQUIRED_SECTIONS = (
+    "Intention",
+    "Usage",
+    "Parcours utilisateur",
+    "Validation",
+    "Preuves",
+    "Limites connues",
+)
 
 
 @dataclass
@@ -78,6 +96,7 @@ class FeatureSpec:
     expected_proofs: list[str]
     source: str
     sections: list[str] = field(default_factory=list)
+    body: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         scenario_dicts = [scenario.as_dict(self.id) for scenario in self.scenarios]
@@ -112,6 +131,7 @@ class FeatureSpec:
             "expected_proofs": self.expected_proofs,
             "source": self.source,
             "sections": self.sections,
+            "doc_html": render_markdown(self.body),
         }
 
 
@@ -198,6 +218,13 @@ def build_feature_inventory(
             feature["proofs"].append(proof)
         if scenario_spec is not None:
             _attach_to_journey_tree(feature, enriched, scenario_spec)
+
+    legacy_count = sum(1 for warning in warnings if warning.startswith("scenario mapped by legacy"))
+    if legacy_count > LEGACY_WARNING_BUDGET:
+        violations.append(
+            f"legacy warnings over budget: {legacy_count} > {LEGACY_WARNING_BUDGET} "
+            "(documenter les scénarios ou élargir les specs, pas le budget)"
+        )
 
     changed_paths = [item["path"] for item in git_context.get("changed_files", [])]
     for feature in features.values():
@@ -290,9 +317,10 @@ def parse_feature_doc(path: Path) -> FeatureSpec:
     journey_ids = {str(item.get("id", "")) for item in journeys}
     scenarios = parse_scenario_specs(path, metadata["scenarios"], journey_ids)
     sections = re.findall(r"^##\s+(.+)$", body, re.M)
-    for heading in ("Intent", "User journeys", "Validation", "Evidence", "Known gaps"):
+    for heading in REQUIRED_SECTIONS:
         if heading not in sections:
             raise ValueError(f"{path}: missing section ## {heading}")
+    _require_usage_headings(path, body, metadata["entrypoints"])
     return FeatureSpec(
         id=feature_id,
         title=str(metadata["title"]),
@@ -307,7 +335,25 @@ def parse_feature_doc(path: Path) -> FeatureSpec:
         expected_proofs=list(metadata["expected_proofs"]),
         source=str(path),
         sections=sections,
+        body=body,
     )
+
+
+def _require_usage_headings(path: Path, body: str, entrypoints: list[str]) -> None:
+    """Garde-fou doc utilisateur: chaque entrypoint déclaré a son `### <id>`
+    dans la section Usage. Une commande sans doc casse `make proof`."""
+    usage = re.search(r"^##\s+Usage\s*$(.*?)(?=^##\s|\Z)", body, re.M | re.S)
+    usage_body = usage.group(1) if usage else ""
+    headings = {
+        heading.strip().strip("`").strip()
+        for heading in re.findall(r"^###\s+(.+)$", usage_body, re.M)
+    }
+    missing = [entry for entry in entrypoints if entry not in headings]
+    if missing:
+        raise ValueError(
+            f"{path}: entrypoints sans doc utilisateur (### manquant dans ## Usage): "
+            + ", ".join(missing)
+        )
 
 
 def parse_scenario_specs(

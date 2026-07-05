@@ -1,3 +1,5 @@
+import pytest
+
 from cdpx.proofing.features import (
     build_feature_inventory,
     feature_failures,
@@ -5,11 +7,7 @@ from cdpx.proofing.features import (
     parse_feature_doc,
 )
 
-
-def test_parse_feature_doc_requires_structured_markdown(tmp_path):
-    path = tmp_path / "demo.md"
-    path.write_text(
-        """+++
+DEMO_DOC = """+++
 id = "demo-feature"
 title = "Demo feature"
 status = "active"
@@ -38,23 +36,32 @@ tests = ["tests/test_demo.py::test_demo"]
 expected_proofs = ["junit"]
 +++
 
-## Intent
+## Intention
 Demo.
 
-## User journeys
+## Usage
+
+### `cdpx demo`
+
+Lance la démo. Sortie: `{"demo": true}`.
+
+## Parcours utilisateur
 Demo.
 
 ## Validation
 Demo.
 
-## Evidence
+## Preuves
 Demo.
 
-## Known gaps
+## Limites connues
 Demo.
-""",
-        encoding="utf-8",
-    )
+"""
+
+
+def test_parse_feature_doc_requires_structured_markdown(tmp_path):
+    path = tmp_path / "demo.md"
+    path.write_text(DEMO_DOC, encoding="utf-8")
 
     spec = parse_feature_doc(path)
 
@@ -62,6 +69,38 @@ Demo.
     assert spec.entrypoints == ["cdpx demo"]
     assert spec.journeys[0]["id"] == "demo"
     assert spec.scenarios[0].id == "demo-happy-path"
+    assert "Usage" in spec.sections
+    assert "<h3><code>cdpx demo</code></h3>" in spec.as_dict()["doc_html"]
+
+
+def test_parse_feature_doc_requires_usage_section(tmp_path):
+    path = tmp_path / "demo.md"
+    path.write_text(
+        DEMO_DOC.replace("## Usage", "## Autre").replace("### `cdpx demo`", ""),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="missing section ## Usage"):
+        parse_feature_doc(path)
+
+
+def test_parse_feature_doc_requires_usage_heading_per_entrypoint(tmp_path):
+    path = tmp_path / "demo.md"
+    # la section Usage existe mais ne documente pas l'entrypoint déclaré
+    path.write_text(DEMO_DOC.replace("### `cdpx demo`", "### `cdpx autre`"), encoding="utf-8")
+    with pytest.raises(ValueError, match="cdpx demo"):
+        parse_feature_doc(path)
+
+
+def test_usage_heading_outside_usage_section_does_not_count(tmp_path):
+    path = tmp_path / "demo.md"
+    moved = DEMO_DOC.replace('### `cdpx demo`\n\nLance la démo. Sortie: `{"demo": true}`.\n', "")
+    moved = moved.replace(
+        "## Limites connues\nDemo.", "## Limites connues\nDemo.\n\n### `cdpx demo`\n"
+    )
+    assert "### `cdpx demo`" in moved  # bien présent, mais hors section Usage
+    path.write_text(moved, encoding="utf-8")
+    with pytest.raises(ValueError, match="cdpx demo"):
+        parse_feature_doc(path)
 
 
 def test_load_feature_specs_reads_project_catalog():
@@ -143,6 +182,54 @@ def test_build_feature_inventory_maps_explicit_scenario_id():
         "browser-navigation.open-page-success"
     )
     assert feature["matched_scenarios"][0]["given"]
+
+
+def test_project_features_expose_user_doc_html():
+    specs, errors = load_feature_specs()
+    assert errors == []
+    for spec in specs:
+        doc = spec.as_dict()["doc_html"]
+        for entrypoint in spec.entrypoints:
+            assert f"<code>{entrypoint}</code>" in doc, f"{spec.id}: doc manquante {entrypoint}"
+
+
+def test_legacy_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
+    # Catalogue synthétique: un test_globs de fiche plus large que les tests
+    # des scénarios documentés -> mapping "legacy". Le vrai catalogue n'en a
+    # plus aucun (budget 0); ce test garde le garde-fou vivant.
+    from cdpx.proofing import features as features_module
+
+    path = tmp_path / "demo.md"
+    path.write_text(
+        DEMO_DOC.replace(
+            'test_globs = ["tests/test_demo.py::*"]',
+            'test_globs = ["tests/test_demo.py::*", "tests/test_extra.py::*"]',
+        ),
+        encoding="utf-8",
+    )
+    spec = parse_feature_doc(path)
+    monkeypatch.setattr(features_module, "load_feature_specs", lambda: ([spec], []))
+    monkeypatch.setattr(features_module, "LEGACY_WARNING_BUDGET", 0)
+    scenarios = {
+        "suites": {
+            "unit": [
+                {
+                    # matché par tests/test_extra.py::* (fiche) mais par aucun scénario
+                    "nodeid": "tests/test_extra.py::test_undocumented",
+                    "status": "passed",
+                    "artifacts": [],
+                }
+            ],
+            "integration": [],
+            "e2e": [],
+        },
+        "files": [],
+        "totals": {"scenarios": 1},
+    }
+    inventory = build_feature_inventory(
+        [{"name": "demo", "help": "démo"}], scenarios, {"changed_files": []}
+    )
+    assert any("legacy warnings over budget" in item for item in inventory["violations"])
 
 
 def test_build_feature_inventory_fails_unmapped_public_entrypoint():

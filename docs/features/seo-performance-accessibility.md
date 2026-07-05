@@ -1,8 +1,8 @@
 +++
 id = "seo-performance-accessibility"
-title = "SEO, performance and accessibility audits"
+title = "Audits SEO, performance et accessibilité"
 status = "validated"
-summary = "Audit rendered SEO contracts, Web Vitals diagnostics, accessibility tree, RGAA automated-subset front checks and JS/CSS coverage."
+summary = "Auditer le contrat SEO du DOM rendu, les diagnostics Web Vitals, l'arbre d'accessibilité, un sous-ensemble RGAA automatisé côté front et la couverture JS/CSS."
 entrypoints = ["cdpx seo", "cdpx vitals", "cdpx a11y", "cdpx coverage"]
 path_globs = ["src/cdpx/primitives/audit.py", "src/cdpx/primitives/advanced.py", "tests/fixtures/seo*.html", "tests/fixtures/vitals.html", "tests/fixtures/coverage.html", "tests/fixtures/coverage.css", "tests/fixtures/coverage.js", "tests/fixtures/iframe.html", "tests/fixtures/child.html", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
 test_globs = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_vitals*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*", "tests/e2e/test_e2e_symfony.py::test_symfony_vitals*", "tests/e2e/test_e2e_symfony.py::test_symfony_rgaa*"]
@@ -11,108 +11,318 @@ expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
 id = "audit-seo-rendered-dom"
-title = "Audit SEO on the rendered DOM"
+title = "Auditer le SEO sur le DOM rendu"
 entrypoint = "cdpx seo"
 
 [[journeys]]
 id = "measure-vitals"
-title = "Measure basic Web Vitals after optional interaction"
+title = "Mesurer des Web Vitals basiques après interaction optionnelle"
 entrypoint = "cdpx vitals"
 
 [[journeys]]
 id = "audit-front-accessibility"
-title = "Audit deterministic front accessibility checks"
+title = "Auditer des contrôles d'accessibilité front déterministes"
 entrypoint = "cdpx a11y"
 
 [[scenarios]]
 id = "audit-rendered-seo-and-a11y"
 journey = "audit-seo-rendered-dom"
-title = "Audit rendered SEO and accessibility contracts"
-ui_text = "The report shows rendered-page SEO and accessibility checks as product evidence."
-report_text = "This scenario proves that browser-rendered audit primitives can validate SEO and accessibility signals that raw HTML would miss."
-given = "SEO, edge-case and iframe fixtures are available in a real browser."
-when = "cdpx runs SEO, accessibility tree or coverage-oriented audit primitives."
-then = "The resulting checks are attached to the feature with JUnit and browser screenshots."
+title = "Auditer les contrats SEO et accessibilité du DOM rendu"
+ui_text = "Le rapport présente les contrôles SEO et accessibilité de la page rendue comme preuves produit."
+report_text = "Ce scénario prouve que les primitives d'audit rendues par le navigateur valident des signaux SEO et accessibilité que le HTML brut ne montrerait pas."
+given = "Les fixtures SEO, cas limites et iframe sont disponibles dans un vrai navigateur."
+when = "cdpx exécute les primitives d'audit SEO, d'arbre d'accessibilité ou de couverture."
+then = "Les contrôles résultants sont rattachés à la feature avec JUnit et captures d'écran navigateur."
 tests = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "measure-local-vitals"
 journey = "measure-vitals"
-title = "Measure local Web Vitals"
-ui_text = "The user can measure basic Web Vitals after optional interaction."
-report_text = "This scenario proves that performance-oriented browser measurements are available as compact local-fixture evidence."
-given = "A vitals fixture is loaded in Chrome."
-when = "cdpx vitals collects the supported browser performance signals."
-then = "The result is reported with test coverage and a screenshot-backed e2e scenario."
+title = "Mesurer des Web Vitals en local"
+ui_text = "L'utilisateur peut mesurer des Web Vitals basiques après une interaction optionnelle."
+report_text = "Ce scénario prouve que des mesures de performance navigateur sont disponibles comme preuves compactes sur fixtures locales."
+given = "Une fixture vitals est chargée dans Chrome."
+when = "cdpx vitals collecte les signaux de performance navigateur supportés."
+then = "Le résultat est rapporté avec sa couverture de tests et un scénario e2e adossé à une capture d'écran."
 tests = ["tests/test_primitives.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_vitals*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "compare-symfony-vitals"
 journey = "measure-vitals"
-title = "Compare Symfony baseline and degraded vitals pages"
-ui_text = "The report compares deterministic Symfony performance variants."
-report_text = "This scenario proves Web Vitals, Performance metrics and screenshots can be orchestrated against Symfony baseline/degraded pages."
-given = "The Symfony scenario engine exposes `/scenario/vitals/baseline` and `/scenario/vitals/degraded`."
-when = "cdpx collects vitals, browser metrics, scenario metadata and screenshots for both variants."
-then = "The report shows the variant deltas and links the JSON evidence, JUnit, logs and screenshot."
+title = "Comparer les pages Symfony vitals baseline et dégradée"
+ui_text = "Le rapport compare des variantes de performance Symfony déterministes."
+report_text = "Ce scénario prouve que Web Vitals, métriques Performance et captures d'écran peuvent être orchestrés contre les pages Symfony baseline/dégradée."
+given = "Le moteur de scénarios Symfony expose `/scenario/vitals/baseline` et `/scenario/vitals/degraded`."
+when = "cdpx collecte les vitals, les métriques navigateur, les métadonnées de scénario et les captures d'écran pour les deux variantes."
+then = "Le rapport montre les deltas entre variantes et lie les preuves JSON, JUnit, logs et capture d'écran."
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_vitals_compare_baseline_degraded"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "symfony-vitals-diagnostic-attribution"
 journey = "measure-vitals"
-title = "Collect Symfony Web Vitals diagnostic attribution"
-ui_text = "The report keeps LCP, INP and CLS primary while showing deterministic attribution diagnostics."
-report_text = "This scenario proves Symfony routes for LCP image/text, injected CLS, long-task INP and blocking resources expose thresholds, navigation timing, resource timing buckets, source metadata and emulation metadata as JSON evidence."
-given = "The Symfony scenario engine exposes `/scenario/vitals/lcp-image`, `/scenario/vitals/lcp-text`, `/scenario/vitals/cls-injected-banner`, `/scenario/vitals/inp-long-task` and `/scenario/vitals/resource-blocking`."
-when = "cdpx collects Web Vitals, deterministic attribution metadata and screenshots from each route."
-then = "The proof cockpit links JUnit, JSON diagnostics, Docker logs and screenshots without treating attribution gaps as hidden successes."
+title = "Collecter l'attribution diagnostique des Web Vitals Symfony"
+ui_text = "Le rapport garde LCP, INP et CLS au premier plan tout en montrant des diagnostics d'attribution déterministes."
+report_text = "Ce scénario prouve que les routes Symfony pour LCP image/texte, CLS injecté, INP long-task et ressources bloquantes exposent seuils, navigation timing, buckets de resource timing, métadonnées de source et métadonnées d'émulation comme preuves JSON."
+given = "Le moteur de scénarios Symfony expose `/scenario/vitals/lcp-image`, `/scenario/vitals/lcp-text`, `/scenario/vitals/cls-injected-banner`, `/scenario/vitals/inp-long-task` et `/scenario/vitals/resource-blocking`."
+when = "cdpx collecte les Web Vitals, les métadonnées d'attribution déterministes et les captures d'écran de chaque route."
+then = "Le cockpit de preuve lie JUnit, diagnostics JSON, logs Docker et captures d'écran sans transformer les trous d'attribution en succès cachés."
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_vitals_diagnostics_cover_attribution_routes"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "audit-symfony-rgaa-subset"
 journey = "audit-front-accessibility"
-title = "Audit deterministic Symfony RGAA subset"
-ui_text = "The report separates automated RGAA-like checks from full RGAA coverage."
-report_text = "This scenario proves RGAA-themed automated checks can be grouped by images, frames, colors, multimedia, tables, links, scripts/components, mandatory elements, structure, presentation, forms, navigation and consultation without claiming full RGAA coverage."
-given = "The Symfony scenario engine exposes accessible and regressed pages under `/scenario/rgaa/{case}`."
-when = "cdpx reads the accessibility tree and deterministic DOM checks for both variants."
-then = "The report includes per-theme JSON checks with criteria, automated scope, status, limitations, JUnit, logs and screenshot evidence."
+title = "Auditer le sous-ensemble RGAA déterministe Symfony"
+ui_text = "Le rapport distingue les contrôles automatisés inspirés du RGAA d'une couverture RGAA complète."
+report_text = "Ce scénario prouve que des contrôles automatisés à thématique RGAA peuvent être regroupés par images, cadres, couleurs, multimédia, tableaux, liens, scripts/composants, éléments obligatoires, structure, présentation, formulaires, navigation et consultation sans revendiquer une couverture RGAA complète."
+given = "Le moteur de scénarios Symfony expose des pages accessibles et régressées sous `/scenario/rgaa/{case}`."
+when = "cdpx lit l'arbre d'accessibilité et des contrôles DOM déterministes pour les deux variantes."
+then = "Le rapport inclut des contrôles JSON par thème avec critères, périmètre automatisé, statut, limites, JUnit, logs et captures d'écran comme preuves."
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_rgaa_subset_checks_are_deterministic"]
 expected_proofs = ["junit", "json", "screenshot"]
 +++
 
-## Intent
+## Intention
 
-Provide browser-rendered audit primitives for pages where raw HTML is not the
-source of truth.
+Fournir des primitives d'audit rendues par le navigateur pour les pages où le
+HTML brut n'est pas la source de vérité. Sur un front JS, canonical injecté,
+JSON-LD posé par GTM ou hreflang réécrits n'existent que dans le DOM final —
+et c'est ce DOM final que Googlebot évalue au rendering. Auditer la réponse
+HTTP ne suffit donc pas: `cdpx seo`, `cdpx vitals`, `cdpx a11y` et
+`cdpx coverage` mesurent la page telle que l'utilisateur (et le crawler en
+mode rendering) la reçoit réellement.
 
-## User journeys
+## Usage
 
-- Check title, metas, canonical, h1, hreflang, JSON-LD, image alt and links.
-- Read compact accessibility tree information.
-- Measure Web Vitals and JS/CSS coverage.
-- Compare Symfony baseline/degraded performance plus LCP, CLS, INP and resource diagnostic variants.
-- Review deterministic RGAA automated-subset checks grouped by the 13 RGAA themes with explicit limitations.
+Options globales et codes de sortie: voir la section Contrat CLI du README.
+
+### `cdpx seo`
+
+Synopsis: `cdpx seo [url]`
+
+Extrait en un appel le contrat SEO on-page du DOM **rendu**: title, metas,
+canonical, robots, h1, hreflang, blocs JSON-LD (validés contre un schéma
+minimal `Product`: `sku` ou `name` requis), images sans `alt`, comptage des
+liens internes/externes/nofollow, estimation en pixels de la largeur SERP du
+title et de la meta description, détection des h1 dupliqués. Les anomalies
+sont agrégées dans `findings` (liste vide = aucun problème détecté).
+
+Options propres:
+
+- `url` (positionnel, optionnel) — naviguer d'abord vers cette URL. Sans
+  `url`, la commande audite la page actuellement affichée dans l'onglet
+  cible: pratique pour auditer un état obtenu après interactions (panier
+  ouvert, variante sélectionnée, page SPA après route côté client).
+
+```bash
+# Auditer une fiche produit (navigation puis audit du DOM rendu)
+cdpx seo https://www.exemple.fr/produit-42
+
+# Auditer la page courante, sans navigation (état post-interaction)
+cdpx seo
+
+# Lecture humaine
+cdpx --pretty seo https://www.exemple.fr/produit-42
+```
+
+Sortie (extrait réaliste):
+
+```json
+{
+  "url": "https://www.exemple.fr/produit-42",
+  "lang": "fr",
+  "title": "Chaussures de trail Vertex 42 | Exemple.fr",
+  "metas": {
+    "description": "Chaussures de trail Vertex 42, accroche maximale.",
+    "robots": "index,follow",
+    "og:title": "Chaussures de trail Vertex 42"
+  },
+  "canonical": "https://www.exemple.fr/produit-42",
+  "robots": "index,follow",
+  "h1": ["Chaussures de trail Vertex 42"],
+  "hreflang": [
+    {"lang": "fr", "href": "https://www.exemple.fr/produit-42"},
+    {"lang": "en", "href": "https://www.exemple.fr/en/product-42"}
+  ],
+  "jsonld": [
+    {"@type": "Product", "name": "Vertex 42", "sku": "VTX-42"}
+  ],
+  "images_without_alt": 2,
+  "links": {"internal": 34, "external": 3, "nofollow": 1},
+  "title_px_estimate": 331,
+  "description_px_estimate": 353,
+  "findings": ["2 image(s) sans alt"]
+}
+```
+
+Pièges et cas d'erreur:
+
+- Sans `url`, il faut qu'une page soit déjà chargée dans l'onglet cible;
+  sur `about:blank` l'audit renvoie un contrat quasi vide avec de nombreux
+  `findings`.
+- Un JSON-LD non parsable est signalé (`"JSON-LD invalide"` dans `findings`)
+  au lieu de faire échouer la commande.
+- Les estimations `*_px_estimate` sont une approximation stable pour agent/CI
+  (largeur moyenne SERP desktop), pas un rendu au pixel près.
+
+### `cdpx vitals`
+
+Synopsis: `cdpx vitals url [--click SELECTEUR] [--settle S]`
+
+Mesure LCP, CLS et INP via des `PerformanceObserver` pré-injectés **avant**
+la navigation (`Page.addScriptToEvaluateOnNewDocument`), ce qui capture les
+entrées buffered dès le premier paint. L'interaction optionnelle `--click`
+déclenche un événement réel pour alimenter la mesure INP.
+
+Options propres:
+
+- `url` (positionnel, requis) — page à mesurer.
+- `--click SELECTEUR` — sélecteur CSS à cliquer après chargement pour
+  mesurer l'INP (sans clic, `inp` reste à 0).
+- `--settle S` — délai en secondes laissé aux observers pour collecter les
+  entrées après chargement/interaction (défaut: 0.5).
+
+```bash
+# Vitals de chargement simple
+cdpx vitals https://www.exemple.fr/produit-42
+
+# Mesurer l'INP en cliquant le bouton d'ajout panier
+cdpx vitals https://www.exemple.fr/produit-42 --click "#ajouter-panier" --settle 1.0
+```
+
+Sortie:
+
+```json
+{
+  "url": "https://www.exemple.fr/produit-42",
+  "lcp": 812.4,
+  "cls": 0.031,
+  "inp": 96
+}
+```
+
+Pièges et cas d'erreur:
+
+- `inp` vaut 0 sans `--click` (aucune interaction = rien à mesurer).
+- L'observer `event` (INP) est optionnel selon le support navigateur: son
+  absence n'est pas une erreur, la valeur reste simplement à 0.
+- Un `--settle` trop court peut sous-estimer CLS/LCP sur des pages qui
+  injectent du contenu tardivement.
+
+### `cdpx a11y`
+
+Synopsis: `cdpx a11y`
+
+Retourne l'arbre d'accessibilité (AXTree) compacté de la page courante:
+la vision **sémantique** de la page à bas coût en tokens. Chaque nœud non
+ignoré expose son `role` et son `name` accessibles — exactement ce que voit
+un lecteur d'écran, et un excellent proxy pour vérifier libellés, structure
+de titres et zones de repère sans parser le HTML complet.
+
+Options propres: aucune (la commande opère sur la page courante de l'onglet
+cible; naviguer d'abord avec `cdpx goto` si besoin).
+
+```bash
+cdpx goto https://www.exemple.fr/produit-42
+cdpx a11y
+
+# Lecture humaine
+cdpx --pretty a11y
+```
+
+Sortie:
+
+```json
+{
+  "nodes": [
+    {"role": "RootWebArea", "name": "Chaussures de trail Vertex 42", "ignored": false},
+    {"role": "banner", "name": "", "ignored": false},
+    {"role": "heading", "name": "Chaussures de trail Vertex 42", "ignored": false},
+    {"role": "button", "name": "Ajouter au panier", "ignored": false},
+    {"role": "link", "name": "Guide des tailles", "ignored": false}
+  ],
+  "count": 5
+}
+```
+
+Pièges et cas d'erreur:
+
+- Les nœuds `ignored` sont filtrés: un élément invisible pour l'API
+  d'accessibilité n'apparaît pas, ce qui est justement le signal recherché
+  (bouton sans nom accessible, icône sans alternative...).
+- Sur de grosses pages la liste est bornée par `--limit` (50 par défaut);
+  utiliser `--full` pour tout voir.
+
+### `cdpx coverage`
+
+Synopsis: `cdpx coverage url`
+
+Mesure le JS et le CSS morts après chargement d'une page: couverture précise
+par fichier JS (`Profiler.takePreciseCoverage`) et usage des règles CSS
+(`CSS.stopRuleUsageTracking`). Usecase: quantifier le poids du code jamais
+exécuté (bundles surdimensionnés, CSS de thème inutilisé) avant un chantier
+de performance.
+
+Options propres:
+
+- `url` (positionnel, requis) — page à charger sous instrumentation (le
+  tracking démarre avant la navigation pour ne rien manquer).
+
+```bash
+cdpx coverage https://www.exemple.fr/produit-42
+```
+
+Sortie:
+
+```json
+{
+  "url": "https://www.exemple.fr/produit-42",
+  "files": [
+    {"url": "https://www.exemple.fr/assets/app.js", "functions": 214, "used_ranges": 87},
+    {"url": "https://www.exemple.fr/assets/vendor.js", "functions": 1032, "used_ranges": 240}
+  ],
+  "count": 2,
+  "css": {"rules": 418, "used": 137, "unused": 281}
+}
+```
+
+Pièges et cas d'erreur:
+
+- La mesure reflète le chargement seul: le code exécuté uniquement après
+  interaction (menus, carrousels) compte comme "mort" si on n'interagit pas.
+- Les scripts inline apparaissent avec une `url` vide ou celle du document.
+
+## Parcours utilisateur
+
+- Vérifier title, metas, canonical, h1, hreflang, JSON-LD, alt des images et
+  liens sur le DOM rendu.
+- Lire l'arbre d'accessibilité compact comme vision sémantique de la page.
+- Mesurer les Web Vitals et la couverture JS/CSS.
+- Comparer les variantes de performance Symfony baseline/dégradée ainsi que
+  les variantes diagnostiques LCP, CLS, INP et ressources.
+- Passer en revue les contrôles RGAA automatisés déterministes regroupés par
+  les 13 thématiques RGAA, avec limites explicites.
 
 ## Validation
 
-Fixtures include clean, broken and edge SEO cases plus vitals and coverage
-pages. The Symfony Docker scenario engine adds deterministic vitals,
-attribution diagnostics and front-accessibility variants.
+Les fixtures couvrent des cas SEO propres, cassés et limites, plus des pages
+vitals et coverage. Le moteur de scénarios Symfony sous Docker ajoute des
+variantes déterministes de vitals, de diagnostics d'attribution et
+d'accessibilité front.
 
-## Evidence
+## Preuves
 
-Expected evidence is JUnit and screenshots from Chrome e2e audit scenarios.
-Symfony scenarios also attach JSON vitals, thresholds, resource timing,
-attribution metadata, metrics and RGAA automated-subset checks.
+Les preuves attendues sont JUnit et captures d'écran issues des scénarios
+d'audit e2e Chrome. Les scénarios Symfony attachent en plus les vitals JSON,
+seuils, resource timing, métadonnées d'attribution, métriques et contrôles
+du sous-ensemble RGAA automatisé.
 
-## Known gaps
+## Limites connues
 
-Vitals are local deterministic diagnostics; browser support determines whether
-all INP/event-timing and long-task attribution fields are observable. RGAA
-coverage is an automated subset grouped by theme and is not presented as a
-complete RGAA audit.
+Les vitals sont des diagnostics locaux déterministes; le support navigateur
+détermine si tous les champs INP/event-timing et long-task d'attribution sont
+observables. La couverture RGAA est un sous-ensemble automatisé regroupé par
+thème et n'est pas présentée comme un audit RGAA complet.
