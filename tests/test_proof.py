@@ -148,6 +148,81 @@ def test_build_summary_adds_project_evidence_sections():
     assert summary["unknowns"]
 
 
+def test_build_summary_includes_symfony_suite_and_catalog():
+    unit = {
+        "path": ".proof/unit-junit.xml",
+        "exists": True,
+        "tests": 2,
+        "passed": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time_s": 0.1,
+        "cases": [],
+    }
+    e2e = {
+        "path": ".proof/e2e-junit.xml",
+        "exists": True,
+        "tests": 1,
+        "passed": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time_s": 0.2,
+        "cases": [],
+    }
+    symfony = {
+        "path": ".proof/symfony-e2e-junit.xml",
+        "exists": True,
+        "tests": 1,
+        "passed": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time_s": 0.3,
+        "cases": [],
+    }
+    command = proof.CommandEvidence(
+        id="symfony-e2e",
+        label="Symfony E2E Docker",
+        argv=["docker", "compose", "up"],
+        log=".proof/symfony-e2e.log",
+        exit_code=0,
+        duration_s=0.1,
+        status="ok",
+    )
+
+    summary = proof.build_summary(
+        [command],
+        unit,
+        e2e,
+        symfony,
+        scenario_evidence=empty_scenario_evidence(),
+    )
+
+    assert summary["ok"] is True
+    assert summary["symfony_log"] == ".proof/symfony-e2e.log"
+    assert summary["junit"]["symfony"]["tests"] == 1
+    assert summary["totals"]["tests"] == 4
+    assert any(item["name"] == "Symfony E2E JUnit" for item in summary["evidence_catalog"])
+
+
+def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
+    proof_dir = tmp_path / ".proof"
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_DIR", proof_dir / "evidence")
+    monkeypatch.setattr(proof, "SYMFONY_LOG", proof_dir / "symfony-e2e.log")
+    proof.SYMFONY_LOG.parent.mkdir(parents=True)
+    proof.SYMFONY_LOG.write_text("docker unavailable\n", encoding="utf-8")
+
+    proof.write_symfony_unavailable_evidence("Docker daemon unavailable")
+
+    payload = (proof.EVIDENCE_DIR / "symfony-scenarios.json").read_text(encoding="utf-8")
+    assert '"suite": "symfony"' in payload
+    assert '"status": "unavailable"' in payload
+    assert "Docker daemon unavailable" in payload
+
+
 def test_build_summary_fails_when_e2e_screenshot_missing():
     unit = {
         "path": ".proof/unit-junit.xml",

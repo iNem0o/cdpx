@@ -103,7 +103,13 @@ def test_build_feature_inventory_maps_entrypoints_and_scenarios():
     scenario = next(
         item for item in feature["scenarios"] if item["id"] == "wait-for-rendered-state"
     )
+    journey = next(item for item in feature["journeys"] if item["id"] == "wait-spa-content")
+    journey_scenario = next(
+        item for item in journey["scenarios"] if item["id"] == "wait-for-rendered-state"
+    )
     assert scenario["matched_tests"] == ["tests/test_cli.py::test_tabs_list"]
+    assert journey_scenario["matched_tests"] == ["tests/test_cli.py::test_tabs_list"]
+    assert len(journey_scenario["matched_scenarios"]) == 1
     assert scenario["matched_scenarios"][0]["ui_text"]
     assert feature["changed_paths"] == ["src/cdpx/discovery.py"]
 

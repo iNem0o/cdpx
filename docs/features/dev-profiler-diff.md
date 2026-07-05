@@ -24,10 +24,10 @@ id = "read-symfony-profiler"
 journey = "read-profiler"
 title = "Read Symfony profiler data from navigation"
 ui_text = "The agent can open a Symfony page and follow profiler evidence."
-report_text = "This scenario proves that framework diagnostics are reachable from browser navigation, including the explicit Docker portal when a real Symfony app is required."
+report_text = "This scenario proves that framework diagnostics are reachable from browser navigation. `make proof` automatically attempts the real Docker Symfony portal, records unavailable Docker as an explicit non-blocking status, and blocks the verdict when Docker is available but the Symfony scenario fails."
 given = "A fixture or Symfony test app exposes profiler-like headers and pages."
-when = "cdpx reads profiler data after navigation."
-then = "The report links profiler tests and artifacts to the developer diagnostics feature."
+when = "cdpx reads profiler data after navigation during Chrome e2e and, when Docker is available, the Symfony e2e portal."
+then = "The report links profiler tests, Docker status, JUnit, logs, JSON profiler output and screenshots to the developer diagnostics feature."
 tests = ["tests/test_primitives.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_symfony.py::*"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -56,13 +56,20 @@ full browser session manually.
 
 ## Validation
 
-Unit fixtures simulate profiler headers; Docker e2e validates a real Symfony
-profiler when explicitly run.
+Unit fixtures simulate profiler headers. `make proof` also attempts the Docker
+Symfony portal automatically: Docker unavailable is reported as `unavailable`
+and non-blocking for local portability, while a failed Symfony run with Docker
+available blocks the global proof verdict.
 
 ## Evidence
 
-Expected evidence is JUnit and screenshots for Chrome fixture scenarios.
+Expected evidence is JUnit and screenshots for Chrome fixture scenarios. The
+Symfony portal adds `.proof/symfony-e2e.log`,
+`.proof/symfony-e2e-junit.xml`, a profiler JSON payload and a browser
+screenshot when Docker is available.
 
 ## Known gaps
 
-The Docker Symfony portal is separate from default `make proof`.
+Docker availability itself is environment-dependent; absence is visible in the
+report and can be resolved by installing Docker, then rerunning `make proof` or
+`make docker-symfony-e2e`.

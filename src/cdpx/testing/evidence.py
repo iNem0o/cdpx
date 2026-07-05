@@ -178,8 +178,9 @@ class EvidenceCase:
 
 
 class EvidenceSession:
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, suite_override: str | None = None):
         self.root = Path(root)
+        self.suite_override = suite_override
         self.cases: dict[str, EvidenceCase] = {}
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -188,7 +189,7 @@ class EvidenceSession:
         if nodeid in self.cases:
             return self.cases[nodeid]
         metadata = marker_metadata(item)
-        suite = classify_nodeid(nodeid)
+        suite = self.suite_override or classify_nodeid(nodeid)
         case = EvidenceCase(
             nodeid=nodeid,
             root=self.root,

@@ -41,8 +41,9 @@ docker-e2e: docker-build ## e2e Chrome réel dans l'image cdpx-ci
 	docker run --rm cdpx-ci make test-e2e
 
 docker-symfony-e2e: ## M2: e2e profiler contre une vraie app Symfony Dockerisée
-	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
-	docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
+	mkdir -p .proof/evidence
+	CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
+	CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; status=$$?; CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans; exit $$status
 
 proof: ## rapport HTML humain basé sur les preuves collectées (.proof/)
 	PYTHONPATH=src $(PY) -m cdpx.proof

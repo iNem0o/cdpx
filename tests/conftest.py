@@ -28,7 +28,10 @@ def pytest_configure(config):
         "CDPX_EVIDENCE_DIR"
     )
     if evidence_dir:
-        config._cdpx_evidence = EvidenceSession(evidence_dir)
+        suite = config.getoption("--cdpx-evidence-suite", default=None) or os.environ.get(
+            "CDPX_EVIDENCE_SUITE"
+        )
+        config._cdpx_evidence = EvidenceSession(evidence_dir, suite_override=suite)
     else:
         config._cdpx_evidence = None
 
@@ -39,6 +42,12 @@ def pytest_addoption(parser):
         action="store",
         default=None,
         help="write cdpx scenario evidence JSON and artifacts into this directory",
+    )
+    parser.addoption(
+        "--cdpx-evidence-suite",
+        action="store",
+        default=None,
+        help="override the proof evidence suite name for this pytest run",
     )
 
 

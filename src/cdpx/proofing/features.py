@@ -10,6 +10,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import tomllib
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,9 @@ class FeatureSpec:
         journey_dicts = []
         for journey in self.journeys:
             journey_scenarios = [
-                scenario for scenario in scenario_dicts if scenario["journey"] == journey.get("id")
+                deepcopy(scenario)
+                for scenario in scenario_dicts
+                if scenario["journey"] == journey.get("id")
             ]
             journey_dicts.append(
                 {

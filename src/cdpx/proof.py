@@ -29,10 +29,13 @@ REPORT_HTML = PROOF_DIR / "proof-report.html"
 SUMMARY_JSON = PROOF_DIR / "validation-summary.json"
 UNIT_LOG = PROOF_DIR / "make-check-pytest.log"
 E2E_LOG = PROOF_DIR / "e2e-chrome.log"
+SYMFONY_LOG = PROOF_DIR / "symfony-e2e.log"
 CLI_HELP = PROOF_DIR / "cdpx-help.txt"
 GIT_STATUS = PROOF_DIR / "git-status.txt"
 GIT_DIFF_STAT = PROOF_DIR / "git-diff-stat.txt"
 EVIDENCE_DIR = PROOF_DIR / "evidence"
+SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
+SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
 
 GENERATED_PREFIXES = (".proof/", ".idea/")
 VALIDATION_DOC = Path("docs/VALIDATION.md")
@@ -108,7 +111,11 @@ def run_evidence(
     )
 
 
-def _run_text(argv: list[str]) -> tuple[int, str]:
+def _run_text(
+    argv: list[str],
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str]:
     try:
         proc = subprocess.run(
             argv,
@@ -118,10 +125,189 @@ def _run_text(argv: list[str]) -> tuple[int, str]:
             stderr=subprocess.STDOUT,
             text=True,
             errors="replace",
+            timeout=timeout,
+            env=env,
         )
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        return 124, output + f"\ntimeout after {timeout}s\n"
     except FileNotFoundError as exc:
         return 127, f"{exc}\n"
     return proc.returncode, proc.stdout
+
+
+def _write_command_log(
+    log_path: Path, argv: list[str], started: str, body: str, result: str
+) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        "\n".join(
+            [
+                f"$ {' '.join(argv)}",
+                f"started_at: {started}",
+                "",
+                "--- output ---",
+                body.rstrip(),
+                "",
+                "--- result ---",
+                result.rstrip(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_symfony_unavailable_evidence(reason: str) -> None:
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "suite": "symfony",
+        "generated_at": _now(),
+        "count": 1,
+        "scenarios": [
+            {
+                "nodeid": SYMFONY_NODEID,
+                "suite": "symfony",
+                "title": "Symfony Docker portal unavailable",
+                "area": "developer diagnostics",
+                "feature": "dev-profiler-diff",
+                "journey": "read-profiler",
+                "scenario_id": "dev-profiler-diff.read-symfony-profiler",
+                "proves": [
+                    "Symfony Docker e2e was requested by proof generation.",
+                    "Docker was unavailable, so the real Symfony scenario did not run.",
+                ],
+                "started_at": _now(),
+                "duration_s": 0.0,
+                "status": "unavailable",
+                "phase": "setup",
+                "message": reason,
+                "stdout": "",
+                "stderr": "",
+                "artifacts": [
+                    {
+                        "type": "logs",
+                        "label": "Symfony e2e availability log",
+                        "path": str(SYMFONY_LOG),
+                        "bytes": SYMFONY_LOG.stat().st_size if SYMFONY_LOG.exists() else 0,
+                        "mime": "text/plain",
+                        "created_at": _now(),
+                    }
+                ],
+            }
+        ],
+    }
+    (EVIDENCE_DIR / "symfony-scenarios.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def run_symfony_evidence() -> CommandEvidence:
+    argv = [
+        "docker",
+        "compose",
+        "-f",
+        "docker-compose.symfony-e2e.yml",
+        "up",
+        "--build",
+        "--abort-on-container-exit",
+        "--exit-code-from",
+        "cdpx",
+    ]
+    started = _now()
+    start = time.monotonic()
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    compose_env = os.environ.copy()
+    compose_env["CDPX_E2E_UID"] = str(os.getuid())
+    compose_env["CDPX_E2E_GID"] = str(os.getgid())
+
+    checks: list[str] = []
+    if shutil.which("docker") is None:
+        reason = "Docker CLI not found; Symfony e2e marked unavailable and non-blocking."
+        _write_command_log(SYMFONY_LOG, argv, started, reason, "status: unavailable\nexit_code: 0")
+        write_symfony_unavailable_evidence(reason)
+        return CommandEvidence(
+            id="symfony-e2e",
+            label="Symfony E2E Docker",
+            argv=argv,
+            log=str(SYMFONY_LOG),
+            exit_code=0,
+            duration_s=round(time.monotonic() - start, 3),
+            status="unavailable",
+        )
+
+    for check_argv in (["docker", "compose", "version"], ["docker", "info"]):
+        code, output = _run_text(check_argv, timeout=15, env=compose_env)
+        checks.append(f"$ {' '.join(check_argv)}\n{output.rstrip()}\nexit_code: {code}")
+        if code != 0:
+            reason = (
+                "Docker is installed but unavailable; Symfony e2e marked unavailable and "
+                "non-blocking."
+            )
+            body = "\n\n".join(checks + [reason])
+            _write_command_log(
+                SYMFONY_LOG, argv, started, body, "status: unavailable\nexit_code: 0"
+            )
+            write_symfony_unavailable_evidence(reason)
+            return CommandEvidence(
+                id="symfony-e2e",
+                label="Symfony E2E Docker",
+                argv=argv,
+                log=str(SYMFONY_LOG),
+                exit_code=0,
+                duration_s=round(time.monotonic() - start, 3),
+                status="unavailable",
+            )
+
+    down_argv = [
+        "docker",
+        "compose",
+        "-f",
+        "docker-compose.symfony-e2e.yml",
+        "down",
+        "--remove-orphans",
+    ]
+    pre_code, pre_output = _run_text(down_argv, timeout=60, env=compose_env)
+    proc = subprocess.run(
+        argv,
+        cwd=Path.cwd(),
+        env=compose_env,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+    )
+    post_code, post_output = _run_text(down_argv, timeout=60, env=compose_env)
+    duration = time.monotonic() - start
+    body = "\n\n".join(
+        checks
+        + [
+            f"$ {' '.join(down_argv)}\n{pre_output.rstrip()}\nexit_code: {pre_code}",
+            f"$ {' '.join(argv)}\n{proc.stdout.rstrip()}\nexit_code: {proc.returncode}",
+            f"$ {' '.join(down_argv)}\n{post_output.rstrip()}\nexit_code: {post_code}",
+        ]
+    )
+    result_code = proc.returncode if proc.returncode != 0 else post_code
+    _write_command_log(
+        SYMFONY_LOG,
+        argv,
+        started,
+        body,
+        f"exit_code: {result_code}\nduration_s: {duration:.3f}",
+    )
+    return CommandEvidence(
+        id="symfony-e2e",
+        label="Symfony E2E Docker",
+        argv=argv,
+        log=str(SYMFONY_LOG),
+        exit_code=result_code,
+        duration_s=round(duration, 3),
+        status="ok" if result_code == 0 else "failed",
+    )
 
 
 def collect_git_context() -> dict:
@@ -303,7 +489,13 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
     return {"risks": risks, "unknowns": unknowns}
 
 
-def build_evidence_catalog(summary: dict, unit: dict, e2e: dict) -> list[dict]:
+def _junit_status(suite: dict) -> str:
+    if not suite.get("exists", True):
+        return "unavailable"
+    return "passed" if suite.get("failures", 0) + suite.get("errors", 0) == 0 else "failed"
+
+
+def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) -> list[dict]:
     catalog = [
         {
             "type": "rapport-html",
@@ -334,8 +526,18 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict) -> list[dict]:
             "path": e2e.get("path", str(PROOF_DIR / "e2e-junit.xml")),
             "status": "passed" if e2e.get("failures", 0) + e2e.get("errors", 0) == 0 else "failed",
             "roi": (
-                f"{e2e.get('tests', 0)} scénarios navigateur, "
-                f"{e2e.get('skipped', 0)} skip non-Chrome déclaré."
+                f"{e2e.get('tests', 0)} scénarios navigateur Chrome, "
+                f"{e2e.get('skipped', 0)} skip déclaré."
+            ),
+        },
+        {
+            "type": "junit",
+            "name": "Symfony E2E JUnit",
+            "path": symfony.get("path", str(SYMFONY_JUNIT)),
+            "status": _junit_status(symfony),
+            "roi": (
+                f"{symfony.get('tests', 0)} scénario Symfony réel, "
+                f"{symfony.get('skipped', 0)} indisponibilité/skip déclaré."
             ),
         },
         {
@@ -351,6 +553,20 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict) -> list[dict]:
             "path": str(E2E_LOG),
             "status": "generated",
             "roi": "Transcript navigateur réel; Chrome absent est bloquant.",
+        },
+        {
+            "type": "logs",
+            "name": "Logs Symfony E2E",
+            "path": str(SYMFONY_LOG),
+            "status": next(
+                (
+                    command.get("status", "generated")
+                    for command in summary.get("commands", [])
+                    if command.get("id") == "symfony-e2e"
+                ),
+                "generated",
+            ),
+            "roi": "Transcript Docker Compose, politique d'indisponibilité et teardown.",
         },
         {
             "type": "surface-publique",
@@ -479,9 +695,9 @@ def parse_validation_matrix() -> list[dict[str, str]]:
     return rows
 
 
-def group_cases_by_module(unit: dict, e2e: dict) -> list[dict]:
+def group_cases_by_module(unit: dict, e2e: dict, symfony: dict | None = None) -> list[dict]:
     groups: dict[str, dict] = {}
-    for suite_name, suite in (("unit", unit), ("e2e", e2e)):
+    for suite_name, suite in (("unit", unit), ("e2e", e2e), ("symfony", symfony or {"cases": []})):
         for case in suite["cases"]:
             module = case["classname"].split(".")[-1] or suite_name
             group = groups.setdefault(
@@ -497,7 +713,7 @@ def group_cases_by_module(unit: dict, e2e: dict) -> list[dict]:
 
 
 def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> dict:
-    suites = {"unit": [], "integration": [], "e2e": []}
+    suites = {"unit": [], "integration": [], "e2e": [], "symfony": []}
     files = []
     if not root.exists():
         return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
@@ -513,6 +729,7 @@ def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> dict:
 def scenario_totals(suites: dict[str, list[dict]]) -> dict:
     scenarios = [scenario for items in suites.values() for scenario in items]
     e2e = suites.get("e2e", [])
+    symfony = suites.get("symfony", [])
     screenshots = sum(
         1
         for scenario in scenarios
@@ -532,6 +749,7 @@ def scenario_totals(suites: dict[str, list[dict]]) -> dict:
         "unit": len(suites.get("unit", [])),
         "integration": len(suites.get("integration", [])),
         "e2e": len(e2e),
+        "symfony": len(symfony),
         "screenshots": screenshots,
         "missing_e2e_screenshots": missing_e2e,
     }
@@ -545,15 +763,17 @@ def proof_failures_from_scenarios(scenario_evidence: dict) -> list[str]:
 
 
 def enrich_scenario_evidence(scenario_evidence: dict, feature_inventory: dict) -> dict:
-    by_nodeid = {}
+    by_suite_and_nodeid = {}
     for feature in feature_inventory.get("features", []):
         for scenario in feature.get("matched_scenarios", []):
-            by_nodeid[scenario.get("nodeid", "")] = scenario
+            key = (scenario.get("suite", ""), scenario.get("nodeid", ""))
+            by_suite_and_nodeid[key] = scenario
 
     suites = {}
     for suite, scenarios in scenario_evidence.get("suites", {}).items():
         suites[suite] = [
-            by_nodeid.get(scenario.get("nodeid", ""), scenario) for scenario in scenarios
+            by_suite_and_nodeid.get((suite, scenario.get("nodeid", "")), scenario)
+            for scenario in scenarios
         ]
     return {
         **scenario_evidence,
@@ -587,9 +807,12 @@ def build_project_risks_and_unknowns() -> dict:
             "rollback": "Installer Chrome/Chromium puis relancer `make test-e2e` ou `make proof`.",
         },
         {
-            "risk": "Les preuves Symfony Docker ne sont pas lancées par `make proof`.",
-            "mitigation": "`make docker-symfony-e2e` reste un portail séparé et documenté.",
-            "rollback": "Exécuter le portail Docker dédié avant release Symfony-sensitive.",
+            "risk": "Docker peut être absent sur un poste local.",
+            "mitigation": (
+                "`make proof` lance Symfony si Docker répond; sinon le scénario est marqué "
+                "unavailable dans le rapport sans bloquer les preuves Python/Chrome."
+            ),
+            "rollback": "Installer Docker puis relancer `make proof` ou `make docker-symfony-e2e`.",
         },
     ]
     unknowns = [
@@ -736,6 +959,20 @@ def _suite_for_summary(suite: dict) -> dict:
         "errors": suite.get("errors", 0),
         "skipped": suite.get("skipped", 0),
         "time_s": suite.get("time_s", 0.0),
+    }
+
+
+def _empty_suite(path: Path) -> dict:
+    return {
+        "path": str(path),
+        "exists": False,
+        "tests": 0,
+        "passed": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time_s": 0.0,
+        "cases": [],
     }
 
 
@@ -933,6 +1170,8 @@ def _feature_status(feature: dict) -> str:
     scenarios = feature.get("matched_scenarios", [])
     if any(scenario.get("status") in {"failed", "error"} for scenario in scenarios):
         return "failed"
+    if any(scenario.get("status") == "unavailable" for scenario in scenarios):
+        return "warning"
     if feature.get("gaps"):
         return "warning"
     return "ok"
@@ -946,11 +1185,13 @@ def _feature_status_counts(feature_inventory: dict) -> dict[str, int]:
 
 
 def _scenario_status_counts(scenarios: list[dict]) -> dict[str, int]:
-    counts = {"passed": 0, "failed": 0, "skipped": 0}
+    counts = {"passed": 0, "failed": 0, "skipped": 0, "unavailable": 0}
     for scenario in scenarios:
         status = scenario.get("status", "unknown")
         if status in {"failed", "error"}:
             counts["failed"] += 1
+        elif status == "unavailable":
+            counts["unavailable"] += 1
         elif status == "skipped":
             counts["skipped"] += 1
         else:
@@ -1031,6 +1272,8 @@ def _feature_scenario_line(scenarios: list[dict]) -> str:
         parts.append(f"<strong class='bad-text'>{counts['failed']} failed</strong>")
     if counts["skipped"]:
         parts.append(f"{counts['skipped']} skipped")
+    if counts["unavailable"]:
+        parts.append(f"{counts['unavailable']} unavailable")
     failed_items = "".join(
         f"<li><code>{html.escape(scenario.get('nodeid', ''))}</code> "
         f"{html.escape(scenario.get('message', ''))}</li>"
@@ -1244,7 +1487,7 @@ pre {
 .ok, .passed { color: #fff; background: var(--ok); }
 .failed, .error { color: #fff; background: var(--bad); }
 .warning { color: #1f1600; background: var(--warn-soft); }
-.skipped { color: #1c1600; background: #f6d365; }
+.skipped, .unavailable { color: #1c1600; background: #f6d365; }
 .generated, .optional, .not-needed { color: #17324d; background: #dbeafe; }
 .type {
   display: inline-block;
@@ -1518,7 +1761,7 @@ pre {
 }
 .ok, .passed { color: #fff; background: var(--ok); }
 .failed, .error { color: #fff; background: var(--bad); }
-.warning, .skipped { color: #241800; background: #f6d365; }
+.warning, .skipped, .unavailable { color: #241800; background: #f6d365; }
 .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; }
 .list { margin: 8px 0 0; padding-left: 18px; }
 .list li { margin-bottom: 5px; }
@@ -1581,12 +1824,16 @@ SPA_JS = """\
     if ((feature.matched_scenarios || []).some((s) => ['failed', 'error'].includes(s.status))) {
       return 'failed';
     }
+    if ((feature.matched_scenarios || []).some((s) => s.status === 'unavailable')) {
+      return 'warning';
+    }
     return (feature.gaps || []).length ? 'warning' : 'ok';
   };
   const counts = (items) => {
-    const out = {passed: 0, failed: 0, skipped: 0};
+    const out = {passed: 0, failed: 0, skipped: 0, unavailable: 0};
     for (const item of items || []) {
       if (['failed', 'error'].includes(item.status)) out.failed += 1;
+      else if (item.status === 'unavailable') out.unavailable += 1;
       else if (item.status === 'skipped') out.skipped += 1;
       else out.passed += 1;
     }
@@ -2331,11 +2578,13 @@ def build_summary(
     commands: list[CommandEvidence],
     unit: dict,
     e2e: dict,
+    symfony: dict | None = None,
     *,
     git_context: dict | None = None,
     help_commands: list[dict[str, str]] | None = None,
     scenario_evidence: dict | None = None,
 ) -> dict:
+    symfony = symfony or _empty_suite(SYMFONY_JUNIT)
     git_context = git_context or {
         "branch": "unknown",
         "sha": "unknown",
@@ -2349,14 +2598,26 @@ def build_summary(
     help_commands = help_commands or []
     project = collect_project_inventory(help_commands)
     validation_matrix = parse_validation_matrix()
-    coverage_groups = group_cases_by_module(unit, e2e)
+    coverage_groups = group_cases_by_module(unit, e2e, symfony)
     scenario_evidence = scenario_evidence or load_scenario_evidence()
     feature_inventory = build_feature_inventory(help_commands, scenario_evidence, git_context)
     scenario_evidence = enrich_scenario_evidence(scenario_evidence, feature_inventory)
     scenario_failures = proof_failures_from_scenarios(scenario_evidence)
     feature_inventory_failures = feature_failures(feature_inventory)
     risk_packet = build_project_risks_and_unknowns()
-    failed_tests = unit["failures"] + unit["errors"] + e2e["failures"] + e2e["errors"]
+    failed_tests = (
+        unit["failures"]
+        + unit["errors"]
+        + e2e["failures"]
+        + e2e["errors"]
+        + symfony["failures"]
+        + symfony["errors"]
+    )
+    command_failures = [
+        f"command failed: {command.label} ({command.log})"
+        for command in commands
+        if command.exit_code != 0
+    ]
     ok = (
         all(command.exit_code == 0 for command in commands)
         and failed_tests == 0
@@ -2370,6 +2631,7 @@ def build_summary(
         "report_html": str(REPORT_HTML),
         "unit_log": str(UNIT_LOG),
         "e2e_log": str(E2E_LOG),
+        "symfony_log": str(SYMFONY_LOG),
         "cli_help": str(CLI_HELP),
         "environment": {
             "python": sys.version.split()[0],
@@ -2382,11 +2644,15 @@ def build_summary(
             ),
         },
         "commands": [asdict(command) for command in commands],
-        "junit": {"unit": _suite_for_summary(unit), "e2e": _suite_for_summary(e2e)},
+        "junit": {
+            "unit": _suite_for_summary(unit),
+            "e2e": _suite_for_summary(e2e),
+            "symfony": _suite_for_summary(symfony),
+        },
         "totals": {
-            "tests": unit["tests"] + e2e["tests"],
-            "passed": unit["passed"] + e2e["passed"],
-            "skipped": unit["skipped"] + e2e["skipped"],
+            "tests": unit["tests"] + e2e["tests"] + symfony["tests"],
+            "passed": unit["passed"] + e2e["passed"] + symfony["passed"],
+            "skipped": unit["skipped"] + e2e["skipped"] + symfony["skipped"],
             "failed": failed_tests,
         },
         "git": git_context,
@@ -2396,11 +2662,11 @@ def build_summary(
         "scenario_evidence": scenario_evidence,
         "scenario_totals": scenario_evidence["totals"],
         "feature_inventory": feature_inventory,
-        "proof_failures": scenario_failures + feature_inventory_failures,
+        "proof_failures": scenario_failures + feature_inventory_failures + command_failures,
         "risks": risk_packet["risks"],
         "unknowns": risk_packet["unknowns"],
     }
-    summary["evidence_catalog"] = build_evidence_catalog(summary, unit, e2e)
+    summary["evidence_catalog"] = build_evidence_catalog(summary, unit, e2e, symfony)
     return summary
 
 
@@ -2411,6 +2677,7 @@ def generate() -> dict:
     env = _repo_env()
     unit_xml = PROOF_DIR / "unit-junit.xml"
     e2e_xml = PROOF_DIR / "e2e-junit.xml"
+    symfony_xml = SYMFONY_JUNIT
 
     commands = [
         run_evidence(
@@ -2449,7 +2716,7 @@ def generate() -> dict:
                 sys.executable,
                 "-m",
                 "pytest",
-                "tests/e2e",
+                "tests/e2e/test_e2e_chrome.py",
                 "-v",
                 f"--cdpx-evidence-dir={EVIDENCE_DIR}",
                 f"--junitxml={e2e_xml}",
@@ -2457,6 +2724,7 @@ def generate() -> dict:
             E2E_LOG,
             env=env,
         ),
+        run_symfony_evidence(),
         run_evidence(
             "cli-help",
             "Aide CLI",
@@ -2468,10 +2736,16 @@ def generate() -> dict:
 
     unit = parse_junit(unit_xml)
     e2e = parse_junit(e2e_xml)
+    symfony = parse_junit(symfony_xml)
     help_commands = parse_help_commands(CLI_HELP.read_text(encoding="utf-8", errors="replace"))
     git_context = collect_git_context()
     summary = build_summary(
-        commands, unit, e2e, git_context=git_context, help_commands=help_commands
+        commands,
+        unit,
+        e2e,
+        symfony,
+        git_context=git_context,
+        help_commands=help_commands,
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
