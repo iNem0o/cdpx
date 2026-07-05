@@ -92,16 +92,19 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 3 — Filet tests CLI + e2e
 
-- [ ] 3.1 Test paramétré de dispatch CLI (~22 cas: argv, setup mock, méthode
-      CDP attendue, check sortie) couvrant wait, text, html, count, click,
-      type, key, pdf, network, storage, metrics, dom-diff, intercept, emulate,
-      vitals, a11y, coverage, frame, record, replay; profiler en test dédié.
-- [ ] 3.2 Tests argparse fragiles: dom-diff avec/sans `--`; record strip `--`
-      du journal; intercept multi-règles + action non-goto → exit 1 sans Fetch;
-      emulate sans preset ni --reset → exit 1.
-- [ ] 3.3 e2e nouveaux: `test_emulate_mobile_and_reset_real`,
-      `test_metrics_real`, `test_pdf_real` (+ globs dans les fiches features).
-      Différés assumés notés dans VALIDATION.md: key isolé, tabs lifecycle.
+- [x] 3.1 Test paramétré de dispatch CLI (16 cas + pdf/tabs-activate dédiés)
+      couvrant wait, text, html, count, click, type, key, pdf, network,
+      storage, metrics, dom-diff, emulate, vitals, a11y, coverage, frame;
+      record/replay/intercept/profiler en tests dédiés.
+- [x] 3.2 Tests argparse fragiles: dom-diff avec/sans `--`; record strip `--`
+      du journal; intercept multi-règles (Fetch.fulfillRequest 503) + action
+      non-goto → exit 1 sans Fetch; emulate sans preset ni --reset → exit 1.
+- [x] 3.3 e2e nouveaux: `test_emulate_mobile_and_reset_real` (1.2),
+      `test_metrics_real`, `test_pdf_real`, `test_record_replay_real` (2.4),
+      `test_emulate_composed_action_real` (2.5). Globs fiches: remappage
+      complet en Phase 4 (nouveaux tests = warnings non bloquants d'ici là).
+      Différés assumés à noter dans VALIDATION.md (Phase 7): key isolé, tabs
+      lifecycle (déjà exercés indirectement par les fixtures e2e).
 
 ## Phase 4 — Doc utilisateur par feature
 

@@ -163,6 +163,174 @@ def test_screenshot_format_jpeg(mock, capsys, tmp_path):
     assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "jpeg"
 
 
+RECT = json.dumps({"x": 0, "y": 0, "width": 10, "height": 10})
+
+# Filet de dispatch: chaque sous-commande traverse argparse -> _client -> primitive
+# -> JSON stdout, et émet au moins sa commande CDP signature (contrat protocole).
+# Format: (id, argv, règles on_eval, méthode CDP attendue, prédicat sur la sortie)
+DISPATCH_CASES = [
+    ("wait", ["wait", "#late"], {"querySelector": True}, "Runtime.evaluate", lambda d: d["found"]),
+    (
+        "text",
+        ["text"],
+        {"innerText": "Bonjour"},
+        "Runtime.evaluate",
+        lambda d: d["text"] == "Bonjour",
+    ),
+    (
+        "html",
+        ["html", "#x"],
+        {"outerHTML": "<b>x</b>"},
+        "Runtime.evaluate",
+        lambda d: d["html"] == "<b>x</b>",
+    ),
+    (
+        "count",
+        ["count", ".item"],
+        {"querySelectorAll": 3},
+        "Runtime.evaluate",
+        lambda d: d["count"] == 3,
+    ),
+    (
+        "click",
+        ["click", "#go"],
+        {"getBoundingClientRect": RECT},
+        "Input.dispatchMouseEvent",
+        lambda d: d["clicked"] == "#go",
+    ),
+    (
+        "type",
+        ["type", "#name", "Léo"],
+        {"focus": True},
+        "Input.insertText",
+        lambda d: d["typed"] == "Léo",
+    ),
+    ("key", ["key", "Enter"], {}, "Input.dispatchKeyEvent", lambda d: d["pressed"] == "Enter"),
+    (
+        "network",
+        ["network", "http://s.test/", "--settle", "0.1"],
+        {},
+        "Page.navigate",
+        lambda d: "summary" in d,
+    ),
+    ("storage", ["storage"], {"localStorage": "{}"}, "Runtime.evaluate", lambda d: d["count"] == 0),
+    ("metrics", ["metrics"], {}, "Performance.getMetrics", lambda d: d["Nodes"] == 42),
+    ("a11y", ["a11y"], {}, "Accessibility.getFullAXTree", lambda d: d["count"] == 2),
+    (
+        "coverage",
+        ["coverage", "http://s.test/"],
+        {},
+        "Profiler.startPreciseCoverage",
+        lambda d: d["css"]["rules"] == 2,
+    ),
+    (
+        "frame",
+        ["frame", "#m"],
+        {"contentDocument": "texte iframe"},
+        "Runtime.evaluate",
+        lambda d: d["text"] == "texte iframe",
+    ),
+    (
+        "vitals",
+        ["vitals", "http://s.test/", "--settle", "0.1"],
+        {"__cdpxVitals": json.dumps({"lcp": 1, "cls": 0, "inp": 0})},
+        "Page.addScriptToEvaluateOnNewDocument",
+        lambda d: d["lcp"] == 1,
+    ),
+    (
+        "emulate",
+        ["emulate", "slow-3g"],
+        {},
+        "Network.emulateNetworkConditions",
+        lambda d: d["applied"] is True,
+    ),
+    (
+        "dom-diff",
+        ["dom-diff", "--", "eval", "1 + 1"],
+        {"__cdpx_dom_snapshot": json.dumps(["<body>"])},
+        "Runtime.evaluate",
+        lambda d: d["changed"] is False,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case_id,argv,rules,method,check", DISPATCH_CASES, ids=[c[0] for c in DISPATCH_CASES]
+)
+def test_cli_dispatch_emits_protocol_and_json(mock, capsys, case_id, argv, rules, method, check):
+    for substring, value in rules.items():
+        mock.on_eval(substring, value)
+    code, out, err = run(mock, capsys, *argv)
+    assert code == 0, f"{case_id}: exit {code}, stderr={err}"
+    data = json.loads(out)
+    assert check(data), f"{case_id}: sortie inattendue {data}"
+    if method:
+        assert mock.commands_for(method), f"{case_id}: {method} jamais émis"
+
+
+def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path):
+    dest = tmp_path / "page.pdf"
+    code, out, _ = run(mock, capsys, "pdf", "-o", str(dest))
+    assert code == 0 and json.loads(out)["bytes"] > 0
+    assert dest.read_bytes().startswith(b"%PDF")
+    assert mock.commands_for("Page.printToPDF")
+
+
+def test_tabs_activate(mock, capsys):
+    tid = next(iter(mock.targets))
+    code, out, _ = run(mock, capsys, "tabs", "activate", "--id", tid)
+    assert code == 0 and json.loads(out) == {"activated": tid}
+
+
+def test_dom_diff_accepts_action_with_or_without_separator(mock, capsys):
+    mock.on_eval("__cdpx_dom_snapshot", json.dumps(["<body>"]))
+    mock.on_eval("2 + 2", 4)
+    code, out, _ = run(mock, capsys, "dom-diff", "eval", "2 + 2")
+    assert code == 0 and json.loads(out)["action"] == ["eval", "2 + 2"]
+    code, out, _ = run(mock, capsys, "dom-diff", "--", "eval", "2 + 2")
+    assert code == 0 and json.loads(out)["action"] == ["eval", "2 + 2"]
+
+
+def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "P1",
+                    "request": {"url": "http://s.test/api/x"},
+                },
+            }
+        ]
+    )
+    code, out, _ = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*api* => 503",
+        "--rule",
+        "*img* => block",
+        "--settle",
+        "0.1",
+        "--",
+        "goto",
+        "http://s.test/",
+    )
+    data = json.loads(out)
+    assert code == 0 and len(data["rules"]) == 2
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
+    # action non-goto: erreur d'usage AVANT toute commande Fetch
+    mock.commands.clear()
+    code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "click", "#x")
+    assert code == 1 and "intercept supporte" in err and mock.commands == []
+
+
+def test_emulate_requires_preset_or_reset(mock, capsys):
+    code, _, err = run(mock, capsys, "emulate")
+    assert code == 1 and "preset inconnu" in err
+
+
 def test_record_cli_executes_and_journals(mock, capsys, tmp_path):
     journal = tmp_path / "j.ndjson"
     code, out, _ = run(mock, capsys, "record", "-o", str(journal), "--", "goto", "http://a.test/")

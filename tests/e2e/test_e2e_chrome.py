@@ -218,6 +218,23 @@ def test_origin_guard_cli_real(chrome, fixtures_http, evidence_case):
     assert "mutation refusée" in proc.stderr
 
 
+def test_metrics_real(page):
+    c, base = page
+    nav.navigate(c, f"{base}/index.html")
+    res = audit.metrics(c)
+    assert res["Nodes"] > 0 and res["Documents"] > 0
+    assert res["JSHeapUsedSize"] > 0
+
+
+def test_pdf_real(page, tmp_path):
+    c, base = page
+    nav.navigate(c, f"{base}/index.html")
+    dest = tmp_path / "page.pdf"
+    res = capture.pdf(c, str(dest))
+    assert res["bytes"] > 1000
+    assert dest.read_bytes().startswith(b"%PDF-")
+
+
 def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path):
     journal = tmp_path / "session.ndjson"
     base = fixtures_http.base_url
