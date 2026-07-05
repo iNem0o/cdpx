@@ -100,6 +100,7 @@ def profiler(client: CDPClient, url: str, timeout: float = 30.0, settle: float =
     with urllib.request.urlopen(req, timeout=timeout) as res:
         body = res.read()
         content_type = res.headers.get("Content-Type", "")
+        profiler_status = res.status
 
     token = hit["link"].rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
     out = {
@@ -107,7 +108,7 @@ def profiler(client: CDPClient, url: str, timeout: float = 30.0, settle: float =
         "url": hit["url"],
         "status": hit["status"],
         "profiler_url": hit["link"],
-        "profiler_status": 200,
+        "profiler_status": profiler_status,
         "profiler_bytes": len(body),
         "response_headers": hit["headers"],
         "signals": _scenario_signals(hit["headers"]),
