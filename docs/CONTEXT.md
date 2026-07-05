@@ -55,18 +55,12 @@ requêtes (Fetch domain), DOM diff avant/après action, émulation device/résea
 arbre d'accessibilité comme "vision sémantique" low-cost, record/replay de
 sessions, Core Web Vitals.
 
-## Contrainte de l'environnement de génération (importante)
+## Contrainte d'exécution Chrome
 
-L'environnement où ce dépôt a été généré **n'a pas de Chrome** et ne peut pas
-en installer (CDN Playwright/Puppeteer hors allowlist réseau). Conséquence
-assumée, conforme à la demande "ne faire que ce qui est validable à 100%":
-
-- **Validé en runtime (100%)**: le serveur de fixtures et chacun de ses
-  endpoints, les 10 pages HTML témoins, le client CDP, la découverte /json,
-  les 15 primitives, le CLI complet (y compris via le binaire installé), le
-  mock CDP — soit 47 tests verts + lint/format (`make check`).
-- **Non validé, livré comme squelette explicite**: `tests/e2e/` (Chrome réel).
-  Seul son comportement de skip propre a été vérifié. C'est le milestone M1.
+Les e2e Chrome réel sont désormais un portail bloquant: `make test-e2e` et
+`make proof` échouent si aucun binaire Chrome/Chromium n'est disponible dans
+le `PATH`. Les tests démarrent leur propre profil headless jetable et ne
+s'attachent pas au Chrome personnel déjà ouvert.
 
 ## Décisions techniques et leurs raisons
 

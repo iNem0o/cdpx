@@ -43,11 +43,11 @@ cdpx --port <PORT> goto http://demo.test/
 
 ```
 make check                 # lint + format + tests unitaires déterministes
-make test-e2e              # e2e Chrome réel — skip propre si absent
+make test-e2e              # e2e Chrome réel — Chrome/Chromium obligatoire
 make docker-check          # check dans l'image portable cdpx-ci
 make docker-e2e            # e2e Chrome réel dans Docker
 make docker-symfony-e2e    # profiler contre une vraie app Symfony Docker
-make proof                 # logs courts dans .proof/ + résumé JSON
+make proof                 # rapport HTML humain + preuves dans .proof/
 ```
 
 Les tests unitaires tournent contre un **mock CDP** qui enregistre chaque

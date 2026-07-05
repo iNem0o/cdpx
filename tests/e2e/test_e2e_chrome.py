@@ -1,14 +1,13 @@
-"""E2E Chrome réel — SQUELETTE MILESTONE M1.
+"""E2E Chrome réel.
 
-Statut: NON VALIDÉ en runtime (aucun Chrome disponible dans l'environnement
-de génération — voir docs/CONTEXT.md). Ce fichier est le point d'entrée de la
-reprise M1: il se skippe proprement sans Chrome (comportement, lui, validé),
-et déroule les mêmes scénarios que les tests mock, mais contre un vrai
-navigateur + le serveur de fixtures.
+Chrome/Chromium est une dépendance obligatoire du portail e2e: si aucun binaire
+n'est disponible, la suite échoue au lieu de produire un faux succès par skip.
+Les scénarios déroulent les mêmes fixtures que les tests mock, mais contre un
+vrai navigateur + le serveur de fixtures.
 
 Lancement visé:
   chromium --headless=new --remote-debugging-port=0 ... (géré ici)
-  make e2e
+  make test-e2e
 """
 
 import json
@@ -25,13 +24,15 @@ import pytest
 from cdpx import discovery
 from cdpx.client import CDPClient
 from cdpx.primitives import advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.testing.e2e import attach_screenshot
 
 CHROME_BIN = next(
     (b for b in ("chromium", "chromium-browser", "google-chrome", "chrome") if shutil.which(b)),
     None,
 )
 
-pytestmark = pytest.mark.skipif(CHROME_BIN is None, reason="Chrome/Chromium absent (voir M1)")
+if CHROME_BIN is None:
+    pytest.fail("Chrome/Chromium obligatoire pour les e2e cdpx", pytrace=False)
 
 E2E_PORT = 9777
 
@@ -64,10 +65,11 @@ def chrome():
 
 
 @pytest.fixture()
-def page(chrome, fixtures_http):
+def page(chrome, fixtures_http, evidence_case):
     target = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     with CDPClient(target["webSocketDebuggerUrl"], timeout=15) as c:
         yield c, fixtures_http.base_url
+        attach_screenshot(evidence_case, c, "final")
     discovery.close_tab("127.0.0.1", chrome, target["id"])
 
 
@@ -186,7 +188,7 @@ def test_seo_edge_real(page):
     assert "Product JSON-LD incomplet (sku ou name requis)" in res["findings"]
 
 
-def test_origin_guard_cli_real(chrome, fixtures_http):
+def test_origin_guard_cli_real(chrome, fixtures_http, evidence_case):
     tab = discovery.new_tab("127.0.0.1", chrome, f"{fixtures_http.base_url}/index.html")
     env = {**os.environ, "CDPX_ORIGINS": "https://blocked.example"}
     try:
@@ -209,6 +211,8 @@ def test_origin_guard_cli_real(chrome, fixtures_http):
             timeout=10,
         )
     finally:
+        with CDPClient(tab["webSocketDebuggerUrl"], timeout=10) as c:
+            attach_screenshot(evidence_case, c, "origin-guard-final")
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
     assert proc.returncode == 1
     assert "mutation refusée" in proc.stderr
@@ -234,22 +238,27 @@ def test_cookies_and_storage_real(page):
     assert storage["entries"].get("cdpx-key") == "cdpx-value"
 
 
-def test_screenshot_real(page, tmp_path):
+def test_screenshot_real(page, tmp_path, evidence_case):
     c, base = page
     nav.navigate(c, f"{base}/index.html")
     out = tmp_path / "e2e.png"
     res = capture.screenshot(c, str(out))
+    if evidence_case is not None:
+        evidence_case.attach_screenshot(out, "screenshot-command")
     assert res["bytes"] > 1000
     assert out.read_bytes().startswith(b"\x89PNG")
 
 
-def test_full_page_screenshot_captures_long_page(page, tmp_path):
+def test_full_page_screenshot_captures_long_page(page, tmp_path, evidence_case):
     c, base = page
     nav.navigate(c, f"{base}/long.html")
     normal = tmp_path / "normal.png"
     full = tmp_path / "full.png"
     normal_res = capture.screenshot(c, str(normal))
     full_res = capture.screenshot(c, str(full), full_page=True)
+    if evidence_case is not None:
+        evidence_case.attach_screenshot(normal, "normal-screenshot")
+        evidence_case.attach_screenshot(full, "full-page-screenshot")
     assert full_res["full_page"] is True
     assert full_res["bytes"] > normal_res["bytes"]
     assert full.read_bytes().startswith(b"\x89PNG")

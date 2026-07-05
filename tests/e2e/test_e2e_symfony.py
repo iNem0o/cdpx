@@ -23,9 +23,12 @@ CHROME_BIN = next(
 )
 SYMFONY_URL = os.environ.get("SYMFONY_E2E_URL")
 
+if CHROME_BIN is None:
+    pytest.fail("Chrome/Chromium obligatoire pour les e2e Symfony cdpx", pytrace=False)
+
 pytestmark = pytest.mark.skipif(
-    CHROME_BIN is None or not SYMFONY_URL,
-    reason="Chrome ou SYMFONY_E2E_URL absent (lancer make docker-symfony-e2e)",
+    not SYMFONY_URL,
+    reason="SYMFONY_E2E_URL absent (lancer make docker-symfony-e2e)",
 )
 
 E2E_PORT = 9778

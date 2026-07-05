@@ -17,7 +17,7 @@ doc à jour. Les items renvoient aux fiches milestones pour le détail.
 - [x] Fixtures HTML: index, form, spa, console, network, seo, seo-broken,
       storage, iframe, child, long, intercept, vitals, coverage, seo-edge (+ assets)
 - [x] Tests unitaires, ruff clean, `make check`
-- [x] E2E Chrome réel avec skip propre sans Chrome
+- [x] E2E Chrome réel avec Chrome/Chromium obligatoire
 - [x] Harness: CLAUDE.md, HARNESS.md, Makefile, docs complètes
 
 ## M1 — e2e Chrome réel (PRIORITÉ à la reprise)

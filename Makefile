@@ -28,7 +28,7 @@ fmt: ## reformater le code
 test: ## tests unitaires déterministes (mock CDP + serveur fixtures, loopback only)
 	$(PY) -m pytest tests --ignore=tests/e2e
 
-test-e2e: ## e2e Chrome réel (M1) — skip propre si Chrome absent
+test-e2e: ## e2e Chrome réel (M1) — échoue si Chrome/Chromium absent
 	$(PY) -m pytest tests/e2e -v
 
 docker-build: ## construire l'image portable cdpx-ci
@@ -44,16 +44,8 @@ docker-symfony-e2e: ## M2: e2e profiler contre une vraie app Symfony Dockerisée
 	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
 	docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
 
-proof: check ## artefacts sobres pour handoff/CI (.proof/)
-	rm -rf .proof
-	mkdir -p .proof
-	$(PY) -m pytest tests --ignore=tests/e2e > .proof/make-check-pytest.log
-	$(PY) -m pytest tests/e2e -v > .proof/e2e-chrome.log
-	cdpx --help > .proof/cdpx-help.txt
-	printf '%s\n' \
-	'{"ok":true,"artifact_dir":".proof","unit_log":".proof/make-check-pytest.log","e2e_log":".proof/e2e-chrome.log","cli_help":".proof/cdpx-help.txt"}' \
-	> .proof/validation-summary.json
-	cat .proof/validation-summary.json
+proof: ## rapport HTML humain basé sur les preuves collectées (.proof/)
+	PYTHONPATH=src $(PY) -m cdpx.proof
 
 fixtures: ## lancer le site témoin sur :8899 (inspection manuelle / e2e piloté main)
 	$(PY) -m cdpx.testing.fixture_server --port 8899

@@ -12,8 +12,9 @@ checks lourds explicitement séparés.
 - `make docker-check`: `make check` dans l'image portable `cdpx-ci`.
 - `make docker-e2e`: Chrome réel dans l'image `cdpx-ci`.
 - `make docker-symfony-e2e`: e2e profiler contre une vraie app Symfony Docker.
-- `make proof`: rejoue `check`, capture les tests unitaires, les e2e Chrome,
-  l'aide CLI et écrit `.proof/validation-summary.json`.
+- `make proof`: collecte lint, format, tests unitaires/intégration, e2e Chrome,
+  aide CLI, JUnit XML, logs, scénarios pytest et screenshots e2e, puis écrit
+  `.proof/proof-report.html` et `.proof/validation-summary.json`.
 
 ## Matrice
 
@@ -29,7 +30,9 @@ checks lourds explicitement séparés.
 
 ## Cas limites couverts
 
-- Absence de Chrome: skip e2e explicite, sans faux succès unitaire.
+- Absence de Chrome: échec e2e explicite, sans faux succès par skip.
+- Preuve e2e: chaque scénario Chrome non skippé doit exposer au moins un
+  screenshot dans `.proof/evidence/`.
 - Cookies: `Storage.clearCookies` avec fallback CDP historique.
 - Interception: réponse fulfill encodée, block réseau, continue, règle invalide.
 - Replay: NDJSON invalide, action manquante, divergence `ok:false`, budget

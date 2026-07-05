@@ -41,7 +41,8 @@ observable et réversible**.
   sortie JSON *et* la séquence exacte de commandes CDP. C'est ce qui rend une
   régression de protocole impossible à rater.
 - e2e Chrome réel: séparé (`make test-e2e`), réutilise les mêmes fixtures,
-  se skippe proprement si Chrome absent. Voir `docs/milestones/M1-e2e-chrome.md`.
+  et échoue si aucun binaire Chrome/Chromium n'est disponible. Voir
+  `docs/milestones/M1-e2e-chrome.md`.
 
 ## 4. Supervision et pilotage humain
 
@@ -56,8 +57,10 @@ observable et réversible**.
   ouvre et ferme sa connexion; l'état vit dans le navigateur, inspectable).
 - Debug sans navigateur: `make mock` donne un faux Chrome à qui parler; les
   commandes reçues sont la trace exacte de ce que cdpx émet.
-- Preuve de handoff: `make proof` écrit `.proof/validation-summary.json`,
-  `.proof/make-check-pytest.log`, `.proof/e2e-chrome.log` et l'aide CLI.
+- Preuve de handoff: `make proof` écrit un rapport humain
+  `.proof/proof-report.html`, `.proof/validation-summary.json`, les logs
+  pytest/lint, les JUnit XML, l'aide CLI capturée et les preuves de scénarios
+  `.proof/evidence/` dont les screenshots e2e Chrome.
 
 ## 5. Reprise humaine
 
