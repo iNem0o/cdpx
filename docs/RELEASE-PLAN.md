@@ -181,10 +181,11 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 9 — Validation finale
 
-- [ ] `make check` vert (ruff + tests dont packaging/docs/markdown).
-- [ ] `make test-e2e` vert (scénarios dont emulate/metrics/pdf/replay).
-- [ ] `make docker-symfony-e2e` si Docker disponible.
-- [ ] `make proof` → ok:true, 0 violation, 0 gap; inspection manuelle du
-      rapport (doc FR par feature, vues Run/CLI/Validation peuplées).
-- [ ] `make dist` → wheel+sdist + smoke install.
-- [ ] RELEASE-PLAN coché, TODO.md à jour, commit final.
+- [x] `make check` vert — 239 tests unitaires (packaging/docs/markdown inclus).
+- [x] `make test-e2e` vert — 23 scénarios Chrome réels (emulate/metrics/pdf/replay inclus).
+- [x] `make docker-symfony-e2e` vert — 6/6 contre l'app Symfony Docker.
+- [x] `make proof` → ok:true, 268/268 tests, 0 violation, 0 warning, 0 gap,
+      8 features validated; rapport inspecté visuellement (doc FR par feature,
+      vues Run/CLI/Validation peuplées) en pilotant la SPA avec cdpx.
+- [x] `make dist` → wheel+sdist + twine check + smoke install venv (cdpx 0.1.0).
+- [x] RELEASE-PLAN coché, TODO.md à jour, commit final.
