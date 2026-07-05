@@ -63,10 +63,10 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
       composée `emulate <preset> -- <action>` ajoutée au périmètre Phase 2
       (réutilise l'interpréteur d'actions). Séquence de reset figée en mock,
       sémantique prouvée en e2e.
-- [ ] 1.3 `screenshot --format png|jpeg` exposé au CLI (param `fmt` existant).
+- [x] 1.3 `screenshot --format png|jpeg` exposé au CLI (param `fmt` existant).
       Test mock: format transmis à `Page.captureScreenshot`, défaut png.
-- [ ] 1.4 `profiler_status` réel (`res.status` urllib, plus de littéral 200).
-- [ ] 1.5 state.py: `except CDPError` ciblé, `import json` module-level; mock
+- [x] 1.4 `profiler_status` réel (`res.status` urllib, plus de littéral 200).
+- [x] 1.5 state.py: `except CDPError` ciblé, `import json` module-level; mock
       `fail_on(method)` + test du fallback `clear_cookies` (séquence
       Storage.clearCookies → Network.clearBrowserCookies).
 

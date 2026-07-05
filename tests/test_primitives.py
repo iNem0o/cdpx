@@ -230,6 +230,7 @@ def test_profiler_reads_debug_token_link(mock, client, fixtures_http):
     )
     res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim")
     assert res["token"] == "fixed-token"
+    assert res["profiler_status"] == 200  # dérivé de la réponse HTTP réelle
     assert res["panels"]["db"]["queries"] == 2
     assert mock.commands_for("Network.enable") == [{}]
 
@@ -326,6 +327,18 @@ def test_set_and_clear_cookies(mock, client):
     assert any(c["name"] == "flag" for c in mock.cookies)
     res = state.clear_cookies(client)
     assert res["method"] == "Storage.clearCookies"
+    assert mock.cookies == []
+
+
+def test_clear_cookies_falls_back_on_legacy_method(mock, client):
+    # Chrome historique sans Storage.clearCookies: repli sur la méthode dépréciée.
+    mock.fail_on("Storage.clearCookies")
+    res = state.clear_cookies(client)
+    assert res == {"cleared": True, "method": "Network.clearBrowserCookies"}
+    assert [m for (_t, m, _p) in mock.commands] == [
+        "Storage.clearCookies",
+        "Network.clearBrowserCookies",
+    ]
     assert mock.cookies == []
 
 

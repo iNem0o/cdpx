@@ -68,6 +68,7 @@ class MockCDP:
         self.eval_rules: list[tuple[str, deque]] = []  # (substring, valeurs successives)
         self.console_script: list[dict] = []  # évènements émis après Runtime.enable
         self.network_script: list[dict] = []  # évènements émis après Page.navigate
+        self.error_methods: set[str] = set()  # méthodes qui répondent une erreur CDP
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._http: http.server.ThreadingHTTPServer | None = None
         self._ws_server = None
@@ -89,6 +90,10 @@ class MockCDP:
 
     def commands_for(self, method: str) -> list[dict]:
         return [p for (_t, m, p) in self.commands if m == method]
+
+    def fail_on(self, method: str) -> None:
+        """Scripter une erreur CDP pour cette méthode (tester les chemins de repli)."""
+        self.error_methods.add(method)
 
     # -- cycle de vie ------------------------------------------------------------
     def start(self) -> MockCDP:
@@ -196,6 +201,8 @@ class MockCDP:
     # -- protocole scripté --------------------------------------------------------
     def _respond(self, tid: str, method: str, params: dict):
         events: list[dict] = []
+        if method in self.error_methods:
+            return None, {"code": -32000, "message": f"mock: '{method}' scripted failure"}, events
         if method == "Runtime.evaluate":
             expr = params.get("expression", "")
             for substring, values in self.eval_rules:

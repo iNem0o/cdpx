@@ -8,7 +8,9 @@ show_values est un acte volontaire de l'humain.
 
 from __future__ import annotations
 
-from cdpx.client import CDPClient
+import json
+
+from cdpx.client import CDPClient, CDPError
 from cdpx.primitives.js import evaluate
 
 MASK = "***"
@@ -40,7 +42,8 @@ def clear_cookies(client: CDPClient) -> dict:
     try:
         client.send("Storage.clearCookies")
         return {"cleared": True, "method": "Storage.clearCookies"}
-    except Exception:
+    except CDPError:
+        # Chrome historique sans Storage.clearCookies: méthode dépréciée en repli.
         client.send("Network.clearBrowserCookies")
         return {"cleared": True, "method": "Network.clearBrowserCookies"}
 
@@ -49,7 +52,5 @@ def get_storage(client: CDPClient, kind: str = "local") -> dict:
     store = "localStorage" if kind == "local" else "sessionStorage"
     expr = f"JSON.stringify(Object.fromEntries(Object.entries({store})))"
     raw = evaluate(client, expr)
-    import json as _json
-
-    data = _json.loads(raw) if raw else {}
+    data = json.loads(raw) if raw else {}
     return {"kind": kind, "entries": data, "count": len(data)}
