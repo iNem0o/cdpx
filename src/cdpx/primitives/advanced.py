@@ -110,6 +110,9 @@ def intercept_goto(
 def emulate(client: CDPClient, preset: str | None = None, reset: bool = False) -> dict:
     if reset:
         client.send("Emulation.clearDeviceMetricsOverride")
+        # userAgent vide = Chrome restaure l'UA par défaut (vérifié e2e); sans
+        # cet appel, l'UA du preset mobile survivait au reset.
+        client.send("Emulation.setUserAgentOverride", {"userAgent": ""})
         client.send(
             "Network.emulateNetworkConditions",
             {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1},

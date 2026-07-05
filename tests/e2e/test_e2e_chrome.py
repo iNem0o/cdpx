@@ -218,6 +218,32 @@ def test_origin_guard_cli_real(chrome, fixtures_http, evidence_case):
     assert "mutation refusée" in proc.stderr
 
 
+def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):
+    # Sémantique prouvée contre Chrome réel:
+    # 1. intra-connexion, `--reset` restaure device ET user-agent (bug
+    #    historique: l'UA du preset mobile survivait au reset);
+    # 2. les overrides d'émulation meurent avec la connexion CDP — une
+    #    invocation cdpx isolée ne laisse donc PAS la page émulée derrière
+    #    elle (d'où la forme composée `emulate <preset> -- <action>`).
+    tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
+            nav.navigate(c, f"{fixtures_http.base_url}/index.html")
+            initial = js.evaluate(c, "screen.width")
+            advanced.emulate(c, "mobile")
+            assert js.evaluate(c, "screen.width") == 390
+            assert "cdpx-mobile" in js.evaluate(c, "navigator.userAgent")
+            advanced.emulate(c, reset=True)
+            assert js.evaluate(c, "screen.width") == initial
+            assert "cdpx-mobile" not in js.evaluate(c, "navigator.userAgent")
+            advanced.emulate(c, "mobile")  # re-pose l'override, la connexion se ferme
+        with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
+            assert js.evaluate(c, "screen.width") == initial  # mort avec la connexion
+            attach_screenshot(evidence_case, c, "final")
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, tab["id"])
+
+
 def test_seo_audit_real(page):
     c, base = page
     nav.navigate(c, f"{base}/seo.html")

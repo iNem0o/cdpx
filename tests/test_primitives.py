@@ -453,7 +453,19 @@ def test_intercept_rejects_invalid_rule(mock, client):
 def test_emulate_mobile_and_reset(mock, client):
     assert advanced.emulate(client, "mobile")["applied"] is True
     assert mock.commands_for("Emulation.setDeviceMetricsOverride")[0]["mobile"] is True
+    mock.commands.clear()
     assert advanced.emulate(client, reset=True)["reset"] is True
+    # Séquence complète de reset, UA compris (bug historique: UA mobile jamais
+    # restaurée; vérifié contre Chrome réel — setUserAgentOverride "" rétablit
+    # l'UA par défaut, clearDeviceMetricsOverride lève l'override device).
+    assert [m for (_t, m, _p) in mock.commands] == [
+        "Emulation.clearDeviceMetricsOverride",
+        "Emulation.setUserAgentOverride",
+        "Network.emulateNetworkConditions",
+        "Emulation.setCPUThrottlingRate",
+    ]
+    assert mock.commands_for("Emulation.setUserAgentOverride")[0] == {"userAgent": ""}
+    assert mock.commands_for("Emulation.setCPUThrottlingRate")[0] == {"rate": 1}
 
 
 def test_vitals_installs_observer_and_reads_values(mock, client):

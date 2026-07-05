@@ -54,11 +54,15 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
       assertion du contenu exact du set. Ajustement HARNESS §6: record/replay
       n'entrent dans le set qu'en Phase 2, quand leur passage par `_client()`
       rend le garde-fou effectivement appliqué (pas de règle sans enforcement).
-- [ ] 1.2 Fix `emulate --reset`: `Emulation.setDeviceMetricsOverride`
-      width/height/scale 0 + mobile:false (au lieu de clear seul), reset UA
-      (`setUserAgentOverride ""`), network, CPU. e2e de reproduction d'abord
-      (mobile → innerWidth 390 → nouvelle connexion → reset → restauré), puis
-      séquence figée dans le test mock.
+- [x] 1.2 Fix `emulate --reset`. Constat e2e (Chrome 150): intra-connexion,
+      `clearDeviceMetricsOverride` fonctionne mais l'UA du preset mobile
+      survivait au reset → ajout `setUserAgentOverride ""`. DÉCOUVERTE: les
+      overrides d'émulation meurent avec la connexion CDP — la persistance
+      inter-connexions notée précédemment ne se reproduit pas; conséquence:
+      `emulate` standalone est inopérant pour l'invocation suivante → forme
+      composée `emulate <preset> -- <action>` ajoutée au périmètre Phase 2
+      (réutilise l'interpréteur d'actions). Séquence de reset figée en mock,
+      sémantique prouvée en e2e.
 - [ ] 1.3 `screenshot --format png|jpeg` exposé au CLI (param `fmt` existant).
       Test mock: format transmis à `Page.captureScreenshot`, défaut png.
 - [ ] 1.4 `profiler_status` réel (`res.status` urllib, plus de littéral 200).
@@ -81,6 +85,10 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
       corrompu → aucun protocole émis.
 - [ ] 2.4 e2e `test_record_replay_real` (record sur form.html, replay vert,
       replay divergent) + fiche `orchestration-control.md` + PRIMITIVES.md.
+- [ ] 2.5 `emulate <preset> -- <action...>` (forme composée): applique le
+      preset puis exécute l'action DANS LA MÊME connexion (seule façon d'agir
+      sous émulation, cf. constat 1.2). Tests mock (séquence preset puis
+      action) + e2e (goto sous mobile → screen.width 390 pendant l'action).
 
 ## Phase 3 — Filet tests CLI + e2e
 
