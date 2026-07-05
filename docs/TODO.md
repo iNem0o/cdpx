@@ -1,5 +1,8 @@
 # TODO.md — liste de travail
 
+> **Release initiale en cours**: le plan de refactor complet et son suivi
+> (cases à cocher) vivent dans [`docs/RELEASE-PLAN.md`](RELEASE-PLAN.md).
+
 Format: chaque item porte son POURQUOI et son COMMENT. Un item se prend en
 suivant la boucle CLAUDE.md (test mock d'abord). Cocher = `make check` vert +
 doc à jour. Les items renvoient aux fiches milestones pour le détail.
