@@ -108,34 +108,36 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 4 — Doc utilisateur par feature
 
-- [ ] 4.1 Parseur: section `## Usage` obligatoire; garde-fou: chaque entrypoint
+- [x] 4.1 Parseur: section `## Usage` obligatoire; garde-fou: chaque entrypoint
       `cdpx <cmd>` / `make <target>` du TOML doit avoir son heading `###` dans
       Usage sinon violation (`ok:false`); `FeatureSpec.body` + `doc_html`.
-- [ ] 4.2 `src/cdpx/proofing/markdown.py`: convertisseur minimal (h2-h4,
+- [x] 4.2 `src/cdpx/proofing/markdown.py`: convertisseur minimal (h2-h4,
       paragraphes, listes, tableaux, fences, inline code, gras, liens),
       escape-first, zéro dépendance; `tests/test_markdown.py`.
-- [ ] 4.3 Réécrire les 8 fiches en FRANÇAIS avec Usage exhaustif par commande:
+- [x] 4.3 Réécrire les 8 fiches en FRANÇAIS avec Usage exhaustif par commande:
       synopsis, options, exemple bash, exemple de sortie JSON, exit codes,
       pièges. Surface FINALE (--format, rejeu réel). Statut
       harness-proof-cockpit → validated.
 
 ## Phase 5 — Refonte rapport de preuve
 
-- [ ] 5.1 `build_summary`: `log_tail` par commande, `junit[suite].focus` et
+- [x] 5.1 `build_summary`: `log_tail` par commande, `junit[suite].focus` et
       `.cases`, métrique `unavailable` dans totals.
-- [ ] 5.2 `SPA_JS`: panneau « Documentation utilisateur » (doc_html) par
+- [x] 5.2 `SPA_JS`: panneau « Documentation utilisateur » (doc_html) par
       feature; vue Run enrichie (JUnit par suite, focus, log tails); routes
       `#/cli` (surface CLI + rattachement entrypoints) et `#/validation`
       (matrice, coverage_groups, risks, unknowns); hero avec `unavailable`.
-- [ ] 5.3 Suppression du code mort (~700 lignes: REPORT_CSS/REPORT_JS,
+- [x] 5.3 Suppression du code mort (~700 lignes: REPORT_CSS/REPORT_JS,
       `_render_*`, `_feature_cards`, `_metric`, `_table`…); conserver `_tail`,
       `_case_focus`, `_suite_for_summary`, `_empty_suite`,
       `_json_for_html_script`, `parse_help_commands`; `render_html(summary)`.
-- [ ] 5.4 `CDPX_PROOF_REQUIRE_SYMFONY=1` → `unavailable` devient proof_failure.
-- [ ] 5.5 Tests: `test_spa_renders_every_summary_key` (calculé ⇒ rendu), smoke
+- [x] 5.4 `CDPX_PROOF_REQUIRE_SYMFONY=1` → `unavailable` devient proof_failure.
+- [x] 5.5 Tests: `test_spa_renders_every_summary_key` (calculé ⇒ rendu), smoke
       render_html, log tails/focus, doc_html par feature, flag Symfony;
       adaptation des tests existants.
-- [ ] 5.6 Absorption legacy (globs scénarios élargis) + ratchet
+- [x] 5.6 Absorption legacy (globs scénarios élargis) + ratchet — RÉSULTAT:
+      0 warning legacy, LEGACY_WARNING_BUDGET = 0 (le catalogue est 100%
+      documenté; le budget ne peut que rester nul)
       `LEGACY_WARNING_BUDGET` dans features.py.
 
 ## Phase 6 — README + garde-fous docs

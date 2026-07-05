@@ -223,6 +223,112 @@ def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
     assert "Docker daemon unavailable" in payload
 
 
+def _minimal_suite(path, tests=1, cases=None):
+    cases = cases or []
+    return {
+        "path": path,
+        "exists": True,
+        "tests": tests,
+        "passed": tests,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time_s": 0.1,
+        "cases": cases,
+    }
+
+
+def _ok_command():
+    return proof.CommandEvidence(
+        id="unit",
+        label="Unit",
+        argv=["pytest"],
+        log=".proof/unit.log",
+        exit_code=0,
+        duration_s=0.1,
+        status="ok",
+    )
+
+
+def test_spa_renders_every_summary_key():
+    # Garde-fou "calculé => rendu": toute clé de premier niveau du summary doit
+    # être lue par la SPA (data.<clé>), sauf celles rendues par le shell HTML ou
+    # purement méta (chemins d'artefacts, duplicats bruts).
+    summary = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        help_commands=proof.parse_help_commands(build_parser().format_help()),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+    shell_keys = {"ok", "generated_at", "git"}  # rendus par render_html directement
+    meta_keys = {"artifact_dir", "report_html", "unit_log", "e2e_log", "symfony_log"}
+    meta_keys.add("scenario_evidence")  # duplicat brut de feature_inventory/matched_scenarios
+    for key in summary:
+        if key in shell_keys | meta_keys or f"data.{key}" in proof.SPA_JS:
+            continue
+        raise AssertionError(f"clé du summary calculée mais jamais rendue par la SPA: {key}")
+
+
+def test_render_html_embeds_payload_verdict_and_routes():
+    summary = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+    html = proof.render_html(summary)
+    assert 'id="report-data"' in html and '"ok": true'.replace(" ", "") in html.replace(" ", "")
+    assert ">OK<" in html
+    for route in ("#/features", "#/cli", "#/validation", "#/gaps", "#/run", "#/project"):
+        assert route in html
+
+
+def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
+    cases = [
+        {"classname": "tests.test_a", "name": "test_x", "time_s": 0.5, "status": "passed"},
+        {"classname": "tests.test_a", "name": "test_y", "time_s": 0.1, "status": "failed"},
+    ]
+    summary = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml", tests=2, cases=cases),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+    assert summary["junit"]["unit"]["cases"] == cases
+    assert summary["junit"]["unit"]["focus"][0]["status"] == "failed"  # échecs d'abord
+    assert "log_tail" in summary["commands"][0]
+
+
+def test_symfony_unavailable_visible_and_blocking_only_when_required(monkeypatch):
+    suites = {
+        "unit": [],
+        "integration": [],
+        "e2e": [],
+        "symfony": [{"nodeid": "tests/e2e/test_e2e_symfony.py::test_x", "status": "unavailable"}],
+    }
+    evidence = {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
+
+    monkeypatch.delenv("CDPX_PROOF_REQUIRE_SYMFONY", raising=False)
+    summary = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=evidence,
+    )
+    assert summary["totals"]["unavailable"] == 1  # visible dans le hero
+
+    monkeypatch.setenv("CDPX_PROOF_REQUIRE_SYMFONY", "1")
+    strict = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=evidence,
+    )
+    assert strict["ok"] is False
+    assert any("CDPX_PROOF_REQUIRE_SYMFONY" in failure for failure in strict["proof_failures"])
+
+
 def test_build_summary_fails_when_e2e_screenshot_missing():
     unit = {
         "path": ".proof/unit-junit.xml",
