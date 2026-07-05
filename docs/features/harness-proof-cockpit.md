@@ -3,7 +3,7 @@ id = "harness-proof-cockpit"
 title = "Harness et cockpit de preuve"
 status = "validated"
 summary = "Exécuter des portails qualité déterministes et publier un cockpit de validation central, orienté features."
-entrypoints = ["make help", "make setup", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make fixtures", "make mock", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make clean", "make dist", "python -m cdpx.proof"]
+entrypoints = ["make help", "make setup", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make clean", "make dist", "python -m cdpx.proof"]
 path_globs = ["Makefile", "pyproject.toml", "Dockerfile", ".gitlab-ci.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/markdown.py", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_evidence.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "README.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/features/*.md", "docs/milestones/*.md"]
 test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_markdown.py::*", "tests/test_docs.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version"]
 docs = ["README.md", "HARNESS.md", "CLAUDE.md", "docs/VALIDATION.md", "docs/ROADMAP.md", "docs/TODO.md"]
@@ -97,6 +97,18 @@ uniquement, aucun Chrome requis, aucun réseau externe.
 Tests e2e sur Chrome réel (M1) — échoue si Chrome/Chromium est absent. C'est
 la vérification lourde qui valide le comportement protocolaire réel.
 
+### `make cov`
+
+Tests unitaires avec mesure de couverture et seuil bloquant
+(`--cov-fail-under`, 85% par défaut via `COV_MIN`). Appliqué en CI sur la
+matrice Python; en local, `make check` reste le portail rapide.
+
+### `make typecheck`
+
+Vérification mypy de `src/cdpx`. Non bloquante pour la release initiale
+(`allow_failure` en CI): elle devient bloquante quand elle est durablement
+verte.
+
 ### `make fixtures`
 
 Lance le site témoin statique sur le port 8899, pour l'inspection manuelle ou
@@ -133,7 +145,8 @@ Supprime les artefacts de build et de cache (pytest, ruff, dist, egg-info,
 
 ### `make dist`
 
-Produit l'archive distribuable dans `dist/` — après un `make check` vert,
+Construit et vérifie les artefacts distribuables (`python -m build` puis
+`twine check`): wheel + sdist dans `dist/` — après un `make check` vert,
 jamais sans.
 
 ### `make proof`

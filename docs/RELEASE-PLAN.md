@@ -161,18 +161,20 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
 
 ## Phase 8 — Packaging, QA, CI
 
-- [ ] 8.1 pyproject: version dynamique (`attr = cdpx.__version__`), LICENSE
+- [x] 8.1 pyproject: version dynamique (`attr = cdpx.__version__`), LICENSE
       propriétaire + `license-files`, readme, keywords, classifiers, urls,
       extras `dev`, ruff `target-version = py311`; CHANGELOG.md (0.1.0);
       `make setup` → `pip install -e .[dev]`.
-- [ ] 8.2 `tests/test_packaging.py`: pas de version statique; LICENSE présent;
+- [x] 8.2 `tests/test_packaging.py`: pas de version statique; LICENSE présent;
       CHANGELOG contient la version; floor requires-python == ruff target.
-- [ ] 8.3 Makefile: `dist` → `python -m build` + `twine check` (tar supprimé);
+- [x] 8.3 Makefile: `dist` → `python -m build` + `twine check` (tar supprimé);
       cible `cov` (--cov-fail-under calé sur le réel −2); cible `typecheck`
       (mypy lenient, hors check).
-- [ ] 8.4 `git rm -r --cached .idea` + .gitignore (.idea/, .mypy_cache/,
-      .coverage, htmlcov/). `.proof/` reste versionné.
-- [ ] 8.5 .gitlab-ci.yml: stages test+build; check en matrice 3.11/3.12 avec
+- [x] 8.4 `git rm -r --cached .idea` et .gitignore refondu. DÉCOUVERTE:
+      `*.png` global ignorait silencieusement les screenshots de preuve des
+      nouveaux e2e → exception `!.proof/**` et artefacts récupérés. `.proof/`
+      reste versionné.
+- [x] 8.5 .gitlab-ci.yml: stages test+build; check en matrice 3.11/3.12 avec
       cov; job proof (artefacts .proof/ + report junit); typecheck
       allow_failure; e2e:chrome avec artefacts; job build (dist + smoke
       install); e2e:symfony inchangé.

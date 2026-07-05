@@ -4,15 +4,15 @@
 # externe pour check/test (tout tourne sur loopback).
 
 PY ?= python3
+COV_MIN ?= 85
 
-.PHONY: help setup check lint fmt test test-e2e fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof clean dist
+.PHONY: help setup check lint fmt test test-e2e cov typecheck fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof clean dist
 
 help: ## liste des cibles
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-setup: ## installe le paquet en editable + outils dev
-	pip install -e . --break-system-packages --quiet || pip install -e .
-	pip install pytest ruff --break-system-packages --quiet || pip install pytest ruff
+setup: ## installe le paquet en editable + outils dev (extras [dev])
+	pip install -e ".[dev]" --break-system-packages --quiet || pip install -e ".[dev]"
 
 check: lint test ## PORTAIL QUALITÉ: lint + format + tests unitaires
 	@echo "== make check: OK =="
@@ -30,6 +30,12 @@ test: ## tests unitaires déterministes (mock CDP + serveur fixtures, loopback o
 
 test-e2e: ## e2e Chrome réel (M1) — échoue si Chrome/Chromium absent
 	$(PY) -m pytest tests/e2e -v
+
+cov: ## tests unitaires avec couverture (seuil bloquant, appliqué en CI)
+	$(PY) -m pytest tests --ignore=tests/e2e --cov=cdpx --cov-report=term --cov-fail-under=$(COV_MIN)
+
+typecheck: ## mypy (non bloquant pour la release initiale; allow_failure en CI)
+	$(PY) -m mypy src/cdpx
 
 docker-build: ## construire l'image portable cdpx-ci
 	docker build -t cdpx-ci .
@@ -58,5 +64,7 @@ clean: ## nettoyer artefacts
 	rm -rf .pytest_cache .ruff_cache dist build src/*.egg-info
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
-dist: check ## archive distribuable (après check)
-	mkdir -p dist && tar --exclude .git --exclude dist -czf dist/cdpx.tar.gz .
+dist: check ## wheel + sdist vérifiés (après check)
+	rm -rf dist
+	$(PY) -m build
+	$(PY) -m twine check dist/*

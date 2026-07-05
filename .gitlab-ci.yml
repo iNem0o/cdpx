@@ -1,14 +1,44 @@
 stages:
   - test
+  - build
 
-check:
-  image: python:3.12-slim
-  stage: test
+.python:
+  image: python:${PYVER}-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends make
     - make setup
+  variables:
+    PYVER: "3.12"
+  cache:
+    key: pip-$PYVER
+    paths:
+      - .cache/pip
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+check:
+  extends: .python
+  stage: test
+  parallel:
+    matrix:
+      - PYVER: ["3.11", "3.12"]
   script:
     - make check
+    - make cov
+  coverage: '/TOTAL.*\s(\d+%)$/'
+  artifacts:
+    when: always
+    reports:
+      junit: .proof/unit-junit.xml
+    expire_in: 30 days
+
+typecheck:
+  extends: .python
+  stage: test
+  allow_failure: true
+  script:
+    - make typecheck
 
 e2e:chrome:
   image: docker:29
@@ -19,7 +49,13 @@ e2e:chrome:
     DOCKER_TLS_CERTDIR: ""
   script:
     - docker build -t cdpx-ci .
-    - docker run --rm cdpx-ci make test-e2e
+    - mkdir -p .proof
+    - docker run --rm -v "$PWD/.proof:/workspace/.proof" cdpx-ci make test-e2e
+  artifacts:
+    when: always
+    paths:
+      - .proof/
+    expire_in: 30 days
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_MERGE_REQUEST_ID
@@ -34,5 +70,23 @@ e2e:symfony:
   script:
     - docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
     - docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
+  artifacts:
+    when: always
+    paths:
+      - .proof/
+    expire_in: 30 days
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+
+build:
+  extends: .python
+  stage: build
+  needs: ["check"]
+  script:
+    - make dist
+    - pip install dist/*.whl
+    - cdpx --version
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 90 days
