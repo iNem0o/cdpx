@@ -121,7 +121,7 @@ def cmd_key(args) -> None:
 
 def cmd_screenshot(args) -> None:
     with _client(args) as c:
-        _out(args, capture.screenshot(c, args.output, full_page=args.full_page))
+        _out(args, capture.screenshot(c, args.output, full_page=args.full_page, fmt=args.fmt))
 
 
 def cmd_pdf(args) -> None:
@@ -317,9 +317,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("key")
     s.set_defaults(func=cmd_key)
 
-    s = sub.add_parser("screenshot", help="capture d'écran PNG")
+    s = sub.add_parser("screenshot", help="capture d'écran PNG ou JPEG")
     s.add_argument("-o", "--output", default="screenshot.png")
     s.add_argument("--full-page", action="store_true")
+    s.add_argument("--format", dest="fmt", choices=["png", "jpeg"], default="png")
     s.set_defaults(func=cmd_screenshot)
 
     s = sub.add_parser("pdf", help="imprimer la page en PDF")

@@ -154,6 +154,15 @@ def test_screenshot(mock, capsys, tmp_path):
     dest = tmp_path / "s.png"
     code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest))
     assert code == 0 and dest.exists()
+    assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "png"
+
+
+def test_screenshot_format_jpeg(mock, capsys, tmp_path):
+    dest = tmp_path / "s.jpg"
+    code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest), "--format", "jpeg")
+    data = json.loads(out)
+    assert code == 0 and dest.exists() and data["format"] == "jpeg"
+    assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "jpeg"
 
 
 def test_error_path_exit_code_and_stderr(mock, capsys):
