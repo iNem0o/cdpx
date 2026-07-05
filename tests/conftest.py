@@ -18,7 +18,11 @@ from cdpx.testing.mock_cdp import MockCDP
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "scenario(title=None, area=None, proves=None): proof report scenario metadata",
+        (
+            "scenario(title=None, area=None, feature=None, journey=None, "
+            "scenario_id=None, proves=None): "
+            "proof report scenario metadata"
+        ),
     )
     evidence_dir = config.getoption("--cdpx-evidence-dir", default=None) or os.environ.get(
         "CDPX_EVIDENCE_DIR"

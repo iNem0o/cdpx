@@ -79,6 +79,9 @@ class EvidenceCase:
     suite: str
     title: str
     area: str = ""
+    feature: str = ""
+    journey: str = ""
+    scenario_id: str = ""
     proves: list[str] = field(default_factory=list)
     started_at: str = field(default_factory=utc_now)
     duration_s: float = 0.0
@@ -159,6 +162,9 @@ class EvidenceCase:
             "suite": self.suite,
             "title": self.title,
             "area": self.area,
+            "feature": self.feature,
+            "journey": self.journey,
+            "scenario_id": self.scenario_id,
             "proves": self.proves,
             "started_at": self.started_at,
             "duration_s": self.duration_s,
@@ -189,6 +195,9 @@ class EvidenceSession:
             suite=suite,
             title=metadata.get("title") or nodeid.rsplit("::", 1)[-1],
             area=metadata.get("area", ""),
+            feature=metadata.get("feature", ""),
+            journey=metadata.get("journey", ""),
+            scenario_id=metadata.get("scenario_id", ""),
             proves=list(metadata.get("proves", [])),
         )
         self.cases[nodeid] = case

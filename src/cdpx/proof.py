@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Generate the human proof report consumed by `make proof`.
 
 The report is intentionally evidence-first: every human-facing conclusion is
@@ -20,6 +21,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from cdpx.proofing.features import build_feature_inventory, feature_failures
 
 PROOF_DIR = Path(".proof")
 REPORT_HTML = PROOF_DIR / "proof-report.html"
@@ -541,6 +544,39 @@ def proof_failures_from_scenarios(scenario_evidence: dict) -> list[str]:
     return failures
 
 
+def enrich_scenario_evidence(scenario_evidence: dict, feature_inventory: dict) -> dict:
+    by_nodeid = {}
+    for feature in feature_inventory.get("features", []):
+        for scenario in feature.get("matched_scenarios", []):
+            by_nodeid[scenario.get("nodeid", "")] = scenario
+
+    suites = {}
+    for suite, scenarios in scenario_evidence.get("suites", {}).items():
+        suites[suite] = [
+            by_nodeid.get(scenario.get("nodeid", ""), scenario) for scenario in scenarios
+        ]
+    return {
+        **scenario_evidence,
+        "suites": suites,
+        "totals": scenario_totals(suites),
+    }
+
+
+def write_scenario_evidence(root: Path, scenario_evidence: dict) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    for suite, scenarios in scenario_evidence.get("suites", {}).items():
+        if not scenarios:
+            continue
+        path = root / f"{suite}-scenarios.json"
+        payload = {
+            "suite": suite,
+            "generated_at": _now(),
+            "count": len(scenarios),
+            "scenarios": sorted(scenarios, key=lambda item: item["nodeid"]),
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def build_project_risks_and_unknowns() -> dict:
     risks = [
         {
@@ -851,20 +887,29 @@ def _screenshot_thumbs(scenario: dict) -> str:
 
 def _scenario_rows(scenarios: list[dict]) -> str:
     if not scenarios:
-        return "<tr><td colspan='7'>Aucun scénario collecté.</td></tr>"
+        return "<tr><td colspan='6'>Aucun scénario collecté.</td></tr>"
     rows = []
     for scenario in sorted(scenarios, key=lambda item: item["nodeid"]):
-        proves = scenario.get("proves") or []
-        proves_text = "<br>".join(html.escape(item) for item in proves) or html.escape(
-            scenario.get("title", "")
+        nodeid = scenario["nodeid"]
+        file_part, _, test_part = nodeid.partition("::")
+        scenario_cell = (
+            f"<code>{html.escape(test_part or nodeid)}</code>"
+            f"<div class='muted'>{html.escape(file_part)}</div>"
         )
+        proves = scenario.get("proves") or []
+        title = scenario.get("title", "")
+        if proves:
+            proves_text = "<br>".join(html.escape(item) for item in proves)
+        elif title and title != (test_part or nodeid):
+            proves_text = html.escape(title)
+        else:
+            proves_text = "<span class='muted'>-</span>"
         status = html.escape(scenario.get("status", "unknown"))
         message = html.escape(scenario.get("message", ""))
         rows.append(
             "<tr>"
             f"<td><span class='pill {status}'>{status}</span></td>"
-            f"<td><code>{html.escape(scenario['nodeid'])}</code></td>"
-            f"<td>{html.escape(scenario.get('title', ''))}</td>"
+            f"<td>{scenario_cell}</td>"
             f"<td>{proves_text}</td>"
             f"<td>{scenario.get('duration_s', 0):.3f}s</td>"
             f"<td>{_screenshot_thumbs(scenario)}</td>"
@@ -874,29 +919,989 @@ def _scenario_rows(scenarios: list[dict]) -> str:
     return "".join(rows)
 
 
-def render_html(summary: dict, unit: dict, e2e: dict, help_commands: list[dict[str, str]]) -> str:
-    command_rows = []
-    for command in summary["commands"]:
-        status = html.escape(command["status"])
-        status_class = _status_class(command["status"])
-        command_rows.append(
+def _compact_list(items: list[str], limit: int = 6) -> str:
+    if not items:
+        return "<span class='muted'>-</span>"
+    visible = items[:limit]
+    out = "".join(f"<li><code>{html.escape(item)}</code></li>" for item in visible)
+    if len(items) > limit:
+        out += f"<li class='muted'>+{len(items) - limit} autres</li>"
+    return f"<ul class='compact'>{out}</ul>"
+
+
+def _feature_status(feature: dict) -> str:
+    scenarios = feature.get("matched_scenarios", [])
+    if any(scenario.get("status") in {"failed", "error"} for scenario in scenarios):
+        return "failed"
+    if feature.get("gaps"):
+        return "warning"
+    return "ok"
+
+
+def _feature_status_counts(feature_inventory: dict) -> dict[str, int]:
+    counts = {"ok": 0, "warning": 0, "failed": 0}
+    for feature in feature_inventory.get("features", []):
+        counts[_feature_status(feature)] += 1
+    return counts
+
+
+def _scenario_status_counts(scenarios: list[dict]) -> dict[str, int]:
+    counts = {"passed": 0, "failed": 0, "skipped": 0}
+    for scenario in scenarios:
+        status = scenario.get("status", "unknown")
+        if status in {"failed", "error"}:
+            counts["failed"] += 1
+        elif status == "skipped":
+            counts["skipped"] += 1
+        else:
+            counts["passed"] += 1
+    return counts
+
+
+def _feature_cards(feature_inventory: dict) -> str:
+    cards = []
+    for feature in feature_inventory.get("features", []):
+        status = _feature_status(feature)
+        scenario_count = len(feature.get("matched_scenarios", []))
+        proof_count = len(feature.get("proofs", []))
+        gap_count = len(feature.get("gaps", []))
+        search_text = " ".join(
+            [feature["id"], feature["title"], feature["summary"]]
+            + [item["id"] for item in feature.get("matched_entrypoints", [])]
+        ).lower()
+        gap_class = " has-gaps" if gap_count else ""
+        cards.append(
+            f"<article class='feature-card status-{html.escape(status)}' "
+            f"data-status='{html.escape(status)}' "
+            f"data-text='{html.escape(search_text)}'>"
+            "<div class='feature-head'>"
+            f"<span class='pill {status}'>{html.escape(status)}</span>"
+            f"<code>{html.escape(feature['id'])}</code>"
+            "</div>"
+            f"<h3><a href='#feature-{html.escape(feature['id'])}'>"
+            f"{html.escape(feature['title'])}</a></h3>"
+            f"<p>{html.escape(feature['summary'])}</p>"
+            "<div class='feature-metrics'>"
+            f"<span>{len(feature.get('matched_entrypoints', []))}<small>entrypoints</small></span>"
+            f"<span>{len(feature.get('matched_paths', []))}<small>paths</small></span>"
+            f"<span>{scenario_count}<small>scénarios</small></span>"
+            f"<span>{proof_count}<small>preuves</small></span>"
+            f"<span class='{gap_class.strip()}'>{gap_count}<small>gaps</small></span>"
+            "</div>"
+            f"<a class='feature-open' href='#feature-{html.escape(feature['id'])}'>Détails →</a>"
+            "</article>"
+        )
+    return "".join(cards) or "<div class='panel'>Aucune feature chargée.</div>"
+
+
+def _proof_links(proofs: list[dict], limit: int = 8) -> str:
+    if not proofs:
+        return "<span class='muted'>Aucune preuve collectée.</span>"
+    items = []
+    for proof in proofs[:limit]:
+        href = _report_href(proof.get("path", ""))
+        scenario = proof.get("scenario", "").rsplit("::", 1)[-1]
+        label = proof.get("label") or proof.get("path", "") or "preuve"
+        if scenario:
+            label = f"{scenario} · {label}"
+        kind = html.escape(proof.get("type", "file"))
+        items.append(
+            f"<li><a href='{href}'>{html.escape(label)}</a> "
+            f"<span class='muted'>({kind})</span></li>"
+        )
+    if len(proofs) > limit:
+        items.append(f"<li class='muted'>+{len(proofs) - limit} autres</li>")
+    return f"<ul class='compact'>{''.join(items)}</ul>"
+
+
+def _feature_gap_callout(gaps: list[str]) -> str:
+    if not gaps:
+        return ""
+    items = "".join(f"<li>{html.escape(gap)}</li>" for gap in gaps)
+    return f"<div class='gap-callout'><strong>Gaps à traiter</strong><ul>{items}</ul></div>"
+
+
+def _feature_scenario_line(scenarios: list[dict]) -> str:
+    if not scenarios:
+        return "<p class='muted'>Aucun scénario pytest relié.</p>"
+    counts = _scenario_status_counts(scenarios)
+    parts = [f"{len(scenarios)} scénarios reliés"]
+    parts.append(f"{counts['passed']} passed")
+    if counts["failed"]:
+        parts.append(f"<strong class='bad-text'>{counts['failed']} failed</strong>")
+    if counts["skipped"]:
+        parts.append(f"{counts['skipped']} skipped")
+    failed_items = "".join(
+        f"<li><code>{html.escape(scenario.get('nodeid', ''))}</code> "
+        f"{html.escape(scenario.get('message', ''))}</li>"
+        for scenario in scenarios
+        if scenario.get("status") in {"failed", "error"}
+    )
+    failed_html = f"<ul class='compact'>{failed_items}</ul>" if failed_items else ""
+    return f"<p>{' · '.join(parts)}</p>{failed_html}"
+
+
+def _feature_detail_sections(feature_inventory: dict) -> str:
+    sections = []
+    for feature in feature_inventory.get("features", []):
+        status = _feature_status(feature)
+        entrypoints = [item["id"] for item in feature.get("matched_entrypoints", [])]
+        tests = feature.get("matched_tests", [])
+        docs = feature.get("docs", [])
+        paths = feature.get("matched_paths", [])
+        gaps = feature.get("gaps", [])
+        scenarios = feature.get("matched_scenarios", [])
+        journeys = [
+            f"{journey.get('title', '')} — {journey.get('entrypoint', journey.get('id', ''))}"
+            for journey in feature.get("journeys", [])
+        ]
+        open_attr = "" if status == "ok" else " open"
+        meta = (
+            f"{len(scenarios)} scénarios · {len(feature.get('proofs', []))} preuves · "
+            f"{len(gaps)} gaps"
+        )
+        sections.append(
+            f"<details class='feature-detail status-{status}' "
+            f"id='feature-{html.escape(feature['id'])}'{open_attr}>"
+            "<summary>"
+            f"<span class='pill {status}'>{status}</span>"
+            f"<strong>{html.escape(feature['title'])}</strong>"
+            f"<code>{html.escape(feature['id'])}</code>"
+            f"<span class='muted'>{meta}</span>"
+            "</summary>"
+            "<div class='block-body'>"
+            f"<p>{html.escape(feature['summary'])} "
+            f"<span class='muted'>Statut déclaré: {html.escape(feature['status'])} · "
+            f"source: <code>{html.escape(feature['source'])}</code></span></p>"
+            f"{_feature_gap_callout(gaps)}"
+            f"{_feature_scenario_line(scenarios)}"
+            "<div class='feature-grid'>"
+            f"<div><strong>Journeys</strong>{_compact_list(journeys)}</div>"
+            f"<div><strong>Entrypoints rattachés</strong>{_compact_list(entrypoints, 8)}</div>"
+            f"<div><strong>Docs</strong>{_compact_list(docs)}</div>"
+            f"<div><strong>Code / specs</strong>{_compact_list(paths, 10)}</div>"
+            f"<div><strong>Tests</strong>{_compact_list(tests, 10)}</div>"
+            f"<div><strong>Preuves</strong>{_proof_links(feature.get('proofs', []))}</div>"
+            "</div>"
+            "</div>"
+            "</details>"
+        )
+    return "".join(sections)
+
+
+_GAP_ACTIONS = (
+    ("entrypoint unmapped", "Déclarer l'entrypoint dans `entrypoints` d'un doc docs/features/."),
+    ("entrypoint mapped multiple times", "Garder un seul doc feature propriétaire."),
+    ("scenario references unknown feature", "Corriger l'id feature référencé par le test."),
+    ("scenario unmapped", "Couvrir le nodeid via `test_globs` d'une feature."),
+    ("source path unmapped", "Ajouter le chemin aux `path_globs` de la feature concernée."),
+    ("feature id duplicated", "Renommer l'un des docs feature en conflit."),
+    ("missing e2e screenshot", "Capturer un screenshot dans le scénario e2e concerné."),
+    ("missing", "Compléter le doc feature (front matter ou sections requises)."),
+)
+
+
+def _gap_action(signal: str) -> str:
+    for prefix, action in _GAP_ACTIONS:
+        if prefix in signal:
+            return action
+    return "Voir docs/features/ et la feature concernée."
+
+
+def _gap_rows(feature_inventory: dict, scenario_failures: list[str]) -> str:
+    rows = []
+    entries = [("failed", "violation", item) for item in feature_inventory.get("violations", [])]
+    entries += [("failed", "preuve", item) for item in scenario_failures]
+    entries += [("warning", "warning", item) for item in feature_inventory.get("warnings", [])]
+    for status, kind, item in entries:
+        rows.append(
             "<tr>"
-            f"<td><span class='pill {status_class}'>{status}</span></td>"
+            f"<td><span class='pill {status}'>{html.escape(kind)}</span></td>"
+            f"<td>{html.escape(item)}</td>"
+            f"<td>{html.escape(_gap_action(item))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return (
+            "<tr><td><span class='pill ok'>ok</span></td>"
+            "<td colspan='2'>Aucun gap bloquant détecté: entrypoints, scénarios et chemins "
+            "sources sont tous rattachés à une feature.</td></tr>"
+        )
+    return "".join(rows)
+
+
+REPORT_CSS = """\
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #18202a;
+  --muted: #5d6673;
+  --line: #d9dee7;
+  --ok: #167044;
+  --bad: #b42318;
+  --info: #1d4ed8;
+  --warn: #9a6700;
+  --warn-soft: #f6c85f;
+  --warn-bg: #fdf3d7;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-inner {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.topbar nav { display: flex; gap: 14px; flex-wrap: wrap; margin-left: auto; }
+.topbar nav a { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; }
+.topbar nav a:hover { color: var(--ink); }
+header, main { max-width: 1160px; margin: 0 auto; padding: 20px 24px; }
+h1, h2 { margin: 0 0 10px; line-height: 1.15; }
+h1 { font-size: 26px; }
+h2 { font-size: 20px; }
+h3 { font-size: 16px; margin: 16px 0 8px; }
+p { margin: 0 0 12px; color: var(--muted); }
+.report-section { margin-top: 34px; }
+.hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.metric { display: block; font-size: 25px; font-weight: 700; color: var(--ink); }
+.ok-text { color: var(--ok); }
+.bad-text { color: var(--bad); }
+.warn-text { color: var(--warn); }
+.muted { color: var(--muted); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.feature-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.callout {
+  border-left: 4px solid var(--info);
+  background: #eef5ff;
+  padding: 12px 16px;
+  margin: 12px 0;
+  border-radius: 0 6px 6px 0;
+}
+.gap-callout {
+  border-left: 4px solid var(--warn);
+  background: var(--warn-bg);
+  padding: 10px 14px;
+  margin: 10px 0;
+  border-radius: 0 6px 6px 0;
+}
+.gap-callout ul { margin: 6px 0 0; padding-left: 18px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+th, td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+th { font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { font-size: 13px; }
+td code, ul code, summary code { overflow-wrap: anywhere; word-break: break-word; }
+pre {
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #10151f;
+  color: #edf2f7;
+  padding: 14px;
+  border-radius: 6px;
+}
+.pill {
+  display: inline-block;
+  min-width: 58px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+.ok, .passed { color: #fff; background: var(--ok); }
+.failed, .error { color: #fff; background: var(--bad); }
+.warning { color: #1f1600; background: var(--warn-soft); }
+.skipped { color: #1c1600; background: #f6d365; }
+.generated, .optional, .not-needed { color: #17324d; background: #dbeafe; }
+.type {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+}
+.shot {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 170px;
+  margin: 0 8px 8px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+.shot img {
+  width: 170px;
+  height: 96px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.shot span { font-size: 12px; color: var(--muted); }
+.toolbar { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+.toolbar input, .toolbar select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+.toolbar input { min-width: 260px; }
+.toolbar button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.toolbar button:hover { background: var(--bg); }
+.feature-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+}
+.feature-card.status-ok, details.feature-detail.status-ok { border-left: 4px solid var(--ok); }
+.feature-card.status-warning, details.feature-detail.status-warning {
+  border-left: 4px solid var(--warn-soft);
+}
+.feature-card.status-failed, details.feature-detail.status-failed {
+  border-left: 4px solid var(--bad);
+}
+.feature-card h3 { margin: 10px 0 6px; }
+.feature-card h3 a { color: var(--ink); text-decoration: none; }
+.feature-card h3 a:hover { text-decoration: underline; }
+.feature-card p { flex: 1; }
+.feature-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.feature-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+.feature-metrics span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-weight: 700;
+  text-align: center;
+}
+.feature-metrics span.has-gaps { border-color: var(--warn-soft); background: var(--warn-bg); }
+.feature-metrics small { display: block; color: var(--muted); font-size: 11px; font-weight: 500; }
+.feature-open { font-size: 13px; font-weight: 600; }
+details { margin: 10px 0; }
+summary { cursor: pointer; font-weight: 700; }
+details.block, details.feature-detail {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+details.block > summary, details.feature-detail > summary { padding: 12px 16px; }
+details.feature-detail > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+details.feature-detail > summary > .muted {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 13px;
+}
+.block-body { padding: 2px 16px 16px; }
+.table-wrap { overflow-x: auto; }
+.block-body > .table-wrap, .block-body > details { margin-top: 8px; }
+.feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+ul.compact { margin: 8px 0 0; padding-left: 18px; }
+ul.commands { columns: 2; padding-left: 20px; }
+li { break-inside: avoid; margin-bottom: 6px; }
+@media (max-width: 860px) {
+  .two { grid-template-columns: 1fr; }
+  .feature-board, .feature-grid { grid-template-columns: 1fr; }
+  table { display: block; overflow-x: auto; }
+  ul.commands { columns: 1; }
+  .topbar nav { margin-left: 0; }
+}
+"""
+
+REPORT_JS = """\
+(function () {
+  const search = document.getElementById('featureSearch');
+  const status = document.getElementById('featureStatus');
+  const counter = document.getElementById('featureCount');
+  const cards = Array.from(document.querySelectorAll('.feature-card'));
+  function filterFeatures() {
+    const q = (search.value || '').trim().toLowerCase();
+    const s = status.value || '';
+    let shown = 0;
+    for (const card of cards) {
+      const visible = (!q || card.dataset.text.includes(q))
+        && (!s || card.dataset.status === s);
+      card.style.display = visible ? '' : 'none';
+      if (visible) shown += 1;
+    }
+    counter.textContent = shown + '/' + cards.length + ' features affichées';
+  }
+  search.addEventListener('input', filterFeatures);
+  status.addEventListener('change', filterFeatures);
+  filterFeatures();
+  function openHashTarget() {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName === 'DETAILS') el.open = true;
+    const parent = el.closest('details');
+    if (parent) parent.open = true;
+  }
+  window.addEventListener('hashchange', openHashTarget);
+  openHashTarget();
+  const featureDetails = Array.from(document.querySelectorAll('details.feature-detail'));
+  const expandAll = document.getElementById('expandFeatures');
+  const collapseAll = document.getElementById('collapseFeatures');
+  if (expandAll) {
+    expandAll.addEventListener('click', () => featureDetails.forEach((d) => { d.open = true; }));
+  }
+  if (collapseAll) {
+    collapseAll.addEventListener('click', () => featureDetails.forEach((d) => { d.open = false; }));
+  }
+})();
+"""
+
+SPA_CSS = """\
+:root {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --ink: #17202a;
+  --muted: #5e6875;
+  --line: #d9dee7;
+  --soft: #eef2f6;
+  --ok: #167044;
+  --bad: #b42318;
+  --warn: #9a6700;
+  --info: #2457a7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+a { color: var(--info); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 800; white-space: nowrap; }
+.topbar nav { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.topbar nav a, .side a, .button {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: var(--muted);
+  font-weight: 650;
+}
+.topbar nav a.active, .side a.active, .button:hover {
+  color: var(--ink);
+  background: var(--soft);
+  text-decoration: none;
+}
+.shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: calc(100vh - 48px);
+}
+.side {
+  position: sticky;
+  top: 49px;
+  height: calc(100vh - 49px);
+  overflow: auto;
+  padding: 16px;
+  background: #fbfcfe;
+  border-right: 1px solid var(--line);
+}
+.side h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; color: var(--muted); }
+.side input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 9px;
+  margin-bottom: 12px;
+  font: inherit;
+}
+.side a { display: block; margin-bottom: 5px; overflow-wrap: anywhere; }
+.side small { display: block; color: var(--muted); font-weight: 500; }
+main { padding: 22px 28px 40px; max-width: 1180px; width: 100%; }
+.crumbs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; color: var(--muted); }
+h1 { margin: 0 0 8px; font-size: 27px; line-height: 1.15; }
+h2 { margin: 24px 0 10px; font-size: 18px; }
+h3 { margin: 16px 0 8px; font-size: 15px; }
+p { margin: 0 0 12px; color: var(--muted); }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { font-size: 12px; overflow-wrap: anywhere; }
+pre {
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #10151f;
+  color: #edf2f7;
+  padding: 12px;
+  border-radius: 6px;
+}
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.card, .panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.card { display: flex; flex-direction: column; min-height: 150px; }
+.card h2, .card h3 { margin-top: 0; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 20px; }
+.metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.metric strong { display: block; font-size: 24px; line-height: 1.1; }
+.muted { color: var(--muted); }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.ok, .passed { color: #fff; background: var(--ok); }
+.failed, .error { color: #fff; background: var(--bad); }
+.warning, .skipped { color: #241800; background: #f6d365; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; }
+.list { margin: 8px 0 0; padding-left: 18px; }
+.list li { margin-bottom: 5px; }
+.scenario-list { display: grid; gap: 10px; }
+.scenario-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+.bdd { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.bdd div { background: #fbfcfe; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.shot {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 178px;
+  margin: 0 8px 10px 0;
+  color: var(--ink);
+}
+.shot img {
+  width: 178px;
+  height: 100px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+th, td { padding: 9px 11px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.table-wrap { overflow-x: auto; }
+.empty { padding: 24px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .grid, .two, .metrics, .bdd { grid-template-columns: 1fr; }
+  main { padding: 18px; }
+}
+"""
+
+SPA_JS = """\
+(function () {
+  const data = JSON.parse(document.getElementById('report-data').textContent);
+  const app = document.getElementById('app');
+  const featureNav = document.getElementById('featureNav');
+  const featureSearch = document.getElementById('featureSearch');
+  const topLinks = Array.from(document.querySelectorAll('[data-route]'));
+
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[char]));
+  const route = () => location.hash.slice(1) || '/features';
+  const features = () => data.feature_inventory.features || [];
+  const featureStatus = (feature) => {
+    if ((feature.matched_scenarios || []).some((s) => ['failed', 'error'].includes(s.status))) {
+      return 'failed';
+    }
+    return (feature.gaps || []).length ? 'warning' : 'ok';
+  };
+  const counts = (items) => {
+    const out = {passed: 0, failed: 0, skipped: 0};
+    for (const item of items || []) {
+      if (['failed', 'error'].includes(item.status)) out.failed += 1;
+      else if (item.status === 'skipped') out.skipped += 1;
+      else out.passed += 1;
+    }
+    return out;
+  };
+  const hrefFor = (path) => {
+    if (!path) return '';
+    return String(path).startsWith('.proof/') ? String(path).slice(7) : String(path);
+  };
+  const findFeature = (id) => features().find((feature) => feature.id === id);
+  const findJourney = (feature, id) => (feature?.journeys || []).find((journey) => journey.id === id);
+  const findScenario = (feature, id) => {
+    for (const journey of feature?.journeys || []) {
+      const scenario = (journey.scenarios || []).find((item) => item.id === id);
+      if (scenario) return {journey, scenario};
+    }
+    return {};
+  };
+  const list = (items, formatter) => {
+    if (!items || !items.length) return '<div class="empty">Aucune donnée.</div>';
+    return '<ul class="list">' + items.map(formatter).join('') + '</ul>';
+  };
+  const crumbs = (items) => '<div class="crumbs">' + items.map((item, index) => {
+    const sep = index ? '<span>/</span>' : '';
+    return sep + (item.href ? `<a href="${item.href}">${esc(item.label)}</a>` : `<span>${esc(item.label)}</span>`);
+  }).join('') + '</div>';
+  const statusPill = (status) => `<span class="pill ${esc(status)}">${esc(status)}</span>`;
+
+  function renderFeatureNav() {
+    const q = (featureSearch.value || '').trim().toLowerCase();
+    featureNav.innerHTML = features()
+      .filter((feature) => !q || [feature.id, feature.title, feature.summary].join(' ').toLowerCase().includes(q))
+      .map((feature) => {
+        const status = featureStatus(feature);
+        return `<a href="#/features/${esc(feature.id)}" data-feature-id="${esc(feature.id)}">
+          ${esc(feature.title)}<small>${esc(status)} · ${(feature.journeys || []).length} journeys</small>
+        </a>`;
+      }).join('');
+  }
+
+  function setActiveNav() {
+    const current = route();
+    topLinks.forEach((link) => {
+      link.classList.toggle('active', current === link.dataset.route || current.startsWith(link.dataset.route + '/'));
+    });
+    Array.from(featureNav.querySelectorAll('a')).forEach((link) => {
+      link.classList.toggle('active', current.includes('/features/' + link.dataset.featureId));
+    });
+  }
+
+  function renderMetrics() {
+    const totals = data.totals || {};
+    const featureTotals = data.feature_inventory.totals || {};
+    const scenarioTotals = data.scenario_totals || {};
+    const okFeatures = features().filter((feature) => featureStatus(feature) === 'ok').length;
+    return `<div class="metrics">
+      <div class="metric"><strong>${data.ok ? 'OK' : 'ECHEC'}</strong><span>Verdict global</span></div>
+      <div class="metric"><strong>${esc(totals.passed || 0)}/${esc(totals.tests || 0)}</strong><span>Tests passés</span></div>
+      <div class="metric"><strong>${okFeatures}/${features().length}</strong><span>Features sans gap</span></div>
+      <div class="metric"><strong>${esc(featureTotals.documented_scenarios || 0)}</strong><span>Scénarios documentés</span></div>
+      <div class="metric"><strong>${esc(featureTotals.scenarios || 0)}</strong><span>Tests scénarisés</span></div>
+      <div class="metric"><strong>${esc(scenarioTotals.screenshots || 0)}</strong><span>Screenshots</span></div>
+      <div class="metric"><strong>${esc((featureTotals.violations || 0) + (featureTotals.warnings || 0))}</strong><span>Gaps catalogue</span></div>
+      <div class="metric"><strong>${esc(featureTotals.mapped_entrypoints || 0)}/${esc(featureTotals.entrypoints || 0)}</strong><span>Entrypoints rattachés</span></div>
+    </div>`;
+  }
+
+  function renderFeatures() {
+    const cards = features().map((feature) => {
+      const status = featureStatus(feature);
+      return `<article class="card">
+        <div class="meta">${statusPill(status)} <code>${esc(feature.id)}</code></div>
+        <h2><a href="#/features/${esc(feature.id)}">${esc(feature.title)}</a></h2>
+        <p>${esc(feature.summary)}</p>
+        <div class="meta">
+          <span>${(feature.journeys || []).length} journeys</span>
+          <span>${(feature.scenarios || []).length} scénarios docs</span>
+          <span>${(feature.matched_tests || []).length} tests</span>
+          <span>${(feature.proofs || []).length} preuves</span>
+        </div>
+      </article>`;
+    }).join('');
+    app.innerHTML = `${crumbs([{label: 'Features'}])}
+      <h1>Features</h1>
+      <p>Navigation produit par feature, journey et scénario. Les textes affichés viennent des docs feature.</p>
+      ${renderMetrics()}<div class="grid">${cards}</div>`;
+  }
+
+  function renderFeature(feature) {
+    const journeys = (feature.journeys || []).map((journey) => {
+      const c = counts(journey.matched_scenarios || []);
+      return `<article class="card">
+        <h3><a href="#/features/${esc(feature.id)}/journeys/${esc(journey.id)}">${esc(journey.title || journey.id)}</a></h3>
+        <p><code>${esc(journey.entrypoint || '')}</code></p>
+        <div class="meta"><span>${(journey.scenarios || []).length} scénarios</span><span>${c.passed} passed</span><span>${c.failed} failed</span></div>
+      </article>`;
+    }).join('');
+    app.innerHTML = `${crumbs([{label: 'Features', href: '#/features'}, {label: feature.title}])}
+      <h1>${esc(feature.title)}</h1>
+      <p>${esc(feature.summary)}</p>
+      <div class="meta">${statusPill(featureStatus(feature))}<code>${esc(feature.source)}</code></div>
+      <div class="two">
+        <section class="panel"><h2>Documentation</h2>${list(feature.docs || [], (doc) => `<li><code>${esc(doc)}</code></li>`)}</section>
+        <section class="panel"><h2>Gaps</h2>${list(feature.gaps || [], (gap) => `<li>${esc(gap)}</li>`)}</section>
+      </div>
+      <h2>User journeys</h2><div class="grid">${journeys}</div>
+      <h2>Tests et preuves</h2>
+      <div class="two">
+        <section class="panel"><h3>Tests</h3>${list(feature.matched_tests || [], (test) => `<li><code>${esc(test)}</code></li>`)}</section>
+        <section class="panel"><h3>Preuves</h3>${renderProofLinks(feature.proofs || [])}</section>
+      </div>`;
+  }
+
+  function renderJourney(feature, journey) {
+    const scenarios = (journey.scenarios || []).map((scenario) => renderScenarioRow(feature, journey, scenario)).join('');
+    app.innerHTML = `${crumbs([
+      {label: 'Features', href: '#/features'},
+      {label: feature.title, href: '#/features/' + feature.id},
+      {label: journey.title || journey.id}
+    ])}
+      <h1>${esc(journey.title || journey.id)}</h1>
+      <p><code>${esc(journey.entrypoint || '')}</code></p>
+      <div class="meta"><span>${(journey.matched_tests || []).length} tests</span><span>${(journey.proofs || []).length} preuves</span></div>
+      <h2>Scénarios</h2><div class="scenario-list">${scenarios || '<div class="empty">Aucun scénario documenté.</div>'}</div>
+      <h2>Preuves du journey</h2>${renderProofLinks(journey.proofs || [])}`;
+  }
+
+  function renderScenarioRow(feature, journey, scenario) {
+    const c = counts(scenario.matched_scenarios || []);
+    const status = c.failed ? 'failed' : ((scenario.gaps || []).length ? 'warning' : 'ok');
+    return `<article class="scenario-row">
+      ${statusPill(status)}
+      <div>
+        <strong><a href="#/features/${esc(feature.id)}/scenarios/${esc(scenario.id)}">${esc(scenario.title)}</a></strong>
+        <p>${esc(scenario.ui_text)}</p>
+        <code>${esc(scenario.scenario_id)}</code>
+      </div>
+      <div class="muted">${(scenario.matched_tests || []).length} tests<br>${(scenario.proofs || []).length} preuves</div>
+    </article>`;
+  }
+
+  function renderScenario(feature, journey, scenario) {
+    app.innerHTML = `${crumbs([
+      {label: 'Features', href: '#/features'},
+      {label: feature.title, href: '#/features/' + feature.id},
+      {label: journey.title || journey.id, href: '#/features/' + feature.id + '/journeys/' + journey.id},
+      {label: scenario.title}
+    ])}
+      <h1>${esc(scenario.title)}</h1>
+      <p>${esc(scenario.report_text || scenario.ui_text)}</p>
+      <div class="meta"><code>${esc(scenario.scenario_id)}</code>${statusPill((scenario.gaps || []).length ? 'warning' : 'ok')}</div>
+      <section class="bdd">
+        <div><h3>Given</h3><p>${esc(scenario.given)}</p></div>
+        <div><h3>When</h3><p>${esc(scenario.when)}</p></div>
+        <div><h3>Then</h3><p>${esc(scenario.then)}</p></div>
+      </section>
+      <h2>Tests liés</h2>${renderScenarioRuns(scenario.matched_scenarios || [], scenario.tests || [])}
+      <h2>Preuves</h2>${renderProofLinks(scenario.proofs || [])}`;
+  }
+
+  function renderScenarioRuns(runs, declaredTests) {
+    const declared = list(declaredTests, (test) => `<li><code>${esc(test)}</code></li>`);
+    if (!runs.length) return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="empty">Aucun test exécuté.</div></section></div>`;
+    const rows = runs.map((run) => `<tr>
+      <td>${statusPill(run.status || 'unknown')}</td>
+      <td><code>${esc(run.nodeid)}</code><p>${esc(run.message || '')}</p></td>
+      <td>${esc(run.duration_s || 0)}s</td>
+      <td>${renderArtifacts(run.artifacts || [])}</td>
+    </tr>`).join('');
+    return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Test</th><th>Durée</th><th>Artefacts</th></tr></thead><tbody>${rows}</tbody></table></div></section></div>`;
+  }
+
+  function renderArtifacts(artifacts) {
+    if (!artifacts.length) return '<span class="muted">Aucun artefact</span>';
+    return artifacts.map((artifact) => {
+      const href = hrefFor(artifact.path);
+      const label = esc(artifact.label || artifact.type || 'artefact');
+      if (artifact.type === 'screenshot') {
+        return `<a class="shot" href="${esc(href)}"><img src="${esc(href)}" alt="${label}"><span>${label}</span></a>`;
+      }
+      return `<a href="${esc(href)}">${label}</a>`;
+    }).join('');
+  }
+
+  function renderProofLinks(proofs) {
+    if (!proofs.length) return '<div class="empty">Aucune preuve collectée.</div>';
+    return list(proofs, (proof) => `<li><a href="${esc(hrefFor(proof.path))}">${esc(proof.label || proof.type || 'preuve')}</a> <code>${esc(proof.scenario_id || proof.scenario || '')}</code></li>`);
+  }
+
+  function renderGaps() {
+    const inv = data.feature_inventory || {};
+    const proofFailures = data.proof_failures || [];
+    app.innerHTML = `${crumbs([{label: 'Gaps'}])}<h1>Gaps et violations</h1>
+      <div class="two">
+        <section class="panel"><h2>Violations</h2>${list(inv.violations || [], (item) => `<li>${esc(item)}</li>`)}</section>
+        <section class="panel"><h2>Warnings</h2>${list(inv.warnings || [], (item) => `<li>${esc(item)}</li>`)}</section>
+      </div>
+      <section class="panel"><h2>Proof failures</h2>${list(proofFailures, (item) => `<li>${esc(item)}</li>`)}</section>`;
+  }
+
+  function renderRun() {
+    const commands = data.commands || [];
+    const rows = commands.map((command) => `<tr><td>${statusPill(command.status)}</td><td>${esc(command.label)}</td><td><code>${esc((command.argv || []).join(' '))}</code></td><td>${esc(command.duration_s)}s</td><td><code>${esc(command.log)}</code></td></tr>`).join('');
+    app.innerHTML = `${crumbs([{label: 'Run'}])}<h1>Preuves du run</h1>${renderMetrics()}
+      <h2>Commandes</h2><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Preuve</th><th>Commande</th><th>Durée</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h2>Catalogue</h2>${renderEvidenceCatalog()}`;
+  }
+
+  function renderEvidenceCatalog() {
+    const rows = (data.evidence_catalog || []).map((item) => `<tr><td>${esc(item.type)}</td><td>${esc(item.name)}</td><td>${statusPill(item.status)}</td><td><code>${esc(item.path || '-')}</code></td><td>${esc(item.roi)}</td></tr>`).join('');
+    return `<div class="table-wrap"><table><thead><tr><th>Type</th><th>Nom</th><th>Statut</th><th>Artefact</th><th>ROI</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderProject() {
+    const project = data.project || {};
+    app.innerHTML = `${crumbs([{label: 'Projet'}])}<h1>Contexte projet</h1>
+      <section class="panel"><h2>Mission</h2><p>${esc(project.mission || '')}</p><p>Version <code>${esc(project.version || 'unknown')}</code>, branche <code>${esc(data.git?.branch || 'unknown')}</code> @ <code>${esc(data.git?.sha || 'unknown')}</code>.</p></section>
+      <div class="two">
+        <section class="panel"><h2>Docs</h2>${list(project.docs || [], (doc) => `<li><code>${esc(doc)}</code></li>`)}</section>
+        <section class="panel"><h2>Fixtures</h2>${list(project.fixtures || [], (fixture) => `<li><code>${esc(fixture)}</code></li>`)}</section>
+      </div>`;
+  }
+
+  function renderNotFound() {
+    app.innerHTML = `${crumbs([{label: 'Introuvable'}])}<h1>Vue introuvable</h1><p>La route <code>${esc(route())}</code> ne correspond à aucune vue.</p>`;
+  }
+
+  function render() {
+    renderFeatureNav();
+    const parts = route().split('/').filter(Boolean);
+    if (parts.length === 0 || parts[0] === 'features' && parts.length === 1) renderFeatures();
+    else if (parts[0] === 'features' && parts.length === 2) {
+      const feature = findFeature(parts[1]);
+      feature ? renderFeature(feature) : renderNotFound();
+    } else if (parts[0] === 'features' && parts[2] === 'journeys') {
+      const feature = findFeature(parts[1]);
+      const journey = findJourney(feature, parts[3]);
+      feature && journey ? renderJourney(feature, journey) : renderNotFound();
+    } else if (parts[0] === 'features' && parts[2] === 'scenarios') {
+      const feature = findFeature(parts[1]);
+      const found = findScenario(feature, parts[3]);
+      feature && found.scenario ? renderScenario(feature, found.journey, found.scenario) : renderNotFound();
+    } else if (parts[0] === 'gaps') renderGaps();
+    else if (parts[0] === 'run') renderRun();
+    else if (parts[0] === 'project') renderProject();
+    else renderNotFound();
+    setActiveNav();
+  }
+
+  featureSearch.addEventListener('input', renderFeatureNav);
+  window.addEventListener('hashchange', render);
+  if (!location.hash) location.hash = '#/features';
+  render();
+})();
+"""
+
+
+def _metric(value: object, label: str, tone: str = "") -> str:
+    tone_class = f" {tone}" if tone else ""
+    return (
+        f"<div class='panel'><span class='metric{tone_class}'>{html.escape(str(value))}</span>"
+        f"<p>{html.escape(label)}</p></div>"
+    )
+
+
+def _section(section_id: str, title: str, body: str, intro: str = "") -> str:
+    intro_html = f"<p>{html.escape(intro)}</p>" if intro else ""
+    return (
+        f"<section id='{section_id}' class='report-section'>"
+        f"<h2>{html.escape(title)}</h2>{intro_html}{body}</section>"
+    )
+
+
+def _details_block(label_html: str, body: str, *, open_: bool = False) -> str:
+    open_attr = " open" if open_ else ""
+    return (
+        f"<details class='block'{open_attr}><summary>{label_html}</summary>"
+        f"<div class='block-body'>{body}</div></details>"
+    )
+
+
+def _table(header_cells: list[str], body_rows: str) -> str:
+    head = "".join(f"<th>{html.escape(cell)}</th>" for cell in header_cells)
+    return (
+        "<div class='table-wrap'>"
+        f"<table><thead><tr>{head}</tr></thead><tbody>{body_rows}</tbody></table>"
+        "</div>"
+    )
+
+
+def _command_rows(commands: list[dict]) -> str:
+    rows = []
+    for command in commands:
+        status = html.escape(command["status"])
+        rows.append(
+            "<tr>"
+            f"<td><span class='pill {_status_class(command['status'])}'>{status}</span></td>"
             f"<td>{html.escape(command['label'])}</td>"
             f"<td><code>{html.escape(' '.join(command['argv']))}</code></td>"
             f"<td>{command['duration_s']:.3f}s</td>"
             f"<td><code>{html.escape(command['log'])}</code></td>"
             "</tr>"
         )
+    return "".join(rows)
 
-    suite_rows = []
+
+def _suite_rows(unit: dict, e2e: dict) -> str:
+    rows = []
     for name, suite in (("Unitaires", unit), ("E2E Chrome", e2e)):
         suite_status = (
             "ok"
             if suite["exists"] and suite["failures"] == 0 and suite["errors"] == 0
             else "failed"
         )
-        suite_rows.append(
+        rows.append(
             "<tr>"
             f"<td><span class='pill {_status_class(suite_status)}'>{suite_status}</span></td>"
             f"<td>{name}</td>"
@@ -905,13 +1910,16 @@ def render_html(summary: dict, unit: dict, e2e: dict, help_commands: list[dict[s
             f"<td><code>{html.escape(suite['path'])}</code></td>"
             "</tr>"
         )
+    return "".join(rows)
 
-    focus_rows = []
+
+def _focus_rows(unit: dict, e2e: dict) -> str:
+    rows = []
     for suite_name, suite in (("Unitaires", unit), ("E2E Chrome", e2e)):
         for case in _case_focus(suite["cases"]):
             status = html.escape(case["status"])
             test_id = f"{html.escape(case['classname'])}::{html.escape(case['name'])}"
-            focus_rows.append(
+            rows.append(
                 "<tr>"
                 f"<td>{suite_name}</td>"
                 f"<td><span class='pill {status}'>{status}</span></td>"
@@ -920,18 +1928,21 @@ def render_html(summary: dict, unit: dict, e2e: dict, help_commands: list[dict[s
                 f"<td>{html.escape(case['message'])}</td>"
                 "</tr>"
             )
-    if not focus_rows:
-        focus_rows.append("<tr><td colspan='5'>Aucun test detaille disponible.</td></tr>")
+    if not rows:
+        rows.append("<tr><td colspan='5'>Aucun test détaillé disponible.</td></tr>")
+    return "".join(rows)
 
-    evidence_rows = []
-    for item in summary["evidence_catalog"]:
+
+def _evidence_rows(catalog: list[dict]) -> str:
+    rows = []
+    for item in catalog:
         path = (
             f"<code>{html.escape(item['path'])}</code>"
             if item["path"]
             else "<span class='muted'>-</span>"
         )
         status = html.escape(item["status"])
-        evidence_rows.append(
+        rows.append(
             "<tr>"
             f"<td><span class='type'>{html.escape(item['type'])}</span></td>"
             f"<td>{html.escape(item['name'])}</td>"
@@ -940,40 +1951,343 @@ def render_html(summary: dict, unit: dict, e2e: dict, help_commands: list[dict[s
             f"<td>{html.escape(item['roi'])}</td>"
             "</tr>"
         )
+    return "".join(rows)
 
-    help_items = "\n".join(
+
+def _help_items(help_commands: list[dict[str, str]]) -> str:
+    items = "".join(
         f"<li><code>{html.escape(command['name'])}</code> {html.escape(command['help'])}</li>"
         for command in help_commands
     )
-    if not help_items:
-        help_items = "<li>Aucune commande extraite de l'aide CLI.</li>"
+    return items or "<li>Aucune commande extraite de l'aide CLI.</li>"
 
-    log_sections = []
+
+def _log_tail_sections() -> str:
+    sections = []
     for label, path in (
         ("Ruff check", Path(".proof/ruff-check.log")),
         ("Ruff format", Path(".proof/ruff-format.log")),
         ("Pytest unitaires", UNIT_LOG),
         ("Pytest E2E Chrome", E2E_LOG),
     ):
-        log_sections.append(
-            f"<details><summary>{html.escape(label)} - extrait final</summary>"
-            f"<pre>{html.escape(_tail(path))}</pre></details>"
+        label_html = (
+            f"{html.escape(label)} <span class='muted'>extrait final · "
+            f"<code>{html.escape(str(path))}</code></span>"
         )
+        sections.append(_details_block(label_html, f"<pre>{html.escape(_tail(path))}</pre>"))
+    return "".join(sections)
 
+
+def _entrypoint_inventory_rows(feature_inventory: dict) -> str:
+    mapping = feature_inventory.get("feature_by_entrypoint", {})
+    rows = []
+    for entrypoint in feature_inventory.get("entrypoints", []):
+        owner = mapping.get(entrypoint["id"], "")
+        if owner:
+            owner_html = (
+                f"<a href='#feature-{html.escape(owner)}'><code>{html.escape(owner)}</code></a>"
+            )
+            pill = "<span class='pill ok'>rattaché</span>"
+        else:
+            owner_html = "<span class='muted'>-</span>"
+            pill = "<span class='pill failed'>non rattaché</span>"
+        rows.append(
+            "<tr>"
+            f"<td><code>{html.escape(entrypoint['id'])}</code></td>"
+            f"<td>{html.escape(entrypoint['type'])}</td>"
+            f"<td>{pill}</td>"
+            f"<td>{owner_html}</td>"
+            f"<td>{html.escape(entrypoint.get('label', ''))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return "<tr><td colspan='5'>Aucun entrypoint découvert.</td></tr>"
+    return "".join(rows)
+
+
+def _render_topbar(summary: dict) -> str:
+    verdict = "OK" if summary["ok"] else "ECHEC"
+    pill = "ok" if summary["ok"] else "failed"
+    git_context = summary["git"]
+    context = (
+        f"{html.escape(git_context['branch'])} @ {html.escape(git_context['sha'])} · "
+        f"{html.escape(summary['generated_at'])}"
+    )
+    return (
+        "<div class='topbar'><div class='topbar-inner'>"
+        "<strong>cdpx · cockpit de preuve</strong>"
+        f"<span class='pill {pill}'>{verdict}</span>"
+        f"<span class='muted'>{context}</span>"
+        "<nav>"
+        "<a href='#gaps'>Gaps</a>"
+        "<a href='#features'>Features</a>"
+        "<a href='#feature-details'>Dossiers</a>"
+        "<a href='#scenarios'>Scénarios</a>"
+        "<a href='#run'>Run</a>"
+        "<a href='#project'>Projet</a>"
+        "</nav>"
+        "</div></div>"
+    )
+
+
+def _render_hero(summary: dict, scenario_failures: list[str]) -> str:
+    totals = summary["totals"]
+    feature_inventory = summary["feature_inventory"]
+    feature_totals = feature_inventory["totals"]
+    status_counts = _feature_status_counts(feature_inventory)
+    scenario_totals = summary["scenario_totals"]
+    gap_signals = feature_totals["violations"] + feature_totals["warnings"] + len(scenario_failures)
+    entrypoint_ratio = f"{feature_totals['mapped_entrypoints']}/{feature_totals['entrypoints']}"
+    all_mapped = feature_totals["mapped_entrypoints"] == feature_totals["entrypoints"]
+    metrics = [
+        _metric(
+            "OK" if summary["ok"] else "ECHEC",
+            "Verdict global",
+            "ok-text" if summary["ok"] else "bad-text",
+        ),
+        _metric(
+            f"{totals['passed']}/{totals['tests']}",
+            "Tests passés",
+            "ok-text" if not totals["failed"] else "bad-text",
+        ),
+        _metric(
+            f"{status_counts['ok']}/{feature_totals['features']}",
+            "Features sans gap",
+            "ok-text" if status_counts["ok"] == feature_totals["features"] else "warn-text",
+        ),
+        _metric(
+            entrypoint_ratio,
+            "Entrypoints rattachés",
+            "ok-text" if all_mapped else "bad-text",
+        ),
+        _metric(feature_totals["scenarios"], "Scénarios reliés"),
+        _metric(scenario_totals["screenshots"], "Screenshots"),
+        _metric(
+            gap_signals,
+            "Gaps signalés",
+            "ok-text" if not gap_signals else "warn-text",
+        ),
+    ]
+    return "".join(metrics)
+
+
+def _render_gaps_section(feature_inventory: dict, scenario_failures: list[str]) -> str:
+    body = _table(
+        ["Type", "Signal", "Action suggérée"],
+        _gap_rows(feature_inventory, scenario_failures),
+    )
+    intro = (
+        "Toute surface non rattachée à une feature est une violation bloquante pour "
+        "`make proof`; les warnings ne bloquent pas le verdict mais restent à traiter."
+    )
+    return _section("gaps", "Gaps et violations", body, intro)
+
+
+def _render_features_section(feature_inventory: dict) -> str:
+    body = (
+        "<div class='toolbar'>"
+        "<input id='featureSearch' type='search' "
+        "placeholder='Filtrer: feature, commande, domaine'>"
+        "<select id='featureStatus'>"
+        "<option value=''>Tous statuts</option>"
+        "<option value='ok'>OK</option>"
+        "<option value='warning'>Warning</option>"
+        "<option value='failed'>Failed</option>"
+        "</select>"
+        "<span id='featureCount' class='muted'></span>"
+        "</div>"
+        f"<div class='feature-board' id='featureBoard'>{_feature_cards(feature_inventory)}</div>"
+    )
+    intro = (
+        "Statut dérivé des preuves du run: failed si un scénario relié échoue, "
+        "warning si la feature a des gaps, ok sinon."
+    )
+    return _section("features", "Features", body, intro)
+
+
+def _render_feature_details_section(feature_inventory: dict) -> str:
+    toolbar = (
+        "<div class='toolbar'>"
+        "<button id='expandFeatures' type='button'>Tout déplier</button>"
+        "<button id='collapseFeatures' type='button'>Tout replier</button>"
+        "</div>"
+    )
+    body = toolbar + _feature_detail_sections(feature_inventory)
+    intro = (
+        "Dossier de preuve par feature: journeys, entrypoints, docs, code, tests et "
+        "preuves collectées. Les features avec gaps ou échecs sont dépliées d'office."
+    )
+    return _section(
+        "feature-details", "Dossiers feature — docs > code > tests > preuves", body, intro
+    )
+
+
+def _render_scenarios_section(scenario_evidence: dict) -> str:
+    headers = [
+        "Statut",
+        "Scénario",
+        "Preuve",
+        "Durée",
+        "Screenshots",
+        "Artefacts",
+    ]
+    blocks = []
+    for suite_id, label, open_ in (
+        ("e2e", "E2E Chrome", True),
+        ("integration", "Intégration", False),
+        ("unit", "Unitaires", False),
+    ):
+        scenarios = scenario_evidence["suites"].get(suite_id, [])
+        counts = _scenario_status_counts(scenarios)
+        meta = (
+            f"{len(scenarios)} scénarios · {counts['failed']} failed · {counts['skipped']} skipped"
+        )
+        label_html = f"{html.escape(label)} <span class='muted'>({meta})</span>"
+        blocks.append(
+            _details_block(label_html, _table(headers, _scenario_rows(scenarios)), open_=open_)
+        )
+    intro = (
+        "Chaque scénario e2e Chrome non skippé doit fournir au moins un screenshot. "
+        "Les suites unitaires et intégration partagent le même format de preuve sans "
+        "obligation de capture visuelle."
+    )
+    return _section("scenarios", "Scénarios prouvés", body="".join(blocks), intro=intro)
+
+
+def _render_run_section(summary: dict, unit: dict, e2e: dict) -> str:
+    commands_table = _table(
+        ["Statut", "Preuve", "Commande", "Durée", "Log"],
+        _command_rows(summary["commands"]),
+    )
+    suites_table = _table(
+        [
+            "Statut",
+            "Suite",
+            "Total",
+            "Passés",
+            "Failures",
+            "Errors",
+            "Skips",
+            "Durée",
+            "Source",
+        ],
+        _suite_rows(unit, e2e),
+    )
+    catalog = summary["evidence_catalog"]
+    evidence_block = _details_block(
+        f"Catalogue des preuves <span class='muted'>({len(catalog)} artefacts)</span>",
+        _table(["Type", "Nom", "Statut", "Artefact", "ROI review"], _evidence_rows(catalog)),
+    )
+    body = (
+        "<h3>Commandes exécutées</h3>"
+        + commands_table
+        + "<h3>Suites de tests</h3>"
+        + suites_table
+        + evidence_block
+        + _log_tail_sections()
+    )
+    intro = (
+        "Preuves brutes du run: chaque commande du portail, ses logs, les JUnit et le "
+        "catalogue complet des artefacts générés sous .proof/."
+    )
+    return _section("run", "Preuves du run", body, intro)
+
+
+def _render_project_section(
+    summary: dict, unit: dict, e2e: dict, help_commands: list[dict[str, str]]
+) -> str:
+    project = summary["project"]
+    git_context = summary["git"]
+    feature_inventory = summary["feature_inventory"]
+    feature_totals = feature_inventory["totals"]
+    mission = (
+        "<div class='callout'>"
+        f"<p><strong>Mission.</strong> {html.escape(project['mission'])}</p>"
+        "<p><strong>Version prouvée.</strong> "
+        f"<code>{html.escape(project['version'])}</code>, branche "
+        f"<code>{html.escape(git_context['branch'])}</code> @ "
+        f"<code>{html.escape(git_context['sha'])}</code>.</p>"
+        "<p><strong>Portée du run.</strong> Lint, format, unitaires, e2e Chrome, aide CLI, "
+        "JUnit XML, logs, screenshots e2e et inventaire feature.</p>"
+        "<p><strong>Hors run automatique.</strong> Docker Symfony e2e et preuves visuelles "
+        "persistantes restent des portails ou artefacts optionnels.</p>"
+        "</div>"
+    )
+    entrypoint_ratio = f"{feature_totals['mapped_entrypoints']}/{feature_totals['entrypoints']}"
+    fixtures_body = (
+        _table(["Type", "Nombre"], _simple_kv_rows(project["fixture_kinds"]))
+        + f"<ul class='compact'>{_path_items(project['fixtures'])}</ul>"
+    )
+    docs_body = (
+        "<div class='two'>"
+        "<div><strong>Documentation de référence</strong>"
+        f"<ul class='compact'>{_path_items(project['docs'])}</ul></div>"
+        "<div><strong>Docs milestones</strong>"
+        f"<ul class='compact'>{_path_items(project['milestone_docs'])}</ul></div>"
+        "</div>"
+    )
+    failed_tests = summary["totals"]["failed"]
+    blocks = [
+        _details_block(
+            f"Surface CLI <span class='muted'>({len(help_commands)} commandes)</span>",
+            f"<ul class='commands'>{_help_items(help_commands)}</ul>",
+        ),
+        _details_block(
+            f"Entrypoints découverts <span class='muted'>({entrypoint_ratio} rattachés)</span>",
+            _table(
+                ["Entrypoint", "Type", "Rattachement", "Feature", "Description"],
+                _entrypoint_inventory_rows(feature_inventory),
+            ),
+        ),
+        _details_block(
+            f"Fixtures locales <span class='muted'>({project['fixture_count']} fichiers)</span>",
+            fixtures_body,
+        ),
+        _details_block(
+            "Matrice de validation <span class='muted'>(milestones)</span>",
+            _table(["Milestone", "Preuve attendue"], _milestone_rows(summary["validation_matrix"])),
+        ),
+        _details_block("Documentation et milestones", docs_body),
+        _details_block(
+            "Couverture par module de test",
+            _table(
+                ["Module", "Suite", "Tests", "Échecs", "Skips"],
+                _coverage_rows(summary["coverage_groups"]),
+            ),
+        ),
+        _details_block(
+            "Tests à inspecter <span class='muted'>(échecs ou plus lents)</span>",
+            _table(["Suite", "Statut", "Test", "Durée", "Message"], _focus_rows(unit, e2e)),
+            open_=failed_tests > 0,
+        ),
+        _details_block(
+            "Risques projet",
+            _table(["Risque", "Mitigation", "Rollback"], _risk_rows(summary["risks"])),
+        ),
+        _details_block(
+            "Limites connues",
+            _table(
+                ["Zone non vérifiée", "Pourquoi", "Comment vérifier"],
+                _unknown_rows(summary["unknowns"]),
+            ),
+        ),
+    ]
+    return _section("project", "Contexte projet", mission + "".join(blocks))
+
+
+def _json_for_html_script(data: dict) -> str:
+    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+
+
+def render_html(summary: dict, unit: dict, e2e: dict, help_commands: list[dict[str, str]]) -> str:
     verdict = "OK" if summary["ok"] else "ECHEC"
     generated = html.escape(summary["generated_at"])
-    total_tests = summary["totals"]["tests"]
-    cli_count = len(help_commands)
+    payload = _json_for_html_script(summary)
+    pill = "ok" if summary["ok"] else "failed"
     git_context = summary["git"]
-    branch = html.escape(git_context["branch"])
-    sha = html.escape(git_context["sha"])
-    project = summary["project"]
-    validation_matrix = summary["validation_matrix"]
-    coverage_groups = summary["coverage_groups"]
-    scenario_evidence = summary["scenario_evidence"]
-    scenario_totals = summary["scenario_totals"]
-    risks = summary["risks"]
-    unknowns = summary["unknowns"]
+    context = (
+        f"{html.escape(git_context['branch'])} @ {html.escape(git_context['sha'])} · {generated}"
+    )
     return f"""<!doctype html>
 <html lang="fr">
 <head>
@@ -981,275 +2295,33 @@ def render_html(summary: dict, unit: dict, e2e: dict, help_commands: list[dict[s
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rapport de preuve cdpx - {verdict}</title>
   <style>
-    :root {{
-      color-scheme: light;
-      --bg: #f7f8fa;
-      --panel: #ffffff;
-      --ink: #18202a;
-      --muted: #5d6673;
-      --line: #d9dee7;
-      --ok: #167044;
-      --bad: #b42318;
-      --info: #1d4ed8;
-      --skip: #7a5d00;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      background: var(--bg);
-      color: var(--ink);
-      font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }}
-    header, main {{ max-width: 1160px; margin: 0 auto; padding: 24px; }}
-    header {{ padding-top: 34px; }}
-    h1, h2 {{ margin: 0 0 12px; line-height: 1.15; }}
-    h1 {{ font-size: 34px; }}
-    h2 {{ font-size: 22px; margin-top: 28px; }}
-    h3 {{ font-size: 16px; margin: 18px 0 8px; }}
-    p {{ margin: 0 0 12px; color: var(--muted); }}
-    .grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
-    .two {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
-    .panel {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 16px;
-    }}
-    .metric {{ display: block; font-size: 30px; font-weight: 700; color: var(--ink); }}
-    .muted {{ color: var(--muted); }}
-    .callout {{
-      border-left: 4px solid var(--info);
-      background: #eef5ff;
-      padding: 14px 16px;
-      margin: 12px 0;
-    }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--panel);
-      border: 1px solid var(--line);
-    }}
-    th, td {{
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-    }}
-    th {{ font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }}
-    code, pre {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
-    code {{ font-size: 13px; }}
-    pre {{
-      overflow: auto;
-      white-space: pre-wrap;
-      background: #10151f;
-      color: #edf2f7;
-      padding: 14px;
-      border-radius: 6px;
-    }}
-    .pill {{
-      display: inline-block;
-      min-width: 64px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      text-align: center;
-    }}
-    .ok, .passed {{ color: #fff; background: var(--ok); }}
-    .failed, .error {{ color: #fff; background: var(--bad); }}
-    .skipped {{ color: #1c1600; background: #f6d365; }}
-    .generated, .optional, .not-needed {{ color: #17324d; background: #dbeafe; }}
-    .type {{
-      display: inline-block;
-      padding: 2px 7px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #f8fafc;
-      font-size: 12px;
-      font-weight: 700;
-    }}
-    .shot {{
-      display: inline-flex;
-      flex-direction: column;
-      gap: 4px;
-      width: 170px;
-      margin: 0 8px 8px 0;
-      color: var(--ink);
-      text-decoration: none;
-    }}
-    .shot img {{
-      width: 170px;
-      height: 96px;
-      object-fit: cover;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-    }}
-    .shot span {{ font-size: 12px; color: var(--muted); }}
-    details {{ margin: 10px 0; }}
-    summary {{ cursor: pointer; font-weight: 700; }}
-    ul.commands {{ columns: 2; padding-left: 20px; }}
-    li {{ break-inside: avoid; margin-bottom: 6px; }}
-    @media (max-width: 820px) {{
-      .grid, .two {{ grid-template-columns: 1fr; }}
-      table {{ display: block; overflow-x: auto; }}
-      ul.commands {{ columns: 1; }}
-    }}
+{SPA_CSS}
   </style>
 </head>
 <body>
-  <header>
-    <h1>Rapport de preuve projet cdpx</h1>
-    <p>
-      Genere le {generated}. Ce rapport est reconstruit a chaque `make proof`
-      pour prouver l'etat global du projet: surface CLI, fixtures, milestones,
-      tests, logs, artefacts et limites connues.
-    </p>
-    <div class="grid">
-      <div class="panel"><span class="metric">{verdict}</span><p>Verdict global</p></div>
-      <div class="panel"><span class="metric">{total_tests}</span><p>Tests collectes</p></div>
-      <div class="panel">
-        <span class="metric">{scenario_totals["e2e"]}</span><p>Scenarios e2e</p>
-      </div>
-      <div class="panel">
-        <span class="metric">{scenario_totals["screenshots"]}</span><p>Screenshots</p>
-      </div>
-    </div>
-  </header>
-  <main>
-    <h2>Vue d'ensemble projet</h2>
-    <div class="callout">
-      <p>
-        <strong>Mission.</strong> {html.escape(project["mission"])}
-      </p>
-      <p>
-        <strong>Version prouvee.</strong> <code>{html.escape(project["version"])}</code>,
-        branche <code>{branch}</code> @ <code>{sha}</code>.
-      </p>
-      <p>
-        <strong>Portee du run.</strong> Lint, format, unitaires, e2e Chrome,
-        aide CLI, JUnit XML, logs, screenshots e2e et inventaire projet.
-      </p>
-      <p>
-        <strong>Hors run automatique.</strong> Docker Symfony e2e et preuves
-        visuelles persistantes restent des portails ou artefacts optionnels.
-      </p>
-    </div>
-
-    <h2>Surface prouvee</h2>
-    <div class="two">
-      <div class="panel">
-        <strong>Primitives CLI</strong>
-        <p><span class="metric">{cli_count}</span></p>
-        <ul class="commands">{help_items}</ul>
-      </div>
-      <div class="panel">
-        <strong>Fixtures locales</strong>
-        <p><span class="metric">{project["fixture_count"]}</span></p>
-        <table>
-          <thead><tr><th>Type</th><th>Nombre</th></tr></thead>
-          <tbody>{_simple_kv_rows(project["fixture_kinds"])}</tbody>
-        </table>
-      </div>
-    </div>
-
-    <h2>Matrice de validation</h2>
-    <table>
-      <thead><tr><th>Milestone</th><th>Preuve attendue</th></tr></thead>
-      <tbody>{_milestone_rows(validation_matrix)}</tbody>
-    </table>
-
-    <h2>Inventaire projet</h2>
-    <div class="two">
-      <div class="panel">
-        <strong>Documentation de référence</strong>
-        <ul>{_path_items(project["docs"])}</ul>
-      </div>
-      <div class="panel">
-        <strong>Docs milestones</strong>
-        <ul>{_path_items(project["milestone_docs"])}</ul>
-      </div>
-    </div>
-    <details>
-      <summary>Fixtures détaillées</summary>
-      <ul>{_path_items(project["fixtures"])}</ul>
-    </details>
-
-    <h2>Catalogue des preuves</h2>
-    <table>
-      <thead>
-        <tr><th>Type</th><th>Nom</th><th>Statut</th><th>Artefact</th><th>ROI review</th></tr>
-      </thead>
-      <tbody>{"".join(evidence_rows)}</tbody>
-    </table>
-
-    <h2>Commandes executees</h2>
-    <table>
-      <thead><tr><th>Statut</th><th>Preuve</th><th>Commande</th><th>Duree</th><th>Log</th></tr></thead>
-      <tbody>{"".join(command_rows)}</tbody>
-    </table>
-
-    <h2>Suites de tests</h2>
-    <table>
-      <thead><tr><th>Statut</th><th>Suite</th><th>Total</th><th>Passes</th><th>Failures</th><th>Errors</th><th>Skips</th><th>Duree</th><th>Source</th></tr></thead>
-      <tbody>{"".join(suite_rows)}</tbody>
-    </table>
-
-    <h2>Scenarios prouves</h2>
-    <p>
-      Chaque scenario e2e Chrome non skippe doit avoir au moins un screenshot.
-      Les tests unitaires et integration reutilisent le meme format de preuve,
-      sans obligation de capture visuelle.
-    </p>
-    <details open>
-      <summary>E2E Chrome</summary>
-      <table>
-        <thead><tr><th>Statut</th><th>Scenario</th><th>Titre</th><th>Preuve</th><th>Duree</th><th>Screenshots</th><th>Artefacts</th></tr></thead>
-        <tbody>{_scenario_rows(scenario_evidence["suites"].get("e2e", []))}</tbody>
-      </table>
-    </details>
-    <details>
-      <summary>Integration</summary>
-      <table>
-        <thead><tr><th>Statut</th><th>Scenario</th><th>Titre</th><th>Preuve</th><th>Duree</th><th>Screenshots</th><th>Artefacts</th></tr></thead>
-        <tbody>{_scenario_rows(scenario_evidence["suites"].get("integration", []))}</tbody>
-      </table>
-    </details>
-    <details>
-      <summary>Unitaires</summary>
-      <table>
-        <thead><tr><th>Statut</th><th>Scenario</th><th>Titre</th><th>Preuve</th><th>Duree</th><th>Screenshots</th><th>Artefacts</th></tr></thead>
-        <tbody>{_scenario_rows(scenario_evidence["suites"].get("unit", []))}</tbody>
-      </table>
-    </details>
-
-    <h2>Couverture par module de test</h2>
-    <table>
-      <thead><tr><th>Module</th><th>Suite</th><th>Tests</th><th>Echecs</th><th>Skips</th></tr></thead>
-      <tbody>{_coverage_rows(coverage_groups)}</tbody>
-    </table>
-
-    <h2>Tests a inspecter</h2>
-    <table>
-      <thead><tr><th>Suite</th><th>Statut</th><th>Test</th><th>Duree</th><th>Message</th></tr></thead>
-      <tbody>{"".join(focus_rows)}</tbody>
-    </table>
-
-    <h2>Risques projet</h2>
-    <table>
-      <thead><tr><th>Risque</th><th>Mitigation</th><th>Rollback</th></tr></thead>
-      <tbody>{_risk_rows(risks)}</tbody>
-    </table>
-
-    <h2>Limites connues</h2>
-    <table>
-      <thead><tr><th>Zone non verifiee</th><th>Pourquoi</th><th>Comment verifier</th></tr></thead>
-      <tbody>{_unknown_rows(unknowns)}</tbody>
-    </table>
-
-    <h2>Extraits de logs</h2>
-    {"".join(log_sections)}
-  </main>
+  <div class="topbar">
+    <div class="brand">cdpx · cockpit de preuve</div>
+    <span class="pill {pill}">{verdict}</span>
+    <span class="muted">{context}</span>
+    <nav>
+      <a href="#/features" data-route="/features">Features</a>
+      <a href="#/gaps" data-route="/gaps">Gaps</a>
+      <a href="#/run" data-route="/run">Run</a>
+      <a href="#/project" data-route="/project">Projet</a>
+    </nav>
+  </div>
+  <div class="shell">
+    <aside class="side">
+      <h2>Features</h2>
+      <input id="featureSearch" type="search" placeholder="Filtrer les features">
+      <nav id="featureNav"></nav>
+    </aside>
+    <main id="app" aria-live="polite"></main>
+  </div>
+  <script id="report-data" type="application/json">{payload}</script>
+  <script>
+{SPA_JS}
+  </script>
 </body>
 </html>
 """
@@ -1279,13 +2351,17 @@ def build_summary(
     validation_matrix = parse_validation_matrix()
     coverage_groups = group_cases_by_module(unit, e2e)
     scenario_evidence = scenario_evidence or load_scenario_evidence()
+    feature_inventory = build_feature_inventory(help_commands, scenario_evidence, git_context)
+    scenario_evidence = enrich_scenario_evidence(scenario_evidence, feature_inventory)
     scenario_failures = proof_failures_from_scenarios(scenario_evidence)
+    feature_inventory_failures = feature_failures(feature_inventory)
     risk_packet = build_project_risks_and_unknowns()
     failed_tests = unit["failures"] + unit["errors"] + e2e["failures"] + e2e["errors"]
     ok = (
         all(command.exit_code == 0 for command in commands)
         and failed_tests == 0
         and not scenario_failures
+        and not feature_inventory_failures
     )
     summary = {
         "ok": ok,
@@ -1319,7 +2395,8 @@ def build_summary(
         "coverage_groups": coverage_groups,
         "scenario_evidence": scenario_evidence,
         "scenario_totals": scenario_evidence["totals"],
-        "proof_failures": scenario_failures,
+        "feature_inventory": feature_inventory,
+        "proof_failures": scenario_failures + feature_inventory_failures,
         "risks": risk_packet["risks"],
         "unknowns": risk_packet["unknowns"],
     }
@@ -1398,6 +2475,7 @@ def generate() -> dict:
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
+    write_scenario_evidence(EVIDENCE_DIR, summary["scenario_evidence"])
     SUMMARY_JSON.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

@@ -196,6 +196,11 @@ def test_build_summary_fails_when_e2e_screenshot_missing():
     summary = proof.build_summary([command], unit, e2e, scenario_evidence=scenario_evidence)
 
     assert summary["ok"] is False
-    assert summary["proof_failures"] == [
+    assert (
         "missing e2e screenshot: tests/e2e/test_demo.py::test_without_shot"
-    ]
+        in summary["proof_failures"]
+    )
+    assert (
+        "feature inventory: scenario unmapped: tests/e2e/test_demo.py::test_without_shot"
+        in summary["proof_failures"]
+    )

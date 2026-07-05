@@ -1,12 +1,20 @@
-from cdpx.testing.evidence import EvidenceCase, EvidenceSession, classify_nodeid
+from cdpx.testing.evidence import EvidenceCase, EvidenceSession, classify_nodeid, marker_metadata
 
 
 class FakeItem:
-    def __init__(self, nodeid):
+    def __init__(self, nodeid, marker=None):
         self.nodeid = nodeid
+        self.marker = marker
 
     def get_closest_marker(self, name):
-        return None
+        return self.marker if name == "scenario" else None
+
+
+class FakeMarker:
+    args = ()
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
 
 
 def test_classify_nodeid_by_test_area():
@@ -36,9 +44,36 @@ def test_evidence_case_attaches_artifacts(tmp_path):
     assert all(tmp_path.as_posix() in artifact["path"] for artifact in data["artifacts"])
 
 
+def test_marker_metadata_captures_feature_and_journey():
+    item = FakeItem(
+        "tests/test_cli.py::test_cli_contract",
+        FakeMarker(
+            feature="harness-proof-cockpit",
+            journey="run-quality-gate",
+            scenario_id="harness-proof-cockpit.run-local-quality-gate",
+        ),
+    )
+
+    data = marker_metadata(item)
+
+    assert data["feature"] == "harness-proof-cockpit"
+    assert data["journey"] == "run-quality-gate"
+    assert data["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"
+
+
 def test_evidence_session_writes_grouped_scenarios(tmp_path):
     session = EvidenceSession(tmp_path)
-    session.case_for_item(FakeItem("tests/test_cli.py::test_cli_contract")).status = "passed"
+    case = session.case_for_item(
+        FakeItem(
+            "tests/test_cli.py::test_cli_contract",
+            FakeMarker(
+                feature="harness-proof-cockpit",
+                journey="run-quality-gate",
+                scenario_id="harness-proof-cockpit.run-local-quality-gate",
+            ),
+        )
+    )
+    case.status = "passed"
     session.case_for_item(FakeItem("tests/e2e/test_e2e_chrome.py::test_page")).status = "passed"
 
     paths = session.write()
@@ -47,3 +82,5 @@ def test_evidence_session_writes_grouped_scenarios(tmp_path):
         "e2e-scenarios.json",
         "integration-scenarios.json",
     ]
+    assert case.as_dict()["feature"] == "harness-proof-cockpit"
+    assert case.as_dict()["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"
