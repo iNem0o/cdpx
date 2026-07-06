@@ -5,7 +5,7 @@ status = "validated"
 summary = "Parser les panels du Web Profiler Symfony (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, temps, logs) depuis une navigation navigateur, puis comparer le DOM avant/après une action."
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "make docker-symfony-e2e"]
 path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler_panels.py", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
-test_globs = ["tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
+test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
 docs = ["docs/PRIMITIVES.md", "docs/milestones/M2-boucle-symfony.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -33,7 +33,7 @@ report_text = "Ce scénario prouve que les diagnostics framework sont accessible
 given = "Une fixture ou l'app de test Symfony expose des en-têtes et pages de type profiler."
 when = "cdpx lit les données du profiler après navigation pendant l'e2e Chrome et, quand Docker est disponible, via le portail e2e Symfony."
 then = "Le rapport lie les tests profiler, le statut Docker, JUnit, logs, la sortie profiler JSON et les captures d'écran à la feature diagnostics développeur."
-tests = ["tests/test_primitives.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_symfony.py::*"]
+tests = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_cli.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_symfony.py::*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]

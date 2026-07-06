@@ -9,14 +9,21 @@ que l'humain ouvre quoi que ce soit.
 ## Primitives
 ### cdpx profiler
 - Comment: activer Network, naviguer/agir, lire le header `x-debug-token-link`
-  de la réponse principale (Network.responseReceived -> response.headers),
-  puis fetch `http://app.test/_profiler/{token}?panel=db` (ou l'API JSON du
-  profiler) DEPUIS cdpx (urllib), pas depuis la page.
-- Sortie: {token, url, panels: {db: {queries, time}, exceptions, ...}}.
+  de la réponse principale (Network.responseReceived -> response.headers,
+  redirectResponse pour les 302), puis fetch
+  `http://app.test/_profiler/{token}?panel=db` et parser le HTML des panels.
+- Note d'évolution (post-M2): l'API JSON du profiler évoquée à l'origine
+  n'existe pas côté Symfony — l'adaptateur réel parse le HTML des panels
+  (voir `src/cdpx/primitives/profiler_panels.py`) et le fetch se fait DEPUIS
+  la page (fetch même origine), pas depuis cdpx: cookies et résolution d'hôte
+  du navigateur, indispensable derrière Docker.
+- Sortie: {token, url, panels: {db: {queries, statements, duplicates, ...},
+  twig, cache, exception, http_client, messenger, router, time, logger}}.
 - Fixture: le serveur de fixtures gagne un endpoint `/api/profiler-sim` qui
-  émet le header et sert un JSON de profiler figé -> testable sans Symfony.
+  émet le header et sert des panels HTML figés (markup WebProfilerBundle
+  réel élagué) -> testable sans Symfony.
 - Test mock: scripter Network.responseReceived avec le header; vérifier le
-  fetch du token.
+  fetch page-context des panels et leur parsing.
 
 ### cdpx console --follow
 - Comment: boucle collect_events sans durée fixe, sortie NDJSON (1 ligne =
@@ -30,7 +37,9 @@ que l'humain ouvre quoi que ce soit.
 - Fixture: form.html suffit (data-state passe de idle à submitted).
 
 ## Definition of Done
-- [ ] profiler testé contre fixture simulant le header + contre un vrai
-      Symfony demo (hors CI)
+- [x] profiler testé contre fixture simulant le header + contre un vrai
+      Symfony demo (`make docker-symfony-e2e`: vrais collecteurs Doctrine,
+      cache, HTTP client, Messenger — panels parsés, plus aucun signal
+      X-CDPX fabriqué)
 - [ ] follow: NDJSON documenté dans PRIMITIVES.md
 - [ ] dom-diff: diff stable (2 runs = même diff)
