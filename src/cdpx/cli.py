@@ -18,7 +18,7 @@ import json
 import os
 import sys
 
-from cdpx import __version__, discovery, output
+from cdpx import __version__, discovery, output, scenarios
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
 
@@ -264,6 +264,23 @@ def cmd_replay(args) -> int:
     return 0 if res.get("ok") else 1
 
 
+def cmd_scenario(args) -> int:
+    if args.scenario_action != "run":
+        raise scenarios.ScenarioUsageError("scenario supporte: run <path>")
+    scenario = scenarios.load(args.path)
+    with _client(args) as c:
+        res = scenarios.run(
+            c,
+            scenario,
+            evidence_root=args.evidence_dir,
+            timeout=args.timeout,
+            settle=args.settle,
+            origins=os.environ.get("CDPX_ORIGINS"),
+        )
+    _out(args, res)
+    return 0 if res["verdict"] == "pass" else 1
+
+
 # -- parseur ---------------------------------------------------------------------
 
 
@@ -421,6 +438,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("path")
     s.set_defaults(func=cmd_replay)
 
+    s = sub.add_parser("scenario", help="exécuter un scénario métier déclaratif")
+    scenario_sub = s.add_subparsers(dest="scenario_action", required=True)
+    r = scenario_sub.add_parser("run", help="exécuter un fichier scénario YAML")
+    r.add_argument("path")
+    r.add_argument("--evidence-dir", default=".cdpx-evidence")
+    r.add_argument("--settle", type=float, default=0.5)
+    r.set_defaults(func=cmd_scenario)
+
     return p
 
 
@@ -429,6 +454,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         code = args.func(args)
         return code or 0
+    except scenarios.ScenarioUsageError as e:
+        print(f"cdpx: {e}", file=sys.stderr)
+        return 2
     except (
         CDPError,
         CDPTimeout,

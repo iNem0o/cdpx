@@ -1,0 +1,20 @@
+name: symfony_front_pass
+context:
+  base_url: __BASE_URL__
+steps:
+  - label: front_state
+    goto: /scenario/front/states
+    capture: [screenshot, console, network]
+  - label: submit_state
+    click: "#submit-btn"
+    capture: [screenshot, console]
+  - label: submitted_text
+    wait_text: ["#result", "submitted"]
+assertions:
+  - no_console_errors: true
+  - network_errors_max: 0
+  - text_contains: ["#result", "submitted"]
+artifacts:
+  - screenshot
+  - console
+  - network

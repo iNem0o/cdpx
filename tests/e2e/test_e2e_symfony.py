@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -34,6 +35,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 E2E_PORT = 9778
+SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
 
 
 def wait_for_symfony(url: str, timeout: float = 30.0) -> None:
@@ -65,6 +67,63 @@ def screenshot(c: CDPClient, tmp_path: Path, filename: str, evidence_case, label
     capture.screenshot(c, str(path))
     if evidence_case is not None:
         evidence_case.attach_screenshot(path, label)
+
+
+def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
+    src = SCENARIO_FIXTURES / template
+    dest = tmp_path / template
+    dest.write_text(src.read_text(encoding="utf-8").replace("__BASE_URL__", base_url), "utf-8")
+    return dest
+
+
+def run_scenario_cli(
+    chrome: int,
+    tab: dict,
+    scenario: Path,
+    evidence_dir: Path,
+    *,
+    timeout: float = 12.0,
+) -> tuple[int, dict, str]:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cdpx.cli",
+            "--port",
+            str(chrome),
+            "--target",
+            tab["id"],
+            "--timeout",
+            str(timeout),
+            "scenario",
+            "run",
+            str(scenario),
+            "--evidence-dir",
+            str(evidence_dir),
+            "--settle",
+            "0.5",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=max(timeout * 8, 30),
+    )
+    payload = json.loads(proc.stdout) if proc.stdout else {}
+    return proc.returncode, payload, proc.stderr
+
+
+def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
+    if evidence_case is None:
+        return
+    evidence_case.attach_json(label, result, f"{label}.json")
+    for artifact in result.get("artifacts", []):
+        path = Path(artifact["path"])
+        if path.exists():
+            evidence_case.attach_file(
+                path,
+                f"{label}-{artifact['label']}-{artifact['type']}",
+                artifact["type"],
+            )
 
 
 def expected_from_page(c: CDPClient) -> dict:
@@ -705,3 +764,51 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
     assert expected["after"] == "submitted"
     assert diff["changed"] is True
     assert any("submitted" in line for line in diff["diff"])
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.run-declarative-business-scenario",
+    proves=[
+        "Declarative YAML scenarios execute against the real Symfony test application.",
+        "Pass, controlled fail, and profiler/vitals evidence runs all produce reports.",
+    ],
+)
+def test_declarative_scenarios_run_against_real_symfony(chrome, tmp_path, evidence_case):
+    wait_for_symfony(SYMFONY_URL)
+    cases = [
+        ("symfony_front_pass.yml", 0, "pass", 12.0),
+        ("symfony_front_fail.yml", 1, "fail", 1.0),
+        ("symfony_profiler_vitals.yml", 0, "pass", 15.0),
+    ]
+    results = {}
+    for template, expected_code, expected_verdict, timeout in cases:
+        scenario = materialize_scenario(template, SYMFONY_URL, tmp_path)
+        tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+        try:
+            code, result, err = run_scenario_cli(
+                chrome,
+                tab,
+                scenario,
+                tmp_path / f"evidence-{template}",
+                timeout=timeout,
+            )
+        finally:
+            close_tab(chrome, tab)
+        attach_scenario_run(evidence_case, result, template.replace(".yml", ""))
+        assert code == expected_code, err
+        assert result["verdict"] == expected_verdict
+        assert result["artifacts"]
+        results[template] = result
+
+    profiler_artifacts = [
+        artifact
+        for artifact in results["symfony_profiler_vitals.yml"]["artifacts"]
+        if artifact["type"] == "profiler"
+    ]
+    assert profiler_artifacts
+    assert any(
+        finding["code"] == "step_failed"
+        for finding in results["symfony_front_fail.yml"]["findings"]
+    )

@@ -48,7 +48,7 @@ cdpx --port 9222 tabs list
 
 ## Contrat CLI
 
-Le contrat est identique pour les 29 commandes; c'est ce qui rend chaque
+Le contrat est identique pour les 30 commandes; c'est ce qui rend chaque
 action d'agent reproductible par un humain en une ligne.
 
 **Sorties.** stdout = un objet JSON compact (machine, sobre en tokens);
@@ -92,7 +92,7 @@ mécaniquement.
 | État et session | cookies (masqués), localStorage | `cookies`, `storage` | [fiche](docs/features/state-session.md) |
 | Audits SEO, performance, accessibilité | contrat SEO du DOM rendu, vitals, AXTree, coverage | `seo`, `vitals`, `a11y`, `coverage` | [fiche](docs/features/seo-performance-accessibility.md) |
 | Diagnostics développeur | profiler Symfony, diff DOM autour d'une action | `profiler`, `dom-diff` | [fiche](docs/features/dev-profiler-diff.md) |
-| Interception, émulation, orchestration | mocker le réseau, émuler, enregistrer/rejouer | `intercept`, `emulate`, `frame`, `record`, `replay` | [fiche](docs/features/orchestration-control.md) |
+| Interception, émulation, orchestration | mocker le réseau, émuler, scénariser, enregistrer/rejouer | `intercept`, `emulate`, `frame`, `record`, `replay`, `scenario` | [fiche](docs/features/orchestration-control.md) |
 | Harness et cockpit de preuve | portails qualité et rapport de validation | cibles `make`, `python -m cdpx.proof` | [fiche](docs/features/harness-proof-cockpit.md) |
 
 ### Index des commandes
@@ -128,6 +128,7 @@ mécaniquement.
 | `cdpx frame` | lire du texte dans une iframe same-origin | [orchestration](docs/features/orchestration-control.md) |
 | `cdpx record` | exécuter une action et la journaliser en NDJSON | [orchestration](docs/features/orchestration-control.md) |
 | `cdpx replay` | rejouer un journal, stop à la première divergence | [orchestration](docs/features/orchestration-control.md) |
+| `cdpx scenario` | exécuter un scénario métier YAML avec verdict et preuves | [orchestration](docs/features/orchestration-control.md) |
 
 `cdpx --version` affiche la version du paquet.
 

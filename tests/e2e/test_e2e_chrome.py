@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -25,6 +26,8 @@ from cdpx import discovery
 from cdpx.client import CDPClient
 from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
 from cdpx.testing.e2e import attach_screenshot
+
+SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
 
 CHROME_BIN = next(
     (b for b in ("chromium", "chromium-browser", "google-chrome", "chrome") if shutil.which(b)),
@@ -306,6 +309,117 @@ def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):
             attach_screenshot(evidence_case, c, "final")
     finally:
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
+
+
+def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
+    src = SCENARIO_FIXTURES / template
+    dest = tmp_path / template
+    dest.write_text(src.read_text(encoding="utf-8").replace("__BASE_URL__", base_url), "utf-8")
+    return dest
+
+
+def run_scenario_cli(
+    chrome: int,
+    tab: dict,
+    scenario: Path,
+    evidence_dir: Path,
+    *,
+    timeout: float = 10.0,
+) -> tuple[int, dict, str]:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cdpx.cli",
+            "--port",
+            str(chrome),
+            "--target",
+            tab["id"],
+            "--timeout",
+            str(timeout),
+            "scenario",
+            "run",
+            str(scenario),
+            "--evidence-dir",
+            str(evidence_dir),
+            "--settle",
+            "0.5",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=max(timeout * 8, 20),
+    )
+    payload = json.loads(proc.stdout) if proc.stdout else {}
+    return proc.returncode, payload, proc.stderr
+
+
+def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
+    if evidence_case is None:
+        return
+    evidence_case.attach_json(label, result, f"{label}.json")
+    for artifact in result.get("artifacts", []):
+        path = Path(artifact["path"])
+        if path.exists():
+            evidence_case.attach_file(
+                path,
+                f"{label}-{artifact['label']}-{artifact['type']}",
+                artifact["type"],
+            )
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.run-declarative-business-scenario",
+    proves=[
+        "A YAML scenario drives a real browser through form navigation and interaction.",
+        "Checkpoint and final artifacts are collected as proof files.",
+    ],
+)
+def test_declarative_scenario_static_form_real(chrome, fixtures_http, tmp_path, evidence_case):
+    scenario = materialize_scenario("static_form_pass.yml", fixtures_http.base_url, tmp_path)
+    tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        code, result, err = run_scenario_cli(chrome, tab, scenario, tmp_path / "evidence")
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, tab["id"])
+
+    attach_scenario_run(evidence_case, result, "static-form-scenario")
+    assert code == 0, f"stderr={err}\nresult={json.dumps(result, ensure_ascii=False, indent=2)}"
+    assert result["verdict"] == "pass"
+    assert any(artifact["label"] == "form_page" for artifact in result["artifacts"])
+    assert any(artifact["label"] == "final" for artifact in result["artifacts"])
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.run-declarative-business-scenario",
+    proves=[
+        "A YAML scenario returns one fail verdict when console and network assertions fail.",
+        "Failure evidence still includes checkpoint and final artifacts.",
+    ],
+)
+def test_declarative_scenario_static_observability_fail_real(
+    chrome, fixtures_http, tmp_path, evidence_case
+):
+    scenario = materialize_scenario(
+        "static_observability_fail.yml", fixtures_http.base_url, tmp_path
+    )
+    tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        code, result, _ = run_scenario_cli(chrome, tab, scenario, tmp_path / "evidence")
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, tab["id"])
+
+    attach_scenario_run(evidence_case, result, "static-observability-scenario")
+    assert code == 1
+    assert result["verdict"] == "fail"
+    assert {finding["code"] for finding in result["findings"]} >= {
+        "assertion_no_console_errors",
+        "assertion_network_errors_max",
+    }
 
 
 def test_seo_audit_real(page):

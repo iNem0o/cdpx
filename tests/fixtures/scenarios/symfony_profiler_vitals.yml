@@ -1,0 +1,24 @@
+name: symfony_profiler_vitals
+context:
+  base_url: __BASE_URL__
+  emulation: mobile
+steps:
+  - label: profiler_baseline
+    goto: /scenario/profiler/baseline
+    capture: [network, profiler]
+  - label: vitals_baseline
+    goto: /scenario/vitals/baseline
+    capture: [screenshot, console, network]
+  - label: vitals_interaction
+    click: "#inp-button"
+    capture: [screenshot, console]
+  - label: interaction_state
+    wait_text: ["#state", "clicked"]
+assertions:
+  - no_console_errors: true
+  - text_contains: ["#state", "clicked"]
+artifacts:
+  - screenshot
+  - console
+  - network
+  - profiler

@@ -2,10 +2,10 @@
 id = "orchestration-control"
 title = "Interception, émulation et orchestration"
 status = "validated"
-summary = "Contrôler le comportement réseau, émuler des contraintes d'appareil, lire des iframes et enregistrer/rejouer des actions navigateur bornées."
-entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay"]
-path_globs = ["src/cdpx/primitives/advanced.py", "src/cdpx/primitives/actions.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html"]
-test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
+summary = "Contrôler le comportement réseau, émuler des contraintes d'appareil, lire des iframes, exécuter des scénarios métier et enregistrer/rejouer des actions navigateur bornées."
+entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
+path_globs = ["src/cdpx/primitives/advanced.py", "src/cdpx/primitives/actions.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml"]
+test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 docs = ["docs/PRIMITIVES.md", "docs/milestones/M3-interception-emulation.md", "docs/milestones/M5-orchestration.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -18,6 +18,11 @@ entrypoint = "cdpx intercept"
 id = "replay-flow"
 title = "Enregistrer et rejouer des actions navigateur bornées"
 entrypoint = "cdpx replay"
+
+[[journeys]]
+id = "scenario-run"
+title = "Exécuter un scénario métier déclaratif avec preuves"
+entrypoint = "cdpx scenario"
 
 [[scenarios]]
 id = "intercept-network-request"
@@ -42,6 +47,18 @@ when = "cdpx valide le journal entier (syntaxe, actions, budget) puis rejoue ré
 then = "Chaque action est rejouée dans la limite du budget, le rejeu s'arrête à la première divergence, et le résultat reste borné, vérifiable et rattaché à la feature d'orchestration."
 tests = ["tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "run-declarative-business-scenario"
+journey = "scenario-run"
+title = "Exécuter un scénario métier YAML avec preuves"
+ui_text = "Un fichier YAML décrit un parcours métier, ses assertions et ses preuves à collecter pendant et après le run."
+report_text = "Ce scénario prouve que les primitives cdpx peuvent être composées en parcours métier déclaratifs avec verdict unique, findings et dossier de preuves."
+given = "Un Chrome jetable cible une application locale ou Symfony et un fichier YAML décrit les steps, assertions et captures."
+when = "cdpx scenario run exécute les steps, collecte console/réseau en continu, capture les preuves aux checkpoints et évalue les assertions."
+then = "La sortie contient un verdict pass/fail unique, les findings, les steps exécutés et les artefacts produits."
+tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
+expected_proofs = ["junit", "json", "screenshot"]
 +++
 
 ## Intention
@@ -52,7 +69,8 @@ Pendant la construction d'une app Symfony ou e-commerce, on a besoin de forcer
 un backend en erreur sans le casser (`intercept`), de vérifier un rendu sous
 contraintes mobiles ou réseau lent (`emulate`), de lire du contenu embarqué
 dans une iframe (`frame`), et de constituer puis rejouer un parcours
-reproductible (`record` / `replay`). Le langage d'actions reste volontairement
+reproductible (`record` / `replay`), ou d'élever ces primitives en scénario
+métier déclaratif (`scenario run`). Le langage d'actions reste volontairement
 compact (goto, wait, click, type, key, eval) : une action = une primitive
 nommée, jamais d'échappatoire shell.
 
@@ -65,7 +83,8 @@ mutations hors liste d'origines sont refusées. Pour les commandes composées
 (`emulate`, `record`), le caractère mutant suit le VERBE de l'action :
 `click`, `type`, `key` et `eval` mutent ; `goto` et `wait` lisent. `intercept`
 et `replay` sont mutants en bloc (un journal peut contenir n'importe quelle
-action). `frame` est une lecture pure.
+action). `scenario run` applique la garde juste avant chaque step mutant,
+après les navigations déclarées. `frame` est une lecture pure.
 
 ### `cdpx intercept`
 
@@ -272,12 +291,86 @@ les actions effectivement rejouées avec succès ; l'index de `divergence` est
 celui de l'évènement fautif (base 0). Sous `CDPX_ORIGINS`, `replay` est
 mutant en bloc, quel que soit le contenu du journal.
 
+### `cdpx scenario`
+
+Synopsis : `cdpx scenario run <fichier.yml> [--evidence-dir DIR] [--settle S]`
+
+Exécute un scénario métier déclaratif YAML contre l'onglet ciblé. Le scénario
+décrit un contexte (`base_url`, émulation optionnelle), une suite de steps, des
+assertions, des preuves finales et, si besoin, des preuves à collecter aux
+moments clés du run (`capture` sur un step). La sortie est toujours un objet
+JSON unique avec `verdict` (`pass` ou `fail`), `findings`, `steps`,
+`assertions`, `artifacts` et `evidence_dir`.
+
+Format P0 supporté :
+
+- `context.base_url` : origine ou URL de base pour résoudre les `goto`
+  relatifs.
+- `context.emulation` : optionnel, `mobile`, `slow-3g` ou `cpu-4x`, appliqué
+  dans la même connexion CDP que les steps.
+- Steps : `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
+  `wait_text`. `type` accepte `{selector, text, clear}`.
+- `capture` sur step : liste parmi `screenshot`, `console`, `network`,
+  `profiler`. Ces preuves sont collectées immédiatement après le step, même si
+  le step échoue.
+- Assertions : `no_console_errors`, `network_errors_max`, `text_contains`.
+- `artifacts` : mêmes types que `capture`, collectés en fin de scénario.
+
+```yaml
+name: checkout_guest_add_to_cart
+context:
+  base_url: http://shop.localhost
+  emulation: mobile
+steps:
+  - label: product_page
+    goto: /produit/42
+    capture: [screenshot, console, network]
+  - label: add_to_cart
+    wait_visible: '[data-testid="add-to-cart"]'
+  - click: '[data-testid="add-to-cart"]'
+    capture: [screenshot, console]
+  - wait_text: ['[data-testid="cart-count"]', '1']
+assertions:
+  - no_console_errors: true
+  - network_errors_max: 0
+  - text_contains: ['[data-testid="cart-count"]', '1']
+artifacts:
+  - screenshot
+  - console
+  - network
+  - profiler
+```
+
+```bash
+cdpx scenario run checkout_guest_add_to_cart.yml
+cdpx scenario run checkout_guest_add_to_cart.yml --evidence-dir .proof/manual-scenarios
+```
+
+Sortie réussie :
+
+```json
+{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":".cdpx-evidence/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":".cdpx-evidence/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png"}]}
+```
+
+Erreurs et pièges : un YAML invalide ou un champ inconnu sort en exit 2. Un
+scénario exécuté mais non conforme sort en exit 1 avec `verdict:"fail"` et des
+`findings` structurés. Les assertions ne s'arrêtent pas au premier échec :
+elles accumulent les findings puis les preuves finales sont collectées. Une
+capture `profiler` utilise d'abord les headers Symfony observés pendant le run
+(`X-Debug-Token-Link` ou `X-Debug-Token`) ; si aucun header n'a été vu, cdpx
+tente la dernière URL naviguée, puis ajoute un finding warning
+`profiler_unavailable` si aucun profiler n'est disponible. Sous
+`CDPX_ORIGINS`, les steps mutants (`click`, `type`, `key`, `eval`) vérifient
+l'origine courante au moment du step.
+
 ## Parcours utilisateur
 
 - Intercepter une navigation et forcer des issues réseau déterministes
   (fulfill, block, continue).
 - Émuler mobile, réseau lent ou ralentissement CPU et agir dans la même
   connexion.
+- Exécuter un scénario métier YAML et récupérer un verdict, des findings et
+  des preuves collectées aux checkpoints et en fin de run.
 - Lire le texte d'une iframe same-origin.
 - Enregistrer des actions réellement exécutées puis rejouer le journal avec un
   budget, arrêt à la première divergence.
@@ -287,15 +380,19 @@ mutant en bloc, quel que soit le contenu du journal.
 Les tests unitaires sur mock CDP valident les règles d'interception, les
 presets et le reset d'émulation, l'exécution et la journalisation de `record`,
 la validation préalable et le rejeu réel de `replay` (y compris la divergence
-et le budget), l'interpréteur d'actions partagé et la garde d'origine. Les
-tests e2e valident l'interception Fetch réelle, la non-persistance des
-overrides d'émulation entre connexions et le cycle record/replay complet sur
-Chrome réel.
+et le budget), les scénarios métier YAML, l'interpréteur d'actions partagé et
+la garde d'origine. Les tests e2e valident l'interception Fetch réelle, la
+non-persistance des overrides d'émulation entre connexions, le cycle
+record/replay complet sur Chrome réel, et des scénarios déclaratifs pass/fail
+avec preuves. Les e2e Symfony exécutent aussi des scénarios YAML contre les
+routes déterministes `/scenario/front/*`, `/scenario/vitals/*` et
+`/scenario/profiler/*`.
 
 ## Preuves
 
-Preuves attendues : rapports JUnit, plus captures d'écran pour les scénarios
-e2e d'orchestration (page interceptée, rendu sous émulation).
+Preuves attendues : rapports JUnit, captures d'écran pour les scénarios e2e
+d'orchestration (page interceptée, rendu sous émulation), JSON de runs
+déclaratifs, console, réseau et profiler collectés par `cdpx scenario run`.
 
 ## Limites connues
 

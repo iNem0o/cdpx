@@ -1,0 +1,17 @@
+name: static_observability_fail
+context:
+  base_url: __BASE_URL__
+steps:
+  - label: console_page
+    goto: /console.html
+    capture: [console, screenshot]
+  - label: network_page
+    goto: /network.html
+    capture: [network]
+assertions:
+  - no_console_errors: true
+  - network_errors_max: 0
+artifacts:
+  - console
+  - network
+  - screenshot

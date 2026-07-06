@@ -1,0 +1,26 @@
+name: static_form_pass
+context:
+  base_url: __BASE_URL__
+steps:
+  - label: form_page
+    goto: /form.html
+    capture: [screenshot, console, network]
+  - label: fill_name
+    type:
+      selector: "#name"
+      text: "Leo"
+      clear: true
+    capture: [console]
+  - label: submit
+    click: "#submit-btn"
+    capture: [screenshot, console]
+  - label: result
+    wait_text: ["#result", "OK:Leo"]
+assertions:
+  - no_console_errors: true
+  - network_errors_max: 0
+  - text_contains: ["#result", "OK:Leo"]
+artifacts:
+  - screenshot
+  - console
+  - network

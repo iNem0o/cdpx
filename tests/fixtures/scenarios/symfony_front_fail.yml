@@ -1,0 +1,16 @@
+name: symfony_front_fail
+context:
+  base_url: __BASE_URL__
+steps:
+  - label: front_state
+    goto: /scenario/front/states
+    capture: [screenshot, console, network]
+  - label: impossible_text
+    wait_text: ["#result", "never-submitted"]
+    capture: [screenshot, console]
+assertions:
+  - no_console_errors: true
+artifacts:
+  - screenshot
+  - console
+  - network

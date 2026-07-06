@@ -108,12 +108,14 @@ cdpx dom-diff -- click "#submit-btn"
 | `cdpx frame <selector>` | lire dans une iframe same-origin | contenus embarqués (paiement, consentement) |
 | `cdpx record [-o j.ndjson] -- <action>` | exécuter UNE action et la journaliser (résultat compris) | construire un parcours rejouable, trace fidèle |
 | `cdpx replay <j.ndjson>` | rejouer le journal, stop à la première divergence | non-régression de parcours; budget `--max-actions` |
+| `cdpx scenario run <fichier.yml>` | exécuter un parcours métier déclaratif | verdict unique pass/fail, findings et dossier de preuves |
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
 cdpx emulate mobile -- goto http://shop.localhost/
 cdpx record -o parcours.ndjson -- click "#add-to-cart"
 cdpx --max-actions 20 replay parcours.ndjson
+cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
 ## Harness et cockpit de preuve — [fiche](features/harness-proof-cockpit.md)

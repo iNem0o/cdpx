@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Browsers",
     "Private :: Do Not Upload",
 ]
-dependencies = ["websockets>=12"]
+dependencies = ["PyYAML>=6", "websockets>=12"]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "ruff", "build", "twine", "mypy"]
