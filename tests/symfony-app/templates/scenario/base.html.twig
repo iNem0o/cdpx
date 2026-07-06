@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }}</title>
+</head>
+<body data-scenario="{{ scenario }}">
+<main>
+  <h1>{{ title }}</h1>
+  <p id="outcome">{{ outcome }}</p>
+  {% block rows %}{% endblock %}
+</main>
+</body>
+</html>

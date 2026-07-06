@@ -27,8 +27,16 @@
 <table class="alt queries-table">
   <thead><tr><th>#</th><th>Time</th><th>Info</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>0.42 ms</td><td><pre>SELECT b0_.id, b0_.title, b0_.author_id FROM book b0_</pre></td></tr>
-    <tr><td>2</td><td>0.21 ms</td><td><pre>SELECT a0_.id, a0_.name FROM author a0_ WHERE a0_.id = ?</pre></td></tr>
+    <tr>
+      <td>1</td><td>0.42 ms</td>
+      <td><pre>SELECT t0.id AS id_1, t0.title AS title_2, t0.author_id AS author_id_3 FROM book t0</pre>
+      Parameters: <pre class="sf-dump">[]</pre><script>Sfdump("sf-dump-4")</script></td>
+    </tr>
+    <tr>
+      <td>2</td><td>0.21 ms</td>
+      <td><pre>SELECT t0.id AS id_1, t0.name AS name_2 FROM author t0 WHERE t0.id = ?</pre>
+      Parameters: <pre class="sf-dump">[<samp>1</samp>]</pre><script>Sfdump("sf-dump-5")</script></td>
+    </tr>
   </tbody>
 </table>
 </div>

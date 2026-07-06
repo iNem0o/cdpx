@@ -152,6 +152,11 @@ class PassiveCollector:
                 entry["url"] = request.get("url")
                 entry["method"] = request.get("method")
                 entry["resourceType"] = params.get("type")
+                # Une redirection n'émet pas de responseReceived: son token
+                # profiler n'existe que dans redirectResponse.
+                hit = dev.find_profiler_hit([ev], entry.get("url") or "")
+                if hit:
+                    self.profiler_hits.append(hit)
             elif ev["method"] == "Network.responseReceived":
                 response = params.get("response", {})
                 headers = {str(k).lower(): v for k, v in response.get("headers", {}).items()}

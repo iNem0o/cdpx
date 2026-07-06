@@ -6,11 +6,16 @@ le serveur de fixtures sur `/_profiler/<token>?panel=<nom>` (le nom du fichier
 est la valeur du paramètre `panel`; `exception-raised.html` n'est utilisé que
 par les tests de parsing).
 
-Provenance: capturés depuis l'app témoin `tests/symfony-app/` lancée via
-`make docker-symfony-e2e`, puis élagués (sidebar + contenu du panel, sans CSS
-ni JS d'interface). Les valeurs sont choisies distinctives et assertées à
-l'identique par `tests/test_profiler_panels.py` — ne pas les modifier sans
-adapter les tests.
+Provenance: structures calquées sur des captures réelles de l'app témoin
+`tests/symfony-app/` (WebProfilerBundle 7.3, lancée via
+`make docker-symfony-e2e`), puis élaguées: sidebar + contenu du panel, sans
+CSS ni JS d'interface, en conservant les marqueurs porteurs de sens (blocs
+`metric`, onglets `tab-title` + badge des pools et clients HTTP, rangées
+mixtes `<th>clé</th><td>valeur</td>` des panels request/messenger, dumps
+`sf-dump` avec leur `<script>` parasite, spans
+`status-response-status-code`, badges des filtres du panel logger). Les
+valeurs sont choisies distinctives et assertées à l'identique par
+`tests/test_profiler_panels.py` — ne pas les modifier sans adapter les tests.
 
 Re-capture (si le markup du WebProfilerBundle évolue):
 

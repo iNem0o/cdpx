@@ -17,17 +17,20 @@
 </div>
 <div id="collector-content">
 <h2>Messages</h2>
-<div class="metrics">
-  <div class="metric"><span class="value">1</span><span class="label">Total messages</span></div>
-</div>
-<h3>messenger.bus.default</h3>
-<div class="metrics">
-  <div class="metric"><span class="value">1</span><span class="label">Messages</span></div>
-</div>
-<table>
-  <thead><tr><th>Message</th><th>Bus</th></tr></thead>
-  <tbody>
-    <tr><td>App\Message\SyncPing</td><td>messenger.bus.default</td></tr>
+<p class="text-muted">Ordered list of dispatched messages across all your buses</p>
+<table class="message-item">
+  <thead>
+    <tr><th colspan="2" class="sf-toggle" data-toggle-selector="#message-item-0-details">
+      <span class="dump-inline">App\Message\SyncPing</span>
+    </th></tr>
+  </thead>
+  <tbody id="message-item-0-details">
+    <tr><th scope="row" class="font-normal">Bus</th><td>messenger.bus.default</td></tr>
+    <tr>
+      <th scope="row" class="font-normal">Message</th>
+      <td><pre class="sf-dump">"<span class="sf-dump-str sf-dump-ellipsization" title="App\Message\SyncPing 20 characters">App\Message\SyncPing</span>"</pre><script>Sfdump("sf-dump-3")</script></td>
+    </tr>
+    <tr><th scope="row" class="font-normal">Envelope</th><td><pre class="sf-dump">App\Message\SyncPing</pre></td></tr>
   </tbody>
 </table>
 </div>

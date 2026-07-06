@@ -17,10 +17,13 @@
 </div>
 <div id="collector-content">
 <h2>Log Messages</h2>
-<div class="metrics">
-  <div class="metric"><span class="value">0</span><span class="label">Errors</span></div>
-  <div class="metric"><span class="value">0</span><span class="label">Warnings</span></div>
-  <div class="metric"><span class="value">2</span><span class="label">Deprecations</span></div>
+<div class="log-filters">
+  <input type="radio" id="filter-log-type-all" name="filter-log-type" value="all">
+  <label for="filter-log-type-all" class="tab-control">All messages</label>
+  <input type="radio" id="filter-log-type-error" name="filter-log-type" value="error">
+  <label for="filter-log-type-error" class="tab-control">Errors <span class="badge status-">0</span></label>
+  <input type="radio" id="filter-log-type-deprecation" name="filter-log-type" value="deprecation" checked>
+  <label for="filter-log-type-deprecation" class="tab-control">Deprecations <span class="badge status-warning">2</span></label>
 </div>
 </div>
 </body>

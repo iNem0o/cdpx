@@ -97,7 +97,7 @@ PROFILER_PANEL_MARKERS = {
     "exception": ["No exception was thrown"],
     "http_client": ["Total requests"],
     "messenger": ["messenger.bus.default"],
-    "request": ["_route", "Status code"],
+    "request": ["_route", "status-response-status-code"],
     "time": ["Total execution time"],
     "logger": ["Deprecations"],
 }

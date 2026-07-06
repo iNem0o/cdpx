@@ -56,7 +56,7 @@ def test_parse_twig_counts_and_templates():
 def test_parse_cache_totals_and_pools():
     res = profiler_panels.parse_panel("cache", 200, read("cache.html"))
     assert res["available"] is True
-    assert (res["calls"], res["reads"], res["hits"]) == (4, 4, 3)
+    assert (res["calls"], res["reads"], res["hits"]) == (5, 4, 3)
     assert (res["misses"], res["writes"], res["deletes"]) == (1, 1, 0)
     assert res["pools"]["app.scenario_pool"]["hits"] == 3
     assert res["pools"]["app.scenario_pool"]["misses"] == 1
@@ -69,6 +69,21 @@ def test_parse_exception_absent_then_raised():
     assert raised["raised"] is True
     assert raised["class"].endswith("NotFoundHttpException")
     assert raised["message"] == "cdpx scenario 404"
+
+
+def test_parse_exception_global_class_without_namespace():
+    # \RuntimeException: classe globale, pas de FQCN — le cas routing-500 réel.
+    html = (
+        '<div class="exception-summary"><div class="exception-metadata">'
+        '<h2 class="exception-hierarchy"><abbr title="RuntimeException">'
+        "RuntimeException</abbr></h2></div>"
+        '<div class="exception-message-wrapper">'
+        '<h1 class="exception-message">cdpx scenario 500</h1></div></div>'
+    )
+    res = profiler_panels.parse_panel("exception", 200, html)
+    assert res["raised"] is True
+    assert res["class"] == "RuntimeException"
+    assert res["message"] == "cdpx scenario 500"
 
 
 def test_parse_http_client_requests_and_statuses():

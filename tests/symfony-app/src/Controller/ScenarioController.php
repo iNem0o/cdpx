@@ -2,63 +2,237 @@
 
 namespace App\Controller;
 
+use App\Entity\Author;
+use App\Entity\Book;
+use App\Message\QueuedPing;
+use App\Message\SyncPing;
+use App\Scenario\DatabaseSeeder;
 use App\Scenario\ScenarioCatalog;
-use Symfony\Component\HttpFoundation\JsonResponse;
+use Doctrine\ORM\EntityManagerInterface;
+use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Stopwatch\Stopwatch;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Twig\Environment;
 
 final class ScenarioController
 {
-    public function profiler(string $case): JsonResponse
-    {
-        $scenario = ScenarioCatalog::profiler($case);
-        $payload = str_repeat('x', $scenario['payload_bytes']);
-        $statusCode = $scenario['response_status'] === 302 ? 200 : $scenario['response_status'];
-        $response = new JsonResponse(
-            [
-                'ok' => $statusCode < 500,
-                'scenario' => $scenario,
-                'payload_hash' => hash('sha256', $payload),
-                'simulated_collectors' => [
-                    'doctrine',
-                    'cache',
-                    'twig',
-                    'stopwatch',
-                    'http_client',
-                    'messenger',
-                    'routing',
-                    'response',
-                ],
-            ],
-            $statusCode,
-        );
+    public function __construct(
+        private readonly EntityManagerInterface $em,
+        private readonly HttpClientInterface $httpClient,
+        private readonly MessageBusInterface $bus,
+        private readonly CacheItemPoolInterface $scenarioPool,
+        private readonly Stopwatch $stopwatch,
+        private readonly Environment $twig,
+        private readonly DatabaseSeeder $seeder,
+    ) {
+    }
 
-        $headers = [
-            'X-CDPX-Scenario' => $scenario['id'],
-            'X-CDPX-Profiler-Time-Ms' => (string) $scenario['duration_ms'],
-            'X-CDPX-Profiler-Memory-Kb' => (string) $scenario['memory_kb'],
-            'X-CDPX-Profiler-Db-Queries' => (string) $scenario['db_queries'],
-            'X-CDPX-Profiler-Db-Duplicate-Queries' => (string) $scenario['db_duplicate_queries'],
-            'X-CDPX-Profiler-Cache-Hit' => $scenario['cache_hit'] ? '1' : '0',
-            'X-CDPX-Profiler-Cache-State' => $scenario['cache_state'],
-            'X-CDPX-Profiler-Payload-Bytes' => (string) $scenario['payload_bytes'],
-            'X-CDPX-Profiler-Twig-Renders' => (string) $scenario['twig_renders'],
-            'X-CDPX-Profiler-Twig-Render-Ms' => (string) $scenario['twig_render_ms'],
-            'X-CDPX-Profiler-Stopwatch-Sections' => (string) $scenario['stopwatch_sections'],
-            'X-CDPX-Profiler-Http-Client' => $scenario['http_client'],
-            'X-CDPX-Profiler-Http-Client-Ms' => (string) $scenario['http_client_ms'],
-            'X-CDPX-Profiler-Messenger' => $scenario['messenger'],
-            'X-CDPX-Profiler-Queue-Depth' => (string) $scenario['queue_depth'],
-            'X-CDPX-Profiler-Route-Outcome' => $scenario['route_outcome'],
-            'X-CDPX-Profiler-Response-Status' => (string) $scenario['response_status'],
-            'X-CDPX-Profiler-Expected' => $scenario['expected'],
-        ];
-        foreach ($headers as $name => $value) {
-            $response->headers->set($name, $value);
+    /**
+     * Chaque cas exerce RÉELLEMENT le collector visé (vraies requêtes SQL,
+     * vrai pool de cache, vrai client HTTP vers l'app elle-même, vrais
+     * messages Messenger, vraies exceptions): cdpx lit ensuite les panels du
+     * WebProfiler, aucun signal fabriqué. Déterminisme = comptes stables,
+     * jamais des millisecondes.
+     */
+    public function profiler(Request $request, string $case): Response
+    {
+        $this->seeder->seed();
+
+        switch ($case) {
+            case 'routing-redirect':
+                return new RedirectResponse('/scenario/profiler/baseline', 302);
+            case 'routing-404':
+                throw new NotFoundHttpException('cdpx scenario 404');
+            case 'routing-500':
+                throw new \RuntimeException('cdpx scenario 500');
         }
-        $response->headers->set('Cache-Control', $scenario['cache_control']);
-        $response->headers->set('ETag', '"'.$scenario['etag'].'"');
+
+        $outcome = match ($case) {
+            'baseline' => $this->caseBaseline(),
+            'degraded' => $this->caseDegraded($request),
+            'doctrine-normal' => $this->caseDoctrineNormal(),
+            'doctrine-n-plus-one' => $this->caseDoctrineNPlusOne(),
+            'doctrine-duplicates' => $this->caseDoctrineDuplicates(),
+            'cache-miss' => $this->caseCacheMiss(),
+            'cache-hit' => $this->caseCacheHit(),
+            'cache-expired' => $this->caseCacheExpired(),
+            'twig-light' => 'twig-light',
+            'twig-heavy' => 'twig-heavy',
+            'stopwatch-sections' => $this->caseStopwatch(),
+            'http-client-success' => $this->caseHttpClient($request, '/api/echo', null),
+            'http-client-error' => $this->caseHttpClient($request, '/api/status/500', null),
+            'http-client-timeout' => $this->caseHttpClient($request, '/api/slow?ms=400', 0.05),
+            'messenger-sync' => $this->caseMessengerSync(),
+            'messenger-queued' => $this->caseMessengerQueued(),
+            'headers-cache' => 'headers-cache',
+            default => throw new NotFoundHttpException(
+                sprintf('cas profiler inconnu: %s', $case),
+            ),
+        };
+
+        $template = in_array($case, ['twig-heavy', 'degraded'], true)
+            ? 'scenario/heavy.html.twig'
+            : 'scenario/base.html.twig';
+        $response = new Response($this->twig->render($template, [
+            'title' => 'Profiler '.$case,
+            'scenario' => 'profiler.'.$case,
+            'outcome' => $outcome,
+        ]));
+
+        if ($case === 'headers-cache') {
+            $response->setPublic();
+            $response->setMaxAge(60);
+            $response->setEtag('cdpx-cache-headers');
+        }
 
         return $response;
+    }
+
+    private function caseBaseline(): string
+    {
+        $authors = $this->em->getRepository(Author::class)->findAll();
+        $books = $this->em->getRepository(Book::class)->findAll();
+
+        return sprintf('baseline authors=%d books=%d', count($authors), count($books));
+    }
+
+    private function caseDegraded(Request $request): string
+    {
+        // 4x la même requête (3 duplicats) + 3 requêtes distinctes = 7 requêtes.
+        for ($i = 0; $i < 4; $i++) {
+            $this->em->createQuery('SELECT b FROM App\Entity\Book b')->getResult();
+        }
+        $this->em->createQuery('SELECT a FROM App\Entity\Author a')->getResult();
+        $this->em->createQuery('SELECT COUNT(a.id) FROM App\Entity\Author a')
+            ->getSingleScalarResult();
+        $this->em->createQuery('SELECT COUNT(b.id) FROM App\Entity\Book b')
+            ->getSingleScalarResult();
+        $this->httpClient
+            ->request('GET', $request->getSchemeAndHttpHost().'/api/echo')
+            ->getStatusCode();
+
+        return 'degraded';
+    }
+
+    private function caseDoctrineNormal(): string
+    {
+        // Exactement 3 requêtes, toutes distinctes: zéro duplicat.
+        $this->em->createQuery('SELECT a FROM App\Entity\Author a')->getResult();
+        $this->em->createQuery('SELECT b FROM App\Entity\Book b')->getResult();
+        $this->em->createQuery('SELECT COUNT(b.id) FROM App\Entity\Book b')
+            ->getSingleScalarResult();
+
+        return 'doctrine-normal queries=3';
+    }
+
+    private function caseDoctrineNPlusOne(): string
+    {
+        // 1 findAll + 5 initialisations paresseuses (auteurs distincts) =
+        // 6 requêtes, 2 statements distincts, 4 duplicats.
+        $books = $this->em->getRepository(Book::class)->findAll();
+        $names = [];
+        foreach ($books as $book) {
+            $names[] = $book->getAuthor()->getName();
+        }
+
+        return 'n-plus-one authors='.count(array_unique($names));
+    }
+
+    private function caseDoctrineDuplicates(): string
+    {
+        // Le DQL contourne l'identity map: 4 exécutions SQL identiques.
+        for ($i = 0; $i < 4; $i++) {
+            $this->em
+                ->createQuery('SELECT a FROM App\Entity\Author a WHERE a.name LIKE :p')
+                ->setParameter('p', 'Author%')
+                ->getResult();
+        }
+
+        return 'duplicates burst=4';
+    }
+
+    private function caseCacheMiss(): string
+    {
+        foreach (['cdpx.miss.a', 'cdpx.miss.b', 'cdpx.miss.c'] as $key) {
+            $this->scenarioPool->getItem($key);
+        }
+
+        return 'cache misses=3';
+    }
+
+    private function caseCacheHit(): string
+    {
+        $item = $this->scenarioPool->getItem('cdpx.hot');
+        $item->set('warm');
+        $this->scenarioPool->save($item);
+        $hits = 0;
+        for ($i = 0; $i < 3; $i++) {
+            if ($this->scenarioPool->getItem('cdpx.hot')->isHit()) {
+                $hits++;
+            }
+        }
+
+        return 'cache hits='.$hits;
+    }
+
+    private function caseCacheExpired(): string
+    {
+        for ($i = 0; $i < 2; $i++) {
+            $item = $this->scenarioPool->getItem('cdpx.expired');
+            $item->set('stale');
+            $item->expiresAfter(0);
+            $this->scenarioPool->save($item);
+        }
+        $expired = !$this->scenarioPool->getItem('cdpx.expired')->isHit();
+
+        return 'cache expired='.($expired ? 'yes' : 'no');
+    }
+
+    private function caseStopwatch(): string
+    {
+        for ($i = 1; $i <= 4; $i++) {
+            $this->stopwatch->start('cdpx.section-'.$i, 'cdpx');
+            usleep(2000);
+            $this->stopwatch->stop('cdpx.section-'.$i);
+        }
+
+        return 'stopwatch sections=4';
+    }
+
+    private function caseHttpClient(Request $request, string $path, ?float $timeout): string
+    {
+        $client = $timeout !== null
+            ? $this->httpClient->withOptions(['timeout' => $timeout])
+            : $this->httpClient;
+        try {
+            $status = $client
+                ->request('GET', $request->getSchemeAndHttpHost().$path)
+                ->getStatusCode();
+
+            return 'http status='.$status;
+        } catch (TransportExceptionInterface) {
+            return 'http timeout';
+        }
+    }
+
+    private function caseMessengerSync(): string
+    {
+        $this->bus->dispatch(new SyncPing('cdpx'));
+
+        return 'messenger sync dispatched';
+    }
+
+    private function caseMessengerQueued(): string
+    {
+        $this->bus->dispatch(new QueuedPing('cdpx'));
+
+        return 'messenger queued dispatched';
     }
 
     public function vitals(string $case): Response

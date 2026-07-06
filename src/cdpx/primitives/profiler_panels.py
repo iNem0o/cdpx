@@ -172,22 +172,26 @@ def _classes(attrs: list[tuple[str, str | None]]) -> set[str]:
 
 
 class _MetricsParser(HTMLParser):
-    """Blocs `class="metric"` du WebProfilerBundle: {label, value, unit, heading}.
+    """Blocs `class="metric"` du WebProfilerBundle.
 
-    C'est le markup le plus stable des panels (div.metric > span.value + span.label,
-    unité éventuelle en span.unit imbriqué dans la valeur).
+    C'est le markup le plus stable des panels (div.metric > span.value +
+    span.label, unité éventuelle en span.unit imbriqué). Chaque metric mémorise
+    les derniers h2/h3/h4 vus (le panel cache range ses pools sous des onglets
+    h3, avec des sous-titres h4). Les contenus <script>/<style> sont ignorés.
     """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.metrics: list[dict[str, str]] = []
-        self.heading = ""
+        self.headings = {"h2": "", "h3": "", "h4": ""}
         self._depth = 0
+        self._skip_at: int | None = None
         self._metric_at: int | None = None
         self._value_at: int | None = None
         self._unit_at: int | None = None
         self._label_at: int | None = None
         self._heading_at: int | None = None
+        self._heading_tag = ""
         self._value: list[str] = []
         self._unit: list[str] = []
         self._label: list[str] = []
@@ -197,9 +201,15 @@ class _MetricsParser(HTMLParser):
         if tag in _VOID_TAGS:
             return
         self._depth += 1
+        if tag in ("script", "style") and self._skip_at is None:
+            self._skip_at = self._depth
+            return
+        if self._skip_at is not None:
+            return
         classes = _classes(attrs)
         if tag in ("h2", "h3", "h4") and self._heading_at is None:
             self._heading_at = self._depth
+            self._heading_tag = tag
             self._head = []
         if "metric" in classes and self._metric_at is None:
             self._metric_at = self._depth
@@ -216,6 +226,11 @@ class _MetricsParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag in _VOID_TAGS:
             return
+        if self._skip_at is not None:
+            if self._skip_at == self._depth and tag in ("script", "style"):
+                self._skip_at = None
+                self._depth = max(0, self._depth - 1)
+            return
         if self._unit_at == self._depth:
             self._unit_at = None
         if self._value_at == self._depth:
@@ -223,7 +238,13 @@ class _MetricsParser(HTMLParser):
         if self._label_at == self._depth:
             self._label_at = None
         if self._heading_at == self._depth:
-            self.heading = _norm("".join(self._head))
+            text = _norm("".join(self._head))
+            self.headings[self._heading_tag] = text
+            if self._heading_tag == "h2":
+                self.headings["h3"] = ""
+                self.headings["h4"] = ""
+            elif self._heading_tag == "h3":
+                self.headings["h4"] = ""
             self._heading_at = None
         if self._metric_at == self._depth:
             self.metrics.append(
@@ -231,13 +252,18 @@ class _MetricsParser(HTMLParser):
                     "label": _norm("".join(self._label)),
                     "value": _norm("".join(self._value)),
                     "unit": _norm("".join(self._unit)),
-                    "heading": self.heading,
+                    "heading": self.headings["h4"] or self.headings["h3"] or self.headings["h2"],
+                    "h2": self.headings["h2"],
+                    "h3": self.headings["h3"],
+                    "h4": self.headings["h4"],
                 }
             )
             self._metric_at = None
         self._depth = max(0, self._depth - 1)
 
     def handle_data(self, data: str) -> None:
+        if self._skip_at is not None:
+            return
         if self._heading_at is not None:
             self._head.append(data)
         if self._unit_at is not None:
@@ -250,27 +276,39 @@ class _MetricsParser(HTMLParser):
 
 
 class _TablesParser(HTMLParser):
-    """Tables associées au dernier heading h2/h3/h4 rencontré."""
+    """Tables associées au dernier heading h2/h3/h4 rencontré.
+
+    Une rangée n'est un en-tête QUE si toutes ses cellules sont des <th>: les
+    panels request/messenger utilisent des rangées mixtes <th>clé</th>
+    <td>valeur</td> qui sont des données. Les contenus <script>/<style> (dumps
+    Sfdump embarqués dans les cellules) sont ignorés.
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tables: list[dict[str, Any]] = []
         self._depth = 0
+        self._skip_at: int | None = None
         self._heading_at: int | None = None
         self._head: list[str] = []
         self.heading = ""
         self._table_at: int | None = None
         self._cell_at: int | None = None
-        self._cell_kind = ""
         self._cell: list[str] = []
         self._row: list[str] = []
-        self._row_is_header = False
+        self._row_has_td = False
+        self._row_has_th = False
         self._current: dict[str, Any] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in _VOID_TAGS:
             return
         self._depth += 1
+        if tag in ("script", "style") and self._skip_at is None:
+            self._skip_at = self._depth
+            return
+        if self._skip_at is not None:
+            return
         if tag in ("h2", "h3", "h4") and self._heading_at is None:
             self._heading_at = self._depth
             self._head = []
@@ -281,16 +319,23 @@ class _TablesParser(HTMLParser):
             return
         if tag == "tr":
             self._row = []
-            self._row_is_header = False
+            self._row_has_td = False
+            self._row_has_th = False
         elif tag in ("td", "th") and self._cell_at is None:
             self._cell_at = self._depth
-            self._cell_kind = tag
             self._cell = []
             if tag == "th":
-                self._row_is_header = True
+                self._row_has_th = True
+            else:
+                self._row_has_td = True
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _VOID_TAGS:
+            return
+        if self._skip_at is not None:
+            if self._skip_at == self._depth and tag in ("script", "style"):
+                self._skip_at = None
+                self._depth = max(0, self._depth - 1)
             return
         if self._heading_at == self._depth:
             self.heading = _norm("".join(self._head))
@@ -299,9 +344,10 @@ class _TablesParser(HTMLParser):
             self._row.append(_norm("".join(self._cell)))
             self._cell_at = None
         if tag == "tr" and self._current is not None and self._row:
-            if self._row_is_header and not self._current["headers"]:
+            header_row = self._row_has_th and not self._row_has_td
+            if header_row and not self._current["headers"]:
                 self._current["headers"] = self._row
-            elif not self._row_is_header:
+            elif not header_row:
                 self._current["rows"].append(self._row)
             self._row = []
         if tag == "table" and self._table_at == self._depth:
@@ -312,6 +358,8 @@ class _TablesParser(HTMLParser):
         self._depth = max(0, self._depth - 1)
 
     def handle_data(self, data: str) -> None:
+        if self._skip_at is not None:
+            return
         if self._heading_at is not None:
             self._head.append(data)
         if self._cell_at is not None:
@@ -426,7 +474,9 @@ def _parse_db(html: str) -> dict[str, Any]:
         for row in table["rows"][:LIST_LIMIT]:
             if sql_col is None or sql_col >= len(row):
                 continue
-            entry: dict[str, Any] = {"sql": row[sql_col]}
+            # La cellule Info contient le SQL puis le dump des paramètres.
+            sql = re.split(r"\s+Parameters\b", row[sql_col])[0].strip()
+            entry: dict[str, Any] = {"sql": sql}
             if time_col is not None and time_col < len(row):
                 entry["duration_ms"] = _float(row[time_col])
             out["list"].append(entry)
@@ -446,7 +496,8 @@ def _parse_twig(html: str) -> dict[str, Any]:
     if table:
         for row in table["rows"][:LIST_LIMIT]:
             if row and row[0]:
-                out["list"].append(row[0])
+                # La cellule concatène nom + chemin: garder le premier token.
+                out["list"].append(row[0].split()[0])
     return out
 
 
@@ -465,21 +516,22 @@ def _parse_cache(html: str) -> dict[str, Any]:
         "pools": {},
     }
     for metric in metrics:
-        heading = metric["heading"]
-        # Les groupes par pool sont titrés par le nom du service (contient un point),
-        # ex. "app.scenario_pool" ou "cache.app".
-        if "." not in heading or metric in totals:
+        # Les pools sont des onglets h3 sous le h2 "Pools"; le titre h3 porte
+        # le nom du service suivi d'un badge numérique ("app.scenario_pool 5").
+        name = re.sub(r"\s+\d+$", "", metric["h3"]).strip()
+        if metric in totals or not name or "." not in name:
             continue
         pool = out["pools"].setdefault(
-            heading,
+            name,
             {"calls": 0, "reads": 0, "hits": 0, "misses": 0, "writes": 0, "deletes": 0},
         )
+        # Correspondance exacte: le metric ratio "Hits/reads" ne doit écraser
+        # ni hits ni reads.
         label = metric["label"].lower()
-        for key in pool:
-            if key in label:
-                value = _int(metric["value"])
-                if value is not None:
-                    pool[key] = value
+        if label in pool:
+            value = _int(metric["value"])
+            if value is not None:
+                pool[label] = value
     return out
 
 
@@ -491,105 +543,128 @@ def _parse_exception(html: str) -> dict[str, Any]:
     match = re.search(r'class="[^"]*exception-message[^"]*"[^>]*>(.*?)</', html, flags=re.DOTALL)
     if match:
         message = _norm(re.sub(r"<[^>]+>", " ", match.group(1)))
+    # Classe: abbr[title] de la hiérarchie d'exception. Attention aux classes
+    # globales (\RuntimeException): pas de backslash, donc pas un FQCN.
     exception_class = None
-    abbr = re.search(r'<abbr[^>]*title="([^"]+)"', html)
-    if abbr and _FQCN_RE.search(abbr.group(1)):
-        exception_class = abbr.group(1)
-    else:
+    abbr_titles = [
+        title.strip()
+        for title in re.findall(r'<abbr[^>]*title="([^"]+)"', html)
+        if re.fullmatch(r"[A-Za-z_][\w\\]*", title.strip())
+    ]
+    for title in abbr_titles:
+        if title.rsplit("\\", 1)[-1].endswith(("Exception", "Error")):
+            exception_class = title
+            break
+    if exception_class is None:
         for candidate in _FQCN_RE.findall(html):
             if candidate.endswith(("Exception", "Error")):
                 exception_class = candidate
                 break
+    if exception_class is None and abbr_titles:
+        exception_class = abbr_titles[0]
     return {"raised": True, "class": exception_class, "message": message}
+
+
+# Statut HTTP rendu par le profiler: <span class="...status-response-status-code...">200</span>
+_STATUS_SPAN_RE = re.compile(r'class="[^"]*status-response-status-code[^"]*"[^>]*>\s*(\d{3})')
+# En-tête d'une trace http_client: <th><span class="http-method">GET</span></th><th>url</th>
+_HTTP_TRACE_RE = re.compile(
+    r'<span class="http-method">\s*([A-Z]+)\s*</span>\s*</th>\s*<th[^>]*>\s*([^<\s][^<]*?)\s*<',
+    flags=re.DOTALL,
+)
 
 
 def _parse_http_client(html: str) -> dict[str, Any]:
     metrics = _metrics(html)
     requests_count = _metric_int(metrics, "total requests")
-    errors = _metric_int(metrics, "error")
     out: dict[str, Any] = {
         "clients": 0,
         "requests": requests_count,
-        "errors": errors,
+        "errors": 0,
         "list": [],
     }
-    # Les sections par client sont titrées en h3 (le titre du panel est en h2).
-    sections = {
+    # Statut cherché DANS le segment de chaque trace (entre deux en-têtes de
+    # trace): le bandeau #summary de la page porte lui aussi un
+    # status-response-status-code (celui de la requête profilée) et une trace
+    # en timeout n'a pas de statut du tout.
+    traces = list(_HTTP_TRACE_RE.finditer(html))[:LIST_LIMIT]
+    for idx, match in enumerate(traces):
+        entry: dict[str, Any] = {"method": match.group(1), "url": _norm(match.group(2))}
+        segment_end = traces[idx + 1].start() if idx + 1 < len(traces) else len(html)
+        status_match = _STATUS_SPAN_RE.search(html, match.end(), segment_end)
+        if status_match:
+            entry["status"] = _int(status_match.group(1))
+        out["list"].append(entry)
+    statuses = [entry.get("status") for entry in out["list"]]
+    out["errors"] = sum(1 for s in statuses if s is not None and s >= 400)
+    clients = {
         _norm(re.sub(r"<[^>]+>", " ", m.group(1)))
-        for m in re.finditer(r"<h3[^>]*>(.*?)</h3>", html, flags=re.DOTALL)
+        for m in re.finditer(r'<h3 class="tab-title">(.*?)</h3>', html, flags=re.DOTALL)
     }
-    sections.discard("")
-    for match in re.finditer(
-        r"\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b\s+(https?://[^\s\"'<]+)", html
-    ):
-        if len(out["list"]) >= LIST_LIMIT:
-            break
-        out["list"].append({"method": match.group(1), "url": match.group(2)})
-    statuses = [
-        _int(m.group(1))
-        for m in re.finditer(r'class="[^"]*status-code[^"]*"[^>]*>\s*(\d{3})', html)
-    ]
-    for idx, status in enumerate(statuses[: len(out["list"])]):
-        out["list"][idx]["status"] = status
-    if not errors:
-        out["errors"] = sum(1 for s in statuses if s is not None and s >= 400)
-    out["clients"] = len(sections) or (1 if requests_count else 0)
+    clients.discard("")
+    out["clients"] = len(clients) or (1 if requests_count else 0)
     return out
 
 
 def _parse_messenger(html: str) -> dict[str, Any]:
-    metrics = _metrics(html)
-    tables = _tables(html)
+    # Un message dispatché = une <table class="message-item">. À l'intérieur,
+    # les onglets Message/Envelope répètent la rangée Bus: ne compter que la
+    # première par bloc.
     buses: dict[str, int] = {}
-    for metric in metrics:
-        if "bus" in metric["heading"].lower() and "message" in metric["label"].lower():
-            value = _int(metric["value"])
-            if value is not None:
-                buses[metric["heading"]] = value
     classes: list[str] = []
-    for table in tables:
-        for row in table["rows"]:
-            for cell in row:
-                fqcn = _FQCN_RE.search(cell)
-                if fqcn and "\\Message" in fqcn.group(0):
-                    classes.append(fqcn.group(0))
-                    break
-    dispatched = sum(buses.values()) if buses else len(classes)
-    lowered = html.lower()
-    no_handler = lowered.count("no handler")
-    out: dict[str, Any] = {
+    chunks = re.split(r'<table class="message-item"', html)[1:]
+    for chunk in chunks:
+        bus_match = re.search(r"<th[^>]*>\s*Bus\s*</th>\s*<td[^>]*>\s*([^<]+?)\s*</td>", chunk)
+        if bus_match:
+            bus = bus_match.group(1)
+            buses[bus] = buses.get(bus, 0) + 1
+        # FQCN du message: attribut title du dump ("App\Message\X NN characters"),
+        # repli sur le premier FQCN du bloc.
+        title = re.search(r'title="((?:[A-Za-z_]\w*\\)+\w+) \d+ characters"', chunk)
+        fqcn = title.group(1) if title else None
+        if fqcn is None:
+            fallback = _FQCN_RE.search(chunk)
+            fqcn = fallback.group(0) if fallback else None
+        if fqcn and len(classes) < LIST_LIMIT:
+            classes.append(fqcn)
+    dispatched = len(chunks)
+    no_handler = html.lower().count("no handler")
+    return {
         "dispatched": dispatched,
         "handled": max(0, dispatched - no_handler),
         "buses": buses,
-        "list": [{"class": c} for c in classes[:LIST_LIMIT]],
+        "list": [{"class": c} for c in classes],
     }
-    return out
+
+
+def _strip_dump(value: str) -> str:
+    """Nettoie une valeur dumpée par Sfdump: guillemets et bruit de dump."""
+    return value.strip().strip('"').strip()
 
 
 def _parse_router(html: str) -> dict[str, Any]:
-    tables = _tables(html)
     route = None
-    controller = None
-    for table in tables:
+    controller_cell = None
+    for table in _tables(html):
         for row in table["rows"]:
             if len(row) < 2:
                 continue
             key = row[0].strip()
             if key == "_route" and route is None:
-                route = row[1]
-            elif key == "_controller" and controller is None:
-                controller = _norm(row[1])
-    status_code = None
-    for table in tables:
-        for row in table["rows"]:
-            if len(row) >= 2 and "status" in row[0].lower():
-                status_code = _int(row[1])
-                break
-        if status_code is not None:
-            break
-    if status_code is None:
-        metric = _metric(_metrics(html), "status")
-        status_code = _int(metric["value"]) if metric else None
+                route = _strip_dump(row[1])
+            elif key == "_controller" and controller_cell is None:
+                controller_cell = row[1]
+    controller = None
+    if controller_cell:
+        fqcn = _FQCN_RE.search(controller_cell)
+        if fqcn:
+            controller = fqcn.group(0)
+            method = re.search(r'"(\w+)"', controller_cell[fqcn.end() :])
+            if "::" not in controller_cell and method:
+                controller = f"{controller}::{method.group(1)}"
+    # Statut: bandeau #summary du profiler (présent sur chaque page panel).
+    status_match = _STATUS_SPAN_RE.search(html)
+    status_code = _int(status_match.group(1)) if status_match else None
     return {
         "route": route,
         "controller": controller,
@@ -645,12 +720,18 @@ def _timeline_events(html: str) -> list[dict[str, Any]]:
 
 
 def _parse_logger(html: str) -> dict[str, Any]:
-    metrics = _metrics(html)
-    return {
-        "errors": _metric_int(metrics, "error"),
-        "warnings": _metric_int(metrics, "warning"),
-        "deprecations": _metric_int(metrics, "deprecation"),
-    }
+    # Le panel logger n'a pas de blocs metric: les comptes vivent dans les
+    # libellés de filtres, ex. `Errors <span class="badge ...">2</span>`.
+    counts = {"errors": 0, "warnings": 0, "deprecations": 0}
+    for label, key in (
+        ("Errors", "errors"),
+        ("Warnings", "warnings"),
+        ("Deprecations", "deprecations"),
+    ):
+        match = re.search(label + r'\s*<span class="badge[^"]*">\s*(\d+)', html, flags=re.DOTALL)
+        if match:
+            counts[key] = int(match.group(1))
+    return counts
 
 
 _PARSERS = {

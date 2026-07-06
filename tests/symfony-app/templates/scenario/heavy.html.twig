@@ -1,0 +1,9 @@
+{% extends 'scenario/base.html.twig' %}
+
+{% block rows %}
+  <ul id="rows">
+    {% for i in 1..10 %}
+      {% include 'scenario/_row.html.twig' with {index: i} %}
+    {% endfor %}
+  </ul>
+{% endblock %}

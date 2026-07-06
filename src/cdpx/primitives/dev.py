@@ -15,7 +15,9 @@ from cdpx.primitives import actions, js, profiler_panels
 
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
-NET_EVENTS = ("Network.responseReceived",)
+# requestWillBeSent est nécessaire pour les redirections: Chrome n'émet PAS de
+# responseReceived pour une 302, elle n'existe que dans redirectResponse.
+NET_EVENTS = ("Network.responseReceived", "Network.requestWillBeSent")
 
 DOM_SNAPSHOT_JS = r"""
 (() => { const __cdpx_dom_snapshot = 1;
@@ -49,10 +51,16 @@ DOM_SNAPSHOT_JS = r"""
 
 
 def find_profiler_hit(events: list[dict], fallback_url: str) -> dict | None:
-    """Premier Network.responseReceived portant X-Debug-Token-Link (ou repli
-    X-Debug-Token, dont on reconstruit le lien /_profiler/{token})."""
+    """Première réponse réseau portant X-Debug-Token-Link (ou repli
+    X-Debug-Token, dont on reconstruit le lien /_profiler/{token}).
+
+    Couvre les réponses normales (Network.responseReceived) ET les
+    redirections (Network.requestWillBeSent.redirectResponse), invisibles
+    autrement.
+    """
     for ev in events:
-        response = ev.get("params", {}).get("response", {})
+        params = ev.get("params", {})
+        response = params.get("response") or params.get("redirectResponse") or {}
         headers = {str(k).lower(): v for k, v in response.get("headers", {}).items()}
         if PROFILER_HEADER not in headers and TOKEN_HEADER not in headers:
             continue

@@ -1,7 +1,9 @@
 """E2E Symfony réel pour M2.
 
 Ce test est lancé par docker-compose.symfony-e2e.yml. Il prouve que `cdpx
-profiler` lit un vrai header X-Debug-Token-Link émis par WebProfilerBundle.
+profiler` suit un vrai header X-Debug-Token-Link émis par WebProfilerBundle
+et parse les vrais panels (Doctrine, Twig, cache, exceptions, HTTP client,
+Messenger, routing, temps, logs) alimentés par de vrais collecteurs.
 """
 
 import json
@@ -368,7 +370,7 @@ def chrome():
     scenario_id="dev-profiler-diff.read-symfony-profiler",
     proves=[
         "Real Symfony WebProfilerBundle emits a token reachable from browser navigation.",
-        "cdpx profiler follows the token link and stores profiler payload evidence.",
+        "cdpx profiler parses the real profiler panels into structured metrics.",
     ],
 )
 def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_case):
@@ -395,8 +397,18 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
     assert res["status"] == 200
     assert res["token"]
     assert res["profiler_url"].startswith(f"{SYMFONY_URL}/_profiler/")
-    assert res["profiler_bytes"] > 1000
-    assert res["panels"]["raw"]["bytes"] == res["profiler_bytes"]
+    assert res["profiler_status"] == 200
+    assert "signals" not in res and "profiler_bytes" not in res
+    panels = res["panels"]
+    assert panels["router"]["available"] is True
+    assert panels["router"]["route"] == "profiler_target"
+    assert panels["exception"]["available"] is True
+    assert panels["exception"]["raised"] is False
+    assert panels["time"]["available"] is True
+    assert isinstance(panels["time"]["total_ms"], float)
+    assert panels["db"]["available"] is True
+    assert panels["db"]["queries"] == 0  # cette route ne touche pas la base
+    assert panels["logger"]["available"] is True
 
 
 @pytest.mark.scenario(
@@ -404,8 +416,8 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
     journey="compare-profiler-variants",
     scenario_id="dev-profiler-diff.compare-symfony-profiler-variants",
     proves=[
-        "Symfony exposes deterministic baseline/degraded profiler scenarios.",
-        "Doctrine-like N+1 and cache hit/miss signals are compared as structured JSON.",
+        "Symfony scenario routes drive real collectors (Doctrine, cache, HTTP client, Messenger).",
+        "cdpx reads N+1, duplicate bursts and cache hit/miss from the real profiler panels.",
     ],
 )
 def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evidence_case):
@@ -419,7 +431,7 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
         "doctrine-duplicates",
         "cache-miss",
         "cache-hit",
-        "cache-stale",
+        "cache-expired",
         "twig-light",
         "twig-heavy",
         "stopwatch-sections",
@@ -454,42 +466,77 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     finally:
         close_tab(chrome, target)
 
-    comparison = {case: result["signals"] for case, result in results.items()}
+    panels = {case: result["panels"] for case, result in results.items()}
     if evidence_case is not None:
         evidence_case.attach_json(
             "Symfony profiler variant comparison",
             {
-                "cases": comparison,
+                "cases": panels,
                 "tokens": {case: result["token"] for case, result in results.items()},
             },
             "symfony-profiler-variant-comparison.json",
         )
 
-    assert comparison["baseline"]["time_ms"] < comparison["degraded"]["time_ms"]
-    assert comparison["baseline"]["payload_bytes"] < comparison["degraded"]["payload_bytes"]
-    assert (
-        comparison["doctrine-normal"]["db_queries"]
-        < comparison["doctrine-n-plus-one"]["db_queries"]
-    )
-    assert comparison["doctrine-n-plus-one"]["db_duplicate_queries"] > 0
-    assert comparison["cache-miss"]["cache_hit"] is False
-    assert comparison["cache-hit"]["cache_hit"] is True
-    assert comparison["cache-stale"]["cache_state"] == "stale"
-    assert (
-        comparison["doctrine-duplicates"]["db_duplicate_queries"]
-        > (comparison["doctrine-n-plus-one"]["db_duplicate_queries"])
-    )
-    assert comparison["twig-heavy"]["twig_renders"] > comparison["twig-light"]["twig_renders"]
-    assert comparison["stopwatch-sections"]["stopwatch_sections"] >= 4
-    assert comparison["http-client-success"]["http_client"] == "success"
-    assert comparison["http-client-error"]["http_client"] == "error"
-    assert comparison["http-client-timeout"]["http_client"] == "timeout"
-    assert comparison["messenger-sync"]["messenger"] == "sync-handled"
-    assert comparison["messenger-queued"]["queue_depth"] == 3
-    assert comparison["routing-redirect"]["response_status"] == 302
-    assert comparison["routing-404"]["response_status"] == 404
-    assert comparison["routing-500"]["response_status"] == 500
-    assert comparison["headers-cache"]["expected"] == "cache-headers-present"
+    # Déterminisme = comptes/classes/routes/statuts, jamais de millisecondes.
+    def db(case):
+        return panels[case]["db"]
+
+    def cache(case):
+        return panels[case]["cache"]
+
+    assert db("baseline")["queries"] < db("degraded")["queries"]
+    assert db("degraded")["duplicates"] >= 3
+    assert db("doctrine-normal")["queries"] == 3
+    assert db("doctrine-normal")["duplicates"] == 0
+    assert db("doctrine-n-plus-one")["queries"] == 6  # 1 findAll + 5 lazy loads
+    assert db("doctrine-n-plus-one")["duplicates"] == 4
+    assert db("doctrine-duplicates")["duplicates"] >= 3
+    assert any("FROM" in q["sql"].upper() for q in db("doctrine-n-plus-one")["list"])
+
+    assert cache("cache-miss")["hits"] == 0
+    assert cache("cache-miss")["misses"] >= 3
+    assert cache("cache-hit")["hits"] >= 3
+    assert cache("cache-hit")["hits"] > cache("cache-hit")["misses"]
+    assert cache("cache-hit")["writes"] >= 1
+    assert cache("cache-expired")["hits"] == 0
+    assert cache("cache-expired")["writes"] >= 2
+
+    assert panels["twig-heavy"]["twig"]["templates"] > panels["twig-light"]["twig"]["templates"]
+
+    time_panel = panels["stopwatch-sections"]["time"]
+    assert time_panel["available"] is True
+    assert isinstance(time_panel["total_ms"], float)
+    if time_panel["events"]:  # timeline best-effort, sections réelles si présente
+        assert any("cdpx.section" in (event["name"] or "") for event in time_panel["events"])
+
+    success = panels["http-client-success"]["http_client"]
+    assert success["requests"] == 1
+    assert any(item.get("status") == 200 for item in success["list"])
+    error = panels["http-client-error"]["http_client"]
+    assert error["requests"] == 1
+    assert error["errors"] >= 1 or any(item.get("status") == 500 for item in error["list"])
+    timeout = panels["http-client-timeout"]["http_client"]
+    assert timeout["requests"] >= 1
+    assert not any(item.get("status") == 200 for item in timeout["list"])
+
+    assert panels["messenger-sync"]["messenger"]["dispatched"] == 1
+    assert panels["messenger-queued"]["messenger"]["dispatched"] == 1
+    sync_classes = [item["class"] for item in panels["messenger-sync"]["messenger"]["list"]]
+    if sync_classes:  # liste best-effort
+        assert any(cls.endswith("SyncPing") for cls in sync_classes)
+
+    assert results["routing-redirect"]["status"] == 302
+    assert results["routing-404"]["status"] == 404
+    assert results["routing-500"]["status"] == 500
+    assert panels["routing-404"]["exception"]["raised"] is True
+    assert panels["routing-404"]["exception"]["class"].endswith("NotFoundHttpException")
+    assert panels["routing-500"]["exception"]["raised"] is True
+    assert panels["routing-500"]["exception"]["class"].endswith("RuntimeException")
+    assert panels["routing-500"]["logger"]["available"] is True
+
+    cache_control = results["headers-cache"]["response_headers"].get("cache-control", "")
+    assert "max-age=60" in cache_control
+    assert "public" in cache_control
 
 
 @pytest.mark.scenario(

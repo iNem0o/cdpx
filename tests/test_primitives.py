@@ -253,6 +253,43 @@ def test_profiler_reads_debug_token_link_and_parses_panels(mock, client, fixture
     assert f'"{link}?panel=db"' in call["expression"]
 
 
+def test_profiler_prefers_redirect_response_token(mock, client, fixtures_http):
+    # Chrome n'émet pas de responseReceived pour une 302: le token de la
+    # redirection n'existe que dans requestWillBeSent.redirectResponse et doit
+    # gagner sur celui de la page suivie.
+    base = fixtures_http.base_url
+    mock.script_network(
+        [
+            {
+                "method": "Network.requestWillBeSent",
+                "params": {
+                    "requestId": "R1",
+                    "request": {"url": f"{base}/scenario/profiler/baseline"},
+                    "redirectResponse": {
+                        "url": f"{base}/scenario/profiler/routing-redirect",
+                        "status": 302,
+                        "headers": {"X-Debug-Token-Link": f"{base}/_profiler/redir-token"},
+                    },
+                },
+            },
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": f"{base}/scenario/profiler/baseline",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": f"{base}/_profiler/final-token"},
+                    },
+                },
+            },
+        ]
+    )
+    res = dev.profiler(client, f"{base}/scenario/profiler/routing-redirect", panels=[])
+    assert res["token"] == "redir-token"
+    assert res["status"] == 302
+
+
 def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
     mock.script_network(
         _profiler_network_script(fixtures_http.base_url, {"X-Debug-Token": "fixed-token"})
