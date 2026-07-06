@@ -12,7 +12,6 @@ import mimetypes
 import re
 import time
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +20,7 @@ from typing import Any
 import yaml
 
 from cdpx.client import CDPClient, CDPError, CDPTimeout
-from cdpx.primitives import actions, advanced, capture, dev, inputs, js
+from cdpx.primitives import actions, advanced, capture, dev, inputs, js, profiler_panels
 
 STEP_ACTIONS = {"goto", "wait_visible", "click", "type", "key", "eval", "wait_text"}
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
@@ -133,32 +132,10 @@ class PassiveCollector:
         requests = list(self.requests.values())
         return {"requests": requests, "summary": _network_summary(requests)}
 
-    def profiler(self, timeout: float) -> dict[str, Any] | None:
+    def profiler(self, client: CDPClient, timeout: float) -> dict[str, Any] | None:
         if not self.profiler_hits:
             return None
-        hit = self.profiler_hits[-1]
-        link = hit["link"]
-        req = urllib.request.Request(link, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as res:
-            body = res.read()
-            content_type = res.headers.get("Content-Type", "")
-            profiler_status = res.status
-        token = link.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
-        out = {
-            "token": token,
-            "url": hit["url"],
-            "status": hit["status"],
-            "profiler_url": link,
-            "profiler_status": profiler_status,
-            "profiler_bytes": len(body),
-            "response_headers": hit["headers"],
-            "signals": dev._scenario_signals(hit["headers"]),
-        }
-        if "json" in content_type:
-            out["panels"] = json.loads(body.decode("utf-8"))
-        else:
-            out["panels"] = {"raw": {"content_type": content_type, "bytes": len(body)}}
-        return out
+        return profiler_panels.collect(client, self.profiler_hits[-1], timeout=timeout)
 
     def _ingest(self, events: list[dict[str, Any]]) -> None:
         self.console_entries.extend(
@@ -182,24 +159,9 @@ class PassiveCollector:
                 entry["status"] = response.get("status")
                 entry["mimeType"] = response.get("mimeType")
                 entry["headers"] = headers
-                if dev.PROFILER_HEADER in headers or dev.TOKEN_HEADER in headers:
-                    link = headers.get(dev.PROFILER_HEADER)
-                    if not link:
-                        parsed = urllib.parse.urlparse(
-                            response.get("url") or entry.get("url") or ""
-                        )
-                        link = (
-                            f"{parsed.scheme}://{parsed.netloc}/_profiler/"
-                            f"{headers[dev.TOKEN_HEADER]}"
-                        )
-                    self.profiler_hits.append(
-                        {
-                            "url": response.get("url") or entry.get("url"),
-                            "status": response.get("status"),
-                            "link": link,
-                            "headers": headers,
-                        }
-                    )
+                hit = dev.find_profiler_hit([ev], entry.get("url") or "")
+                if hit:
+                    self.profiler_hits.append(hit)
             elif ev["method"] == "Network.loadingFinished":
                 entry["encodedBytes"] = params.get("encodedDataLength")
             elif ev["method"] == "Network.loadingFailed":
@@ -509,7 +471,7 @@ def _capture_one(
         run_state.artifacts.append(_artifact("network", label, path))
         return
     if artifact == "profiler":
-        profiler_result = collector.profiler(timeout)
+        profiler_result = collector.profiler(client, timeout)
         if profiler_result is None and run_state.last_url:
             profiler_result = dev.profiler(client, run_state.last_url, timeout=timeout)
         if profiler_result is None:

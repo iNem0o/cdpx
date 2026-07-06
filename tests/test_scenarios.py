@@ -6,6 +6,7 @@ import pytest
 from cdpx import discovery, scenarios
 from cdpx.cli import main
 from cdpx.client import CDPClient
+from cdpx.primitives import profiler_panels
 
 
 def client_for(mock):
@@ -86,6 +87,57 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path):
         "network",
     ]
     assert all(Path(artifact["path"]).exists() for artifact in result["artifacts"])
+
+
+def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
+    fixtures = Path(__file__).parent / "fixtures" / "profiler"
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": "http://shop.test/",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": "http://shop.test/_profiler/fixed-token"},
+                    },
+                },
+            }
+        ]
+    )
+    payload = json.dumps(
+        [
+            {
+                "panel": key,
+                "status": 200,
+                "html": (fixtures / f"{profiler_panels.PANEL_SOURCES[key]}.html").read_text(
+                    encoding="utf-8"
+                ),
+            }
+            for key in profiler_panels.ALL_PANELS
+        ]
+    )
+    mock.on_eval("__cdpx_profiler_panels", payload)
+    scenario = scenarios.parse(
+        {
+            "name": "profiler_capture",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/"}],
+            "artifacts": ["profiler"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+
+    assert result["verdict"] == "pass"
+    (artifact,) = [a for a in result["artifacts"] if a["type"] == "profiler"]
+    data = json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
+    assert data["token"] == "fixed-token"
+    assert data["panels"]["db"]["queries"] == 6
+    assert data["panels"]["router"]["route"] == "scenario_profiler"
+    assert "signals" not in data
 
 
 def test_run_scenario_failure_still_captures_checkpoint_and_final(mock, tmp_path):

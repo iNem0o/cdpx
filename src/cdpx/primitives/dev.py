@@ -9,35 +9,13 @@ from __future__ import annotations
 import difflib
 import json
 import urllib.parse
-import urllib.request
-from collections.abc import Callable
 
 from cdpx.client import CDPClient
-from cdpx.primitives import actions, js
+from cdpx.primitives import actions, js, profiler_panels
 
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
 NET_EVENTS = ("Network.responseReceived",)
-SCENARIO_SIGNAL_HEADERS: dict[str, tuple[str, Callable[[str], object]]] = {
-    "x-cdpx-scenario": ("scenario", str),
-    "x-cdpx-profiler-time-ms": ("time_ms", int),
-    "x-cdpx-profiler-memory-kb": ("memory_kb", int),
-    "x-cdpx-profiler-db-queries": ("db_queries", int),
-    "x-cdpx-profiler-db-duplicate-queries": ("db_duplicate_queries", int),
-    "x-cdpx-profiler-cache-hit": ("cache_hit", lambda value: value == "1"),
-    "x-cdpx-profiler-cache-state": ("cache_state", str),
-    "x-cdpx-profiler-payload-bytes": ("payload_bytes", int),
-    "x-cdpx-profiler-twig-renders": ("twig_renders", int),
-    "x-cdpx-profiler-twig-render-ms": ("twig_render_ms", int),
-    "x-cdpx-profiler-stopwatch-sections": ("stopwatch_sections", int),
-    "x-cdpx-profiler-http-client": ("http_client", str),
-    "x-cdpx-profiler-http-client-ms": ("http_client_ms", int),
-    "x-cdpx-profiler-messenger": ("messenger", str),
-    "x-cdpx-profiler-queue-depth": ("queue_depth", int),
-    "x-cdpx-profiler-route-outcome": ("route_outcome", str),
-    "x-cdpx-profiler-response-status": ("response_status", int),
-    "x-cdpx-profiler-expected": ("expected", str),
-}
 
 DOM_SNAPSHOT_JS = r"""
 (() => { const __cdpx_dom_snapshot = 1;
@@ -70,68 +48,49 @@ DOM_SNAPSHOT_JS = r"""
 """
 
 
-def profiler(client: CDPClient, url: str, timeout: float = 30.0, settle: float = 0.2) -> dict:
-    """Navigue, trouve X-Debug-Token-Link et récupère le profiler côté cdpx."""
+def find_profiler_hit(events: list[dict], fallback_url: str) -> dict | None:
+    """Premier Network.responseReceived portant X-Debug-Token-Link (ou repli
+    X-Debug-Token, dont on reconstruit le lien /_profiler/{token})."""
+    for ev in events:
+        response = ev.get("params", {}).get("response", {})
+        headers = {str(k).lower(): v for k, v in response.get("headers", {}).items()}
+        if PROFILER_HEADER not in headers and TOKEN_HEADER not in headers:
+            continue
+        link = headers.get(PROFILER_HEADER)
+        if not link:
+            parsed = urllib.parse.urlparse(response.get("url") or fallback_url)
+            link = f"{parsed.scheme}://{parsed.netloc}/_profiler/{headers[TOKEN_HEADER]}"
+        return {
+            "url": response.get("url"),
+            "status": response.get("status"),
+            "link": link,
+            "headers": headers,
+        }
+    return None
+
+
+def profiler(
+    client: CDPClient,
+    url: str,
+    timeout: float = 30.0,
+    settle: float = 0.2,
+    panels: list[str] | None = None,
+) -> dict:
+    """Navigue, trouve X-Debug-Token-Link et parse les panels du Web Profiler.
+
+    `panels=None` = tous les panels connus; `panels=[]` = sonde token seule.
+    """
+    keys = profiler_panels.normalize_panels(panels)
     client.send("Network.enable")
     client.send("Page.enable")
     client.send("Page.navigate", {"url": url}, timeout=timeout)
     client.wait_event("Page.loadEventFired", timeout=timeout)
     events = client.collect_events(settle, NET_EVENTS)
 
-    hit = None
-    for ev in events:
-        response = ev.get("params", {}).get("response", {})
-        headers = {str(k).lower(): v for k, v in response.get("headers", {}).items()}
-        if PROFILER_HEADER in headers or TOKEN_HEADER in headers:
-            link = headers.get(PROFILER_HEADER)
-            if not link:
-                parsed = urllib.parse.urlparse(response.get("url") or url)
-                link = f"{parsed.scheme}://{parsed.netloc}/_profiler/{headers[TOKEN_HEADER]}"
-            hit = {
-                "url": response.get("url"),
-                "status": response.get("status"),
-                "link": link,
-                "headers": headers,
-            }
-            break
+    hit = find_profiler_hit(events, url)
     if not hit:
         raise ValueError("header X-Debug-Token-Link/X-Debug-Token introuvable")
-
-    req = urllib.request.Request(hit["link"], headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as res:
-        body = res.read()
-        content_type = res.headers.get("Content-Type", "")
-        profiler_status = res.status
-
-    token = hit["link"].rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
-    out = {
-        "token": token,
-        "url": hit["url"],
-        "status": hit["status"],
-        "profiler_url": hit["link"],
-        "profiler_status": profiler_status,
-        "profiler_bytes": len(body),
-        "response_headers": hit["headers"],
-        "signals": _scenario_signals(hit["headers"]),
-    }
-    if "json" in content_type:
-        out["panels"] = json.loads(body.decode("utf-8"))
-    else:
-        out["panels"] = {"raw": {"content_type": content_type, "bytes": len(body)}}
-    return out
-
-
-def _scenario_signals(headers: dict[str, object]) -> dict:
-    signals = {}
-    for header, (name, caster) in SCENARIO_SIGNAL_HEADERS.items():
-        if header not in headers:
-            continue
-        raw = str(headers[header])
-        try:
-            signals[name] = caster(raw)
-        except ValueError:
-            signals[name] = raw
-    return signals
+    return profiler_panels.collect(client, hit, panels=keys, timeout=timeout)
 
 
 def dom_diff(client: CDPClient, action: list[str]) -> dict:

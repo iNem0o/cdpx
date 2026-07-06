@@ -91,7 +91,7 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 
 | CLI | Usecase | Pourquoi |
 |---|---|---|
-| `cdpx profiler <url> [--settle s]` | lire le profiler Symfony de la dernière requête | N+1 et exceptions visibles par l'agent sans ouvrir le browser; `X-Debug-Token-Link` + repli `X-Debug-Token`, `profiler_status` réel |
+| `cdpx profiler <url> [--settle s] [--panels ...]` | parser les panels du Web Profiler de la dernière requête (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, temps, logs) | N+1, duplicats SQL et exceptions chiffrés par l'agent sans ouvrir le browser; `X-Debug-Token-Link` + repli `X-Debug-Token`, HTML des panels parsé (aucune API JSON côté Symfony) |
 | `cdpx dom-diff -- <action>` | snapshot avant/après une action → diff structurel stable | voir exactement ce qu'un clic a changé dans le DOM |
 
 ```bash

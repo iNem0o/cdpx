@@ -3,6 +3,20 @@
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 Ce projet suit un versionnage sémantique.
 
+## [Non publié]
+
+### Modifié
+
+- **Breaking**: `cdpx profiler` parse désormais les vrais panels HTML du
+  WebProfilerBundle (db, twig, cache, exception, http_client, messenger,
+  router, time, logger) récupérés par `fetch()` dans la page. `panels` est
+  un objet structuré par panel (`available`/`parse_error`, jamais
+  d'exception de parsing); nouvelle option `--panels all|none|liste`.
+- **Breaking**: suppression des champs `signals` (en-têtes fabriqués
+  `X-CDPX-Profiler-*`) et `profiler_bytes` de la sortie de `cdpx profiler`
+  et de l'artefact `profiler` des scénarios: les métriques viennent des
+  panels réels, plus de signaux de fixtures.
+
 ## [0.1.0] — 2026-07-05
 
 Release initiale.

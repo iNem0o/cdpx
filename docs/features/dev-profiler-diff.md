@@ -2,9 +2,9 @@
 id = "dev-profiler-diff"
 title = "Diagnostics développeur"
 status = "validated"
-summary = "Lire et comparer les données du profiler Symfony et des diagnostics framework déterministes, puis comparer le DOM avant/après une action navigateur."
+summary = "Parser les panels du Web Profiler Symfony (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, temps, logs) depuis une navigation navigateur, puis comparer le DOM avant/après une action."
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "make docker-symfony-e2e"]
-path_globs = ["src/cdpx/primitives/dev.py", "tests/fixtures/profiler*.html", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
+path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler_panels.py", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
 test_globs = ["tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
 docs = ["docs/PRIMITIVES.md", "docs/milestones/M2-boucle-symfony.md"]
 expected_proofs = ["junit", "screenshot"]
@@ -41,9 +41,9 @@ id = "compare-symfony-profiler-variants"
 journey = "compare-profiler-variants"
 title = "Comparer les variantes du profiler Symfony"
 ui_text = "Le rapport compare des variantes déterministes du profiler Symfony."
-report_text = "Ce scénario prouve que baseline/dégradé, N+1 façon Doctrine, rafales de requêtes dupliquées, cache hit/miss/stale, coût de rendu Twig, sections Stopwatch, issues du client HTTP, signaux Messenger, issues de routing et en-têtes de cache de réponse sont disponibles comme preuves Symfony structurées."
-given = "Le moteur de scénarios Symfony expose des cas profiler et diagnostics sous `/scenario/profiler/{case}`."
-when = "cdpx navigue chaque cas, suit le vrai token WebProfiler et extrait les signaux collecteurs stables `X-CDPX-*` des en-têtes de réponse."
+report_text = "Ce scénario prouve que baseline/dégradé, N+1 façon Doctrine, rafales de requêtes dupliquées, cache hit/miss/expiré, coût de rendu Twig, sections Stopwatch, issues du client HTTP, messages Messenger, issues de routing et en-têtes de cache de réponse sont lus dans les vrais panels du WebProfiler et disponibles comme preuves Symfony structurées."
+given = "L'app de test Symfony exerce de vrais collecteurs (Doctrine, cache, HTTP client, Messenger...) sous `/scenario/profiler/{case}`."
+when = "cdpx navigue chaque cas, suit le vrai token WebProfiler et parse le HTML des panels (db, twig, cache, exception, http_client, messenger, router, time, logger)."
 then = "Le rapport lie les preuves JSON de comparaison, les tokens profiler, les logs Docker, JUnit et les captures d'écran à la feature diagnostics développeur."
 tests = ["tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants"]
 expected_proofs = ["junit", "json", "screenshot"]
@@ -88,16 +88,21 @@ Options globales et codes de sortie: voir la section Contrat CLI du README.
 
 ### `cdpx profiler`
 
-Synopsis: `cdpx profiler url [--settle S]`
+Synopsis: `cdpx profiler url [--settle S] [--panels LISTE|all|none]`
 
 Navigue vers `url`, repère l'en-tête `X-Debug-Token-Link` dans les réponses
 réseau (repli sur `X-Debug-Token` en reconstruisant l'URL
-`/_profiler/<token>`), puis récupère la page du profiler Symfony côté cdpx.
-La sortie expose le token, l'URL du profiler, `profiler_status` — le statut
-HTTP **réel** de la réponse profiler (plus un 200 codé en dur) —, la taille
-du corps, les panels (JSON parsé si le profiler répond en JSON, enveloppe
-`raw` sinon) et les signaux collecteurs déterministes `X-CDPX-*` du moteur
-de scénarios.
+`/_profiler/<token>`), puis va chercher les pages de panels du Web Profiler
+**depuis la page elle-même** (`fetch()` même origine: cookies et résolution
+d'hôte du navigateur, indispensable derrière Docker ou un port-forward) et
+parse leur HTML. Le WebProfilerBundle n'exposant aucune API JSON, cdpx
+extrait un contrat structuré par panel: `db` (requêtes, statements
+distincts, duplicats, liste SQL), `twig` (appels de templates, blocks,
+macros), `cache` (hits/misses/writes, par pool), `exception`
+(classe/message), `http_client` (requêtes sortantes, statuts), `messenger`
+(messages dispatchés par bus), `router` (route, contrôleur, statut,
+redirection), `time` (temps total/init, timeline best-effort) et `logger`
+(erreurs, warnings, dépréciations).
 
 Options propres:
 
@@ -105,16 +110,20 @@ Options propres:
 - `--settle S` — fenêtre en secondes de collecte des événements réseau après
   le chargement, le temps que la réponse portant le token arrive
   (défaut: 0.2).
+- `--panels` — `all` (défaut, les 9 panels), `none` (sonde token seule,
+  aucun fetch de panel) ou une liste CSV
+  (`router,time,db,twig,cache,exception,http_client,messenger,logger`);
+  un nom inconnu est une erreur d'usage (exit 2).
 
 ```bash
-# Lire le profiler d'une route locale
+# Parser tous les panels d'une route locale
 cdpx profiler http://127.0.0.1:8000/produit/42
 
-# Laisser plus de temps aux réponses lentes
-cdpx profiler http://127.0.0.1:8000/produit/42 --settle 1.0
+# Cibler la boucle Doctrine + cache uniquement
+cdpx profiler http://127.0.0.1:8000/produit/42 --panels db,cache
 ```
 
-Sortie (extrait réaliste):
+Sortie (extrait réaliste, tronqué aux panels demandés):
 
 ```json
 {
@@ -123,28 +132,46 @@ Sortie (extrait réaliste):
   "status": 200,
   "profiler_url": "http://127.0.0.1:8000/_profiler/a1b2c3",
   "profiler_status": 200,
-  "profiler_bytes": 48213,
-  "panels": {"raw": {"content_type": "text/html; charset=UTF-8", "bytes": 48213}},
-  "signals": {
-    "scenario": "profiler-baseline",
-    "time_ms": 42,
-    "memory_kb": 8192,
-    "db_queries": 4,
-    "cache_state": "hit"
+  "panels": {
+    "db": {
+      "available": true,
+      "queries": 6,
+      "statements": 2,
+      "duplicates": 4,
+      "time_ms": 1.76,
+      "list": [{"sql": "SELECT ... FROM book b0_", "duration_ms": 0.42}]
+    },
+    "cache": {
+      "available": true,
+      "calls": 4,
+      "hits": 3,
+      "misses": 1,
+      "writes": 1,
+      "deletes": 0,
+      "pools": {"app.scenario_pool": {"calls": 4, "hits": 3, "misses": 1, "writes": 1, "deletes": 0, "reads": 4}}
+    }
   }
 }
 ```
 
 Pièges et cas d'erreur:
 
+- **Breaking change** (post-0.1.0): les champs `signals` (en-têtes
+  `X-CDPX-*`) et `profiler_bytes` ont disparu; `panels` est désormais un
+  objet structuré par panel, plus jamais une enveloppe `raw`.
 - Si aucune réponse ne porte `X-Debug-Token-Link` ni `X-Debug-Token`
   (profiler désactivé, environnement `prod`), la commande échoue avec
   `header X-Debug-Token-Link/X-Debug-Token introuvable` (exit 1).
-- Un `profiler_status` différent de 200 (token expiré, profiler purgé) est
-  désormais rapporté tel quel: c'est au lecteur du rapport d'en tirer les
-  conséquences, pas à cdpx de le masquer.
-- `signals` n'est peuplé que face au moteur de scénarios cdpx (en-têtes
-  `X-CDPX-*`); sur une app Symfony ordinaire, il reste `{}` — c'est normal.
+- Un panel dont le collector n'est pas installé (pas de doctrine-bundle,
+  pas de messenger...) sort en `{"available": false}` — ce n'est pas une
+  erreur. Un panel présent mais au markup imprévu sort en
+  `{"available": true, "parse_error": ...}`: le parsing ne lève jamais.
+- Le parsing est couplé au markup HTML du WebProfilerBundle 7.x (blocs
+  metric label/valeur, tables). Une version majeure de Symfony peut le
+  déplacer: les fixtures committées (`tests/fixtures/profiler/`) figent le
+  contrat et leur README documente la re-capture.
+- Les durées (`*_ms`) sont indicatives; n'asserter que comptes, classes,
+  routes et statuts.
 - `--settle` trop court = token raté si la réponse arrive tard; augmenter la
   fenêtre plutôt que de relancer en boucle.
 
@@ -223,13 +250,13 @@ Pièges et cas d'erreur:
 Synopsis: `make docker-symfony-e2e`
 
 Lance la suite e2e profiler contre une **vraie** application Symfony servie
-par Docker (`docker-compose.symfony-e2e.yml` + `tests/symfony-app/`): le
-moteur de scénarios déterministes expose les cas `/scenario/profiler/{case}`
-(baseline/dégradé, N+1, requêtes dupliquées, cache hit/miss/stale, coût
-Twig, Stopwatch, client HTTP, Messenger, routing, en-têtes de cache) et
-`/scenario/front/states` pour le diff DOM. C'est la preuve que
-`cdpx profiler` et `cdpx dom-diff` fonctionnent face à un vrai WebProfiler,
-pas seulement face aux fixtures.
+par Docker (`docker-compose.symfony-e2e.yml` + `tests/symfony-app/`): les
+contrôleurs de scénarios exercent de **vrais collecteurs** (requêtes
+Doctrine réelles sur SQLite — N+1 et duplicats compris —, pool de cache,
+client HTTP vers des endpoints locaux, messages Messenger, exceptions et
+redirections) sous `/scenario/profiler/{case}`, et `/scenario/front/states`
+pour le diff DOM. C'est la preuve que `cdpx profiler` parse les vrais panels
+du WebProfiler, pas seulement les fixtures HTML committées.
 
 Options propres: aucune (cible Make sans paramètre; Docker et Docker Compose
 doivent être installés et démarrables).
@@ -253,21 +280,24 @@ Pièges et cas d'erreur:
 
 ## Parcours utilisateur
 
-- Naviguer vers une route Symfony et suivre les en-têtes de token du
-  profiler.
+- Naviguer vers une route Symfony, suivre le token du profiler et lire les
+  panels parsés (Doctrine, Twig, cache, exceptions, HTTP client, Messenger,
+  routing, temps, logs).
 - Comparer baseline/dégradé, N+1 façon Doctrine, rafales de requêtes
-  dupliquées, cache hit/miss/stale, coût de rendu Twig, sections Stopwatch,
-  issues du client HTTP, signaux Messenger, issues de routing et en-têtes de
-  cache de réponse.
+  dupliquées, cache hit/miss/expiré, coût de rendu Twig, sections Stopwatch,
+  issues du client HTTP, messages Messenger, issues de routing et en-têtes
+  de cache de réponse — à partir des vrais panels.
 - Prendre un diff DOM stable autour d'une action navigateur.
 
 ## Validation
 
-Les fixtures unitaires simulent les en-têtes du profiler, y compris les
-signaux de scénario `X-CDPX-*`. `make proof` tente aussi automatiquement le
-portail Docker Symfony: Docker indisponible est rapporté comme `unavailable`
-et non bloquant pour préserver la portabilité locale, tandis qu'un run
-Symfony en échec avec Docker disponible bloque le verdict global de preuve.
+Les parseurs de panels sont validés unitairement sur du HTML committé
+(`tests/fixtures/profiler/`, markup WebProfilerBundle réel élagué), servi
+aussi par le serveur de fixtures pour l'e2e Chrome. `make proof` tente en
+plus automatiquement le portail Docker Symfony: Docker indisponible est
+rapporté comme `unavailable` et non bloquant pour préserver la portabilité
+locale, tandis qu'un run Symfony en échec avec Docker disponible bloque le
+verdict global de preuve.
 
 ## Preuves
 
@@ -281,4 +311,9 @@ Docker est disponible.
 
 La disponibilité de Docker dépend de l'environnement; son absence est
 visible dans le rapport et se résout en installant Docker puis en relançant
-`make proof` ou `make docker-symfony-e2e`.
+`make proof` ou `make docker-symfony-e2e`. Le parsing des panels est couplé
+au markup HTML du WebProfilerBundle 7.x (aucune API JSON n'existe côté
+Symfony): une évolution majeure du bundle peut demander une re-capture des
+fixtures et un ajustement des parseurs — le contrat de tolérance
+(`available`/`parse_error`, jamais d'exception) garantit qu'entre-temps la
+commande dégrade proprement au lieu de casser.

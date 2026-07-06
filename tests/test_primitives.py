@@ -2,12 +2,15 @@
 (contrat JSON stable) et le PROTOCOLE émis (méthodes/params enregistrés)."""
 
 import json
+import pathlib
 
 import pytest
 
 from cdpx import discovery
 from cdpx.client import CDPClient, CDPTimeout
 from cdpx.primitives import advanced, audit, capture, dev, inputs, js, nav, net, state
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture()
@@ -211,89 +214,55 @@ def test_network_capture_assembles_requests(mock, client):
 # -- dev loop ---------------------------------------------------------------------
 
 
-def test_profiler_reads_debug_token_link(mock, client, fixtures_http):
+def _profiler_network_script(base_url: str, headers: dict) -> list[dict]:
+    return [
+        {
+            "method": "Network.responseReceived",
+            "params": {
+                "requestId": "R1",
+                "response": {
+                    "url": f"{base_url}/api/profiler-sim",
+                    "status": 200,
+                    "headers": headers,
+                },
+            },
+        }
+    ]
+
+
+def test_profiler_reads_debug_token_link_and_parses_panels(mock, client, fixtures_http):
     link = f"{fixtures_http.base_url}/_profiler/fixed-token"
     mock.script_network(
-        [
-            {
-                "method": "Network.responseReceived",
-                "params": {
-                    "requestId": "R1",
-                    "response": {
-                        "url": f"{fixtures_http.base_url}/api/profiler-sim",
-                        "status": 200,
-                        "headers": {"X-Debug-Token-Link": link},
-                    },
-                },
-            }
-        ]
+        _profiler_network_script(fixtures_http.base_url, {"X-Debug-Token-Link": link})
     )
-    res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim")
+    db_html = (FIXTURES / "profiler" / "db.html").read_text(encoding="utf-8")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps([{"panel": "db", "status": 200, "html": db_html}]),
+    )
+    res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim", panels=["db"])
     assert res["token"] == "fixed-token"
-    assert res["profiler_status"] == 200  # dérivé de la réponse HTTP réelle
-    assert res["panels"]["db"]["queries"] == 2
+    assert res["profiler_status"] == 200  # statut réel du fetch du panel
+    assert res["panels"]["db"]["queries"] == 6
+    assert res["panels"]["db"]["duplicates"] == 4
+    assert "signals" not in res and "profiler_bytes" not in res
     assert mock.commands_for("Network.enable") == [{}]
+    # protocole émis: un seul fetch page-context, promesse attendue
+    (call,) = mock.commands_for("Runtime.evaluate")
+    assert call["awaitPromise"] is True
+    assert f'"{link}?panel=db"' in call["expression"]
 
 
 def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
     mock.script_network(
-        [
-            {
-                "method": "Network.responseReceived",
-                "params": {
-                    "requestId": "R1",
-                    "response": {
-                        "url": f"{fixtures_http.base_url}/api/profiler-sim",
-                        "status": 200,
-                        "headers": {"X-Debug-Token": "fixed-token"},
-                    },
-                },
-            }
-        ]
+        _profiler_network_script(fixtures_http.base_url, {"X-Debug-Token": "fixed-token"})
     )
-    res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim")
+    res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim", panels=[])
     assert res["token"] == "fixed-token"
     assert res["profiler_url"].endswith("/_profiler/fixed-token")
-
-
-def test_profiler_extracts_cdpx_scenario_signals(mock, client, fixtures_http):
-    link = f"{fixtures_http.base_url}/_profiler/fixed-token"
-    mock.script_network(
-        [
-            {
-                "method": "Network.responseReceived",
-                "params": {
-                    "requestId": "R1",
-                    "response": {
-                        "url": f"{fixtures_http.base_url}/api/profiler-sim",
-                        "status": 200,
-                        "headers": {
-                            "X-Debug-Token-Link": link,
-                            "X-CDPX-Scenario": "profiler.degraded",
-                            "X-CDPX-Profiler-Time-Ms": "42",
-                            "X-CDPX-Profiler-Memory-Kb": "768",
-                            "X-CDPX-Profiler-Db-Queries": "7",
-                            "X-CDPX-Profiler-Db-Duplicate-Queries": "2",
-                            "X-CDPX-Profiler-Cache-Hit": "0",
-                            "X-CDPX-Profiler-Payload-Bytes": "2048",
-                        },
-                    },
-                },
-            }
-        ]
-    )
-
-    res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim")
-
-    assert res["signals"] == {
-        "scenario": "profiler.degraded",
-        "time_ms": 42,
-        "memory_kb": 768,
-        "db_queries": 7,
-        "db_duplicate_queries": 2,
-        "cache_hit": False,
-        "payload_bytes": 2048,
-    }
+    # sonde token seule: aucun fetch de panel
+    assert res["panels"] == {} and res["profiler_status"] is None
+    assert mock.commands_for("Runtime.evaluate") == []
 
 
 def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):

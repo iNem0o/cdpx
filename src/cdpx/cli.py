@@ -20,7 +20,19 @@ import sys
 
 from cdpx import __version__, discovery, output, scenarios
 from cdpx.client import CDPClient, CDPError, CDPTimeout
-from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.primitives import (
+    actions,
+    advanced,
+    audit,
+    capture,
+    dev,
+    inputs,
+    js,
+    nav,
+    net,
+    profiler_panels,
+    state,
+)
 
 
 def _action(args) -> list[str]:
@@ -183,7 +195,10 @@ def cmd_metrics(args) -> None:
 
 def cmd_profiler(args) -> None:
     with _client(args) as c:
-        _out(args, dev.profiler(c, args.url, timeout=args.timeout, settle=args.settle))
+        _out(
+            args,
+            dev.profiler(c, args.url, timeout=args.timeout, settle=args.settle, panels=args.panels),
+        )
 
 
 def cmd_dom_diff(args) -> None:
@@ -282,6 +297,19 @@ def cmd_scenario(args) -> int:
 
 
 # -- parseur ---------------------------------------------------------------------
+
+
+def _panels_arg(value: str) -> list[str] | None:
+    """--panels: all (défaut) -> tous, none -> sonde token seule, sinon liste CSV."""
+    if value == "all":
+        return None
+    if value == "none":
+        return []
+    panels = [item.strip() for item in value.split(",") if item.strip()]
+    try:
+        return profiler_panels.normalize_panels(panels)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -391,9 +419,15 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("metrics", help="métriques de performance du renderer")
     s.set_defaults(func=cmd_metrics)
 
-    s = sub.add_parser("profiler", help="lire le profiler Symfony via X-Debug-Token-Link")
+    s = sub.add_parser("profiler", help="parser les panels du Web Profiler Symfony")
     s.add_argument("url")
     s.add_argument("--settle", type=float, default=0.2)
+    s.add_argument(
+        "--panels",
+        type=_panels_arg,
+        default="all",
+        help=f"all | none | liste: {','.join(profiler_panels.ALL_PANELS)}",
+    )
     s.set_defaults(func=cmd_profiler)
 
     s = sub.add_parser("dom-diff", help="diff DOM stable autour d'une action")

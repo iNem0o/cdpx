@@ -88,9 +88,35 @@ def test_api_profiler_sim(fixtures_http):
     status, body, headers = _get(fixtures_http.base_url, "/api/profiler-sim")
     assert status == 200 and json.loads(body)["profiler"] == "sim"
     assert headers["X-Debug-Token-Link"].endswith("/_profiler/fixed-token")
+
+
+PROFILER_PANEL_MARKERS = {
+    "db": ["Database Queries", "Different statements"],
+    "twig": ["Template Calls", "Rendered Templates"],
+    "cache": ["Total hits", "app.scenario_pool"],
+    "exception": ["No exception was thrown"],
+    "http_client": ["Total requests"],
+    "messenger": ["messenger.bus.default"],
+    "request": ["_route", "Status code"],
+    "time": ["Total execution time"],
+    "logger": ["Deprecations"],
+}
+
+
+def test_profiler_serves_panel_html(fixtures_http):
+    for panel, markers in PROFILER_PANEL_MARKERS.items():
+        status, body, headers = _get(
+            fixtures_http.base_url, f"/_profiler/fixed-token?panel={panel}"
+        )
+        assert status == 200, f"panel {panel} -> {status}"
+        assert headers["Content-Type"].startswith("text/html"), panel
+        for marker in markers:
+            assert marker in body, f"marqueur '{marker}' absent du panel {panel}"
+    # sans paramètre: panel request; panel inconnu: 404
     status, body, _ = _get(fixtures_http.base_url, "/_profiler/fixed-token")
-    assert status == 200
-    assert json.loads(body)["db"]["queries"] == 2
+    assert status == 200 and "_route" in body
+    status, _, _ = _get(fixtures_http.base_url, "/_profiler/fixed-token?panel=nope")
+    assert status == 404
 
 
 def test_path_traversal_blocked(fixtures_http):

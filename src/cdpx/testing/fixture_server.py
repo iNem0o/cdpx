@@ -16,8 +16,9 @@ Endpoints API (en plus des fichiers statiques de tests/fixtures/):
   GET /api/status/CODE   -> répond avec le code HTTP demandé
   ANY /api/echo          -> renvoie méthode, chemin, body reçus
   GET /api/set-cookie    -> pose Set-Cookie: fixture=on
-  GET /api/profiler-sim  -> pose X-Debug-Token-Link vers un profiler JSON figé
-  GET /_profiler/TOKEN   -> JSON profiler déterministe
+  GET /api/profiler-sim  -> pose X-Debug-Token-Link vers le faux Web Profiler
+  GET /_profiler/TOKEN?panel=X -> HTML de panel figé (tests/fixtures/profiler/X.html,
+                            markup WebProfilerBundle réel élagué; défaut: request)
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from __future__ import annotations
 import http.server
 import json
 import pathlib
+import re
 import threading
 import time
 import urllib.parse
@@ -104,12 +106,13 @@ def _make_handler(root: pathlib.Path):
                     self._send(b'{"error": "unknown api"}', status=404)
                 return
             if parsed.path.startswith("/_profiler/"):
-                body = {
-                    "db": {"queries": 2, "time_ms": 12.5},
-                    "exceptions": [],
-                    "request": {"route": "fixture_profiler"},
-                }
-                self._send(json.dumps(body).encode())
+                qs = urllib.parse.parse_qs(parsed.query)
+                panel = qs.get("panel", ["request"])[0]
+                target = root / "profiler" / f"{panel}.html"
+                if not re.fullmatch(r"[a-z_]+", panel) or not target.is_file():
+                    self._send(b'{"error": "panel inconnu"}', status=404)
+                    return
+                self._send(target.read_bytes(), ctype="text/html; charset=utf-8")
                 return
             rel = parsed.path.lstrip("/") or "index.html"
             target = (root / rel).resolve()

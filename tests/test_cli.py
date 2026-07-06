@@ -2,6 +2,7 @@
 primitive -> JSON sur stdout + exit code. C'est le contrat vu par l'agent."""
 
 import json
+import pathlib
 
 import pytest
 
@@ -289,6 +290,46 @@ def test_dom_diff_accepts_action_with_or_without_separator(mock, capsys):
     assert code == 0 and json.loads(out)["action"] == ["eval", "2 + 2"]
     code, out, _ = run(mock, capsys, "dom-diff", "--", "eval", "2 + 2")
     assert code == 0 and json.loads(out)["action"] == ["eval", "2 + 2"]
+
+
+def test_profiler_cli_panels_flag(mock, capsys):
+    db_html = (pathlib.Path(__file__).parent / "fixtures" / "profiler" / "db.html").read_text(
+        encoding="utf-8"
+    )
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": "http://s.test/",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": "http://s.test/_profiler/tok"},
+                    },
+                },
+            }
+        ]
+    )
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps([{"panel": "db", "status": 200, "html": db_html}]),
+    )
+    code, out, _ = run(
+        mock, capsys, "profiler", "http://s.test/", "--settle", "0.05", "--panels", "db"
+    )
+    data = json.loads(out)
+    assert code == 0
+    assert data["token"] == "tok"
+    assert data["panels"]["db"]["queries"] == 6
+    assert "signals" not in data and "profiler_bytes" not in data
+
+
+def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
+    with pytest.raises(SystemExit) as exc:
+        run(mock, capsys, "profiler", "http://s.test/", "--panels", "doctrine")
+    assert exc.value.code == 2
+    assert "panel(s) inconnu(s)" in capsys.readouterr().err
 
 
 def test_intercept_multiple_rules_and_invalid_action(mock, capsys):

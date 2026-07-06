@@ -116,10 +116,18 @@ def test_network_capture_real(page):
 
 
 def test_profiler_fixture_real(page):
+    # fetch page-context réel: Chrome va chercher les panels HTML du fixture
+    # server et les parseurs en extraient les valeurs figées.
     c, base = page
     res = dev.profiler(c, f"{base}/api/profiler-sim")
     assert res["token"] == "fixed-token"
-    assert res["panels"]["db"]["queries"] == 2
+    assert res["profiler_status"] == 200
+    assert res["panels"]["db"]["queries"] == 6
+    assert res["panels"]["db"]["duplicates"] == 4
+    assert res["panels"]["cache"]["hits"] == 3
+    assert res["panels"]["router"]["route"] == "scenario_profiler"
+    assert res["panels"]["exception"]["raised"] is False
+    assert res["panels"]["logger"]["deprecations"] == 2
 
 
 def test_dom_diff_real(page):
