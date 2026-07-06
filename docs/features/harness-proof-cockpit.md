@@ -69,7 +69,7 @@ une fois après clonage, avant tout `make check`.
 
 ### `make check`
 
-LE portail qualité : lint + vérification de format + tests unitaires
+LE portail qualité : lint + vérification de format + mypy + tests unitaires
 déterministes. Rien ne se merge s'il ne passe pas ; toute session de travail
 se termine par un `make check` vert.
 
@@ -105,9 +105,8 @@ matrice Python; en local, `make check` reste le portail rapide.
 
 ### `make typecheck`
 
-Vérification mypy de `src/cdpx`. Non bloquante pour la release initiale
-(`allow_failure` en CI): elle devient bloquante quand elle est durablement
-verte.
+Vérification mypy de `src/cdpx`. Bloquante depuis le passage au vert durable
+(0 erreur, 2026-07): incluse dans `make check` et sans `allow_failure` en CI.
 
 ### `make fixtures`
 

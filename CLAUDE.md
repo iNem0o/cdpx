@@ -15,7 +15,7 @@ SEO. Voir `docs/PRIMITIVES.md` pour le catalogue implémenté/planifié.
 
 ```
 make setup      # installer (editable + pytest + ruff)
-make check      # PORTAIL: lint + format + 47+ tests unitaires — DOIT passer
+make check      # PORTAIL: lint + format + mypy + tests unitaires — DOIT passer
 make test       # tests unitaires seuls (mock CDP + fixtures, loopback only)
 make test-e2e   # e2e Chrome réel (M1) — se skippe si Chrome absent
 make fixtures   # site témoin sur :8899

@@ -36,7 +36,6 @@ check:
 typecheck:
   extends: .python
   stage: test
-  allow_failure: true
   script:
     - make typecheck
 

@@ -134,7 +134,7 @@ mécaniquement.
 ## Qualité et preuve
 
 ```
-make check                 # PORTAIL: lint + format + tests unitaires déterministes
+make check                 # PORTAIL: lint + format + mypy + tests unitaires déterministes
 make test-e2e              # e2e Chrome réel — Chrome/Chromium obligatoire
 make docker-check          # check dans l'image portable cdpx-ci
 make docker-e2e            # e2e Chrome réel dans Docker

@@ -14,7 +14,7 @@ help: ## liste des cibles
 setup: ## installe le paquet en editable + outils dev (extras [dev])
 	pip install -e ".[dev]" --break-system-packages --quiet || pip install -e ".[dev]"
 
-check: lint test ## PORTAIL QUALITÉ: lint + format + tests unitaires
+check: lint typecheck test ## PORTAIL QUALITÉ: lint + format + mypy + tests unitaires
 	@echo "== make check: OK =="
 
 lint: ## ruff check + vérification de format
@@ -34,7 +34,7 @@ test-e2e: ## e2e Chrome réel (M1) — échoue si Chrome/Chromium absent
 cov: ## tests unitaires avec couverture (seuil bloquant, appliqué en CI)
 	$(PY) -m pytest tests --ignore=tests/e2e --cov=cdpx --cov-report=term --cov-fail-under=$(COV_MIN)
 
-typecheck: ## mypy (non bloquant pour la release initiale; allow_failure en CI)
+typecheck: ## mypy sur src/cdpx (bloquant: inclus dans check depuis le vert durable)
 	$(PY) -m mypy src/cdpx
 
 docker-build: ## construire l'image portable cdpx-ci
