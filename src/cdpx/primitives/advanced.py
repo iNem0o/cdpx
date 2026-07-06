@@ -8,6 +8,7 @@ import json
 import time
 import urllib.parse
 from pathlib import Path
+from typing import Any
 
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.primitives import actions, inputs, js, nav
@@ -28,7 +29,7 @@ ACTION_ERRORS = (
     inputs.ElementNotFound,
 )
 
-PRESETS = {
+PRESETS: dict[str, dict[str, Any]] = {
     "mobile": {
         "metrics": {
             "width": 390,
@@ -54,7 +55,7 @@ def command_mutates(command: str, action: list[str] | None = None) -> bool:
     if command in ALWAYS_MUTATING:
         return True
     if command in COMPOSED_COMMANDS:
-        return bool(action) and action[0] in actions.MUTATING_VERBS
+        return bool(action and action[0] in actions.MUTATING_VERBS)
     return False
 
 
@@ -293,7 +294,7 @@ def replay(client: CDPClient, path: str, max_actions: int | None = None) -> dict
     Toute la validation (syntaxe, actions présentes, budget) se fait AVANT la
     première exécution: un journal invalide ne touche jamais le navigateur.
     """
-    events = []
+    events: list[dict] = []
     for lineno, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
         if not line:
             continue

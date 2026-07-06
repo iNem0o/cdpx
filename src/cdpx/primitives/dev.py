@@ -10,6 +10,7 @@ import difflib
 import json
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 
 from cdpx.client import CDPClient
 from cdpx.primitives import actions, js
@@ -17,7 +18,7 @@ from cdpx.primitives import actions, js
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
 NET_EVENTS = ("Network.responseReceived",)
-SCENARIO_SIGNAL_HEADERS = {
+SCENARIO_SIGNAL_HEADERS: dict[str, tuple[str, Callable[[str], object]]] = {
     "x-cdpx-scenario": ("scenario", str),
     "x-cdpx-profiler-time-ms": ("time_ms", int),
     "x-cdpx-profiler-memory-kb": ("memory_kb", int),

@@ -542,15 +542,15 @@ def _resolve_scenario_owner(
             "error": f"scenario mapped multiple documented specs: {nodeid} -> {owners}",
         }
 
-    owners = [spec for spec in specs if _matches_any(nodeid, spec.test_globs)]
-    if len(owners) == 1:
+    glob_owners = [spec for spec in specs if _matches_any(nodeid, spec.test_globs)]
+    if len(glob_owners) == 1:
         return {
-            "feature": owners[0],
+            "feature": glob_owners[0],
             "scenario": None,
             "warning": f"scenario mapped by legacy test_globs without documented spec: {nodeid}",
             "error": "",
         }
-    if len(owners) > 1:
+    if len(glob_owners) > 1:
         return {
             "feature": None,
             "scenario": None,

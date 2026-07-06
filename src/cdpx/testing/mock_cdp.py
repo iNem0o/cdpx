@@ -29,7 +29,7 @@ import uuid
 from collections import deque
 from typing import Any
 
-from websockets.sync.server import serve
+from websockets.sync.server import Server, serve
 
 # PNG 1x1 transparent, valide. PDF minimal, valide en signature.
 TINY_PNG = base64.b64decode(
@@ -71,7 +71,7 @@ class MockCDP:
         self.error_methods: set[str] = set()  # méthodes qui répondent une erreur CDP
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._http: http.server.ThreadingHTTPServer | None = None
-        self._ws_server = None
+        self._ws_server: Server | None = None
         self.http_port = 0
         self.ws_port = 0
         self._add_target("about:blank", "Mock Tab")
@@ -194,9 +194,10 @@ class MockCDP:
                 for ev in events:
                     ws.send(json.dumps(ev))
 
-        self._ws_server = serve(handler, "127.0.0.1", 0)
-        self.ws_port = self._ws_server.socket.getsockname()[1]
-        threading.Thread(target=self._ws_server.serve_forever, daemon=True).start()
+        ws_server = serve(handler, "127.0.0.1", 0)
+        self._ws_server = ws_server
+        self.ws_port = ws_server.socket.getsockname()[1]
+        threading.Thread(target=ws_server.serve_forever, daemon=True).start()
 
     # -- protocole scripté --------------------------------------------------------
     def _respond(self, tid: str, method: str, params: dict):

@@ -709,8 +709,8 @@ def group_cases_by_module(unit: dict, e2e: dict, symfony: dict | None = None) ->
 
 
 def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> dict:
-    suites = {"unit": [], "integration": [], "e2e": [], "symfony": []}
-    files = []
+    suites: dict[str, list[dict]] = {"unit": [], "integration": [], "e2e": [], "symfony": []}
+    files: list[str] = []
     if not root.exists():
         return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
     for path in sorted(root.glob("*-scenarios.json")):
@@ -880,11 +880,10 @@ def parse_junit(path: Path) -> dict:
             child = case.find(child_name)
             if child is not None:
                 status = child_status
-                message = (
-                    child.attrib.get("message", "") or (child.text or "").strip().splitlines()[0:1]
-                )
-                if isinstance(message, list):
-                    message = message[0] if message else ""
+                message = child.attrib.get("message", "")
+                if not message:
+                    text_lines = (child.text or "").strip().splitlines()
+                    message = text_lines[0] if text_lines else ""
                 break
         cases.append(
             {
@@ -1665,6 +1664,13 @@ def generate() -> dict:
             "Ruff format",
             [sys.executable, "-m", "ruff", "format", "--check", "src", "tests"],
             PROOF_DIR / "ruff-format.log",
+            env=env,
+        ),
+        run_evidence(
+            "mypy",
+            "Mypy typage",
+            [sys.executable, "-m", "mypy", "src/cdpx"],
+            PROOF_DIR / "mypy.log",
             env=env,
         ),
         run_evidence(
