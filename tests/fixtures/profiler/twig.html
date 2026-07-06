@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Symfony Profiler — twig</title></head>
+<body>
+<div id="sidebar">
+  <ul id="menu-profiler">
+    <li class="request"><a href="/_profiler/fixed-token?panel=request">Request / Response</a></li>
+    <li class="time"><a href="/_profiler/fixed-token?panel=time">Performance</a></li>
+    <li class="exception"><a href="/_profiler/fixed-token?panel=exception">Exception</a></li>
+    <li class="logger"><a href="/_profiler/fixed-token?panel=logger">Logs <span class="count"><span>2</span></span></a></li>
+    <li class="db"><a href="/_profiler/fixed-token?panel=db">Doctrine <span class="count"><span>6</span></span></a></li>
+    <li class="twig"><a href="/_profiler/fixed-token?panel=twig">Twig</a></li>
+    <li class="cache"><a href="/_profiler/fixed-token?panel=cache">Cache</a></li>
+    <li class="http_client"><a href="/_profiler/fixed-token?panel=http_client">HTTP Client</a></li>
+    <li class="messenger"><a href="/_profiler/fixed-token?panel=messenger">Messenger</a></li>
+  </ul>
+</div>
+<div id="collector-content">
+<h2>Twig Metrics</h2>
+<div class="metrics">
+  <div class="metric"><span class="value">1.40 <span class="unit">ms</span></span><span class="label">Render Time</span></div>
+  <div class="metric"><span class="value">3</span><span class="label">Template Calls</span></div>
+  <div class="metric"><span class="value">0</span><span class="label">Block Calls</span></div>
+  <div class="metric"><span class="value">0</span><span class="label">Macro Calls</span></div>
+</div>
+<h2>Rendered Templates</h2>
+<table>
+  <thead><tr><th>Template Name &amp; Path</th><th>Render Count</th></tr></thead>
+  <tbody>
+    <tr><td>scenario/base.html.twig</td><td>1</td></tr>
+    <tr><td>scenario/_row.html.twig</td><td>2</td></tr>
+  </tbody>
+</table>
+</div>
+</body>
+</html>

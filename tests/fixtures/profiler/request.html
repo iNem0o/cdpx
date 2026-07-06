@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Symfony Profiler — request</title></head>
+<body>
+<div id="sidebar">
+  <ul id="menu-profiler">
+    <li class="request"><a href="/_profiler/fixed-token?panel=request">Request / Response</a></li>
+    <li class="time"><a href="/_profiler/fixed-token?panel=time">Performance</a></li>
+    <li class="exception"><a href="/_profiler/fixed-token?panel=exception">Exception</a></li>
+    <li class="logger"><a href="/_profiler/fixed-token?panel=logger">Logs <span class="count"><span>2</span></span></a></li>
+    <li class="db"><a href="/_profiler/fixed-token?panel=db">Doctrine <span class="count"><span>6</span></span></a></li>
+    <li class="twig"><a href="/_profiler/fixed-token?panel=twig">Twig</a></li>
+    <li class="cache"><a href="/_profiler/fixed-token?panel=cache">Cache</a></li>
+    <li class="http_client"><a href="/_profiler/fixed-token?panel=http_client">HTTP Client</a></li>
+    <li class="messenger"><a href="/_profiler/fixed-token?panel=messenger">Messenger</a></li>
+  </ul>
+</div>
+<div id="collector-content">
+<h2>Request</h2>
+<h3>Request Attributes</h3>
+<table>
+  <thead><tr><th>Key</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>_controller</td><td>App\Controller\ScenarioController::profiler</td></tr>
+    <tr><td>_route</td><td>scenario_profiler</td></tr>
+    <tr><td>_route_params</td><td>[case =&gt; baseline]</td></tr>
+  </tbody>
+</table>
+<h3>Response</h3>
+<table>
+  <thead><tr><th>Key</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Status code</td><td>200</td></tr>
+    <tr><td>Status text</td><td>OK</td></tr>
+  </tbody>
+</table>
+</div>
+</body>
+</html>
