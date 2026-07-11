@@ -19,7 +19,7 @@ publication open source sur GitHub sous licence MIT. Le plan détaillé est
       l'absence de fichiers internes.
 - [x] Installer le wheel dans un environnement propre et recompter les 30
       commandes depuis l'artefact.
-- [ ] Exécuter `make release` sur l'état intégré puis confirmer les mêmes
+- [x] Exécuter `make release` sur l'état intégré puis confirmer les mêmes
       portails sur un vrai runner GitHub.
 - [x] Préparer la version de publication `0.2.0`, cohérente avec les changements
       de contrat pré-1.0 ; aucun tag n'est autorisé à ce stade.

@@ -41,6 +41,33 @@ Le dépôt ne contient volontairement ni `.github/settings.yml` sans application
 consommatrice, ni `CODEOWNERS` tant qu'un propriétaire de code durable n'a pas
 été explicitement désigné.
 
+## État de la répétition privée du 11 juillet 2026
+
+Les valeurs suivantes ont été relues via l'API après la première PR réelle :
+
+- dépôt `PRIVATE`, branche par défaut `master` ;
+- squash seul, mise à jour de branche autorisée et suppression automatique des
+  branches mergées ;
+- Actions activées en mode `selected` : actions GitHub et
+  `pypa/gh-action-pypi-publish@*` uniquement ; workflows en lecture par défaut,
+  sans droit d'approuver une PR ;
+- alertes et mises à jour de sécurité Dependabot actives ; environnement
+  `pypi` créé, sans règle de protection tant qu'un approbateur de release n'a
+  pas été décidé ;
+- labels opérationnels : `bug`, `enhancement`, `documentation`, `dependencies`
+  et le label `docker` créé par Dependabot ;
+- secret scanning indisponible (HTTP 422) et private vulnerability reporting
+  indisponible (HTTP 404) sur ce dépôt privé/plan ;
+- protection de branche et rulesets indisponibles : lecture et tentative
+  d'écriture retournent HTTP 403 « Upgrade to GitHub Pro or make this repository
+  public ».
+
+La CI produit bien `PR Gate / Required`, mais GitHub ne peut donc pas encore le
+rendre obligatoire. Le dépôt doit rester privé : l'action correcte est un
+upgrade du plan ou l'activation d'un ruleset d'organisation équivalent, jamais
+un passage public opportuniste. Après upgrade, appliquer la table ci-dessus et
+relire la règle par API avant tout merge ou ouverture publique.
+
 ## Vérifier les réglages
 
 Les commandes suivantes doivent être exécutées avec un compte administrateur :

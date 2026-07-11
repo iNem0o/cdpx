@@ -19,7 +19,7 @@ par elle-même l'autorisation de pousser, taguer ou publier.
       nécessaires à la relicence.
 - [x] Installer le texte MIT sans inventer de nom ni d'année.
 - [x] Aligner `pyproject.toml`, README, changelog et tests de packaging.
-- [ ] Vérifier la licence dans le wheel et le sdist reconstruits.
+- [x] Vérifier la licence dans le wheel et le sdist reconstruits.
 
 ## 2. Dépôt public
 
@@ -28,7 +28,7 @@ par elle-même l'autorisation de pousser, taguer ou publier.
 - [x] Documentation débarrassée des références client et du statut GitLab
       actif.
 - [x] Retirer les preuves générées de l'index et ignorer `.proof/`.
-- [ ] Scanner l'état courant et tout l'historique avec un outil dédié avant le
+- [x] Scanner l'état courant et tout l'historique avec un outil dédié avant le
       premier push public.
 
 ## 3. GitHub Actions
@@ -38,7 +38,7 @@ par elle-même l'autorisation de pousser, taguer ou publier.
 - [x] Utiliser des permissions minimales et épingler les actions tierces.
 - [x] Publier JUnit, logs et cockpit `.proof/` comme artefacts temporaires.
 - [x] Valider localement la syntaxe des workflows avec `actionlint`.
-- [ ] Exécuter les workflows sur un vrai runner GitHub.
+- [x] Exécuter les workflows sur un vrai runner GitHub.
 
 ## 4. Distribution
 
