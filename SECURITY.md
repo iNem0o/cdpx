@@ -2,8 +2,9 @@
 
 ## Versions prises en charge
 
-Les correctifs de sécurité ciblent la dernière version publiée et la branche
-par défaut du dépôt. Les versions pré-1.0 plus anciennes peuvent ne pas recevoir
+Avant la première publication, les correctifs de sécurité ciblent uniquement la
+branche `master`. Après publication, ils ciblent la dernière release et la
+branche par défaut. Les versions pré-1.0 plus anciennes peuvent ne pas recevoir
 de correctif rétroporté.
 
 ## Signaler une vulnérabilité

@@ -1,11 +1,21 @@
 name: Signaler un bug
 description: Signaler un comportement reproductible de cdpx.
 title: "[Bug] "
+labels:
+  - bug
 body:
   - type: markdown
     attributes:
       value: |
         Merci de fournir un cas minimal reproductible sans secret, cookie ou donnée de session.
+  - type: textarea
+    id: command
+    attributes:
+      label: Commande exécutée
+      description: Donnez la commande exacte après avoir retiré toute valeur sensible.
+      render: shell
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
@@ -19,6 +29,14 @@ body:
     attributes:
       label: Comportement attendu
       description: Décrivez le résultat attendu.
+    validations:
+      required: true
+  - type: textarea
+    id: stdout-stderr
+    attributes:
+      label: stdout et stderr expurgés
+      description: Collez les sorties utiles sans cookie, token, en-tête ou donnée de session.
+      render: shell
     validations:
       required: true
   - type: textarea
@@ -51,7 +69,7 @@ body:
     id: environment
     attributes:
       label: Environnement
-      description: Système, version Python, version du navigateur et mode Docker éventuel.
+      description: OS et version, Python, Chrome/Chromium et mode Docker éventuel.
     validations:
       required: true
   - type: checkboxes

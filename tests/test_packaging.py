@@ -97,6 +97,12 @@ def test_release_portal_and_ci_require_all_runtime_proofs():
     assert "make cov" in ci
     assert "make release" in ci
     assert "include-hidden-files: true" in ci
+    assert "name: PR Gate / Required" in ci
+    assert "if: ${{ always() }}" in ci
+    assert "GITHUB_STEP_SUMMARY" in ci
+    assert "scripts/github_summary.py" in ci
+    assert ".ci-artifacts/make-release.log" in ci
+    assert "paths:" not in ci and "paths-ignore:" not in ci
 
 
 def test_github_workflows_are_parseable_and_actions_are_sha_pinned():
@@ -127,6 +133,7 @@ def test_ci_and_release_workflows_keep_permissions_narrow():
     assert '"v${PACKAGE_VERSION}" = "${GITHUB_REF_NAME}"' in release_text
     assert "GH_REPO: ${{ github.repository }}" in release_text
     assert "(cd dist && sha256sum *) > SHA256SUMS" in release_text
+    assert 'git merge-base --is-ancestor "${GITHUB_SHA}" origin/master' in release_text
 
     release = yaml.load(release_text, Loader=yaml.BaseLoader)
     jobs = release["jobs"]
@@ -150,8 +157,34 @@ def test_public_community_files_and_generated_artifact_policy():
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
     dockerignore = Path(".dockerignore").read_text(encoding="utf-8")
     assert ".proof/" in gitignore
+    assert ".ci-artifacts/" in gitignore
     assert ".proof" in dockerignore
+    assert ".ci-artifacts" in dockerignore
+    assert "article/" in dockerignore and "presentation/" in dockerignore
     assert Path("MANIFEST.in").is_file()
+
+
+def test_github_templates_enforce_the_project_contract():
+    pr_template = Path(".github/PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
+    assert "PR Gate / Required" in pr_template
+    assert "checkbox déclarative ne remplace jamais" in pr_template
+    for requirement in ("Contrat CLI", "protocole CDP", "Fixture", "Sécurité", "make release"):
+        assert requirement.lower() in pr_template.lower()
+
+    bug = yaml.safe_load(Path(".github/ISSUE_TEMPLATE/bug_report.yml").read_text())
+    assert bug["labels"] == ["bug"]
+    bug_ids = {item.get("id") for item in bug["body"]}
+    assert {"command", "stdout-stderr", "version", "environment"} <= bug_ids
+
+    feature = yaml.safe_load(Path(".github/ISSUE_TEMPLATE/feature_request.yml").read_text())
+    assert feature["labels"] == ["enhancement"]
+    dod = next(item for item in feature["body"] if item.get("id") == "definition-of-done")
+    labels = " ".join(option["label"] for option in dod["attributes"]["options"])
+    for requirement in ("primitive", "sous-commande", "JSON", "protocole", "fixture", "E2E"):
+        assert requirement.lower() in labels.lower()
+
+    contributing = Path("CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert "docs/GITHUB.md" in contributing and "PR Gate / Required" in contributing
 
 
 def test_derived_symfony_fixtures_retain_upstream_notice():

@@ -187,6 +187,8 @@ Les tests unitaires utilisent un mock CDP qui vérifie la sortie et le protocole
 la suite Symfony sont obligatoires pour un verdict de release ; ils ne sont pas
 silencieusement skippés. Les artefacts `.proof/` sont générés localement ou
 publiés par la CI, mais ne constituent pas des sources à modifier à la main.
+Le cycle branche → PR → preuve → review → merge et les réglages GitHub sont
+documentés dans [docs/GITHUB.md](docs/GITHUB.md).
 
 Consultez [CONTRIBUTING.md](CONTRIBUTING.md) avant une pull request et
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) pour les règles de participation.
@@ -197,6 +199,7 @@ Consultez [CONTRIBUTING.md](CONTRIBUTING.md) avant une pull request et
 - [docs/CONTEXT.md](docs/CONTEXT.md) — motivations et décisions techniques ;
 - [docs/PRIMITIVES.md](docs/PRIMITIVES.md) — catalogue complet ;
 - [docs/VALIDATION.md](docs/VALIDATION.md) — portails et matrice de preuve ;
+- [docs/GITHUB.md](docs/GITHUB.md) — cycle PR, checks, artefacts et gouvernance ;
 - [docs/ROADMAP.md](docs/ROADMAP.md) et [docs/TODO.md](docs/TODO.md) — trajectoire
   et travail restant ;
 - [docs/RELEASE-PLAN.md](docs/RELEASE-PLAN.md) — préparation de publication.

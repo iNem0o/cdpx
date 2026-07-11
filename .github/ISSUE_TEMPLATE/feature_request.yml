@@ -1,6 +1,8 @@
 name: Proposer une évolution
 description: Proposer une primitive, une amélioration CLI ou un use case documenté.
 title: "[Feature] "
+labels:
+  - enhancement
 body:
   - type: textarea
     id: use-case
@@ -30,11 +32,19 @@ body:
       label: Alternatives envisagées
       description: Décrivez les contournements ou primitives existantes déjà essayés.
   - type: checkboxes
-    id: constraints
+    id: definition-of-done
     attributes:
-      label: Contraintes du projet
+      label: Definition of Done d'une primitive
       options:
-        - label: Cette proposition conserve stdout JSON, stderr diagnostic et les codes 0/1/2.
+        - label: La primitive et sa sous-commande CLI sont définies.
+          required: true
+        - label: L'objet JSON, stderr et les codes de sortie 0/1/2 sont définis, y compris en cas d'évolution du contrat.
+          required: true
+        - label: Le protocole mock exact et les tests de sortie + protocole sont prévus.
+          required: true
+        - label: La fixture et le scénario Chrome ou Symfony E2E sont prévus, ou leur absence est motivée.
+          required: true
+        - label: docs/PRIMITIVES.md et la fiche feature concernée seront mises à jour.
           required: true
         - label: Le scénario peut être testé sans connexion à un Chrome personnel.
           required: true

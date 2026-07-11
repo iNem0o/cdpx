@@ -14,6 +14,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
 
 class DiscoveryError(RuntimeError):
     pass
@@ -23,7 +25,15 @@ def _http(host: str, port: int, path: str, method: str = "GET") -> str:
     url = f"http://{host}:{port}{path}"
     req = urllib.request.Request(url, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        if host in LOOPBACK_HOSTS:
+            # CDP loopback must never be routed through a runner or workstation
+            # HTTP proxy. ProxyHandler({}) is the urllib direct-connection path.
+            response = urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
+                req, timeout=10
+            )
+        else:
+            response = urllib.request.urlopen(req, timeout=10)
+        with response as resp:
             return resp.read().decode("utf-8", "replace")
     except urllib.error.URLError as e:
         raise DiscoveryError(f"{method} {url}: {e}") from e

@@ -22,18 +22,21 @@ def free_loopback_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def wait_for_chrome(proc: subprocess.Popen, port: int, log_path: Path, timeout: float = 10) -> None:
+def wait_for_chrome(proc: subprocess.Popen, port: int, log_path: Path, timeout: float = 30) -> None:
     """Fail fast when Chrome exits or never exposes its discovery endpoint."""
-    from urllib.request import urlopen
+    from urllib.request import ProxyHandler, build_opener
 
     deadline = time.monotonic() + timeout
     last_error = "discovery endpoint unavailable"
+    direct_opener = build_opener(ProxyHandler({}))
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             details = log_path.read_text(encoding="utf-8", errors="replace")[-2000:]
             raise RuntimeError(f"Chrome exited with {proc.returncode} before readiness:\n{details}")
         try:
-            with urlopen(f"http://127.0.0.1:{port}/json/version", timeout=0.5) as response:
+            with direct_opener.open(
+                f"http://127.0.0.1:{port}/json/version", timeout=1.0
+            ) as response:
                 if response.status == 200:
                     return
                 last_error = f"HTTP {response.status}"

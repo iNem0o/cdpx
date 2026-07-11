@@ -1,5 +1,15 @@
 version: 2
 updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "build"
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

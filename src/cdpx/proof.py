@@ -38,6 +38,7 @@ SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
 SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
 
 GENERATED_PREFIXES = (".proof/", ".idea/")
+PRIVATE_WORKTREE_PREFIXES = ("AGENTS.md", "article/", "presentation/")
 VALIDATION_DOC = Path("docs/VALIDATION.md")
 
 
@@ -321,6 +322,17 @@ def collect_git_context() -> dict:
         ["git", "diff", "--stat", "--", ".", ":(exclude).proof/*", ":(exclude).idea/*"]
     )
 
+    safe_status_lines = []
+    for line in status.splitlines():
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        if path == "AGENTS.md" or path.startswith(PRIVATE_WORKTREE_PREFIXES[1:]):
+            continue
+        safe_status_lines.append(line)
+    status = "\n".join(safe_status_lines)
+    if status:
+        status += "\n"
     GIT_STATUS.write_text(status, encoding="utf-8")
     GIT_DIFF_STAT.write_text(stat, encoding="utf-8")
 
@@ -870,9 +882,24 @@ def parse_junit(path: Path) -> dict:
             "skipped": 0,
             "time_s": 0.0,
             "cases": [],
+            "parse_error": None,
         }
 
-    root = ET.fromstring(path.read_text(encoding="utf-8"))
+    try:
+        root = ET.fromstring(path.read_text(encoding="utf-8"))
+    except (ET.ParseError, OSError) as exc:
+        return {
+            "path": str(path),
+            "exists": True,
+            "tests": 0,
+            "passed": 0,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "time_s": 0.0,
+            "cases": [],
+            "parse_error": str(exc),
+        }
     suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
     tests = sum(_int_attr(suite, "tests") for suite in suites)
     failures = sum(_int_attr(suite, "failures") for suite in suites)
@@ -916,6 +943,7 @@ def parse_junit(path: Path) -> dict:
         "skipped": skipped,
         "time_s": round(time_s, 3),
         "cases": cases,
+        "parse_error": None,
     }
 
 
@@ -962,6 +990,7 @@ def _suite_for_summary(suite: dict) -> dict:
         "errors": suite.get("errors", 0),
         "skipped": suite.get("skipped", 0),
         "time_s": suite.get("time_s", 0.0),
+        "parse_error": suite.get("parse_error"),
         # cases + focus embarqués: la vue Run du rapport montre chaque test et
         # les échecs/plus lents sans rouvrir les XML JUnit.
         "cases": cases,
@@ -980,6 +1009,7 @@ def _empty_suite(path: Path) -> dict:
         "skipped": 0,
         "time_s": 0.0,
         "cases": [],
+        "parse_error": None,
     }
 
 
@@ -1580,6 +1610,27 @@ def build_summary(
         for command in commands
         if command.exit_code != 0
     ]
+    suite_by_command = {"unit": unit, "e2e": e2e, "symfony-e2e": symfony}
+    command_ids = {command.id for command in commands}
+    suite_failures = []
+    for command_id, suite in suite_by_command.items():
+        if command_id not in command_ids:
+            continue
+        if not suite.get("exists", True):
+            suite_failures.append(f"required JUnit missing: {suite.get('path', command_id)}")
+        elif suite.get("parse_error"):
+            suite_failures.append(
+                f"required JUnit unreadable: {suite.get('path', command_id)} "
+                f"({suite['parse_error']})"
+            )
+        elif suite.get("tests", 0) == 0:
+            suite_failures.append(f"required JUnit empty: {suite.get('path', command_id)}")
+        if command_id in {"e2e", "symfony-e2e"} and suite.get("skipped", 0):
+            suite_failures.append(f"{command_id} tests skipped ({suite['skipped']})")
+    if "cli-help" in command_ids and project["cli_command_count"] != 30:
+        suite_failures.append(
+            f"CLI contract expected 30 commands, found {project['cli_command_count']}"
+        )
     unavailable = sum(
         1
         for suite in scenario_evidence.get("suites", {}).values()
@@ -1597,6 +1648,7 @@ def build_summary(
         and not scenario_failures
         and not feature_inventory_failures
         and not symfony_failures
+        and not suite_failures
     )
     summary = {
         "ok": ok,
@@ -1642,7 +1694,8 @@ def build_summary(
         "proof_failures": scenario_failures
         + feature_inventory_failures
         + command_failures
-        + symfony_failures,
+        + symfony_failures
+        + suite_failures,
         "risks": risk_packet["risks"],
         "unknowns": risk_packet["unknowns"],
     }

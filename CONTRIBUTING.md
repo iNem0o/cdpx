@@ -64,12 +64,29 @@ make release              # portail complet et artefacts distribuables
 
 ## Pull requests
 
-Une pull request doit expliquer le problème, la solution et la validation
+Travaillez sur une branche courte, poussez-la, puis ouvrez une pull request
+centrée. Elle doit expliquer le problème, la solution et la validation
 effectuée. Indiquez explicitement les contrôles non exécutés et pourquoi. Les
 changements de contrat nécessitent des tests et une note documentaire dans la
 même pull request.
+
+GitHub exécute le portail complet sur **toutes** les PR, sans exception pour la
+documentation ou les workflows. Le check agrégateur stable
+`PR Gate / Required` ne réussit que si les compatibilités Python et
+`make release` ont réussi. Le job complet affiche un résumé natif du cockpit et
+publie pendant 30 jours un artefact contenant les preuves disponibles. Consultez
+[la documentation de validation](docs/VALIDATION.md#preuve-dans-github-actions)
+pour lire l'artefact ou reproduire un échec.
+
+La review et la résolution des conversations viennent après la preuve. Un
+mainteneur ne merge que lorsque le check obligatoire est vert et que les
+discussions sont résolues. Les checkboxes du template sont un aide-mémoire,
+jamais un substitut à la preuve exécutée.
 
 Les mainteneurs peuvent demander de séparer une proposition trop large. En
 soumettant une contribution, vous confirmez avoir le droit de la proposer et
 acceptez qu'elle soit distribuée sous la licence MIT du dépôt. Aucun CLA ou
 DCO supplémentaire n'est imposé.
+
+Les réglages de gouvernance non versionnables et la procédure exceptionnelle
+d'incident sont décrits dans [docs/GITHUB.md](docs/GITHUB.md).

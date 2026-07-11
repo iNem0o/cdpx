@@ -15,4 +15,7 @@ dist
 build
 src/*.egg-info
 .proof
+.ci-artifacts
 AGENTS.md
+article/
+presentation/

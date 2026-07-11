@@ -26,6 +26,15 @@ def test_version(mock):
     assert v["Protocol-Version"] == "1.3"
 
 
+def test_loopback_discovery_ignores_environment_proxy(mock, monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+
+    assert discovery.version("127.0.0.1", mock.http_port)["Protocol-Version"] == "1.3"
+
+
 def test_new_activate_close_tab(mock):
     tab = discovery.new_tab("127.0.0.1", mock.http_port, "http://example.test/x")
     assert tab["url"] == "http://example.test/x"

@@ -36,6 +36,17 @@ def test_parse_junit_extracts_counts_and_cases(tmp_path):
     assert parsed["cases"][1]["message"] == "assertion failed"
 
 
+def test_parse_junit_reports_malformed_xml(tmp_path):
+    junit = tmp_path / "junit.xml"
+    junit.write_text("<testsuite>", encoding="utf-8")
+
+    parsed = proof.parse_junit(junit)
+
+    assert parsed["exists"] is True
+    assert parsed["tests"] == 0
+    assert parsed["parse_error"]
+
+
 def test_parse_help_commands_uses_captured_argparse_help():
     help_text = build_parser().format_help()
 
@@ -343,6 +354,39 @@ def test_symfony_skips_are_release_blocking():
 
     assert summary["ok"] is False
     assert any("symfony tests skipped" in failure for failure in summary["proof_failures"])
+
+
+def test_chrome_skips_and_missing_junit_are_release_blocking():
+    e2e_command = proof.CommandEvidence(
+        id="e2e",
+        label="Chrome E2E",
+        argv=["pytest"],
+        log=".proof/e2e.log",
+        exit_code=0,
+        duration_s=0.1,
+        status="ok",
+    )
+    skipped = _minimal_suite(".proof/e2e-junit.xml", tests=2) | {
+        "passed": 1,
+        "skipped": 1,
+    }
+    skipped_summary = proof.build_summary(
+        [e2e_command],
+        _minimal_suite(".proof/unit-junit.xml"),
+        skipped,
+        scenario_evidence=empty_scenario_evidence(),
+    )
+    missing_summary = proof.build_summary(
+        [e2e_command],
+        _minimal_suite(".proof/unit-junit.xml"),
+        proof._empty_suite(proof.Path(".proof/e2e-junit.xml")),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+
+    assert skipped_summary["ok"] is False
+    assert "e2e tests skipped (1)" in skipped_summary["proof_failures"]
+    assert missing_summary["ok"] is False
+    assert any("required JUnit missing" in item for item in missing_summary["proof_failures"])
 
 
 def test_build_summary_fails_when_e2e_screenshot_missing():

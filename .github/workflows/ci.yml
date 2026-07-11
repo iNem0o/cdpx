@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -45,6 +45,8 @@ jobs:
     name: Full release gate
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      PROOF_ARTIFACT_NAME: pr-proof-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -57,21 +59,47 @@ jobs:
       - name: Install development dependencies
         run: make setup
       - name: Run Docker, Chrome, Symfony, proof, and distribution gates
-        run: make release
-      - name: Upload proof cockpit
-        if: ${{ !cancelled() && hashFiles('.proof/**') != '' }}
+        id: release
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p .ci-artifacts
+          make release 2>&1 | tee .ci-artifacts/make-release.log
+      - name: Build the native GitHub summary
+        if: ${{ always() }}
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+        run: >-
+          python scripts/github_summary.py
+          --artifact-name "${PROOF_ARTIFACT_NAME}"
+          --release-outcome "${RELEASE_OUTCOME}"
+          | tee -a "${GITHUB_STEP_SUMMARY}"
+      - name: Upload proof cockpit and diagnostics
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-proof-${{ github.sha }}
-          path: .proof/
+          name: ${{ env.PROOF_ARTIFACT_NAME }}
+          path: |
+            .proof/
+            .ci-artifacts/
+            dist/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
-      - name: Upload verified distributions
-        if: ${{ success() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-package-distributions-${{ github.sha }}
-          path: dist/
-          if-no-files-found: error
-          retention-days: 30
+
+  required:
+    name: PR Gate / Required
+    if: ${{ always() }}
+    needs:
+      - python-compat
+      - release-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job
+        env:
+          PYTHON_COMPAT_RESULT: ${{ needs.python-compat.result }}
+          RELEASE_GATE_RESULT: ${{ needs.release-gate.result }}
+        run: |
+          test "${PYTHON_COMPAT_RESULT}" = "success"
+          test "${RELEASE_GATE_RESULT}" = "success"

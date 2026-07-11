@@ -57,6 +57,52 @@ Les workflows GitHub Actions appellent ces cibles Make plutôt que de réécrire
 leur logique. Un résultat de runner GitHub reste requis avant tag, même lorsque
 les mêmes commandes ont réussi localement.
 
+## Preuve dans GitHub Actions
+
+Le workflow `CI` s'exécute sur toute pull request, sans filtre de chemins. Il
+comprend les compatibilités Python 3.11/3.12 et un portail complet qui appelle
+`make release`. Ce dernier couvre successivement lint, format, mypy, unitaires,
+Docker, Chrome réel, Symfony réel, cockpit, wheel/sdist, `twine check --strict`,
+contenu des archives, installation isolée du wheel et comptage des 30 commandes.
+
+Le check stable **`PR Gate / Required`** dépend de tous ces jobs. Il échoue si
+l'un d'eux échoue, est annulé ou est skippé. C'est le seul nom destiné à la
+protection de `master`; une évolution de matrice ne change donc pas la règle.
+Les checkboxes de PR ne remplacent jamais ce résultat exécuté.
+
+Le job **Full release gate** publie dans son onglet *Summary* un tableau dérivé
+de `.proof/validation-summary.json`, de l'issue réelle de `make release` et des
+archives réellement présentes. Il affiche verdict, SHA, version, tests
+passed/failed/skipped/unavailable, Chrome, Symfony, commandes CLI, catalogue,
+packaging et nom de l'artefact. Aucun nombre n'est codé en dur, hors le contrat
+public attendu de 30 commandes.
+
+L'artefact `pr-proof-<run-id>-<attempt>` est conservé 30 jours et publié avec
+`if: always()`. Selon le point d'échec, il contient tout ou partie de :
+
+- `proof-report.html` et `validation-summary.json` ;
+- les JUnit unitaires, Chrome et Symfony ;
+- les logs Ruff, mypy, pytest, Docker/Chrome/Symfony et le log complet du portail ;
+- les scénarios, screenshots et preuves sous `.proof/evidence/` ;
+- le résumé GitHub, le manifeste packaging avec SHA-256, le wheel et le sdist.
+
+Depuis le run GitHub, téléchargez l'artefact dans la section *Artifacts*. En
+CLI : `gh run download <RUN_ID> -n pr-proof-<RUN_ID>-<ATTEMPT>`. Commencez par
+`validation-summary.json`, ouvrez ensuite `proof-report.html`, puis le JUnit ou
+le log de la couche rouge. Lors d'un échec avant `make proof`, le rapport peut
+être absent mais `.ci-artifacts/make-release.log` et le résumé de repli restent
+disponibles ; aucune suite lourde n'est relancée seulement pour fabriquer un
+artefact.
+
+Reproduisez d'abord avec la cible indiquée (`make check-local`, `make
+docker-e2e`, `make docker-symfony-e2e`, `make proof` ou `make dist`), puis avec
+`make release`. Après correction, un mainteneur peut relancer les jobs échoués
+depuis *Re-run jobs* ou avec `gh run rerun <RUN_ID> --failed`. Un rerun produit
+un nouvel artefact suffixé par son numéro d'attempt.
+
+Les règles GitHub, leur vérification et le diagnostic d'un blocage de merge
+sont centralisés dans [GITHUB.md](GITHUB.md).
+
 ## Matrice
 
 | Milestone | Preuve |

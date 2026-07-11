@@ -15,6 +15,7 @@ venv/
 !.env.example
 .idea/
 .proof/
+.ci-artifacts/
 *.png
 *.pdf
 !tests/fixtures/pixel.png

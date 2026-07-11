@@ -23,6 +23,7 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -37,6 +38,8 @@ jobs:
           [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           PACKAGE_VERSION="$(python -c 'from cdpx import __version__; print(__version__)')"
           test "v${PACKAGE_VERSION}" = "${GITHUB_REF_NAME}"
+      - name: Verify tagged commit belongs to master
+        run: git merge-base --is-ancestor "${GITHUB_SHA}" origin/master
       - name: Run the complete release gate
         run: make release
       - name: Upload verified distributions
