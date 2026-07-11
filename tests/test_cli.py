@@ -6,6 +6,7 @@ import pathlib
 
 import pytest
 
+from cdpx import __version__
 from cdpx.cli import main
 
 
@@ -550,4 +551,4 @@ def test_cdpx_version(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert capsys.readouterr().out.startswith("cdpx 0.1.0")
+    assert capsys.readouterr().out == f"cdpx {__version__}\n"

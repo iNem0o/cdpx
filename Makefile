@@ -1,12 +1,13 @@
 # cdpx — harness Makefile
 # `make check` est LE portail qualité: rien ne se merge s'il ne passe pas.
-# Convention: cibles idempotentes, sorties parlantes, zéro dépendance réseau
-# externe pour check/test (tout tourne sur loopback).
+# Convention: cibles idempotentes, sorties parlantes. Les tests unitaires sont
+# strictement loopback; setup, images Docker et smoke packaging peuvent
+# télécharger leurs dépendances explicites.
 
 PY ?= python3
 COV_MIN ?= 85
 
-.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist
+.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist smoke-dist
 
 help: ## liste des cibles
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -71,10 +72,23 @@ mock: ## lancer un faux Chrome scriptable (debug du CLI sans navigateur)
 	$(PY) -m cdpx.testing.mock_cdp
 
 clean: ## nettoyer artefacts
-	rm -rf .pytest_cache .ruff_cache dist build src/*.egg-info
-	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+	rm -rf .pytest_cache .ruff_cache .mypy_cache .proof dist build src/*.egg-info
+	find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
 dist: check-local ## wheel + sdist vérifiés (le portail release impose check complet)
 	rm -rf dist
 	$(PY) -m build
-	$(PY) -m twine check dist/*
+	$(PY) -m twine check --strict dist/*
+	PYTHONPATH=src $(PY) scripts/verify_dist.py
+	$(MAKE) smoke-dist
+
+smoke-dist: ## installer le wheel en environnement propre et vérifier métadonnées + CLI
+	@set -eu; \
+	venv=$$(mktemp -d); \
+	cleanup() { rm -rf "$$venv"; }; \
+	trap cleanup EXIT INT TERM; \
+	$(PY) -m venv "$$venv"; \
+	"$$venv/bin/python" -m pip install --disable-pip-version-check --quiet dist/*.whl; \
+	"$$venv/bin/cdpx" --version; \
+	"$$venv/bin/cdpx" --help >/dev/null; \
+	"$$venv/bin/python" -c 'from importlib.metadata import metadata; from cdpx.cli import build_parser; from cdpx.proof import parse_help_commands; m = metadata("cdpx"); assert m["License-Expression"] == "MIT"; assert m["License-File"] == "LICENSE"; assert len(parse_help_commands(build_parser().format_help())) == 30'

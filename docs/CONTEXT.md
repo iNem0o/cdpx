@@ -2,12 +2,12 @@
 
 ## L'existant (point de départ)
 
-Léo a développé des outils CLI exploitant le Chrome Debug Protocol pour donner
-à son agent la capacité de **voir et naviguer** dans un Chrome partagé
-humain/agent, dans le contexte du dev d'applications Symfony et de sites
-e-commerce (Shopware/PrestaShop) et d'opérations SEO.
+Un premier outillage CLI exploitant le Chrome DevTools Protocol a donné à un
+agent la capacité de **voir et naviguer** dans un Chrome de développement,
+dans le contexte d'applications Symfony, de sites e-commerce
+(Shopware/PrestaShop) et d'opérations SEO.
 
-Capacités déjà en place côté Léo:
+Capacités du prototype initial:
 - voir la page,
 - naviguer,
 - gérer les onglets,
@@ -41,7 +41,7 @@ Le câblage existant (voir/naviguer/onglets/JS brut) donne à l'agent des
 - **interaction "trusted"** (`click`/`type` via Input domain, pas `el.click()`
   JS): reproduire ce qu'un utilisateur réel produit, y compris pour les
   frameworks qui filtrent `isTrusted`.
-- **audit SEO du DOM rendu** (`seo`): pour iamoni et les audits clients, ce
+- **audit SEO du DOM rendu** (`seo`): pour les audits e-commerce et SEO, ce
   qui compte est le DOM final vu par le rendering de Googlebot, pas le HTML
   servi. Une primitive = un contrat SEO extrait en un appel (title, metas,
   canonical, hreflang, JSON-LD, h1, alt, liens).
@@ -66,9 +66,9 @@ s'attachent pas au Chrome personnel déjà ouvert.
 
 | Décision | Raison |
 |---|---|
-| Python 3.11+, stdlib + `websockets` seul | zéro framework, lisible, installable partout; l'outillage crawler de Léo est déjà en Python |
+| Python 3.11+, stdlib + `websockets` seul | zéro framework, lisible, installable partout et cohérent avec l'écosystème d'outillage existant |
 | Client **sync** (`websockets.sync`) | un CLI est séquentiel; pas d'asyncio à propager dans les primitives ni les tests |
-| Connexion directe au `webSocketDebuggerUrl` du target page | même modèle que l'outillage existant de Léo; pas de sessions flatten à gérer |
+| Connexion directe au `webSocketDebuggerUrl` du target page | modèle simple du prototype initial; pas de sessions flatten à gérer |
 | Mock CDP qui **enregistre les commandes** | tester le protocole émis, pas seulement la sortie: une régression de params CDP casse un test, pas une session de dev |
 | Découverte HTTP et WS sur deux ports dans le mock | simplicité; le client suit l'URL publiée par /json, donc compat totale avec le vrai Chrome (un seul port) |
 | `/json/new` en PUT avec fallback GET | Chrome ≥ 111 exige PUT; les vieux headless acceptent GET |

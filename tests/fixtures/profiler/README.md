@@ -17,6 +17,10 @@ mixtes `<th>clé</th><td>valeur</td>` des panels request/messenger, dumps
 valeurs sont choisies distinctives et assertées à l'identique par
 `tests/test_profiler_panels.py` — ne pas les modifier sans adapter les tests.
 
+Ces structures adaptées restent soumises à la licence MIT du
+WebProfilerBundle. La notice de copyright et le texte de licence upstream sont
+conservés dans [`LICENSE.SYMFONY`](LICENSE.SYMFONY).
+
 Re-capture (si le markup du WebProfilerBundle évolue):
 
 ```

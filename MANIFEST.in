@@ -1,0 +1,45 @@
+# Metadata and public project documentation.
+include LICENSE
+include README.md
+include CHANGELOG.md
+include pyproject.toml
+include MANIFEST.in
+include CONTRIBUTING.md
+include SECURITY.md
+include CODE_OF_CONDUCT.md
+include SUPPORT.md
+
+# Reproducible development and validation entrypoints.
+include Makefile
+include Dockerfile
+include docker-compose.symfony-e2e.yml
+include .dockerignore
+include .gitignore
+include CLAUDE.md
+include HARNESS.md
+include scripts/verify_dist.py
+
+# Shipped source, documentation, deterministic tests and GitHub metadata.
+graft src
+graft docs
+graft tests
+graft .github
+
+# Private/generated workspaces and build products never belong in an sdist.
+prune .proof
+prune article
+prune presentation
+prune dist
+prune build
+prune src/cdpx.egg-info
+prune .pytest_cache
+prune .ruff_cache
+prune .mypy_cache
+prune .venv
+prune htmlcov
+exclude .coverage
+exclude .gitlab-ci.yml
+exclude AGENTS.md
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store

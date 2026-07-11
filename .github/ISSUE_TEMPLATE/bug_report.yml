@@ -1,0 +1,65 @@
+name: Signaler un bug
+description: Signaler un comportement reproductible de cdpx.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de fournir un cas minimal reproductible sans secret, cookie ou donnée de session.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Comportement observé
+      description: Décrivez ce qui s'est passé et le résultat obtenu.
+      placeholder: cdpx retourne…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+      description: Décrivez le résultat attendu.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction minimale
+      description: Commandes, fixture locale et étapes nécessaires. Masquez toute valeur sensible.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version de cdpx
+      description: Sortie de `cdpx --version`.
+      placeholder: cdpx 0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Navigateur
+      options:
+        - Chromium
+        - Google Chrome
+        - Non applicable
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environnement
+      description: Système, version Python, version du navigateur et mode Docker éventuel.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Vérifications
+      options:
+        - label: J'ai retiré les secrets, cookies et données de session de ce rapport.
+          required: true
+        - label: J'ai vérifié qu'aucune issue ouverte ne décrit déjà ce problème.
+          required: true

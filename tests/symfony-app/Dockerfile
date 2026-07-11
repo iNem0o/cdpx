@@ -1,4 +1,4 @@
-FROM composer:2
+FROM composer:2@sha256:5946476338742b200bb9ff88f8be56275ddae4b3949c72305cb0dbf10cfcb760
 
 WORKDIR /app
 COPY composer.json composer.lock ./

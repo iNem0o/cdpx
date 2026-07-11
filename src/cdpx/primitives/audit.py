@@ -1,6 +1,6 @@
 """Primitives d'audit: SEO on-page et métriques de performance.
 
-Usecase direct (iamoni / audits type Jules.com): extraire en un appel le
+Usecase direct (audits e-commerce et SEO): extraire en un appel le
 contrat SEO d'une page TELLE QUE RENDUE par le navigateur — pas telle que
 servie en HTML brut. C'est toute la différence sur les fronts JS: canonical
 injecté, JSON-LD posé par GTM, hreflang réécrits... seul le DOM final fait foi

@@ -1,8 +1,8 @@
 # M4 — Mesure SEO/perf avancée
 
 ## Pourquoi
-Convergence avec iamoni: passer de "extraire le contrat SEO" (M0, fait) à
-"mesurer l'expérience réelle" — CWV, sémantique, poids mort.
+Passer de « extraire le contrat SEO » (M0, fait) à « mesurer l'expérience
+réelle » — CWV, sémantique et poids mort.
 
 ## Primitives
 ### cdpx vitals

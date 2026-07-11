@@ -1,4 +1,5 @@
 __pycache__/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
@@ -7,10 +8,13 @@ __pycache__/
 htmlcov/
 dist/
 build/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
 .idea/
+.proof/
 *.png
 *.pdf
-# les preuves versionnées du cockpit (.proof/) échappent aux ignores globaux
 !tests/fixtures/pixel.png
-!.proof/**/*.png
-!.proof/**/*.pdf

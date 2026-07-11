@@ -1,19 +1,38 @@
-# M6 — Distribution
+# M6 — Distribution technique
 
 ## Pourquoi
-Rendre cdpx installable en 1 geste sur les postes inem0o et dans les CI.
 
-## Contenu
-- pipx install (déjà packagé pyproject; vérifier metadata, ajouter version
-  --version au CLI).
-- Image Docker: chromium headless + cdpx + fixtures, entrypoint `make test-e2e`
-  -> job GitLab CI réutilisable (nightly e2e des projets qui embarquent cdpx).
-- docker-compose.e2e.yml de référence pour les projets Symfony/Shopware:
-  service app + service chrome (port 9222 interne) + job cdpx.
-- Snippet CLAUDE.md "outillage navigateur" à copier dans les projets clients:
-  quelles commandes, quels garde-fous (profil jetable, allowlist M5).
+Rendre cdpx installable, vérifiable et reproductible indépendamment du poste de
+développement et de la plateforme CI.
+
+## Contenu livré
+
+- version unique exposée par `cdpx --version` ;
+- wheel et sdist construits par `python -m build` et contrôlés par Twine ;
+- image `cdpx-ci` contenant Chromium et l'outillage de validation ;
+- application Symfony témoin orchestrée par Docker Compose ;
+- `make proof` pour les JUnit, logs, scénarios et screenshots ;
+- snippet navigateur réutilisable dans `docs/CLAUDE-browser-snippet.md`.
+
+L'hébergement et la publication publique sont traités par M7. GitHub Actions
+appelle les mêmes cibles Make : la CI ne redéfinit pas le portail de qualité.
+
+## Validation
+
+```bash
+make docker-check
+make docker-e2e
+make docker-symfony-e2e
+make release
+```
+
+Docker, Chrome et Symfony sont obligatoires pour la release. Le wheel doit
+également être installé dans un environnement propre avant publication.
 
 ## Definition of Done
-- [ ] `pipx install .` fonctionnel
-- [ ] image Docker construite en CI, e2e vert dedans
-- [ ] snippet CLAUDE.md validé sur un projet pilote inem0o
+
+- [x] paquet versionné, wheel et sdist vérifiés ;
+- [x] image Docker et Chrome réel verts ;
+- [x] suite Symfony distincte et bloquante ;
+- [x] preuve consolidée disponible comme artefact ;
+- [ ] première exécution verte sur le runner GitHub public — suivi en M7.

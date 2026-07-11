@@ -9,17 +9,21 @@ existe). Le modèle agit, mais le harness tranche.
 cdpx = primitives Chrome DevTools Protocol exposées en CLI, pour qu'un agent
 (ou le dev qui le pilote) puisse **voir, agir et mesurer** dans un Chrome de
 dev pendant la construction d'apps Symfony / e-commerce, et pendant les audits
-SEO. Voir `docs/PRIMITIVES.md` pour le catalogue implémenté/planifié.
+SEO. Voir `docs/PRIMITIVES.md` pour le catalogue implémenté.
 
 ## Commandes de travail
 
 ```
-make setup      # installer (editable + pytest + ruff)
-make check      # PORTAIL: lint + format + mypy + tests unitaires — DOIT passer
-make test       # tests unitaires seuls (mock CDP + fixtures, loopback only)
-make test-e2e   # e2e Chrome réel (M1) — se skippe si Chrome absent
-make fixtures   # site témoin sur :8899
-make mock       # faux Chrome scriptable, pour piloter cdpx sans navigateur
+make setup               # installation editable + outils de développement
+make check-local         # boucle courte: lint + format + mypy + unitaires
+make check               # PORTAIL: local + Docker + Chrome + Symfony
+make test                # unitaires déterministes, loopback uniquement
+make test-e2e            # Chrome réel local — son absence est une erreur
+make docker-symfony-e2e  # scénarios contre une vraie app Symfony Docker
+make proof               # rapport de preuve généré dans .proof/
+make release             # check + proof + wheel/sdist vérifiés
+make fixtures            # site témoin sur :8899
+make mock                # faux Chrome scriptable, sans navigateur
 ```
 
 Essai rapide sans Chrome:
@@ -35,7 +39,8 @@ cdpx --port <PORT> goto http://demo.test/
 1. **`make check` vert avant toute fin de session.** Pas d'exception.
 2. **Tests unitaires = déterministes.** Loopback uniquement, aucun réseau
    externe, aucun sleep non borné, aucun Chrome requis. Ce qui exige un vrai
-   navigateur va dans `tests/e2e/` (skip propre si absent).
+   navigateur va dans `tests/e2e/`; l'indisponibilité de Chrome est bloquante
+   pour les portails runtime et la release.
 3. **Contrat CLI stable**: stdout = un objet JSON, stderr = diagnostics,
    exit 0/1/2. Tout changement de contrat = changement de tests + note dans
    `docs/PRIMITIVES.md`.
@@ -59,7 +64,7 @@ src/cdpx/cli.py           argparse -> primitives -> JSON
 src/cdpx/testing/         mock CDP + serveur de fixtures (livrés avec le paquet)
 tests/                    unitaires (mock) — c'est ici que se joue le check
 tests/fixtures/           site témoin statique déterministe
-tests/e2e/                squelette Chrome réel (M1, non validé — voir ROADMAP)
+tests/e2e/                Chrome réel + application Symfony, portails bloquants
 docs/                     CONTEXT, PRIMITIVES, ROADMAP, TODO, milestones/
 ```
 
@@ -68,7 +73,7 @@ docs/                     CONTEXT, PRIMITIVES, ROADMAP, TODO, milestones/
 1. Lire `docs/TODO.md`, choisir un item, annoncer l'intention.
 2. Écrire/adapter le test mock d'abord (le protocole attendu EST la spec).
 3. Implémenter la primitive + la sous-commande.
-4. `make check`. Itérer jusqu'au vert.
+4. `make check-local` pendant la boucle, puis `make check`. Itérer jusqu'au vert.
 5. Mettre à jour `docs/PRIMITIVES.md` + cocher `docs/TODO.md`.
 6. Commit atomique, message impératif, corps expliquant le pourquoi.
 
@@ -80,3 +85,4 @@ docs/                     CONTEXT, PRIMITIVES, ROADMAP, TODO, milestones/
 - [ ] fixture HTML ajoutée si scénario e2e pertinent (+ marqueurs testés dans
       `test_fixture_server.py`)
 - [ ] aucun secret/valeur de session dans les sorties par défaut
+- [ ] contribution conforme à `CONTRIBUTING.md` et `CODE_OF_CONDUCT.md`

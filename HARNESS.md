@@ -33,7 +33,9 @@ observable et réversible**.
 
 ## 3. Qualité et déterminisme
 
-- Portail unique: `make check` (lint ruff + format + tests unitaires).
+- Boucle courte: `make check-local` (lint Ruff + format + mypy + tests
+  unitaires). Portail obligatoire: `make check`, qui ajoute la reproduction
+  Docker, Chrome réel et Symfony réel.
 - Tests unitaires: 100% déterministes. Deux serveurs loopback lancés par les
   tests eux-mêmes (mock CDP + fixtures), ports éphémères, aucune dépendance à
   l'ordre d'exécution, aucun réseau externe, aucun navigateur.
@@ -41,7 +43,8 @@ observable et réversible**.
   sortie JSON *et* la séquence exacte de commandes CDP. C'est ce qui rend une
   régression de protocole impossible à rater.
 - e2e Chrome réel: séparé (`make test-e2e`), réutilise les mêmes fixtures,
-  et échoue si aucun binaire Chrome/Chromium n'est disponible. Voir
+  et échoue si aucun binaire Chrome/Chromium n'est disponible. La suite
+  Symfony Dockerisée est également bloquante dans `make check`. Voir
   `docs/milestones/M1-e2e-chrome.md`.
 
 ## 4. Supervision et pilotage humain
@@ -60,7 +63,8 @@ observable et réversible**.
 - Preuve de handoff: `make proof` écrit un rapport humain
   `.proof/proof-report.html`, `.proof/validation-summary.json`, les logs
   pytest/lint, les JUnit XML, l'aide CLI capturée et les preuves de scénarios
-  `.proof/evidence/` dont les screenshots e2e Chrome.
+  `.proof/evidence/` dont les screenshots e2e Chrome. `.proof/` est un produit
+  de build local ou un artefact CI, pas une source à éditer ou versionner.
 
 ## 5. Reprise humaine
 
@@ -68,8 +72,8 @@ observable et réversible**.
   `docs/TODO.md` + `docs/ROADMAP.md`, le "comment" dans le code testé.
 - Chaque module de primitives ouvre sur un docstring usecase: le code se lit
   comme la doc.
-- Ce qui n'a PAS été validé en runtime est marqué comme tel (tests/e2e/,
-  milestones M1+). Aucun code non validé ne se présente comme fini.
+- Ce qui n'a PAS été validé en runtime est marqué comme tel dans la fiche de
+  feature ou la roadmap. Aucun code non validé ne se présente comme fini.
 
 ## 6. Évolutions du harness lui-même
 

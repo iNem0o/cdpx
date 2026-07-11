@@ -1,38 +1,50 @@
-# M1 — e2e Chrome réel
+# M1 — E2E Chrome réel
 
 ## Pourquoi
-Le mock valide le protocole émis par cdpx, pas le comportement de Blink/V8
-(rendu, timing réel des évènements, insertText dans un vrai input, screenshot
-non vide). Tant que M1 n'est pas vert, chaque primitive est "protocole prouvé,
-navigateur présumé".
 
-## Prérequis
-Un poste/CI avec chromium ou google-chrome. En CI GitLab: image
-`zenika/alpine-chrome` ou build maison (voir M6).
+Le mock valide le protocole CDP émis, pas le comportement de Blink/V8 : rendu,
+timing d'évènements, saisie trusted, téléchargement ou dimensions de capture.
+La suite réelle complète donc le mock sans le remplacer.
 
-## Contenu livré d'avance (non validé)
-`tests/e2e/test_e2e_chrome.py` — 9 scénarios couvrant: goto+title, wait sur
-`spa.html` (élément à +300ms), form click+type (`form.html` -> `#result` ==
-"OK:Léo"), console (`console.html`: log/warn/error/uncaught), réseau
-(`network.html`: 1x200, 1x500, 1x lent), seo (conforme vs cassé), cookies JS +
-localStorage (`storage.html`), screenshot PNG > 1ko, fetch --await vers
-`/api/json`.
+## État validé
 
-## Étapes
-1. `make setup && make check` (doit être vert avant de toucher au e2e).
-2. `make test-e2e` — dérouler, corriger les écarts mock/réalité.
-3. Chaque écart découvert = un ajustement DU MOCK aussi (le mock suit le réel,
-   invariant CLAUDE.md n°6) + note ici.
-4. Ajouter le job e2e en CI (nightly d'abord, puis sur MR si stable < 60s).
+`tests/e2e/test_e2e_chrome.py` exerce les familles de commandes sur les mêmes
+fixtures déterministes que les tests unitaires. Elle couvre notamment :
 
-## Points de vigilance connus
-- `--headless=new` requis (l'ancien headless a un Input domain incomplet).
-- Timing `wait`: vérifier que elapsed_ms >= 250 tient en machine chargée,
-  sinon assouplir l'assertion (déterminisme > précision).
-- `Network.clearBrowserCookies` est déprécié: si Chrome le retire, basculer
-  sur Storage.clearCookies (target browser) — test mock à mettre à jour.
+- navigation, attente SPA et cycle de vie des onglets ;
+- clic, saisie, clavier, iframe et garde d'origine ;
+- capture PNG/JPEG/PDF, console, réseau et métriques ;
+- cookies, stockage, SEO, vitals, accessibilité et couverture ;
+- interception, émulation, record/replay et scénarios déclaratifs ;
+- contrat du binaire installé : stdout, stderr et codes de sortie.
+
+Chaque test qui exige une preuve visuelle attache un screenshot au dossier du
+cas. Les comptes exacts ne sont pas figés dans cette page : les JUnit produits
+par `make proof` font foi.
+
+## Exécution
+
+```bash
+make test-e2e
+make docker-e2e
+```
+
+Le lancement local utilise un profil Chrome jetable et le port de debug sur
+loopback. L'absence de Chrome ou un skip rend le portail rouge. En CI GitHub,
+la cible Docker reproduit l'environnement navigateur.
+
+## Invariants
+
+- une divergence Chrome/mock entraîne un test et, si nécessaire, une mise à
+  jour du mock ;
+- aucun accès réseau externe depuis les fixtures ;
+- aucun sleep non borné ;
+- aucune connexion au Chrome personnel ;
+- les artefacts générés restent dans `.proof/` ou dans les artefacts CI.
 
 ## Definition of Done
-- [ ] 9/9 e2e verts en local ET en CI
-- [ ] divergences mock/réel documentées ici et corrigées dans le mock
-- [ ] durée e2e < 60s
+
+- [x] suite Chrome réelle verte localement et dans l'image Docker ;
+- [x] absence de Chrome traitée comme une erreur ;
+- [x] screenshots et JUnit rattachés au cockpit de preuve ;
+- [x] scénarios boîte noire du binaire installable.

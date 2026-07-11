@@ -1,59 +1,59 @@
-# ROADMAP.md
+# Roadmap
 
-Chaque milestone a sa fiche détaillée dans `docs/milestones/`. Règle générale:
-un milestone n'ouvre pas tant que le précédent n'a pas son `make check` (et,
-à partir de M1, son `make test-e2e`) vert.
+Chaque milestone technique possède une fiche détaillée dans
+`docs/milestones/`. Un jalon n'est déclaré terminé que lorsque ses preuves mock
+et runtime passent par les cibles Make correspondantes.
 
-## M0 — Socle validé ✅ (fait, cet environnement)
+## M0 — Socle CDP et CLI ✅
 
-- Client CDP sync + découverte /json (compat PUT/GET).
-- 15 primitives: goto, wait, eval, text, html, count, click, type, key,
-  screenshot, pdf, console, network, cookies/storage, seo, metrics, tabs.
-- CLI `cdpx` (JSON stdout, exit codes stables), binaire installé et fumé.
-- Mock CDP scriptable qui enregistre le protocole émis.
-- Serveur de fixtures + pages HTML témoins, eux-mêmes sous test.
-- Suite unitaire déterministe verte, comptage capturé par le JUnit de
-  `make proof`; ruff clean, `make check-local` = sous-portail local et
-  `make check` = portail Docker/Chrome/Symfony complet.
-- Harness: CLAUDE.md, HARNESS.md, docs, Makefile.
+Client CDP synchrone, découverte `/json`, contrat CLI JSON/exit 0-1-2, mock
+scriptable, serveur de fixtures et premières primitives déterministes.
 
-## M1 — e2e Chrome réel ✅
+## M1 — Chrome réel ✅
 
-Objectif validé: primitives M0-M5 prouvées contre un vrai Blink/V8, avec les
-MÊMES fixtures. `tests/e2e/test_e2e_chrome.py` couvre la suite Chrome réelle,
-dont full-page screenshot, interception Fetch, vitals interaction,
-SEO edge, allowlist CLI, a11y/frame/coverage.
-Fiche: `milestones/M1-e2e-chrome.md`.
+Les primitives sont exercées contre Blink/V8 avec un profil jetable et les
+mêmes fixtures que les tests unitaires. Chrome absent est un échec du portail,
+pas un succès dégradé. Voir [M1](milestones/M1-e2e-chrome.md).
 
-## M2 — Boucle de dev Symfony/Shopware ✅
+## M2 — Boucle Symfony ✅
 
-Livré: `cdpx profiler` (`X-Debug-Token-Link` + fallback `X-Debug-Token`),
-`console --follow` NDJSON, `dom-diff`, fixture profiler simulée, et e2e
-Symfony réel via `docker-compose.symfony-e2e.yml`.
-Fiche: `milestones/M2-boucle-symfony.md`.
+Profiler WebProfiler, console suivie, diff DOM et scénarios contre une vraie
+application Symfony Dockerisée. Voir [M2](milestones/M2-boucle-symfony.md).
 
-## M3 — Interception & émulation ✅
+## M3 — Interception et émulation ✅
 
-Livré et validé e2e: `cdpx intercept --rule ... -- goto <url>` en commande
-composée persistante (continue/fulfill/block), et `cdpx emulate
-mobile|slow-3g|cpu-4x|--reset`.
-Fiche: `milestones/M3-interception-emulation.md`.
+Interception Fetch continue/fulfill/block et profils mobile, réseau et CPU,
+validés dans une connexion persistante. Voir
+[M3](milestones/M3-interception-emulation.md).
 
-## M4 — Mesure SEO/perf avancée ✅
+## M4 — SEO, performance et accessibilité ✅
 
-Livré: `vitals` avec interaction optionnelle, `a11y` compact, `coverage`
-JS/CSS, SEO enrichi (px estimés, doublons, JSON-LD), sorties bornées pour
-l'agent.
-Fiche: `milestones/M4-seo-perf.md`.
+Vitals, arbre d'accessibilité, couverture JS/CSS et audit SEO enrichi du DOM
+rendu. Voir [M4](milestones/M4-seo-perf.md).
 
-## M5 — Orchestration & sessions ✅
+## M5 — Orchestration et garde-fous ✅
 
-Livré: `record`/`replay` NDJSON compact avec divergence, `frame`,
-`CDPX_ORIGINS` pour mutations, `--max-actions` sur replay.
-Fiche: `milestones/M5-orchestration.md`.
+Record/replay, scénarios YAML, iframe, `CDPX_ORIGINS` et budgets d'action. Voir
+[M5](milestones/M5-orchestration.md).
 
-## M6 — Distribution ✅
+## M6 — Distribution technique ✅
 
-Livré: `cdpx --version`, image `cdpx-ci`, GitLab CI réutilisable, Compose
-Symfony e2e, snippet CLAUDE navigateur.
-Fiche: `milestones/M6-distribution.md`.
+Version du paquet, wheel/sdist, image `cdpx-ci`, Compose Symfony et cockpit de
+preuve. Ces capacités sont indépendantes de la plateforme d'hébergement. Voir
+[M6](milestones/M6-distribution.md).
+
+## M7 — Publication open source GitHub 🚧
+
+Objectif : rendre le dépôt compréhensible, testable et publiable par une
+personne extérieure.
+
+- licence MIT et métadonnées publiques cohérentes ;
+- GitHub Actions comme CI principale, avec Docker, Chrome et Symfony
+  obligatoires ;
+- contribution, sécurité, support et modèles GitHub ;
+- artefacts de preuve publiés par la CI sans être versionnés ;
+- GitHub Release sur tag et publication PyPI par Trusted Publishing ;
+- validation finale sur un runner GitHub avant le premier tag public.
+
+Le suivi opérationnel vit dans [TODO.md](TODO.md) et
+[RELEASE-PLAN.md](RELEASE-PLAN.md).

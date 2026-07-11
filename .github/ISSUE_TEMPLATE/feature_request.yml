@@ -1,0 +1,40 @@
+name: Proposer une évolution
+description: Proposer une primitive, une amélioration CLI ou un use case documenté.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Quel problème concret cette évolution résout-elle pour l'agent ou le développeur ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-contract
+    attributes:
+      label: Contrat CLI proposé
+      description: Donnez si possible la commande, l'objet JSON attendu et les codes de sortie.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: Protocole et validation
+      description: Commandes CDP attendues, scénario mock et éventuelle fixture Chrome réelle.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+      description: Décrivez les contournements ou primitives existantes déjà essayés.
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Contraintes du projet
+      options:
+        - label: Cette proposition conserve stdout JSON, stderr diagnostic et les codes 0/1/2.
+          required: true
+        - label: Le scénario peut être testé sans connexion à un Chrome personnel.
+          required: true

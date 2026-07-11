@@ -1,191 +1,216 @@
 # cdpx
 
-Primitives Chrome DevTools Protocol exposées en CLI, pour agents de dev et
-les humains qui les pilotent — contexte: apps Symfony, e-commerce
-(Shopware/PrestaShop), opérations SEO.
+cdpx expose des primitives Chrome DevTools Protocol en ligne de commande pour
+permettre à un agent de développement — ou à la personne qui le pilote — de
+voir, agir et mesurer dans un Chrome de dev. Le projet cible notamment les
+applications Symfony, les parcours e-commerce et les audits SEO du DOM rendu.
 
-Un binaire, une commande = une action navigateur, une sortie = un objet JSON.
+Une commande correspond à une action navigateur. Par défaut, stdout contient
+un objet JSON compact, stderr les diagnostics, et le processus termine avec un
+code stable.
 
-Version 0.1.0 — logiciel propriétaire inem0o (voir [Licence](#licence)).
+> **Statut : beta pré-1.0.** La surface est testée contre un mock CDP, un vrai
+> Chrome et une application Symfony Dockerisée, mais des changements de contrat
+> restent possibles avant 1.0. Ils sont annoncés dans le
+> [changelog](CHANGELOG.md).
+
+cdpx est publié sous [licence MIT](LICENSE). Le dépôt de référence est
+[github.com/inem0o/cdpx](https://github.com/inem0o/cdpx).
 
 ## Installation
 
-Prérequis: Python ≥ 3.11, Chrome ou Chromium pour agir sur un vrai navigateur
-(les tests unitaires n'en ont pas besoin).
+Prérequis : Python 3.11 ou plus récent. Chrome ou Chromium est nécessaire pour
+piloter un vrai navigateur ; les tests unitaires et le mock CDP n'en ont pas
+besoin.
 
-```
-pip install -e .            # ou: make setup (installe aussi les outils dev)
+Tant que la première publication PyPI n'a pas eu lieu, installez cdpx depuis
+les sources :
+
+```bash
+git clone https://github.com/inem0o/cdpx.git
+cd cdpx
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+cdpx --version
 ```
 
-Toujours piloter un Chrome **jetable** — jamais votre navigateur personnel
-(sessions bancaires, mails, admin prod; règle n°1 de [HARNESS.md](HARNESS.md)):
+Pour contribuer, installez plutôt les dépendances de développement avec
+`python -m pip install -e ".[dev]"` ou `make setup`. La future commande
+d'installation PyPI sera documentée seulement après publication effective du
+paquet afin de ne pas orienter les utilisateurs vers un nom non vérifié.
 
+## Démarrage rapide local
+
+Le scénario suivant reste entièrement sur loopback. Dans un premier terminal,
+lancez le site témoin déterministe :
+
+```bash
+make fixtures
 ```
+
+Dans un deuxième terminal, démarrez un Chrome avec un profil jetable. Ne
+connectez jamais cdpx à votre navigateur personnel : `eval`, les cookies et le
+stockage donnent accès à la session ouverte.
+
+```bash
+PROFILE_DIR=$(mktemp -d /tmp/cdpx-XXXXXX)
 chromium --headless=new --remote-debugging-port=9222 \
-  --user-data-dir=$(mktemp -d /tmp/cdpx-XXXX) --no-first-run &
+  --user-data-dir="$PROFILE_DIR" --no-first-run --no-default-browser-check &
+CHROME_PID=$!
 ```
 
-## Démarrage rapide
+Si votre binaire s'appelle `google-chrome` ou `chromium-browser`, remplacez
+simplement `chromium`. Vous pouvez ensuite piloter la fixture :
 
 ```bash
 cdpx tabs list
-cdpx goto http://shop.localhost/checkout
-cdpx wait "#payment-form"
-cdpx type "#email" "test@example.test" --clear
-cdpx click "#submit"
-cdpx console --duration 2
-cdpx network http://shop.localhost/checkout
-cdpx seo https://www.exemple.fr/produit-42
-cdpx screenshot -o /tmp/etat.png --format jpeg
+cdpx goto http://127.0.0.1:8899/form.html
+cdpx wait "#name"
+cdpx type "#name" "Ada" --clear
+cdpx click "#submit-btn"
+cdpx text "#result"
+cdpx screenshot -o /tmp/cdpx-form.jpg --format jpeg
 ```
 
-Sans Chrome sous la main:
+À la fin, arrêtez le processus identifié par `CHROME_PID`, puis supprimez le
+répertoire identifié par `PROFILE_DIR`. Pour découvrir le CLI sans navigateur,
+`make mock` lance un faux Chrome et affiche la commande `cdpx --port ...` exacte
+à recopier.
 
-```
-make mock            # faux Chrome scriptable, affiche son port de découverte
-cdpx --port 9222 tabs list
-```
+## Sécurité et périmètre
+
+- Le port de débogage doit rester sur loopback. N'utilisez pas
+  `--remote-debugging-address=0.0.0.0`.
+- Utilisez toujours un `--user-data-dir` jetable, sans sessions personnelles ou
+  de production.
+- `CDPX_ORIGINS` borne les mutations. Exemple :
+  `http://*.localhost,http://*.test,http://127.0.0.1:*`.
+- Les valeurs de cookies sont masquées par défaut. `--show-values` est un choix
+  explicite et sa sortie ne doit pas être partagée.
+- Les règles complètes vivent dans [HARNESS.md](HARNESS.md). Une vulnérabilité
+  doit être signalée en privé selon [SECURITY.md](SECURITY.md).
 
 ## Contrat CLI
 
-Le contrat est identique pour les 30 commandes; c'est ce qui rend chaque
-action d'agent reproductible par un humain en une ligne.
+Le contrat est identique pour les 30 commandes ; chaque action d'agent reste
+ainsi reproductible par un humain en une ligne.
 
-**Sorties.** stdout = un objet JSON compact (machine, sobre en tokens);
-`--pretty` = JSON indenté pour lecture humaine; stderr = diagnostics. Les
-sorties volumineuses sont bornées par `--limit` (défaut raisonnable, métadonnées
-`*_truncated` / `*_total`); `--full` demande le détail complet. Les flux
-(`cdpx console --follow`, journaux `record`) sont en NDJSON compact, une ligne
-JSON par évènement.
+**Sorties.** stdout = un objet JSON compact ; `--pretty` active le JSON indenté
+pour lecture humaine ; stderr = diagnostics. Les sorties volumineuses sont
+bornées par `--limit` et signalent leur troncature ; `--full` demande le détail
+complet. Les flux (`cdpx console --follow`, journaux `record`) utilisent du
+NDJSON compact, une ligne JSON par évènement.
 
-**Codes de sortie.** exit 0 = succès; exit 1 = erreur d'exécution (élément
-introuvable, timeout, erreur CDP, divergence de replay, mutation refusée);
-exit 2 = mauvaise invocation (argparse). Un agent qui boucle sur des exit 1
-doit remonter à l'humain, pas insister à l'aveugle.
+**Codes de sortie.** exit 0 = succès ; exit 1 = erreur d'exécution (élément
+introuvable, timeout, erreur CDP, divergence de replay, mutation refusée) ;
+exit 2 = mauvaise invocation. Un appelant qui reçoit plusieurs exit 1 doit
+remonter le diagnostic au pilote humain au lieu d'insister à l'aveugle.
 
-**Connexion.** `--host` (défaut `127.0.0.1`, env `CDPX_HOST`), `--port`
-(défaut `9222`, env `CDPX_PORT`), `--target ID` pour viser un onglet précis
-(défaut: première page), `--timeout` secondes (défaut 15). Chaque invocation
-ouvre et ferme sa connexion: aucun état caché côté CLI, l'état vit dans le
-navigateur.
+**Connexion.** `--host` (défaut `127.0.0.1`, variable `CDPX_HOST`), `--port`
+(défaut `9222`, variable `CDPX_PORT`), `--target ID` pour choisir un onglet,
+et `--timeout` pour borner l'attente. Chaque invocation ouvre puis ferme sa
+connexion ; l'état reste dans le navigateur.
 
-**Sécurité.** `CDPX_ORIGINS` (liste de motifs séparés par des virgules, ex.
-`http://*.localhost,http://*.test`) borne les mutations: `click`, `type`,
-`key`, `eval`, `intercept`, `replay`, et toute commande composée dont l'action
-mute la page sont refusés (exit 1) si l'origine de l'onglet n'est pas dans la
-liste; les lectures restent permises. `--max-actions` plafonne le budget d'un
-`replay`. Les valeurs de cookies sont masquées par défaut dans toutes les
-sorties.
+**Budget d'action.** `--max-actions` limite un replay. `CDPX_ORIGINS` protège
+`click`, `type`, `key`, `eval`, `intercept`, `replay` et les commandes composées
+qui mutent la page ; les lectures restent possibles.
 
-## Features
+## Fonctionnalités
 
-Le produit est découpé en 8 features. Chaque fiche est la **documentation
-utilisateur exhaustive** de ses commandes (options, exemples, sorties JSON,
-pièges) et la spec de preuve que le rapport de validation vérifie
-mécaniquement.
+Les huit fiches suivantes constituent la documentation utilisateur détaillée :
 
-| Feature | Ce que ça couvre | Commandes | Doc |
+| Fonctionnalité | Ce qu'elle couvre | Commandes | Documentation |
 |---|---|---|---|
-| Navigation et synchronisation | ouvrir, attendre l'état utile, onglets | `tabs`, `version`, `goto`, `wait` | [fiche](docs/features/browser-navigation.md) |
-| Inspection du DOM et actions utilisateur | lire le rendu, agir en évènements trusted | `eval`, `text`, `html`, `count`, `click`, `type`, `key` | [fiche](docs/features/dom-interaction.md) |
+| Navigation et synchronisation | ouvrir, attendre l'état utile, gérer les onglets | `tabs`, `version`, `goto`, `wait` | [fiche](docs/features/browser-navigation.md) |
+| DOM et actions utilisateur | lire le rendu, agir avec des évènements trusted | `eval`, `text`, `html`, `count`, `click`, `type`, `key` | [fiche](docs/features/dom-interaction.md) |
 | Capture et observabilité | pixels, PDF, console, réseau, métriques | `screenshot`, `pdf`, `console`, `network`, `metrics` | [fiche](docs/features/browser-capture-observability.md) |
-| État et session | cookies (masqués), localStorage | `cookies`, `storage` | [fiche](docs/features/state-session.md) |
-| Audits SEO, performance, accessibilité | contrat SEO du DOM rendu, vitals, AXTree, coverage | `seo`, `vitals`, `a11y`, `coverage` | [fiche](docs/features/seo-performance-accessibility.md) |
-| Diagnostics développeur | profiler Symfony, diff DOM autour d'une action | `profiler`, `dom-diff` | [fiche](docs/features/dev-profiler-diff.md) |
-| Interception, émulation, orchestration | mocker le réseau, émuler, scénariser, enregistrer/rejouer | `intercept`, `emulate`, `frame`, `record`, `replay`, `scenario` | [fiche](docs/features/orchestration-control.md) |
-| Harness et cockpit de preuve | portails qualité et rapport de validation | cibles `make`, `python -m cdpx.proof` | [fiche](docs/features/harness-proof-cockpit.md) |
+| État et session | cookies masqués, localStorage et sessionStorage | `cookies`, `storage` | [fiche](docs/features/state-session.md) |
+| SEO, performance et accessibilité | DOM rendu, vitals, arbre AX, couverture | `seo`, `vitals`, `a11y`, `coverage` | [fiche](docs/features/seo-performance-accessibility.md) |
+| Diagnostics développeur | profiler Symfony et diff DOM | `profiler`, `dom-diff` | [fiche](docs/features/dev-profiler-diff.md) |
+| Interception et orchestration | mock réseau, émulation, scénarios, replay | `intercept`, `emulate`, `frame`, `record`, `replay`, `scenario` | [fiche](docs/features/orchestration-control.md) |
+| Harness et preuve | portails qualité et rapport de validation | cibles `make`, `python -m cdpx.proof` | [fiche](docs/features/harness-proof-cockpit.md) |
 
-### Index des commandes
+### Index des 30 commandes
 
-| Commande | En une ligne | Fiche |
-|---|---|---|
-| `cdpx tabs` | lister/créer/activer/fermer les onglets | [navigation](docs/features/browser-navigation.md) |
-| `cdpx version` | identité du Chrome ciblé avant d'agir | [navigation](docs/features/browser-navigation.md) |
-| `cdpx goto` | naviguer et attendre le cycle de vie (`--wait`) | [navigation](docs/features/browser-navigation.md) |
-| `cdpx wait` | attendre qu'un sélecteur existe (SPA, contenu injecté) | [navigation](docs/features/browser-navigation.md) |
-| `cdpx eval` | exécuter du JS dans la page (`--await`) — dernier recours | [dom](docs/features/dom-interaction.md) |
-| `cdpx text` | innerText d'un élément ou du body | [dom](docs/features/dom-interaction.md) |
-| `cdpx html` | outerHTML d'un élément ou du document | [dom](docs/features/dom-interaction.md) |
-| `cdpx count` | compter les éléments matchant un sélecteur | [dom](docs/features/dom-interaction.md) |
-| `cdpx click` | clic trusted au centre de l'élément (Input domain) | [dom](docs/features/dom-interaction.md) |
-| `cdpx type` | saisir du texte après focus réel (`--clear`) | [dom](docs/features/dom-interaction.md) |
-| `cdpx key` | frappe clavier (Enter, Tab, Escape, flèches) | [dom](docs/features/dom-interaction.md) |
-| `cdpx screenshot` | capture PNG/JPEG (`--full-page`, `--format`) | [capture](docs/features/browser-capture-observability.md) |
-| `cdpx pdf` | imprimer la page en PDF | [capture](docs/features/browser-capture-observability.md) |
-| `cdpx console` | logs et exceptions JS (`--duration` ou `--follow --max`) | [capture](docs/features/browser-capture-observability.md) |
-| `cdpx network` | naviguer en capturant l'activité réseau (`--settle`) | [capture](docs/features/browser-capture-observability.md) |
-| `cdpx metrics` | Performance.getMetrics (heap, nodes, layouts) | [capture](docs/features/browser-capture-observability.md) |
-| `cdpx cookies` | get (masqué) / set / clear | [état](docs/features/state-session.md) |
-| `cdpx storage` | localStorage / sessionStorage (`--kind`) | [état](docs/features/state-session.md) |
-| `cdpx seo` | contrat SEO du DOM rendu + findings | [audits](docs/features/seo-performance-accessibility.md) |
-| `cdpx vitals` | LCP/CLS/INP, interaction optionnelle (`--click`) | [audits](docs/features/seo-performance-accessibility.md) |
-| `cdpx a11y` | arbre d'accessibilité compacté | [audits](docs/features/seo-performance-accessibility.md) |
-| `cdpx coverage` | JS/CSS mort par fichier | [audits](docs/features/seo-performance-accessibility.md) |
-| `cdpx profiler` | lire le profiler Symfony (X-Debug-Token-Link) | [diagnostics](docs/features/dev-profiler-diff.md) |
-| `cdpx dom-diff` | diff DOM stable avant/après une action | [diagnostics](docs/features/dev-profiler-diff.md) |
-| `cdpx intercept` | fulfill/block/continue les requêtes pendant un goto | [orchestration](docs/features/orchestration-control.md) |
-| `cdpx emulate` | mobile / slow-3g / cpu-4x, action composée, `--reset` | [orchestration](docs/features/orchestration-control.md) |
-| `cdpx frame` | lire du texte dans une iframe same-origin | [orchestration](docs/features/orchestration-control.md) |
-| `cdpx record` | exécuter une action et la journaliser en NDJSON | [orchestration](docs/features/orchestration-control.md) |
-| `cdpx replay` | rejouer un journal, stop à la première divergence | [orchestration](docs/features/orchestration-control.md) |
-| `cdpx scenario` | exécuter un scénario métier YAML avec verdict et preuves | [orchestration](docs/features/orchestration-control.md) |
+| Commande | Rôle |
+|---|---|
+| `cdpx tabs` | lister, créer, activer ou fermer des onglets |
+| `cdpx version` | identifier le Chrome et la version du protocole |
+| `cdpx goto` | naviguer et attendre un cycle de vie |
+| `cdpx wait` | attendre l'apparition d'un sélecteur |
+| `cdpx eval` | exécuter du JavaScript dans la page, en dernier recours |
+| `cdpx text` | lire le texte d'un élément |
+| `cdpx html` | lire le HTML rendu |
+| `cdpx count` | compter les éléments d'un sélecteur |
+| `cdpx click` | cliquer via le domaine Input |
+| `cdpx type` | saisir du texte après un focus réel |
+| `cdpx key` | envoyer une frappe clavier |
+| `cdpx screenshot` | produire une capture PNG ou JPEG |
+| `cdpx pdf` | imprimer la page en PDF |
+| `cdpx console` | collecter logs et exceptions JavaScript |
+| `cdpx network` | capturer l'activité réseau d'une navigation |
+| `cdpx metrics` | lire les métriques Performance de Chrome |
+| `cdpx cookies` | lire, écrire ou effacer les cookies |
+| `cdpx storage` | inspecter localStorage ou sessionStorage |
+| `cdpx seo` | extraire le contrat SEO du DOM rendu |
+| `cdpx vitals` | mesurer LCP, CLS et signaux d'interaction |
+| `cdpx a11y` | compacter l'arbre d'accessibilité |
+| `cdpx coverage` | mesurer la couverture JavaScript et CSS |
+| `cdpx profiler` | lire les panels du profiler Symfony |
+| `cdpx dom-diff` | comparer le DOM avant et après une action |
+| `cdpx intercept` | continuer, bloquer ou remplacer des requêtes |
+| `cdpx emulate` | appliquer un profil mobile, réseau ou CPU |
+| `cdpx frame` | lire dans une iframe same-origin |
+| `cdpx record` | exécuter et journaliser une action en NDJSON |
+| `cdpx replay` | rejouer un journal et détecter les divergences |
+| `cdpx scenario` | exécuter un scénario métier YAML |
 
-`cdpx --version` affiche la version du paquet.
+`cdpx --help` expose les options courantes et `cdpx --version` la version du
+paquet. Le catalogue détaillé et les exemples vivent aussi dans
+[docs/PRIMITIVES.md](docs/PRIMITIVES.md).
 
-## Qualité et preuve
+## Développement et validation
 
+```bash
+make setup                 # installation editable avec les outils dev
+make check-local           # ruff, format, mypy, tests unitaires
+make check                 # portail complet : Docker, Chrome et Symfony
+make test-e2e              # Chrome réel local ; son absence est une erreur
+make docker-symfony-e2e    # scénarios contre l'application Symfony témoin
+make proof                 # rapport local dans .proof/
+make release               # check + proof + wheel/sdist vérifiés
 ```
-make check-local           # boucle courte: lint + mypy + tests unitaires
-make check                 # PORTAIL: local + Docker + Chrome + Symfony
-make test-e2e              # e2e Chrome réel — Chrome/Chromium obligatoire
-make docker-check          # check dans l'image portable cdpx-ci
-make docker-e2e            # e2e Chrome réel dans Docker
-make docker-symfony-e2e    # profiler contre une vraie app Symfony Docker
-make proof                 # rapport HTML humain + preuves dans .proof/
-make release               # portail final: tous les contrôles + wheel/sdist
-```
 
-Une release exige Docker/Compose, Chrome réel et la suite Symfony sans aucun
-skip. `make proof` échoue si cette preuve runtime est indisponible;
-`make check` est déjà le portail runtime complet et `make release` lui ajoute
-le cockpit de preuve et les artefacts distribuables. `make check-local` est
-une boucle de développement, pas un verdict de livraison.
+Les tests unitaires utilisent un mock CDP qui vérifie la sortie et le protocole
+émis. Les E2E réutilisent les fixtures de `tests/fixtures/`. Docker, Chrome et
+la suite Symfony sont obligatoires pour un verdict de release ; ils ne sont pas
+silencieusement skippés. Les artefacts `.proof/` sont générés localement ou
+publiés par la CI, mais ne constituent pas des sources à modifier à la main.
 
-Les tests unitaires tournent contre un **mock CDP** qui enregistre chaque
-commande émise: on valide la sortie ET le protocole. Le e2e réutilise les
-mêmes fixtures HTML (`tests/fixtures/`) servies par un serveur déterministe
-(`cdpx.testing.fixture_server`).
+Consultez [CONTRIBUTING.md](CONTRIBUTING.md) avant une pull request et
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) pour les règles de participation.
 
-**Le rapport de preuve est la documentation vivante du produit.** `make proof`
-génère `.proof/proof-report.html`, un cockpit navigable par feature:
+## Documentation
 
-- **Features** — pour chaque feature: sa documentation utilisateur complète,
-  ses parcours, ses scénarios given/when/then, les tests exécutés et leurs
-  preuves (screenshots Chrome réels compris);
-- **CLI** — la surface complète des commandes et le rattachement de chaque
-  entrypoint à sa feature (une commande non rattachée fait échouer la preuve);
-- **Validation** — la matrice milestone → preuve, les tests par module, les
-  risques assumés et leurs mitigations;
-- **Gaps** — violations et warnings du catalogue (zéro exigé pour release);
-- **Run** — chaque commande du run, les suites JUnit, les tests en échec ou
-  les plus lents, les fins de logs.
+- [HARNESS.md](HARNESS.md) — sécurité, déterminisme et supervision humaine ;
+- [docs/CONTEXT.md](docs/CONTEXT.md) — motivations et décisions techniques ;
+- [docs/PRIMITIVES.md](docs/PRIMITIVES.md) — catalogue complet ;
+- [docs/VALIDATION.md](docs/VALIDATION.md) — portails et matrice de preuve ;
+- [docs/ROADMAP.md](docs/ROADMAP.md) et [docs/TODO.md](docs/TODO.md) — trajectoire
+  et travail restant ;
+- [docs/RELEASE-PLAN.md](docs/RELEASE-PLAN.md) — préparation de publication.
 
-La cohérence doc ↔ code est **mécanique**: une commande sans doc utilisateur,
-un exemple `cdpx` invalide, une fiche non routée depuis ce README ou un
-entrypoint non rattaché cassent `make check` / `make proof`.
+## Aide, contribution et sécurité
 
-## Docs annexes
+- Questions d'usage et problèmes reproductibles : [politique de
+  support](SUPPORT.md) puis [issues GitHub](https://github.com/inem0o/cdpx/issues).
+- Corrections et évolutions : [guide de contribution](CONTRIBUTING.md).
+- Vulnérabilités : signalement privé uniquement via
+  [la politique de sécurité](SECURITY.md), jamais dans une issue publique.
 
-- [CLAUDE.md](CLAUDE.md) — ancre agent: mission, invariants, boucle de travail
-- [HARNESS.md](HARNESS.md) — sécurité, déterminisme, supervision
-- [docs/CONTEXT.md](docs/CONTEXT.md) — pourquoi ce projet existe, décisions
-- [docs/PRIMITIVES.md](docs/PRIMITIVES.md) — catalogue usecases par feature
-- [docs/VALIDATION.md](docs/VALIDATION.md) — portails et matrice de preuve
-- [docs/ROADMAP.md](docs/ROADMAP.md) + [docs/milestones/](docs/milestones/) — M0..M6
-- [docs/TODO.md](docs/TODO.md) — liste de travail
-- [docs/RELEASE-PLAN.md](docs/RELEASE-PLAN.md) — plan et suivi de la release
+Le support communautaire est fourni au mieux, sans délai de réponse garanti.
 
 ## Licence
 
-Logiciel propriétaire — © inem0o, tous droits réservés. Usage interne
-uniquement; voir [LICENSE](LICENSE).
+cdpx est distribué sous licence MIT. Voir [LICENSE](LICENSE).

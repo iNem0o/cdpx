@@ -5,8 +5,20 @@ Ce projet suit un versionnage sémantique.
 
 ## [Non publié]
 
+## [0.2.0] — 2026-07-11
+
 ### Modifié
 
+- Le projet est désormais publié sous licence MIT, avec inem0o comme
+  détenteur du copyright établi pour 2026.
+- GitHub devient la plateforme publique principale du projet à l'adresse
+  `https://github.com/inem0o/cdpx`.
+- GitHub Actions appelle les portails Make avec permissions minimales et actions
+  épinglées ; la publication PyPI est préparée par Trusted Publishing OIDC.
+- Les images Docker de validation sont épinglées par digest et suivies par
+  Dependabot. Les preuves `.proof/` deviennent des artefacts CI non versionnés.
+- Le wheel et le sdist sont inspectés avant une installation propre du wheel ;
+  la notice MIT de Symfony accompagne les fixtures WebProfiler dérivées.
 - Le portail standard `make check` exige désormais Docker, Chrome et Symfony;
   la boucle courte est explicitement `make check-local`. `make release` ajoute
   un cockpit de preuve vert sans skip Symfony et les artefacts wheel/sdist.

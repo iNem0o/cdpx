@@ -2,7 +2,8 @@
 
 Preuve reproductible des milestones cdpx. Les sorties restent compactes pour
 les agents: stdout JSON quand c'est utile, logs bruts dans `.proof/`, et les
-checks lourds explicitement séparés.
+checks lourds explicitement séparés. `.proof/` est généré localement ou publié
+comme artefact GitHub Actions; il n'est pas versionné.
 
 ## Portails
 
@@ -14,7 +15,7 @@ checks lourds explicitement séparés.
 - `make check`: portail qualité standard et bloquant: `check-local`, puis le
   même contrôle dans l'image Docker, Chrome réel dans Docker et Symfony réel.
 - `make test-e2e`: scénarios Chrome réel contre les fixtures locales.
-- `make docker-check`: `make check` dans l'image portable `cdpx-ci`.
+- `make docker-check`: `make check-local` dans l'image portable `cdpx-ci`.
 - `make docker-e2e`: Chrome réel dans l'image `cdpx-ci`.
 - `make docker-symfony-e2e`: e2e profiler contre une vraie app Symfony Docker.
 - `make proof`: collecte lint, format, tests unitaires/intégration, e2e Chrome,
@@ -25,6 +26,9 @@ checks lourds explicitement séparés.
   Docker, Chrome réel, Symfony réel sans skip, la preuve complète et les
   artefacts wheel/sdist. `check-local` seul ne constitue jamais un verdict de
   release.
+- `make dist`: construit wheel et sdist, applique `twine check --strict`,
+  contrôle les contenus requis/interdits, puis installe le wheel dans un venv
+  temporaire pour vérifier la licence, l'aide et les 30 commandes.
 
 ## Le rapport de preuve
 
@@ -48,6 +52,10 @@ pour toute preuve de release. Une preuve `unavailable` ou un test Symfony
 skippé rend le verdict rouge. Il n'existe pas de succès release dégradé sans
 Docker. `make check-local` sert seulement à raccourcir la boucle de
 développement; le portail standard `make check` reste complet.
+
+Les workflows GitHub Actions appellent ces cibles Make plutôt que de réécrire
+leur logique. Un résultat de runner GitHub reste requis avant tag, même lorsque
+les mêmes commandes ont réussi localement.
 
 ## Matrice
 

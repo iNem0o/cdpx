@@ -7,8 +7,9 @@ name = "cdpx"
 dynamic = ["version"]
 description = "CLI de primitives Chrome DevTools Protocol pour agents de dev (Symfony / e-commerce / SEO)"
 readme = "README.md"
+authors = [{ name = "inem0o" }]
 requires-python = ">=3.11"
-license = "LicenseRef-Proprietary"
+license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["chrome", "devtools", "cdp", "cli", "agent", "symfony", "seo", "e2e"]
 classifiers = [
@@ -19,9 +20,14 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Testing",
     "Topic :: Internet :: WWW/HTTP :: Browsers",
-    "Private :: Do Not Upload",
 ]
 dependencies = ["PyYAML>=6", "websockets>=12"]
+
+[project.urls]
+Homepage = "https://github.com/inem0o/cdpx"
+Repository = "https://github.com/inem0o/cdpx"
+Issues = "https://github.com/inem0o/cdpx/issues"
+Changelog = "https://github.com/inem0o/cdpx/blob/HEAD/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "ruff", "build", "twine", "mypy", "packaging>=24.2"]

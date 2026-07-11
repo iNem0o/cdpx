@@ -357,9 +357,17 @@ def classify_change(path: str) -> str:
         return "Code produit"
     if path.startswith("tests/"):
         return "Tests"
-    if path.startswith("docs/") or path in {"README.md", "HARNESS.md", "CLAUDE.md"}:
+    if path.startswith("docs/") or path in {
+        "README.md",
+        "HARNESS.md",
+        "CLAUDE.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "SUPPORT.md",
+    }:
         return "Documentation"
-    if path in {"Makefile", "pyproject.toml", "Dockerfile"} or path.startswith(".gitlab/"):
+    if path in {"Makefile", "pyproject.toml", "Dockerfile"} or path.startswith(".github/"):
         return "Harness / CI"
     return "Autre"
 
@@ -405,7 +413,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
         change_types.append("code")
     if any(path.startswith("tests/") for path in paths):
         change_types.append("tests")
-    if "Makefile" in paths or any(path.startswith(".gitlab/") for path in paths):
+    if "Makefile" in paths or any(path.startswith(".github/") for path in paths):
         change_types.append("harness")
     if any(path.startswith("docs/") or path in {"README.md", "HARNESS.md"} for path in paths):
         change_types.append("docs")
@@ -437,7 +445,7 @@ def build_review_guide(impact: dict) -> dict:
 
     watch_outs = [
         "Le verdict doit être dérivé des commandes et des JUnit, pas d'un statut statique.",
-        "Les artefacts lourds doivent rester repliables et traçables pour éviter le bruit en MR.",
+        "Les artefacts lourds doivent rester repliables et traçables pour éviter le bruit en PR.",
         "Les chemins de preuves doivent rester relatifs et ouvrables depuis le dépôt.",
         "Les preuves optionnelles absentes doivent être déclarées comme unknowns, pas simulées.",
     ]
@@ -455,17 +463,17 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
             "rollback": "Revenir à l'ancienne cible Makefile si nécessaire.",
         },
         {
-            "risk": "Rapport trop verbeux pour une MR.",
+            "risk": "Rapport trop verbeux pour une PR.",
             "mitigation": "Résumé court; logs et détails secondaires en sections repliables.",
             "rollback": "Réduire les sections dans `render_html` sans toucher à la collecte.",
         },
     ]
     unknowns = [
         {
-            "item": "Rendu GitLab exact du HTML",
-            "why": "Le rapport est un fichier HTML local, pas une description Markdown GitLab.",
+            "item": "Rendu GitHub exact du HTML",
+            "why": "Le rapport est un artefact HTML, pas une page rendue dans la PR GitHub.",
             "how_to_verify": (
-                "Ouvrir `.proof/proof-report.html`; pour GitLab, publier un résumé Markdown."
+                "Télécharger l'artefact `proof` puis ouvrir `.proof/proof-report.html`."
             ),
         },
         {
@@ -476,7 +484,7 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
         {
             "item": "Screenshot produit",
             "why": "Changement harness/rapport, pas delta UI produit.",
-            "how_to_verify": "Pour une MR UI, ajouter une capture dans `.proof/`.",
+            "how_to_verify": "Pour une PR UI, ajouter une capture dans `.proof/`.",
         },
     ]
     if git_context["generated_count"]:
@@ -485,7 +493,7 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
                 "item": "Artefacts générés versionnés",
                 "why": "Le dépôt suit déjà certains fichiers `.proof`.",
                 "how_to_verify": (
-                    "Vérifier `git status --short` et choisir entre commit ou pièce jointe MR."
+                    "Vérifier `git status --short`; `.proof/` doit rester un artefact CI ignoré."
                 ),
             }
         )
