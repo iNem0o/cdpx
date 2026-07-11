@@ -16,6 +16,19 @@ Git publique utilisée pour empêcher les doublons.
     verrouille cette reproduction.
   - Verification (commande/CI): `make docker-check` puis `make release` verts.
 
+- Session-Key: agent/github-integration-hardening@cdc4868
+  - Symptom: `make check` était vert sur GitHub, puis le Chrome relancé par
+    `make proof` annonçait DevTools mais les 32 E2E expiraient pendant la
+    découverte de `127.0.0.1`.
+  - Root cause (missing capability): la découverte HTTP loopback héritait des
+    proxys du runner et son délai de readiness de 10 secondes était trop court
+    pour diagnostiquer proprement un démarrage chargé.
+  - Fix encoded (doc/script/lint): les appels CDP loopback utilisent une
+    connexion urllib directe sans proxy, le délai reste borné à 30 secondes et
+    un test force un proxy mort sans casser la découverte mock.
+  - Verification (commande/CI): `make release` local vert, puis runs GitHub
+    `29161949162` et `29162518918` verts avec `PR Gate / Required`.
+
 ## Réponses CDP croisées pendant une interception
 
 - **Symptôme :** `Page.navigate` expirait dans Chrome Docker lorsque Fetch
