@@ -1,5 +1,6 @@
 stages:
   - test
+  - validate
   - build
 
 .python:
@@ -24,13 +25,11 @@ check:
     matrix:
       - PYVER: ["3.11", "3.12"]
   script:
-    - make check
+    - make check-local
     - make cov
   coverage: '/TOTAL.*\s(\d+%)$/'
   artifacts:
     when: always
-    reports:
-      junit: .proof/unit-junit.xml
     expire_in: 30 days
 
 typecheck:
@@ -58,6 +57,7 @@ e2e:chrome:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
 
 e2e:symfony:
   image: docker:29
@@ -66,9 +66,10 @@ e2e:symfony:
     - docker:29-dind
   variables:
     DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - apk add --no-cache make
   script:
-    - docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
-    - docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
+    - make docker-symfony-e2e
   artifacts:
     when: always
     paths:
@@ -76,11 +77,41 @@ e2e:symfony:
     expire_in: 30 days
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
+
+proof:
+  image: docker:29
+  stage: validate
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  needs: ["check", "e2e:chrome", "e2e:symfony"]
+  before_script:
+    - apk add --no-cache chromium make python3 py3-pip
+    - python3 -m pip install -e ".[dev]" --break-system-packages
+  script:
+    - make proof
+  artifacts:
+    when: always
+    paths:
+      - .proof/
+    reports:
+      junit:
+        - .proof/unit-junit.xml
+        - .proof/e2e-junit.xml
+        - .proof/symfony-e2e-junit.xml
+    expire_in: 90 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
 
 build:
   extends: .python
   stage: build
-  needs: ["check"]
+  needs: ["check", "e2e:chrome", "e2e:symfony", "proof"]
   script:
     - make dist
     - pip install dist/*.whl
@@ -89,3 +120,7 @@ build:
     paths:
       - dist/
     expire_in: 90 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG

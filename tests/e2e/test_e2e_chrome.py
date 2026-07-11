@@ -17,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 from pathlib import Path
 
 import pytest
@@ -25,46 +24,63 @@ import pytest
 from cdpx import discovery
 from cdpx.client import CDPClient
 from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
-from cdpx.testing.e2e import attach_screenshot
+from cdpx.testing.e2e import (
+    attach_screenshot,
+    free_loopback_port,
+    run_cli,
+    stop_process,
+    successful_json,
+    wait_for_chrome,
+)
 
 SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
 
 CHROME_BIN = next(
-    (b for b in ("chromium", "chromium-browser", "google-chrome", "chrome") if shutil.which(b)),
+    (
+        b
+        for b in (
+            "chromium",
+            "chromium-browser",
+            "google-chrome",
+            "google-chrome-stable",
+            "chrome",
+        )
+        if shutil.which(b)
+    ),
     None,
 )
 
 if CHROME_BIN is None:
     pytest.fail("Chrome/Chromium obligatoire pour les e2e cdpx", pytrace=False)
 
-E2E_PORT = 9777
-
 
 @pytest.fixture(scope="module")
 def chrome():
     profile = tempfile.mkdtemp(prefix="cdpx-e2e-")
+    port = free_loopback_port()
+    log_path = Path(profile) / "chrome-stderr.log"
+    stderr = log_path.open("w", encoding="utf-8")
     proc = subprocess.Popen(
         [
             CHROME_BIN,
             "--headless=new",
-            f"--remote-debugging-port={E2E_PORT}",
+            "--remote-debugging-address=127.0.0.1",
+            f"--remote-debugging-port={port}",
             f"--user-data-dir={profile}",
             "--no-first-run",
             "--no-sandbox",
             "--disable-gpu",
         ],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=stderr,
     )
-    # attendre la découverte
-    for _ in range(50):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{E2E_PORT}/json/version", timeout=1)
-            break
-        except Exception:
-            time.sleep(0.2)
-    yield E2E_PORT
-    proc.terminate()
+    try:
+        wait_for_chrome(proc, port, log_path)
+        yield port
+    finally:
+        stop_process(proc)
+        stderr.close()
+        shutil.rmtree(profile, ignore_errors=True)
 
 
 @pytest.fixture()
@@ -74,6 +90,207 @@ def page(chrome, fixtures_http, evidence_case):
         yield c, fixtures_http.base_url
         attach_screenshot(evidence_case, c, "final")
     discovery.close_tab("127.0.0.1", chrome, target["id"])
+
+
+@pytest.fixture()
+def cli_page(chrome, fixtures_http):
+    target = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+    try:
+        yield target, fixtures_http.base_url
+    finally:
+        discovery.close_tab("127.0.0.1", chrome, target["id"])
+
+
+def cli_json(chrome: int, target: dict, *args: str) -> dict | list:
+    return successful_json(run_cli(chrome, *args, target=target["id"]))
+
+
+def attach_cli_screenshot(evidence_case, target: dict, label: str = "final") -> None:
+    with CDPClient(target["webSocketDebuggerUrl"], timeout=10) as client:
+        attach_screenshot(evidence_case, client, label)
+
+
+@pytest.mark.scenario(
+    feature="browser-navigation",
+    journey="open-page",
+    scenario_id="browser-navigation.open-page-success",
+    proves=["The installed CLI manages a real Chrome target lifecycle."],
+)
+def test_cli_browser_lifecycle_black_box(chrome, fixtures_http, evidence_case):
+    version_proc = run_cli(chrome, "version")
+    version = successful_json(version_proc)
+    assert version["Browser"].startswith(("Chrome/", "HeadlessChrome/", "Chromium/"))
+    assert version["Protocol-Version"]
+
+    created = successful_json(
+        run_cli(chrome, "tabs", "new", "--url", f"{fixtures_http.base_url}/index.html")
+    )
+    try:
+        activated = successful_json(run_cli(chrome, "tabs", "activate", "--id", created["id"]))
+        assert activated == {"activated": created["id"]}
+        listed = successful_json(run_cli(chrome, "tabs", "list"))
+        assert listed["count"] >= 1
+        assert any(
+            item["id"] == created["id"] and item["type"] == "page" for item in listed["tabs"]
+        )
+        attach_cli_screenshot(evidence_case, created, "active-tab")
+    finally:
+        closed = successful_json(run_cli(chrome, "tabs", "close", "--id", created["id"]))
+    assert closed == {"closed": created["id"]}
+    remaining = successful_json(run_cli(chrome, "tabs", "list"))
+    assert all(item["id"] != created["id"] for item in remaining["tabs"])
+
+
+@pytest.mark.scenario(
+    feature="dom-interaction",
+    journey="submit-form",
+    scenario_id="dom-interaction.submit-form-like-user",
+    proves=["The installed CLI submits a real form through trusted keyboard input."],
+)
+def test_cli_dom_and_keyboard_black_box(chrome, cli_page, evidence_case):
+    target, base = cli_page
+    navigated = cli_json(chrome, target, "goto", f"{base}/form.html")
+    assert navigated["ok"] is True and navigated["waited"] == "load"
+    assert cli_json(chrome, target, "count", "input,button")["count"] == 3
+
+    cli_json(chrome, target, "type", "#name", "Keyboard E2E", "--clear")
+    assert cli_json(chrome, target, "key", "Enter") == {"pressed": "Enter"}
+    html = cli_json(chrome, target, "html", "#result")
+    assert 'data-state="submitted"' in html["html"]
+    assert "OK:Keyboard E2E" in html["html"]
+    attach_cli_screenshot(evidence_case, target)
+
+
+@pytest.mark.scenario(
+    feature="browser-capture-observability",
+    journey="capture-page",
+    scenario_id="browser-capture-observability.persist-screenshot-proof",
+    proves=["The installed CLI writes valid JPEG and PDF artifacts."],
+)
+def test_cli_jpeg_and_pdf_artifacts_black_box(chrome, cli_page, tmp_path, evidence_case):
+    target, base = cli_page
+    cli_json(chrome, target, "goto", f"{base}/long.html")
+    jpeg = tmp_path / "black-box-full.jpg"
+    pdf = tmp_path / "black-box.pdf"
+
+    shot = cli_json(
+        chrome,
+        target,
+        "screenshot",
+        "-o",
+        str(jpeg),
+        "--format",
+        "jpeg",
+        "--full-page",
+    )
+    printed = cli_json(chrome, target, "pdf", "-o", str(pdf))
+    assert shot["format"] == "jpeg" and shot["full_page"] is True
+    assert shot["bytes"] == jpeg.stat().st_size > 1000
+    assert jpeg.read_bytes().startswith(b"\xff\xd8\xff")
+    assert printed["bytes"] == pdf.stat().st_size > 1000
+    assert pdf.read_bytes().startswith(b"%PDF-")
+    attach_cli_screenshot(evidence_case, target)
+
+
+@pytest.mark.scenario(
+    feature="browser-capture-observability",
+    journey="inspect-runtime",
+    scenario_id="browser-capture-observability.inspect-runtime-failures",
+    proves=["Console follow streams bounded NDJSON from real Chrome."],
+)
+def test_cli_console_follow_is_bounded_ndjson(chrome, cli_page, evidence_case):
+    target, base = cli_page
+    cli_json(chrome, target, "goto", f"{base}/console.html")
+    proc = run_cli(chrome, "console", "--follow", "--max", "4", target=target["id"])
+    assert proc.returncode == 0 and proc.stderr == ""
+    entries = [json.loads(line) for line in proc.stdout.splitlines()]
+    assert len(entries) == 4
+    assert {entry["kind"] for entry in entries} == {"console", "exception"}
+    assert any("fixture-log" in entry["text"] for entry in entries)
+    assert any("fixture-uncaught" in entry["text"] for entry in entries)
+    attach_cli_screenshot(evidence_case, target)
+
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="prepare-session",
+    scenario_id="state-session.prepare-repeatable-session",
+    proves=["Cookie secrets stay masked and session storage is observable."],
+)
+def test_cli_cookie_masking_and_session_storage_black_box(chrome, cli_page, evidence_case):
+    target, base = cli_page
+    cli_json(chrome, target, "goto", f"{base}/storage.html")
+    secret = "synthetic-e2e-cookie-value"
+    set_result = cli_json(
+        chrome,
+        target,
+        "cookies",
+        "set",
+        "--name",
+        "blackBoxCookie",
+        "--value",
+        secret,
+        "--url",
+        f"{base}/",
+    )
+    assert set_result["success"] is True
+
+    masked_proc = run_cli(chrome, "cookies", "get", target=target["id"])
+    masked = successful_json(masked_proc)
+    assert masked["values_masked"] is True
+    assert secret not in masked_proc.stdout
+    assert all(cookie["value"] == "***" for cookie in masked["cookies"])
+
+    shown = cli_json(chrome, target, "cookies", "get", "--show-values")
+    assert any(
+        cookie["name"] == "blackBoxCookie" and cookie["value"] == secret
+        for cookie in shown["cookies"]
+    )
+    session = cli_json(chrome, target, "storage", "--kind", "session")
+    assert session["entries"] == {"cdpx-session": "oui"}
+    assert cli_json(chrome, target, "cookies", "clear")["cleared"] is True
+    assert cli_json(chrome, target, "cookies", "get")["count"] == 0
+    attach_cli_screenshot(evidence_case, target)
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="replay-flow",
+    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    proves=["Network and CPU presets wrap a real composed navigation."],
+)
+def test_cli_slow_3g_and_cpu_emulation_black_box(chrome, cli_page, evidence_case):
+    target, base = cli_page
+    slow = cli_json(chrome, target, "emulate", "slow-3g", "--", "goto", f"{base}/index.html")
+    assert slow["applied"] is True and slow["action"]["result"]["ok"] is True
+    assert slow["action"]["result"]["elapsed_ms"] >= 200
+
+    cpu = cli_json(chrome, target, "emulate", "cpu-4x", "--", "goto", f"{base}/index.html")
+    assert cpu["applied"] is True and cpu["action"]["result"]["ok"] is True
+    assert cpu["action"]["argv"][0] == "goto"
+    attach_cli_screenshot(evidence_case, target)
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="run-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    proves=["The CLI enforces stdout, stderr, and exit-code contracts end to end."],
+)
+def test_cli_stdout_stderr_and_exit_contract(chrome, cli_page, evidence_case):
+    target, base = cli_page
+    success = run_cli(chrome, "goto", f"{base}/form.html", target=target["id"])
+    assert success.returncode == 0 and success.stderr == ""
+    assert json.loads(success.stdout)["ok"] is True
+
+    runtime_error = run_cli(chrome, "click", "#missing", target=target["id"])
+    assert runtime_error.returncode == 1 and runtime_error.stdout == ""
+    assert "sélecteur introuvable" in runtime_error.stderr
+
+    usage_error = run_cli(chrome, "goto")
+    assert usage_error.returncode == 2 and usage_error.stdout == ""
+    assert "the following arguments are required: url" in usage_error.stderr
+    attach_cli_screenshot(evidence_case, target)
 
 
 def test_navigate_and_read_title(page):

@@ -18,7 +18,7 @@ from cdpx.primitives import actions, inputs, js, nav
 # par le VERBE de leur action; replay est mutant en bloc (le journal peut
 # contenir n'importe quelle action).
 ALWAYS_MUTATING = {"click", "type", "key", "eval", "intercept", "replay"}
-COMPOSED_COMMANDS = {"dom-diff", "record", "emulate"}
+COMPOSED_COMMANDS = {"dom-diff", "record", "emulate", "vitals"}
 
 ACTION_ERRORS = (
     ValueError,
@@ -52,6 +52,8 @@ PRESETS: dict[str, dict[str, Any]] = {
 
 
 def command_mutates(command: str, action: list[str] | None = None) -> bool:
+    if command == "cookies":
+        return bool(action and action[0] in {"set", "clear"})
     if command in ALWAYS_MUTATING:
         return True
     if command in COMPOSED_COMMANDS:
@@ -84,7 +86,7 @@ def intercept_goto(
     parsed_rules = [_parse_rule(rule) for rule in rules]
     client.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
     client.send("Page.enable")
-    client.send_nowait("Page.navigate", {"url": url})
+    navigation_id = client.send_nowait("Page.navigate", {"url": url})
 
     started = time.monotonic()
     last_event = time.monotonic()
@@ -129,6 +131,11 @@ def intercept_goto(
         else:
             client.send("Fetch.continueRequest", {"requestId": params["requestId"]})
         hits.append({"url": req_url, "action": action})
+    navigation = client.wait_response(
+        navigation_id, timeout=max(0.1, timeout - (time.monotonic() - started))
+    )
+    if navigation.get("errorText"):
+        raise ValueError(f"navigation échouée: {navigation['errorText']}")
     return {"url": url, "rules": rules, "hits": hits, "count": len(hits), "settle": settle}
 
 
@@ -165,6 +172,7 @@ def vitals(
     timeout: float = 30.0,
     click_selector: str | None = None,
     settle: float = 0.5,
+    origins: str | None = None,
 ) -> dict:
     script = """
 window.__cdpxVitals = {lcp: 0, cls: 0, inp: 0};
@@ -189,10 +197,15 @@ try {
 } catch (e) {}
 """
     client.send("Page.addScriptToEvaluateOnNewDocument", {"source": script})
-    nav.navigate(client, url, timeout=timeout)
+    navigation = nav.navigate(client, url, timeout=timeout)
+    if navigation.get("ok") is False:
+        raise ValueError(f"navigation échouée: {navigation.get('errorText') or url}")
     if click_selector:
         from cdpx.primitives import inputs
 
+        # Une redirection peut avoir changé l'origine depuis l'URL demandée.
+        # Revalider juste avant l'interaction trusted évite de cliquer ailleurs.
+        assert_origin_allowed("click", _current_http_url(client) or url, origins)
         inputs.click(client, click_selector)
     client.collect_events(settle)
     value = js.evaluate(client, "JSON.stringify(window.__cdpxVitals || {})")
@@ -225,28 +238,42 @@ def coverage(client: CDPClient, url: str, timeout: float = 30.0) -> dict:
     client.send("Profiler.enable")
     client.send("CSS.startRuleUsageTracking")
     client.send("Profiler.startPreciseCoverage", {"callCount": True, "detailed": True})
-    nav.navigate(client, url, timeout=timeout)
+    navigation = nav.navigate(client, url, timeout=timeout)
+    if navigation.get("ok") is False:
+        raise ValueError(f"navigation échouée: {navigation.get('errorText') or url}")
     js_res = client.send("Profiler.takePreciseCoverage")
     css_res = client.send("CSS.stopRuleUsageTracking")
     client.send("Profiler.stopPreciseCoverage")
-    files = [
-        {
-            "url": item.get("url"),
-            "functions": len(item.get("functions", [])),
-            "used_ranges": sum(
-                1
-                for fn in item.get("functions", [])
-                for rng in fn.get("ranges", [])
-                if (rng.get("count") or 0) > 0
-            ),
-        }
-        for item in js_res.get("result", [])
-    ]
+    files = []
+    for item in js_res.get("result", []):
+        byte_counts = _coverage_bytes(item.get("functions", []))
+        total = byte_counts["total_bytes"]
+        files.append(
+            {
+                "url": item.get("url"),
+                "functions": len(item.get("functions", [])),
+                "used_ranges": sum(
+                    1
+                    for fn in item.get("functions", [])
+                    for rng in fn.get("ranges", [])
+                    if (rng.get("count") or 0) > 0
+                ),
+                **byte_counts,
+                "coverage_percent": round(byte_counts["used_bytes"] * 100 / total, 1)
+                if total
+                else None,
+            }
+        )
     css_rules = css_res.get("ruleUsage", [])
+    js_totals = {
+        key: sum(item[key] for item in files)
+        for key in ("total_bytes", "used_bytes", "unused_bytes")
+    }
     return {
         "url": url,
         "files": files,
         "count": len(files),
+        "js": js_totals,
         "css": {
             "rules": len(css_rules),
             "used": sum(1 for rule in css_rules if rule.get("used")),
@@ -288,7 +315,12 @@ def record(client: CDPClient, path: str, action: list[str]) -> dict:
     return {"path": str(out), "recorded": 1, "ok": ok}
 
 
-def replay(client: CDPClient, path: str, max_actions: int | None = None) -> dict:
+def replay(
+    client: CDPClient,
+    path: str,
+    max_actions: int | None = None,
+    origins: str | None = None,
+) -> dict:
     """Rejoue un journal NDJSON action par action, arrêt à la première divergence.
 
     Toute la validation (syntaxe, actions présentes, budget) se fait AVANT la
@@ -308,7 +340,7 @@ def replay(client: CDPClient, path: str, max_actions: int | None = None) -> dict
                 "played": 0,
                 "divergence": f"line {lineno}: {e.msg}",
             }
-        if not isinstance(event.get("action"), list):
+        if not isinstance(event, dict) or not isinstance(event.get("action"), list):
             return {
                 "path": path,
                 "ok": False,
@@ -316,21 +348,63 @@ def replay(client: CDPClient, path: str, max_actions: int | None = None) -> dict
                 "played": 0,
                 "divergence": f"line {lineno}: action manquante",
             }
+        try:
+            actions.validate_action(event["action"])
+        except ValueError as e:
+            return {
+                "path": path,
+                "ok": False,
+                "events": len(events) + 1,
+                "played": 0,
+                "divergence": f"line {lineno}: {e}",
+            }
+        if not isinstance(event.get("ok"), bool):
+            return {
+                "path": path,
+                "ok": False,
+                "events": len(events) + 1,
+                "played": 0,
+                "divergence": f"line {lineno}: ok booléen requis",
+            }
+        if "result" in event and not isinstance(event["result"], dict):
+            return {
+                "path": path,
+                "ok": False,
+                "events": len(events) + 1,
+                "played": 0,
+                "divergence": f"line {lineno}: result doit être un objet",
+            }
         events.append(event)
     if max_actions is not None and len(events) > max_actions:
         raise ValueError(f"budget --max-actions dépassé: {len(events)} > {max_actions}")
-    played = 0
     for index, event in enumerate(events):
-        if event.get("ok") is not True:
+        if event["ok"] is not True:
             return {
                 "path": path,
                 "events": len(events),
-                "played": played,
+                "played": 0,
                 "ok": False,
                 "divergence": f"event {index}: ok=false journalisé",
             }
+    played = 0
+    current_url: str | None = None
+    for index, event in enumerate(events):
+        action = event["action"]
+        if origins and action[0] in actions.MUTATING_VERBS:
+            if current_url is None:
+                current_url = _current_http_url(client)
+            try:
+                assert_origin_allowed(action[0], current_url, origins)
+            except ValueError as e:
+                return {
+                    "path": path,
+                    "events": len(events),
+                    "played": played,
+                    "ok": False,
+                    "divergence": f"event {index}: {e}",
+                }
         try:
-            actions.run_action(client, event["action"])
+            actual = actions.run_action(client, action)
         except ACTION_ERRORS as e:
             return {
                 "path": path,
@@ -340,7 +414,90 @@ def replay(client: CDPClient, path: str, max_actions: int | None = None) -> dict
                 "divergence": f"event {index}: {e}",
             }
         played += 1
+        if action[0] == "goto":
+            current_url = actual.get("url")
+        elif origins:
+            current_url = _current_http_url(client) or current_url
+            if action[0] in actions.MUTATING_VERBS:
+                try:
+                    assert_origin_allowed(action[0], current_url, origins)
+                except ValueError as e:
+                    return {
+                        "path": path,
+                        "events": len(events),
+                        "played": played,
+                        "ok": False,
+                        "divergence": f"event {index}: destination après action: {e}",
+                    }
+        if "result" in event:
+            differences = _semantic_differences(event["result"], actual)
+            if differences:
+                return {
+                    "path": path,
+                    "events": len(events),
+                    "played": played,
+                    "ok": False,
+                    "divergence": {
+                        "event": index,
+                        "kind": "result_mismatch",
+                        "differences": differences,
+                    },
+                }
     return {"path": path, "events": len(events), "played": played, "ok": True}
+
+
+def _current_http_url(client: CDPClient) -> str | None:
+    value = js.evaluate(client, "window.location.href")
+    parsed = urllib.parse.urlparse(value if isinstance(value, str) else "")
+    return value if parsed.scheme and parsed.netloc else None
+
+
+_VOLATILE_RESULT_KEYS = {"elapsed_ms", "frameId", "loaderId", "x", "y"}
+
+
+def _semantic_differences(expected: Any, actual: Any, path: str = "$") -> list[dict]:
+    differences: list[dict] = []
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        for key, value in expected.items():
+            if key in _VOLATILE_RESULT_KEYS:
+                continue
+            child = f"{path}.{key}"
+            if key not in actual:
+                differences.append({"path": child, "expected": value, "actual": "<missing>"})
+            else:
+                differences.extend(_semantic_differences(value, actual[key], child))
+        return differences
+    if expected != actual:
+        differences.append({"path": path, "expected": expected, "actual": actual})
+    return differences
+
+
+def _coverage_bytes(functions: list[dict]) -> dict[str, int]:
+    ranges = [rng for fn in functions for rng in fn.get("ranges", [])]
+    boundaries = sorted(
+        {
+            offset
+            for rng in ranges
+            for offset in (rng.get("startOffset", 0), rng.get("endOffset", 0))
+        }
+    )
+    used = unused = 0
+    for start, end in zip(boundaries, boundaries[1:], strict=False):
+        covering = [
+            rng
+            for rng in ranges
+            if rng.get("startOffset", 0) <= start and rng.get("endOffset", 0) >= end
+        ]
+        if not covering:
+            continue
+        most_specific = min(
+            covering, key=lambda rng: rng.get("endOffset", 0) - rng.get("startOffset", 0)
+        )
+        if (most_specific.get("count") or 0) > 0:
+            used += end - start
+        else:
+            unused += end - start
+    return {"total_bytes": used + unused, "used_bytes": used, "unused_bytes": unused}
 
 
 def _parse_rule(rule: str) -> dict:

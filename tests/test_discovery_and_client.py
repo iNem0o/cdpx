@@ -67,6 +67,22 @@ def test_send_nowait_allows_event_before_command_response(mock):
     assert mock.commands_for("Page.navigate") == [{"url": "http://x.test/"}]
 
 
+def test_wait_response_survives_event_consumption(mock):
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {"requestId": "I1", "request": {"url": "http://x.test/"}},
+            }
+        ]
+    )
+    with _connect(mock) as c:
+        command_id = c.send_nowait("Page.navigate", {"url": "http://x.test/"})
+        assert c.next_event(timeout=1)["method"] == "Fetch.requestPaused"
+        response = c.wait_response(command_id)
+        assert response["frameId"] == "FRAME1" and response["loaderId"] == "LOADER1"
+
+
 def test_cdp_error_raised(mock):
     with _connect(mock) as c, pytest.raises(CDPError) as exc:
         c.send("Bogus.method")

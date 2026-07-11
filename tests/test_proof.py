@@ -223,6 +223,18 @@ def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
     assert "Docker daemon unavailable" in payload
 
 
+def test_run_symfony_evidence_fails_when_docker_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(proof, "EVIDENCE_DIR", tmp_path / "evidence")
+    monkeypatch.setattr(proof, "SYMFONY_LOG", tmp_path / "symfony.log")
+    monkeypatch.setattr(proof.shutil, "which", lambda _name: None)
+
+    command = proof.run_symfony_evidence()
+
+    assert command.exit_code == 1
+    assert command.status == "unavailable"
+    assert "required for release proof" in proof.SYMFONY_LOG.read_text(encoding="utf-8")
+
+
 def _minimal_suite(path, tests=1, cases=None):
     cases = cases or []
     return {
@@ -300,7 +312,7 @@ def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
     assert "log_tail" in summary["commands"][0]
 
 
-def test_symfony_unavailable_visible_and_blocking_only_when_required(monkeypatch):
+def test_symfony_unavailable_is_always_blocking(monkeypatch):
     suites = {
         "unit": [],
         "integration": [],
@@ -309,7 +321,6 @@ def test_symfony_unavailable_visible_and_blocking_only_when_required(monkeypatch
     }
     evidence = {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
 
-    monkeypatch.delenv("CDPX_PROOF_REQUIRE_SYMFONY", raising=False)
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -317,16 +328,21 @@ def test_symfony_unavailable_visible_and_blocking_only_when_required(monkeypatch
         scenario_evidence=evidence,
     )
     assert summary["totals"]["unavailable"] == 1  # visible dans le hero
+    assert summary["ok"] is False
+    assert any("symfony evidence unavailable" in failure for failure in summary["proof_failures"])
 
-    monkeypatch.setenv("CDPX_PROOF_REQUIRE_SYMFONY", "1")
-    strict = proof.build_summary(
+
+def test_symfony_skips_are_release_blocking():
+    summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
         _minimal_suite(".proof/e2e-junit.xml"),
-        scenario_evidence=evidence,
+        _minimal_suite(".proof/symfony-e2e-junit.xml", tests=2) | {"passed": 1, "skipped": 1},
+        scenario_evidence=empty_scenario_evidence(),
     )
-    assert strict["ok"] is False
-    assert any("CDPX_PROOF_REQUIRE_SYMFONY" in failure for failure in strict["proof_failures"])
+
+    assert summary["ok"] is False
+    assert any("symfony tests skipped" in failure for failure in summary["proof_failures"])
 
 
 def test_build_summary_fails_when_e2e_screenshot_missing():

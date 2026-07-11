@@ -20,13 +20,29 @@ USAGE = (
 MUTATING_VERBS = {"click", "type", "key", "eval"}
 
 
-def run_action(client: CDPClient, action: list[str], timeout: float = 30.0) -> dict:
-    """Exécute une action et retourne la sortie de la primitive sous-jacente."""
+def validate_action(action: list[str]) -> None:
+    """Valide intégralement un argv d'action sans toucher au navigateur."""
     if not action:
         raise ValueError(f"action manquante ({USAGE})")
     name, rest = action[0], action[1:]
+    valid = (
+        (name in {"goto", "wait", "click", "key"} and len(rest) == 1)
+        or (name == "eval" and bool(rest))
+        or (name == "type" and len(rest) in {2, 3} and (len(rest) == 2 or rest[2] == "--clear"))
+    )
+    if not valid or not all(isinstance(item, str) for item in action):
+        raise ValueError(USAGE)
+
+
+def run_action(client: CDPClient, action: list[str], timeout: float = 30.0) -> dict:
+    """Exécute une action et retourne la sortie de la primitive sous-jacente."""
+    validate_action(action)
+    name, rest = action[0], action[1:]
     if name == "goto" and len(rest) == 1:
-        return nav.navigate(client, rest[0], timeout=timeout)
+        result = nav.navigate(client, rest[0], timeout=timeout)
+        if result.get("ok") is False:
+            raise ValueError(f"navigation échouée: {result.get('errorText') or rest[0]}")
+        return result
     if name == "wait" and len(rest) == 1:
         return nav.wait_for(client, rest[0], timeout=min(timeout, 10.0))
     if name == "click" and len(rest) == 1:

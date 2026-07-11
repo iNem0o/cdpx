@@ -25,6 +25,9 @@ Détail du contrat (codes de sortie, connexion, `CDPX_ORIGINS`): section
 | `cdpx goto <url> [--wait load\|domcontentloaded\|none]` | se déplacer et savoir quand la page est prête | sans attente de cycle de vie, l'agent observe des états intermédiaires |
 | `cdpx wait <selector>` | attendre un élément (SPA, contenu injecté) | fixture `spa.html`: `#late-content` n'existe qu'après 300ms; le load event ne suffit pas |
 
+`tabs list` retourne un objet `{tabs, count}` afin de respecter le contrat JSON
+racine et d'appliquer réellement `--limit` avec les métadonnées de troncature.
+
 ```bash
 cdpx goto http://shop.localhost/produit-42
 cdpx --timeout 5 wait "#offcanvas-cart"

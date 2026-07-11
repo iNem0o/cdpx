@@ -5,7 +5,7 @@ status = "validated"
 summary = "Inspecter et préparer cookies, localStorage et sessionStorage sans fuite de secrets par défaut."
 entrypoints = ["cdpx cookies", "cdpx storage"]
 path_globs = ["src/cdpx/primitives/state.py", "tests/fixtures/storage.html"]
-test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage", "tests/e2e/test_e2e_chrome.py::test_cookies*"]
+test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*"]
 docs = ["docs/PRIMITIVES.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 

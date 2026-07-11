@@ -12,14 +12,16 @@ un milestone n'ouvre pas tant que le précédent n'a pas son `make check` (et,
 - CLI `cdpx` (JSON stdout, exit codes stables), binaire installé et fumé.
 - Mock CDP scriptable qui enregistre le protocole émis.
 - Serveur de fixtures + pages HTML témoins, eux-mêmes sous test.
-- 69 tests unitaires verts, ruff clean, `make check` = portail.
+- Suite unitaire déterministe verte, comptage capturé par le JUnit de
+  `make proof`; ruff clean, `make check-local` = sous-portail local et
+  `make check` = portail Docker/Chrome/Symfony complet.
 - Harness: CLAUDE.md, HARNESS.md, docs, Makefile.
 
 ## M1 — e2e Chrome réel ✅
 
 Objectif validé: primitives M0-M5 prouvées contre un vrai Blink/V8, avec les
-MÊMES fixtures. `tests/e2e/test_e2e_chrome.py` couvre maintenant 18 scénarios
-réels, dont full-page screenshot, interception Fetch, vitals interaction,
+MÊMES fixtures. `tests/e2e/test_e2e_chrome.py` couvre la suite Chrome réelle,
+dont full-page screenshot, interception Fetch, vitals interaction,
 SEO edge, allowlist CLI, a11y/frame/coverage.
 Fiche: `milestones/M1-e2e-chrome.md`.
 

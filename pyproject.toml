@@ -24,7 +24,7 @@ classifiers = [
 dependencies = ["PyYAML>=6", "websockets>=12"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "build", "twine", "mypy"]
+dev = ["pytest", "pytest-cov", "ruff", "build", "twine", "mypy", "packaging>=24.2"]
 
 [project.scripts]
 cdpx = "cdpx.cli:main"

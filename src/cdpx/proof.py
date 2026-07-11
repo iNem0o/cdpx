@@ -226,15 +226,15 @@ def run_symfony_evidence() -> CommandEvidence:
 
     checks: list[str] = []
     if shutil.which("docker") is None:
-        reason = "Docker CLI not found; Symfony e2e marked unavailable and non-blocking."
-        _write_command_log(SYMFONY_LOG, argv, started, reason, "status: unavailable\nexit_code: 0")
+        reason = "Docker CLI not found; Symfony e2e is required for release proof."
+        _write_command_log(SYMFONY_LOG, argv, started, reason, "status: unavailable\nexit_code: 1")
         write_symfony_unavailable_evidence(reason)
         return CommandEvidence(
             id="symfony-e2e",
             label="Symfony E2E Docker",
             argv=argv,
             log=str(SYMFONY_LOG),
-            exit_code=0,
+            exit_code=1,
             duration_s=round(time.monotonic() - start, 3),
             status="unavailable",
         )
@@ -244,12 +244,11 @@ def run_symfony_evidence() -> CommandEvidence:
         checks.append(f"$ {' '.join(check_argv)}\n{output.rstrip()}\nexit_code: {code}")
         if code != 0:
             reason = (
-                "Docker is installed but unavailable; Symfony e2e marked unavailable and "
-                "non-blocking."
+                "Docker is installed but unavailable; Symfony e2e is required for release proof."
             )
             body = "\n\n".join(checks + [reason])
             _write_command_log(
-                SYMFONY_LOG, argv, started, body, "status: unavailable\nexit_code: 0"
+                SYMFONY_LOG, argv, started, body, "status: unavailable\nexit_code: 1"
             )
             write_symfony_unavailable_evidence(reason)
             return CommandEvidence(
@@ -257,7 +256,7 @@ def run_symfony_evidence() -> CommandEvidence:
                 label="Symfony E2E Docker",
                 argv=argv,
                 log=str(SYMFONY_LOG),
-                exit_code=0,
+                exit_code=1,
                 duration_s=round(time.monotonic() - start, 3),
                 status="unavailable",
             )
@@ -271,17 +270,21 @@ def run_symfony_evidence() -> CommandEvidence:
         "--remove-orphans",
     ]
     pre_code, pre_output = _run_text(down_argv, timeout=60, env=compose_env)
-    proc = subprocess.run(
-        argv,
-        cwd=Path.cwd(),
-        env=compose_env,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        errors="replace",
-    )
-    post_code, post_output = _run_text(down_argv, timeout=60, env=compose_env)
+    try:
+        proc = subprocess.run(
+            argv,
+            cwd=Path.cwd(),
+            env=compose_env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+    finally:
+        # Même une interruption/exception pendant `up` doit rendre la main avec
+        # les conteneurs et réseaux Compose supprimés.
+        post_code, post_output = _run_text(down_argv, timeout=60, env=compose_env)
     duration = time.monotonic() - start
     body = "\n\n".join(
         checks
@@ -803,10 +806,10 @@ def build_project_risks_and_unknowns() -> dict:
             "rollback": "Installer Chrome/Chromium puis relancer `make test-e2e` ou `make proof`.",
         },
         {
-            "risk": "Docker peut être absent sur un poste local.",
+            "risk": "Docker/Compose est un prérequis du portail qualité complet.",
             "mitigation": (
-                "`make proof` lance Symfony si Docker répond; sinon le scénario est marqué "
-                "unavailable dans le rapport sans bloquer les preuves Python/Chrome."
+                "`make check`, `make proof` et `make release` échouent si Docker ou la preuve "
+                "Symfony est indisponible; `make check-local` reste un diagnostic partiel."
             ),
             "rollback": "Installer Docker puis relancer `make proof` ou `make docker-symfony-e2e`.",
         },
@@ -1575,14 +1578,11 @@ def build_summary(
         for scenario in suite
         if scenario.get("status") == "unavailable"
     )
-    # Symfony sans Docker reste non bloquant par défaut (visible, pas vert
-    # silencieux); CDPX_PROOF_REQUIRE_SYMFONY=1 en fait un échec de preuve.
     symfony_failures = []
-    if unavailable and os.environ.get("CDPX_PROOF_REQUIRE_SYMFONY") == "1":
-        symfony_failures.append(
-            f"symfony evidence unavailable ({unavailable} scenarios) "
-            "with CDPX_PROOF_REQUIRE_SYMFONY=1"
-        )
+    if unavailable:
+        symfony_failures.append(f"symfony evidence unavailable ({unavailable} scenarios)")
+    if symfony["skipped"]:
+        symfony_failures.append(f"symfony tests skipped ({symfony['skipped']})")
     ok = (
         all(command.exit_code == 0 for command in commands)
         and failed_tests == 0

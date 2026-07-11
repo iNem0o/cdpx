@@ -42,6 +42,7 @@ class CDPClient:
         self.timeout = timeout
         self._id = 0
         self.events: list[dict] = []
+        self._responses: dict[int, dict] = {}
         self._ws = connect(ws_url, max_size=64 * 1024 * 1024, open_timeout=timeout)
 
     # -- contexte ------------------------------------------------------------
@@ -66,12 +67,11 @@ class CDPClient:
         while True:
             msg = self._recv(deadline, f"réponse à {method}")
             if msg.get("id") == cmd_id:
-                if "error" in msg:
-                    err = msg["error"]
-                    raise CDPError(err.get("code", -1), err.get("message", "?"), err.get("data"))
-                return msg.get("result", {})
+                return self._response_result(msg)
             if "method" in msg:
                 self.events.append(msg)
+            elif isinstance(msg.get("id"), int):
+                self._responses[msg["id"]] = msg
 
     def send_nowait(self, method: str, params: dict | None = None) -> int:
         """Envoie une commande sans attendre sa réponse.
@@ -84,6 +84,26 @@ class CDPClient:
         cmd_id = self._id
         self._ws.send(json.dumps({"id": cmd_id, "method": method, "params": params or {}}))
         return cmd_id
+
+    def wait_response(self, cmd_id: int, timeout: float | None = None) -> dict:
+        """Attend la réponse d'une commande envoyée avec :meth:`send_nowait`.
+
+        Les évènements bloquants peuvent être traités avec ``next_event`` entre
+        l'envoi et cet appel; les réponses croisées sont conservées au lieu
+        d'être perdues.
+        """
+        buffered = self._responses.pop(cmd_id, None)
+        if buffered is not None:
+            return self._response_result(buffered)
+        deadline = time.monotonic() + (timeout or self.timeout)
+        while True:
+            msg = self._recv(deadline, f"réponse à la commande {cmd_id}")
+            if msg.get("id") == cmd_id:
+                return self._response_result(msg)
+            if "method" in msg:
+                self.events.append(msg)
+            elif isinstance(msg.get("id"), int):
+                self._responses[msg["id"]] = msg
 
     def wait_event(self, name: str, timeout: float | None = None) -> dict:
         """Attend (ou retrouve dans le buffer) le prochain évènement `name`."""
@@ -107,6 +127,8 @@ class CDPClient:
             msg = self._recv(deadline, "prochain évènement")
             if "method" in msg:
                 return msg
+            if isinstance(msg.get("id"), int):
+                self._responses[msg["id"]] = msg
 
     def collect_events(self, duration: float, names: tuple[str, ...] | None = None) -> list[dict]:
         """Collecte passivement les évènements pendant `duration` secondes."""
@@ -145,3 +167,10 @@ class CDPClient:
         except TimeoutError as e:
             raise CDPTimeout(f"timeout en attendant {waiting_for}") from e
         return json.loads(raw)
+
+    @staticmethod
+    def _response_result(msg: dict) -> dict:
+        if "error" in msg:
+            err = msg["error"]
+            raise CDPError(err.get("code", -1), err.get("message", "?"), err.get("data"))
+        return msg.get("result", {})

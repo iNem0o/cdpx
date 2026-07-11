@@ -43,3 +43,30 @@ def test_dev_extra_pins_the_toolchain():
     dev = PYPROJECT["project"]["optional-dependencies"]["dev"]
     for tool in ("pytest", "pytest-cov", "ruff", "build", "twine", "mypy"):
         assert any(dep.startswith(tool) for dep in dev), f"outil dev manquant: {tool}"
+
+
+def test_release_image_contains_metadata_and_full_dev_toolchain():
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    assert "COPY LICENSE CHANGELOG.md" in dockerfile
+    assert 'pip install -e ".[dev]"' in dockerfile
+
+
+def test_release_portal_and_ci_require_all_runtime_proofs():
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    check_prerequisites = makefile.split("check:", 1)[1].split("\n", 1)[0]
+    for portal in ("check-local", "docker-check", "docker-e2e", "docker-symfony-e2e"):
+        assert portal in check_prerequisites
+    assert "docker run --rm cdpx-ci make check-local" in makefile
+
+    assert "release:" in makefile
+    for portal in ("check", "proof", "dist"):
+        assert portal in makefile.split("release:", 1)[1].split("\n", 1)[0]
+
+    ci = Path(".gitlab-ci.yml").read_text(encoding="utf-8")
+    check_job = ci.split("check:", 1)[1].split("\ntypecheck:", 1)[0]
+    assert "make check-local" in check_job
+    assert "make check\n" not in check_job
+    assert "proof:" in ci
+    assert "needs:" in ci.split("build:", 1)[1]
+    for job in ("check", "e2e:chrome", "e2e:symfony", "proof"):
+        assert job in ci.split("build:", 1)[1]

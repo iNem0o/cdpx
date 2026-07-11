@@ -38,14 +38,29 @@ from cdpx.primitives import (
 def _action(args) -> list[str]:
     """Action composée (REMAINDER), débarrassée du séparateur `--` initial."""
     action = getattr(args, "action", None) or []
+    if not isinstance(action, list):
+        return []
     return action[1:] if action and action[0] == "--" else action
 
 
 def _client(args) -> CDPClient:
     target = discovery.pick_page(args.host, args.port, args.target)
-    advanced.assert_origin_allowed(
-        args.command, target.get("url"), os.environ.get("CDPX_ORIGINS"), action=_action(args)
-    )
+    origins = os.environ.get("CDPX_ORIGINS")
+    action = _action(args)
+    guard_url = target.get("url")
+    guard_action = action
+    if args.command == "intercept" and len(action) == 2 and action[0] == "goto":
+        guard_url = action[1]
+    elif args.command == "vitals" and getattr(args, "click", None):
+        guard_url = args.url
+        guard_action = ["click", args.click]
+    elif args.command == "cookies":
+        guard_action = [args.action]
+        if args.action == "set":
+            guard_url = args.url
+    # replay applique la garde après chaque goto et avant/après chaque mutation.
+    if args.command != "replay":
+        advanced.assert_origin_allowed(args.command, guard_url, origins, action=guard_action)
     return CDPClient(target["webSocketDebuggerUrl"], timeout=args.timeout)
 
 
@@ -65,19 +80,26 @@ def _ndjson(data) -> None:
 
 
 def cmd_tabs(args) -> None:
+    if args.action in {"activate", "close"} and not args.id:
+        raise scenarios.ScenarioUsageError(f"tabs {args.action}: --id requis")
+    if args.action != "new" and args.url is not None:
+        raise scenarios.ScenarioUsageError(f"tabs {args.action}: --url non supporté")
+    if args.action not in {"activate", "close"} and args.id is not None:
+        raise scenarios.ScenarioUsageError(f"tabs {args.action}: --id non supporté")
     if args.action == "list":
         targets = discovery.list_targets(args.host, args.port)
+        tabs = [
+            {
+                "id": t.get("id"),
+                "type": t.get("type"),
+                "title": t.get("title"),
+                "url": t.get("url"),
+            }
+            for t in targets
+        ]
         _out(
             args,
-            [
-                {
-                    "id": t.get("id"),
-                    "type": t.get("type"),
-                    "title": t.get("title"),
-                    "url": t.get("url"),
-                }
-                for t in targets
-            ],
+            {"tabs": tabs, "count": len(tabs)},
         )
     elif args.action == "new":
         _out(args, discovery.new_tab(args.host, args.port, args.url))
@@ -95,7 +117,9 @@ def cmd_version(args) -> None:
 
 def cmd_goto(args) -> None:
     with _client(args) as c:
-        _out(args, nav.navigate(c, args.url, wait=args.wait, timeout=args.timeout))
+        result = nav.navigate(c, args.url, wait=args.wait, timeout=args.timeout)
+        _require_navigation(result)
+        _out(args, result)
 
 
 def cmd_wait(args) -> None:
@@ -167,6 +191,22 @@ def cmd_network(args) -> None:
 
 
 def cmd_cookies(args) -> None:
+    if args.action == "set":
+        missing = [
+            flag
+            for flag, value in (("--name", args.name), ("--value", args.value), ("--url", args.url))
+            if value is None
+        ]
+        if missing:
+            raise scenarios.ScenarioUsageError(f"cookies set: {', '.join(missing)} requis")
+        if args.show_values:
+            raise scenarios.ScenarioUsageError("cookies set: --show-values non supporté")
+    elif any(value is not None for value in (args.name, args.value, args.url)):
+        raise scenarios.ScenarioUsageError(
+            f"cookies {args.action}: --name/--value/--url non supportés"
+        )
+    elif args.action == "clear" and args.show_values:
+        raise scenarios.ScenarioUsageError("cookies clear: --show-values non supporté")
     with _client(args) as c:
         if args.action == "get":
             _out(args, state.get_cookies(c, show_values=args.show_values))
@@ -184,7 +224,7 @@ def cmd_storage(args) -> None:
 def cmd_seo(args) -> None:
     with _client(args) as c:
         if args.url:
-            nav.navigate(c, args.url, wait="load", timeout=args.timeout)
+            _require_navigation(nav.navigate(c, args.url, wait="load", timeout=args.timeout))
         _out(args, audit.seo(c))
 
 
@@ -247,6 +287,7 @@ def cmd_vitals(args) -> None:
                 timeout=args.timeout,
                 click_selector=args.click,
                 settle=args.settle,
+                origins=os.environ.get("CDPX_ORIGINS"),
             ),
         )
 
@@ -273,7 +314,12 @@ def cmd_record(args) -> None:
 
 def cmd_replay(args) -> int:
     with _client(args) as c:
-        res = advanced.replay(c, args.path, max_actions=args.max_actions)
+        res = advanced.replay(
+            c,
+            args.path,
+            max_actions=args.max_actions,
+            origins=os.environ.get("CDPX_ORIGINS"),
+        )
     _out(args, res)
     # divergence = erreur d'exécution: JSON structuré sur stdout, exit 1
     return 0 if res.get("ok") else 1
@@ -310,6 +356,11 @@ def _panels_arg(value: str) -> list[str] | None:
         return profiler_panels.normalize_panels(panels)
     except ValueError as e:
         raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def _require_navigation(result: dict) -> None:
+    if result.get("ok") is False:
+        raise ValueError(f"navigation échouée: {result.get('errorText') or result.get('url')}")
 
 
 def build_parser() -> argparse.ArgumentParser:

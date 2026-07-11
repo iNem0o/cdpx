@@ -3,9 +3,9 @@ id = "harness-proof-cockpit"
 title = "Harness et cockpit de preuve"
 status = "validated"
 summary = "Exécuter des portails qualité déterministes et publier un cockpit de validation central, orienté features."
-entrypoints = ["make help", "make setup", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make clean", "make dist", "python -m cdpx.proof"]
+entrypoints = ["make help", "make setup", "make check-local", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make release", "make clean", "make dist", "python -m cdpx.proof"]
 path_globs = ["Makefile", "pyproject.toml", "Dockerfile", ".gitlab-ci.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/markdown.py", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_evidence.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "README.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/features/*.md", "docs/milestones/*.md"]
-test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_markdown.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version"]
+test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_markdown.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*"]
 docs = ["README.md", "HARNESS.md", "CLAUDE.md", "docs/VALIDATION.md", "docs/ROADMAP.md", "docs/TODO.md"]
 expected_proofs = ["junit"]
 
@@ -67,11 +67,20 @@ Liste les cibles du Makefile avec leur description (extraite des commentaires
 Installe le paquet en editable plus les outils dev (pytest, ruff). À lancer
 une fois après clonage, avant tout `make check`.
 
+### `make check-local`
+
+Boucle courte de développement: lint/format, mypy et tests unitaires
+déterministes. Ce sous-portail n'est pas une décision de release.
+
 ### `make check`
 
-LE portail qualité : lint + vérification de format + mypy + tests unitaires
-déterministes. Rien ne se merge s'il ne passe pas ; toute session de travail
-se termine par un `make check` vert.
+Portail qualité standard complet: `check-local`, reproduction dans l'image
+Docker, e2e Chrome réel dans Docker et suite Symfony réelle. Docker/Compose
+est donc requis pour déclarer le dépôt vert.
+
+LE portail qualité : contrôles locaux déterministes, reproduction en image,
+Chrome réel et Symfony réel. Rien ne se merge s'il ne passe pas ; toute
+session de travail se termine par un `make check` vert.
 
 ```bash
 make check
@@ -129,8 +138,8 @@ Construit l'image portable `cdpx-ci`, socle des portails Docker.
 
 ### `make docker-check`
 
-Exécute `make check` dans l'image `cdpx-ci` : reproduit le portail qualité
-dans un environnement propre, indépendant du poste.
+Exécute `make check-local` dans l'image `cdpx-ci` : reproduit lint, typage et
+unitaires dans un environnement propre sans récursion vers Docker.
 
 ### `make docker-e2e`
 
@@ -158,6 +167,19 @@ l'entrée suivante pour le détail des artefacts produits.
 make proof
 ```
 
+Docker/Compose et la suite Symfony réelle sont requis. Une indisponibilité ou
+un skip Symfony produit un rapport rouge et un exit non nul.
+
+### `make release`
+
+Portail final agrégé : `check` complet, cockpit de preuve vert, puis
+wheel/sdist vérifiés. C'est la commande de décision release; elle exige Docker
+et Chrome.
+
+```bash
+make release
+```
+
 ### `python -m cdpx.proof`
 
 Construit le cockpit de preuve : lit les fiches features de `docs/features/`
@@ -182,8 +204,8 @@ PYTHONPATH=src python3 -m cdpx.proof
 
 ## Parcours utilisateur
 
-- Exécuter les portails qualité locaux (`make check`) puis, au besoin, les
-  portails lourds Docker et e2e.
+- Exécuter `make check-local` pour une rétroaction courte, `make check` pour
+  le verdict qualité complet, puis `make release` avant toute livraison.
 - Générer `.proof/proof-report.html` et `.proof/validation-summary.json`.
 - Inspecter la couverture features, scénarios, tests et preuves depuis une
   seule page.
@@ -204,9 +226,8 @@ commandes).
 
 ## Limites connues
 
-- Les portails Docker (`docker-check`, `docker-e2e`, e2e Symfony) restent des
-  vérifications lourdes explicites : ils ne sont pas lancés par défaut par
-  `make check`.
-- Politique Symfony : si Docker est absent sur le poste, la preuve Symfony est
-  marquée « unavailable » dans le rapport — constat non bloquant, la
-  génération du cockpit reste verte.
+- La boucle courte porte explicitement le nom `make check-local`; `make check`
+  inclut toujours Docker, Chrome et Symfony.
+- Docker/Compose absent ou test Symfony skippé : `make proof` et
+  `make release` échouent. Le rapport conserve le statut `unavailable` comme
+  diagnostic, jamais comme succès dégradé.

@@ -417,6 +417,22 @@ def test_seo_advanced_findings(mock, client):
     assert "Product JSON-LD incomplet (sku ou name requis)" in res["findings"]
 
 
+def test_seo_accepts_top_level_jsonld_arrays_and_reports_scalars(mock, client):
+    payload = {
+        **SEO_OK,
+        "jsonld": [
+            [{"@type": "Product", "name": "Valid"}, {"@type": "Product"}],
+            "not-an-object",
+        ],
+    }
+    mock.on_eval("__cdpx_seo", json.dumps(payload))
+    res = audit.seo(client)
+    assert res["findings"] == [
+        "Product JSON-LD incomplet (sku ou name requis)",
+        "JSON-LD scalaire non supporté",
+    ]
+
+
 def test_metrics(mock, client):
     res = audit.metrics(client)
     assert res["Nodes"] == 42 and res["JSHeapUsedSize"] == 1048576
@@ -496,6 +512,18 @@ def test_vitals_installs_observer_and_reads_values(mock, client):
     assert mock.commands_for("Input.dispatchMouseEvent")
 
 
+def test_vitals_rechecks_redirected_origin_before_click(mock, client):
+    mock.on_eval("window.location.href", "https://prod.example/redirected")
+    with pytest.raises(ValueError, match="mutation refusée"):
+        advanced.vitals(
+            client,
+            "http://allowed.test/vitals.html",
+            click_selector="#go",
+            origins="http://*.test",
+        )
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
 def test_a11y_compacts_ax_tree(mock, client):
     res = advanced.a11y(client)
     assert res["count"] == 2
@@ -504,8 +532,41 @@ def test_a11y_compacts_ax_tree(mock, client):
 
 def test_coverage_aggregates_files(mock, client):
     res = advanced.coverage(client, "http://s.test/")
-    assert res["files"] == [{"url": "http://fixture/app.js", "functions": 1, "used_ranges": 0}]
+    assert res["files"][0] == {
+        "url": "http://fixture/app.js",
+        "functions": 1,
+        "used_ranges": 0,
+        "total_bytes": 0,
+        "used_bytes": 0,
+        "unused_bytes": 0,
+        "coverage_percent": None,
+    }
+    assert res["js"] == {"total_bytes": 0, "used_bytes": 0, "unused_bytes": 0}
     assert res["css"] == {"rules": 2, "used": 1, "unused": 1}
+
+
+def test_coverage_reports_byte_coverage_not_range_counts(mock, client, monkeypatch):
+    original_send = client.send
+
+    def send(method, params=None, timeout=None):
+        if method == "Profiler.takePreciseCoverage":
+            return {
+                "result": [
+                    {
+                        "url": "http://fixture/app.js",
+                        "functions": [
+                            {"ranges": [{"startOffset": 0, "endOffset": 100, "count": 1}]},
+                            {"ranges": [{"startOffset": 20, "endOffset": 40, "count": 0}]},
+                        ],
+                    }
+                ]
+            }
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    res = advanced.coverage(client, "http://s.test/")
+    assert res["js"] == {"total_bytes": 100, "used_bytes": 80, "unused_bytes": 20}
+    assert res["files"][0]["coverage_percent"] == 80.0
 
 
 def test_frame_text_reads_iframe_content(mock, client):
@@ -591,6 +652,49 @@ def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
     assert mock.commands == []  # budget dépassé -> rien n'est rejoué
 
 
+def test_replay_validates_action_grammar_before_any_execution(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text(
+        '{"action":["goto","http://x.test/"],"ok":true,"result":{"ok":true}}\n'
+        '{"action":["shell","oops"],"ok":true,"result":{}}\n',
+        encoding="utf-8",
+    )
+    res = advanced.replay(client, str(path))
+    assert res["ok"] is False and res["divergence"].startswith("line 2:")
+    assert mock.commands == []
+
+
+def test_replay_compares_semantic_results(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text(
+        '{"action":["goto","http://x.test/"],"ok":true,'
+        '"result":{"url":"http://other.test/","ok":true,"elapsed_ms":999}}\n',
+        encoding="utf-8",
+    )
+    res = advanced.replay(client, str(path))
+    assert res["ok"] is False and res["played"] == 1
+    assert res["divergence"] == {
+        "event": 0,
+        "kind": "result_mismatch",
+        "differences": [
+            {"path": "$.url", "expected": "http://other.test/", "actual": "http://x.test/"}
+        ],
+    }
+
+
+def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text(
+        '{"action":["goto","http://prod.example/"],"ok":true}\n'
+        '{"action":["click","#submit"],"ok":true}\n',
+        encoding="utf-8",
+    )
+    res = advanced.replay(client, str(path), origins="http://*.test")
+    assert res["ok"] is False and res["played"] == 1
+    assert "mutation refusée" in str(res["divergence"])
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
 def test_origin_guard_blocks_mutations_only_when_configured():
     advanced.assert_origin_allowed("text", "https://prod.example/", "http://*.test")
     with pytest.raises(ValueError):
@@ -611,6 +715,11 @@ def test_origin_guard_classifies_commands_by_effective_mutation():
         assert not mutates(composed, ["goto", "http://x.test/"])
         assert not mutates(composed, [])
     assert not mutates("emulate", None)  # emulate --reset seul: lecture/neutralisation
+    assert mutates("vitals", ["click", "#button"])
+    assert not mutates("vitals", [])
+    assert mutates("cookies", ["set"])
+    assert mutates("cookies", ["clear"])
+    assert not mutates("cookies", ["get"])
 
 
 def test_origin_guard_checks_composed_action_verb():

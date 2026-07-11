@@ -34,6 +34,13 @@ ACTION_ERRORS = (
     js.JSException,
     inputs.ElementNotFound,
 )
+SENSITIVE_HEADERS = {
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "proxy-authorization",
+    "x-api-key",
+}
 
 
 class ScenarioUsageError(ValueError):
@@ -159,7 +166,7 @@ class PassiveCollector:
                     self.profiler_hits.append(hit)
             elif ev["method"] == "Network.responseReceived":
                 response = params.get("response", {})
-                headers = {str(k).lower(): v for k, v in response.get("headers", {}).items()}
+                headers = _redact_headers(response.get("headers", {}))
                 entry["url"] = response.get("url") or entry.get("url")
                 entry["status"] = response.get("status")
                 entry["mimeType"] = response.get("mimeType")
@@ -528,6 +535,13 @@ def _network_summary(requests: list[dict[str, Any]]) -> dict[str, int]:
 
 def _network_errors(summary: dict[str, int]) -> int:
     return summary.get("failed", 0) + summary.get("errors_4xx_5xx", 0)
+
+
+def _redact_headers(headers: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(name).lower(): "***" if str(name).lower() in SENSITIVE_HEADERS else value
+        for name, value in headers.items()
+    }
 
 
 def _write_json(path: Path, data: Any) -> None:

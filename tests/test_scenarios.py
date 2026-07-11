@@ -203,6 +203,46 @@ def test_run_scenario_console_and_network_assertions_fail(mock, tmp_path):
     ]
 
 
+def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": "http://shop.test/",
+                        "status": 200,
+                        "headers": {
+                            "Authorization": "Bearer secret",
+                            "Set-Cookie": "session=secret",
+                            "Content-Type": "text/html",
+                        },
+                    },
+                },
+            }
+        ]
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "redacted",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/"}],
+            "artifacts": ["network"],
+        }
+    )
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+    artifact = next(a for a in result["artifacts"] if a["type"] == "network")
+    data = json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
+    headers = data["requests"][0]["headers"]
+    assert headers == {
+        "authorization": "***",
+        "set-cookie": "***",
+        "content-type": "text/html",
+    }
+
+
 def run_cli(mock, capsys, *argv):
     code = main(["--port", str(mock.http_port), "--timeout", "5", *argv])
     out = capsys.readouterr()

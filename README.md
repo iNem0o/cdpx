@@ -135,13 +135,21 @@ mécaniquement.
 ## Qualité et preuve
 
 ```
-make check                 # PORTAIL: lint + format + mypy + tests unitaires déterministes
+make check-local           # boucle courte: lint + mypy + tests unitaires
+make check                 # PORTAIL: local + Docker + Chrome + Symfony
 make test-e2e              # e2e Chrome réel — Chrome/Chromium obligatoire
 make docker-check          # check dans l'image portable cdpx-ci
 make docker-e2e            # e2e Chrome réel dans Docker
 make docker-symfony-e2e    # profiler contre une vraie app Symfony Docker
 make proof                 # rapport HTML humain + preuves dans .proof/
+make release               # portail final: tous les contrôles + wheel/sdist
 ```
+
+Une release exige Docker/Compose, Chrome réel et la suite Symfony sans aucun
+skip. `make proof` échoue si cette preuve runtime est indisponible;
+`make check` est déjà le portail runtime complet et `make release` lui ajoute
+le cockpit de preuve et les artefacts distribuables. `make check-local` est
+une boucle de développement, pas un verdict de livraison.
 
 Les tests unitaires tournent contre un **mock CDP** qui enregistre chaque
 commande émise: on valide la sortie ET le protocole. Le e2e réutilise les

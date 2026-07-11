@@ -21,7 +21,9 @@ def capture(client: CDPClient, url: str, timeout: float = 30.0, settle: float = 
     """Navigue vers `url` en capturant l'activité réseau jusqu'à load + settle."""
     client.send("Network.enable")
     client.send("Page.enable")
-    client.send("Page.navigate", {"url": url}, timeout=timeout)
+    navigation = client.send("Page.navigate", {"url": url}, timeout=timeout)
+    if navigation.get("errorText"):
+        raise ValueError(f"navigation échouée: {navigation['errorText']}")
     client.wait_event("Page.loadEventFired", timeout=timeout)
     events = client.collect_events(settle, NET_EVENTS)
 

@@ -7,6 +7,26 @@ Ce projet suit un versionnage sémantique.
 
 ### Modifié
 
+- Le portail standard `make check` exige désormais Docker, Chrome et Symfony;
+  la boucle courte est explicitement `make check-local`. `make release` ajoute
+  un cockpit de preuve vert sans skip Symfony et les artefacts wheel/sdist.
+  Docker/Symfony indisponible n'est plus un succès dégradé de `make proof`.
+- L'image de validation embarque les métadonnées de packaging et l'intégralité
+  de l'outillage `.[dev]`; la CI exécute Chrome, Symfony et proof sur merge
+  request, tag et pipeline planifié avant le job de build.
+- L'outillage de distribution exige une version de `packaging` compatible avec
+  les métadonnées PEP 639 (`License-Expression`/`License-File`) produites par
+  setuptools récent.
+- **Breaking**: `tabs list` retourne désormais `{tabs, count}` au lieu d'une
+  liste racine, ce qui rend `--limit` effectif et maintient stdout sous forme
+  d'objet JSON pour toutes les commandes.
+- La garde `CDPX_ORIGINS` couvre aussi cookies, `vitals --click`, la destination
+  d'interception et chaque mutation rejouée après navigation. `replay` valide
+  tout le journal avant action et compare les résultats enregistrés.
+- Les erreurs de navigation CDP deviennent des exit 1, le SEO accepte les
+  racines JSON-LD tableaux/scalaires, les preuves masquent les headers sensibles
+  et la couverture JS expose les octets utilisés/inutilisés par ressource.
+
 - **Breaking**: `cdpx profiler` parse désormais les vrais panels HTML du
   WebProfilerBundle (db, twig, cache, exception, http_client, messenger,
   router, time, logger) récupérés par `fetch()` dans la page. `panels` est
@@ -23,7 +43,7 @@ Release initiale.
 
 ### Ajouté
 
-- 29 sous-commandes CLI sur le Chrome DevTools Protocol, organisées en 8
+- 30 sous-commandes CLI sur le Chrome DevTools Protocol, organisées en 8
   features documentées (navigation, DOM/actions, capture/observabilité,
   état/session, audits SEO/perf/a11y, diagnostics Symfony, orchestration,
   harness/preuve). Contrat stable: stdout = un objet JSON, stderr =

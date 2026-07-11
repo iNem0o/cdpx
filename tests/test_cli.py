@@ -18,8 +18,19 @@ def run(mock, capsys, *argv):
 def test_tabs_list(mock, capsys):
     code, out, _ = run(mock, capsys, "tabs", "list")
     assert code == 0
-    tabs = json.loads(out)
-    assert tabs[0]["type"] == "page" and "id" in tabs[0]
+    payload = json.loads(out)
+    assert payload["count"] == 1
+    assert payload["tabs"][0]["type"] == "page" and "id" in payload["tabs"][0]
+
+
+def test_tabs_list_limit_has_collection_metadata(mock, capsys):
+    run(mock, capsys, "tabs", "new", "--url", "http://second.test/")
+    code, out, _ = run(mock, capsys, "--limit", "1", "tabs", "list")
+    payload = json.loads(out)
+    assert code == 0 and payload["count"] == 2
+    assert len(payload["tabs"]) == 1
+    assert payload["tabs_truncated"] is True
+    assert payload["tabs_total"] == 2 and payload["tabs_limit"] == 1
 
 
 def test_tabs_new_and_close(mock, capsys):
@@ -34,6 +45,25 @@ def test_goto(mock, capsys):
     code, out, _ = run(mock, capsys, "goto", "http://site.test/")
     data = json.loads(out)
     assert code == 0 and data["ok"] is True and data["waited"] == "load"
+
+
+@pytest.mark.scenario(
+    feature="browser-navigation",
+    journey="open-page",
+    scenario_id="browser-navigation.open-page-success",
+    proves=["A CDP navigation error is surfaced as runtime exit 1."],
+)
+def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
+    monkeypatch.setattr(
+        "cdpx.cli.nav.navigate",
+        lambda *a, **kw: {
+            "url": "http://bad.test",
+            "ok": False,
+            "errorText": "ERR_NAME_NOT_RESOLVED",
+        },
+    )
+    code, _, err = run(mock, capsys, "goto", "http://bad.test")
+    assert code == 1 and "ERR_NAME_NOT_RESOLVED" in err
 
 
 def test_eval(mock, capsys):
@@ -121,6 +151,72 @@ def test_cookies_masked_output(mock, capsys):
     code, out, _ = run(mock, capsys, "cookies", "get")
     data = json.loads(out)
     assert code == 0 and data["cookies"][0]["value"] == "***"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("tabs", "close"),
+        ("tabs", "activate"),
+        ("cookies", "set", "--name", "flag"),
+        ("tabs", "list", "--id", "x"),
+        ("cookies", "get", "--url", "http://x.test/"),
+    ],
+)
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="run-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    proves=["Invalid conditional arguments fail with usage exit 2 before CDP."],
+)
+def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
+    code, _, err = run(mock, capsys, *argv)
+    assert code == 2 and ("requis" in err or "non support" in err)
+    assert mock.commands == []
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="run-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    proves=["Mutating command variants cannot bypass the configured origin guard."],
+)
+def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkeypatch):
+    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    for argv in (
+        (
+            "cookies",
+            "set",
+            "--name",
+            "flag",
+            "--value",
+            "1",
+            "--url",
+            "https://prod.example/",
+        ),
+        ("cookies", "clear"),
+        ("vitals", "https://prod.example/", "--click", "#go"),
+    ):
+        code, _, err = run(mock, capsys, *argv)
+        assert code == 1 and "mutation refusée" in err
+
+
+def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monkeypatch):
+    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    tid = next(iter(mock.targets))
+    mock.targets[tid]["url"] = "http://allowed.test/"
+    code, _, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "* => block",
+        "--",
+        "goto",
+        "https://prod.example/",
+    )
+    assert code == 1 and "mutation refusée" in err
+    assert mock.commands == []
 
 
 def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
@@ -421,11 +517,11 @@ def test_origin_guard_composed_commands_follow_action_verb(mock, capsys, monkeyp
     # record avec verbe mutant: refusé (aucune commande CDP émise)
     code, _, err = run(mock, capsys, "record", "-o", str(journal), "--", "click", "#x")
     assert code == 1 and "mutation refusée" in err and mock.commands == []
-    # replay: mutant en bloc (le journal peut contenir n'importe quoi),
-    # refusé tant que l'onglet est sur une origine hors liste (about:blank)
+    # replay est gardé séquentiellement: une navigation de lecture vers une
+    # origine permise n'est plus refusée à cause de l'onglet initial about:blank.
     journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
-    code, _, err = run(mock, capsys, "replay", str(journal))
-    assert code == 1 and "mutation refusée" in err and mock.commands == []
+    code, out, err = run(mock, capsys, "replay", str(journal))
+    assert code == 0 and json.loads(out)["ok"] is True and not err
     # record avec verbe de lecture: permis même hors liste
     code, out, _ = run(mock, capsys, "record", "-o", str(journal), "--", "goto", "http://a.test/")
     assert code == 0 and json.loads(out)["ok"] is True

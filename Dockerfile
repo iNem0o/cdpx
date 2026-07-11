@@ -11,11 +11,12 @@ RUN apt-get update \
 
 WORKDIR /workspace
 COPY pyproject.toml README.md ./
+COPY LICENSE CHANGELOG.md ./
 COPY src ./src
 COPY tests ./tests
 COPY docs ./docs
-COPY Makefile HARNESS.md CLAUDE.md ./
+COPY Dockerfile .gitlab-ci.yml Makefile HARNESS.md CLAUDE.md ./
 
-RUN pip install -e . pytest ruff
+RUN pip install -e ".[dev]"
 
 CMD ["make", "test-e2e"]

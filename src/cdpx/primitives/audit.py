@@ -80,13 +80,25 @@ def seo(client: CDPClient) -> dict:
     duplicated_h1 = sorted({h for h in h1_norm if h and h1_norm.count(h) > 1})
     if duplicated_h1:
         findings.append(f"h1 dupliqué: {', '.join(duplicated_h1)}")
-    for item in data.get("jsonld", []):
+    for item in _jsonld_items(data.get("jsonld", [])):
+        if not isinstance(item, dict):
+            findings.append("JSON-LD scalaire non supporté")
+            continue
         if item.get("__parse_error"):
             findings.append("JSON-LD invalide")
         if item.get("@type") == "Product" and not (item.get("sku") or item.get("name")):
             findings.append("Product JSON-LD incomplet (sku ou name requis)")
     data["findings"] = findings
     return data
+
+
+def _jsonld_items(value):
+    """Aplatit les tableaux JSON-LD valides sans supposer que chaque racine est un objet."""
+    if isinstance(value, list):
+        for item in value:
+            yield from _jsonld_items(item)
+    else:
+        yield value
 
 
 def _px_estimate(text: str) -> int:

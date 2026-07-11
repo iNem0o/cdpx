@@ -73,6 +73,9 @@ doc à jour. Les items renvoient aux fiches milestones pour le détail.
 
 ## Dette / vigilance (fil continu)
 
+- [x] Portail release agrégé: Docker/Compose + Chrome + Symfony sans skip +
+      proof + dist obligatoires; `check-local` sépare la boucle courte du
+      `check` standard complet; CI MR/tags alignée et cleanup Compose garanti.
 - [x] Network.clearBrowserCookies déprécié -> bascule Storage.clearCookies avec fallback.
 - [ ] KEY_MAP minimal (5 touches): étendre à la demande, jamais en spéculatif.
 - [ ] `eval` reste l'échappatoire: si un usage revient 3 fois dans les sessions

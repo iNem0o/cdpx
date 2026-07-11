@@ -6,7 +6,7 @@
 PY ?= python3
 COV_MIN ?= 85
 
-.PHONY: help setup check lint fmt test test-e2e cov typecheck fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof clean dist
+.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist
 
 help: ## liste des cibles
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -14,7 +14,10 @@ help: ## liste des cibles
 setup: ## installe le paquet en editable + outils dev (extras [dev])
 	pip install -e ".[dev]" --break-system-packages --quiet || pip install -e ".[dev]"
 
-check: lint typecheck test ## PORTAIL QUALITÉ: lint + format + mypy + tests unitaires
+check-local: lint typecheck test ## boucle locale: lint + format + mypy + tests unitaires
+	@echo "== make check-local: OK =="
+
+check: check-local docker-check docker-e2e docker-symfony-e2e ## PORTAIL QUALITÉ COMPLET: local + Docker + Chrome + Symfony
 	@echo "== make check: OK =="
 
 lint: ## ruff check + vérification de format
@@ -40,19 +43,26 @@ typecheck: ## mypy sur src/cdpx (bloquant: inclus dans check depuis le vert dura
 docker-build: ## construire l'image portable cdpx-ci
 	docker build -t cdpx-ci .
 
-docker-check: docker-build ## make check dans l'image cdpx-ci
-	docker run --rm cdpx-ci make check
+docker-check: docker-build ## make check-local dans l'image cdpx-ci
+	docker run --rm cdpx-ci make check-local
 
 docker-e2e: docker-build ## e2e Chrome réel dans l'image cdpx-ci
 	docker run --rm cdpx-ci make test-e2e
 
 docker-symfony-e2e: ## M2: e2e profiler contre une vraie app Symfony Dockerisée
-	mkdir -p .proof/evidence
-	CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans
-	CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; status=$$?; CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans; exit $$status
+	@set -eu; \
+	mkdir -p .proof/evidence; \
+	export CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g); \
+	cleanup() { docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans; }; \
+	trap cleanup EXIT INT TERM; \
+	cleanup; \
+	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
 
 proof: ## rapport HTML humain basé sur les preuves collectées (.proof/)
 	PYTHONPATH=src $(PY) -m cdpx.proof
+
+release: check proof dist ## PORTAIL RELEASE: check complet + preuve + artefacts
+	@echo "== make release: OK =="
 
 fixtures: ## lancer le site témoin sur :8899 (inspection manuelle / e2e piloté main)
 	$(PY) -m cdpx.testing.fixture_server --port 8899
@@ -64,7 +74,7 @@ clean: ## nettoyer artefacts
 	rm -rf .pytest_cache .ruff_cache dist build src/*.egg-info
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
-dist: check ## wheel + sdist vérifiés (après check)
+dist: check-local ## wheel + sdist vérifiés (le portail release impose check complet)
 	rm -rf dist
 	$(PY) -m build
 	$(PY) -m twine check dist/*

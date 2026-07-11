@@ -131,9 +131,10 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
       `_render_*`, `_feature_cards`, `_metric`, `_table`…); conserver `_tail`,
       `_case_focus`, `_suite_for_summary`, `_empty_suite`,
       `_json_for_html_script`, `parse_help_commands`; `render_html(summary)`.
-- [x] 5.4 `CDPX_PROOF_REQUIRE_SYMFONY=1` → `unavailable` devient proof_failure.
+- [x] 5.4 Politique durcie après audit release: toute preuve Symfony
+      `unavailable` devient un `proof_failure`, sans flag ni mode dégradé.
 - [x] 5.5 Tests: `test_spa_renders_every_summary_key` (calculé ⇒ rendu), smoke
-      render_html, log tails/focus, doc_html par feature, flag Symfony;
+      render_html, log tails/focus, doc_html par feature, blocage Symfony;
       adaptation des tests existants.
 - [x] 5.6 Absorption legacy (globs scénarios élargis) + ratchet — RÉSULTAT:
       0 warning legacy, LEGACY_WARNING_BUDGET = 0 (le catalogue est 100%
@@ -174,18 +175,17 @@ première case non cochée, suivre la boucle CLAUDE.md (test mock d'abord,
       `*.png` global ignorait silencieusement les screenshots de preuve des
       nouveaux e2e → exception `!.proof/**` et artefacts récupérés. `.proof/`
       reste versionné.
-- [x] 8.5 .gitlab-ci.yml: stages test+build; check en matrice 3.11/3.12 avec
-      cov; job proof (artefacts .proof/ + report junit); typecheck
-      allow_failure; e2e:chrome avec artefacts; job build (dist + smoke
-      install); e2e:symfony inchangé.
+- [x] 8.5 .gitlab-ci.yml: check en matrice 3.11/3.12 avec cov; e2e Chrome,
+      Symfony et proof obligatoires sur MR/tags/pipelines planifiés; artefacts
+      `.proof/` + JUnit; build (dist + smoke install) dépend de tous ces jobs.
 
 ## Phase 9 — Validation finale
 
-- [x] `make check` vert — 239 tests unitaires (packaging/docs/markdown inclus).
-- [x] `make test-e2e` vert — 23 scénarios Chrome réels (emulate/metrics/pdf/replay inclus).
-- [x] `make docker-symfony-e2e` vert — 6/6 contre l'app Symfony Docker.
-- [x] `make proof` → ok:true, 268/268 tests, 0 violation, 0 warning, 0 gap,
-      8 features validated; rapport inspecté visuellement (doc FR par feature,
-      vues Run/CLI/Validation peuplées) en pilotant la SPA avec cdpx.
+- [x] Validation historique initiale effectuée; les nombres ponctuels ne sont
+      plus recopiés ici. Les totaux courants font foi dans les trois JUnit et
+      `.proof/validation-summary.json` produits par chaque run.
+- [x] Docker/Compose et Symfony sont désormais obligatoires: `unavailable` ou
+      un skip Symfony bloque `make check`, proof et le portail `make release`;
+      `make check-local` reste la boucle courte explicitement non-release.
 - [x] `make dist` → wheel+sdist + twine check + smoke install venv (cdpx 0.1.0).
 - [x] RELEASE-PLAN coché, TODO.md à jour, commit final.

@@ -5,7 +5,7 @@ status = "validated"
 summary = "Ouvrir des pages, sélectionner des onglets et attendre des états navigateur déterministes avant de lire ou d'agir."
 entrypoints = ["cdpx tabs", "cdpx version", "cdpx goto", "cdpx wait"]
 path_globs = ["src/cdpx/discovery.py", "src/cdpx/client.py", "src/cdpx/primitives/nav.py", "tests/test_discovery_and_client.py", "tests/fixtures/index.html", "tests/fixtures/spa.html"]
-test_globs = ["tests/test_discovery_and_client.py::*", "tests/test_primitives.py::test_navigate*", "tests/test_primitives.py::test_wait*", "tests/test_cli.py::test_tabs*", "tests/test_cli.py::test_goto", "tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_wait*"]
+test_globs = ["tests/test_discovery_and_client.py::*", "tests/test_primitives.py::test_navigate*", "tests/test_primitives.py::test_wait*", "tests/test_cli.py::test_tabs*", "tests/test_cli.py::test_goto*", "tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_cli_browser_lifecycle*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -81,10 +81,10 @@ cdpx tabs activate --id 4FA1B2C3D4E5F6
 cdpx tabs close --id 4FA1B2C3D4E5F6
 ```
 
-Sortie de `list` (une entrée par target) :
+Sortie de `list` (collection bornable par `--limit`, avec le nombre total) :
 
 ```json
-[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Produit 42","url":"http://demo.test/produit-42"}]
+{"tabs":[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Produit 42","url":"http://demo.test/produit-42"}],"count":1}
 ```
 
 Sortie de `new` (le target créé, tel que retourné par Chrome), puis
@@ -94,8 +94,9 @@ Sortie de `new` (le target créé, tel que retourné par Chrome), puis
 {"activated":"4FA1B2C3D4E5F6"}
 ```
 
-Erreurs (exit 1) : Chrome injoignable sur `host:port` (erreur de découverte
-`/json`), ou `id` inconnu. Pièges : depuis Chrome 111, `/json/new` exige un
+Erreurs : exit 1 si Chrome est injoignable sur `host:port` ou si l'`id` est
+inconnu ; exit 2 si `--id` manque pour `activate`/`close` ou si une option ne
+convient pas à l'action. Pièges : depuis Chrome 111, `/json/new` exige un
 PUT — cdpx tente PUT puis retombe sur GET pour les vieux Chromium ; ne jamais
 pointer le Chrome personnel, toujours un profil jetable
 (`--user-data-dir=/tmp/cdpx-profile`).

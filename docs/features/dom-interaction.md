@@ -5,7 +5,7 @@ status = "validated"
 summary = "Lire le texte/HTML rendu, évaluer du JavaScript, compter des éléments et produire des entrées utilisateur trusted."
 entrypoints = ["cdpx eval", "cdpx text", "cdpx html", "cdpx count", "cdpx click", "cdpx type", "cdpx key"]
 path_globs = ["src/cdpx/primitives/js.py", "src/cdpx/primitives/inputs.py", "tests/fixtures/form.html"]
-test_globs = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*"]
+test_globs = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*", "tests/e2e/test_e2e_chrome.py::test_cli_dom_and_keyboard*"]
 docs = ["docs/PRIMITIVES.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 
