@@ -21,6 +21,7 @@ import pytest
 from cdpx import discovery
 from cdpx.client import CDPClient
 from cdpx.primitives import advanced, audit, capture, dev, js, nav
+from cdpx.session import SessionManifest, start_session, stop_session
 
 CHROME_BIN = next(
     (b for b in ("chromium", "chromium-browser", "google-chrome", "chrome") if shutil.which(b)),
@@ -79,29 +80,28 @@ def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
 
 
 def run_scenario_cli(
-    chrome: int,
-    tab: dict,
+    session: tuple[SessionManifest, Path],
     scenario: Path,
-    evidence_dir: Path,
     *,
     timeout: float = 12.0,
 ) -> tuple[int, dict, str]:
+    manifest, manifest_path = session
     proc = subprocess.run(
         [
             sys.executable,
             "-m",
             "cdpx.cli",
-            "--port",
-            str(chrome),
+            "--session",
+            str(manifest_path),
+            "--run-id",
+            manifest.run_id,
             "--target",
-            tab["id"],
+            manifest.target_id,
             "--timeout",
             str(timeout),
             "scenario",
             "run",
             str(scenario),
-            "--evidence-dir",
-            str(evidence_dir),
             "--settle",
             "0.5",
         ],
@@ -362,6 +362,26 @@ def chrome():
     yield E2E_PORT
     proc.terminate()
     stderr.close()
+
+
+@pytest.fixture(scope="module")
+def managed_cli_session(tmp_path_factory):
+    assert SYMFONY_URL is not None
+    runtime = tmp_path_factory.mktemp("cdpx-symfony-managed")
+    manifest, path = start_session(
+        run_id="symfony-cli",
+        authority="privileged",
+        origins=SYMFONY_URL,
+        ttl=900,
+        owner_pid=os.getpid(),
+        chrome_bin=CHROME_BIN,
+        root=runtime,
+    )
+    try:
+        yield manifest, path
+    finally:
+        if path.exists():
+            stop_session(path, run_id=manifest.run_id, target_id=manifest.target_id)
 
 
 @pytest.mark.scenario(
@@ -825,7 +845,11 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
         "Pass, controlled fail, and profiler/vitals evidence runs all produce reports.",
     ],
 )
-def test_declarative_scenarios_run_against_real_symfony(chrome, tmp_path, evidence_case):
+def test_declarative_scenarios_run_against_real_symfony(
+    managed_cli_session,
+    tmp_path,
+    evidence_case,
+):
     wait_for_symfony(SYMFONY_URL)
     cases = [
         ("symfony_front_pass.yml", 0, "pass", 12.0),
@@ -835,17 +859,11 @@ def test_declarative_scenarios_run_against_real_symfony(chrome, tmp_path, eviden
     results = {}
     for template, expected_code, expected_verdict, timeout in cases:
         scenario = materialize_scenario(template, SYMFONY_URL, tmp_path)
-        tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
-        try:
-            code, result, err = run_scenario_cli(
-                chrome,
-                tab,
-                scenario,
-                tmp_path / f"evidence-{template}",
-                timeout=timeout,
-            )
-        finally:
-            close_tab(chrome, tab)
+        code, result, err = run_scenario_cli(
+            managed_cli_session,
+            scenario,
+            timeout=timeout,
+        )
         attach_scenario_run(evidence_case, result, template.replace(".yml", ""))
         assert code == expected_code, err
         assert result["verdict"] == expected_verdict

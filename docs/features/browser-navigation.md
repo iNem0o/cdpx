@@ -2,7 +2,7 @@
 id = "browser-navigation"
 title = "Navigation et synchronisation"
 status = "validated"
-summary = "Ouvrir des pages, sélectionner des onglets et attendre des états navigateur déterministes avant de lire ou d'agir."
+summary = "Inspecter le target attribué, ouvrir des pages et attendre des états navigateur déterministes avant de lire ou d'agir."
 entrypoints = ["cdpx tabs", "cdpx version", "cdpx goto", "cdpx wait"]
 path_globs = ["src/cdpx/discovery.py", "src/cdpx/client.py", "src/cdpx/primitives/nav.py", "tests/test_discovery_and_client.py", "tests/fixtures/index.html", "tests/fixtures/spa.html"]
 test_globs = ["tests/test_discovery_and_client.py::*", "tests/test_primitives.py::test_navigate*", "tests/test_primitives.py::test_wait*", "tests/test_cli.py::test_tabs*", "tests/test_cli.py::test_goto*", "tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_cli_browser_lifecycle*"]
@@ -36,9 +36,9 @@ id = "wait-for-rendered-state"
 journey = "wait-spa-content"
 title = "Attendre le contenu rendu avant de lire l'état"
 ui_text = "L'agent attend que le contenu soit présent dans le DOM avant de le lire ou d'agir."
-report_text = "Ce scénario prouve la synchronisation entre la découverte des targets, la sélection d'onglet et le contenu DOM rendu tardivement."
+report_text = "Ce scénario prouve la synchronisation entre l'attestation du target attribué et le contenu DOM rendu tardivement."
 given = "Un onglet cible existe et une fixture peut injecter du contenu après le chargement initial."
-when = "cdpx attend un sélecteur ou liste les targets du navigateur qui peuvent être sélectionnés."
+when = "cdpx attend un sélecteur ou inspecte le target attribué à la session."
 then = "Le target est attribué et le sélecteur attendu est attaché au DOM pour les primitives suivantes."
 tests = ["tests/test_discovery_and_client.py::*", "tests/test_cli.py::test_tabs*", "tests/test_primitives.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_wait*"]
 expected_proofs = ["junit", "screenshot"]
@@ -46,8 +46,8 @@ expected_proofs = ["junit", "screenshot"]
 
 ## Intention
 
-Donner à l'agent (ou au dev qui le pilote) un moyen déterministe de choisir un
-target Chrome, de naviguer, et d'attendre qu'un état réellement utile existe
+Donner à l'agent (ou au dev qui le pilote) un target Chrome attribué de façon
+déterministe, puis lui permettre de naviguer et d'attendre un état utile
 avant toute lecture ou action. Pendant la construction d'une app Symfony ou
 e-commerce, une page « en cours de chargement » est un piège : l'agent qui lit
 trop tôt observe un état intermédiaire et en tire de fausses conclusions.
@@ -61,51 +61,28 @@ Options globales et codes de sortie: voir la section Contrat CLI du README.
 
 ### `cdpx tabs`
 
-Synopsis : `cdpx tabs {list,new,activate,close} [--url URL] [--id ID]`
+Synopsis : `cdpx tabs list`
 
-Gestion des onglets via l'API HTTP `/json` de Chrome : lister les targets
-disponibles, ouvrir un nouvel onglet, mettre un onglet au premier plan, ou le
-fermer. C'est la première commande d'une session : elle donne les `id` que
-`--target` (option globale) accepte ensuite.
-
-En mode local historique, l'absence de `--target` conserve la première page
-implicite. En mode équipe, le manifest, le `run-id` et le `target` attribué sont
-obligatoires : `tabs list` ne retourne que ce target et
-`new`/`activate`/`close` sont refusés, car son lifecycle appartient au
-supervisor de `cdpx session`.
-
-Options propres à la commande :
-
-- `action` (positionnel, requis) : `list`, `new`, `activate` ou `close`.
-- `--url` : URL d'ouverture pour `new` (défaut : page vierge).
-- `--id` : identifiant du target pour `activate` et `close`.
+Inspecte via `/json` l'unique target `page` attribué à la session. Le manifest,
+le run et le target sont obligatoires, explicitement ou par environnement ; la
+commande filtre la découverte sur cette attestation exacte. Le lifecycle des
+targets appartient au superviseur de `cdpx session` et n'est pas exposé comme
+action publique.
 
 ```bash
 cdpx tabs list
-cdpx tabs new --url http://demo.test/produit-42
-cdpx tabs activate --id 4FA1B2C3D4E5F6
-cdpx tabs close --id 4FA1B2C3D4E5F6
 ```
 
 Sortie de `list` (collection bornable par `--limit`, avec le nombre total) :
 
 ```json
-{"tabs":[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Produit 42","url":"http://demo.test/produit-42"}],"count":1}
+{"tabs":[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Produit 42","url":"http://demo.test/produit-42"}],"count":1,"_cdpx":{"content_trust":"untrusted"}}
 ```
 
-Sortie de `new` (le target créé, tel que retourné par Chrome), puis
-`activate`/`close` (accusé compact) :
-
-```json
-{"activated":"4FA1B2C3D4E5F6"}
-```
-
-Erreurs : exit 1 si Chrome est injoignable sur `host:port` ou si l'`id` est
-inconnu ; exit 2 si `--id` manque pour `activate`/`close` ou si une option ne
-convient pas à l'action. Pièges : depuis Chrome 111, `/json/new` exige un
-PUT — cdpx tente PUT puis retombe sur GET pour les vieux Chromium ; ne jamais
-pointer le Chrome personnel, toujours un profil jetable
-(`--user-data-dir=/tmp/cdpx-profile`).
+Erreurs : exit 1 si l'endpoint attesté devient injoignable ou si le target ne
+correspond plus au manifest ; exit 2 si un identifiant de session manque ou si
+une autre action est demandée. cdpx ne cible jamais un Chrome personnel : le
+profil jetable est créé et détruit par le superviseur.
 
 ### `cdpx version`
 
@@ -125,8 +102,8 @@ cdpx version
 {"Browser":"Chrome/126.0.6478.61","Protocol-Version":"1.3","User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36","V8-Version":"12.6.228.13","WebKit-Version":"537.36"}
 ```
 
-Erreurs (exit 1) : aucun Chrome à l'écoute sur le port de debug (connexion
-refusée sur `/json/version`).
+Erreurs (exit 1) : le navigateur supervisé ne répond plus sur son endpoint
+attesté (`/json/version`).
 
 ### `cdpx goto`
 
@@ -157,9 +134,9 @@ la sortie porte `"ok":false` avec `errorText` renseigné (ex.
 sortie. Un cycle de vie qui n'arrive jamais dans le délai imparti (option
 globale `--timeout`) provoque un exit 1. `--wait none` ne garantit rien sur
 l'état du DOM : à réserver aux cas où l'on enchaîne avec `cdpx wait`.
-En mode équipe, la destination est contrôlée avant connexion puis
-`window.location.href` est relu après navigation : une redirection hors
-allowlist transforme la commande en échec avant toute action suivante.
+La destination est contrôlée avant connexion puis `window.location.href` est
+relu après navigation : une redirection hors allowlist transforme la commande
+en échec avant toute action suivante.
 
 ### `cdpx wait`
 
@@ -196,7 +173,7 @@ un élément connecté, `display`/`visibility` visibles et une boîte non nulle.
 
 - Ouvrir une URL et recevoir un résultat de navigation JSON compact.
 - Attendre un sélecteur qui apparaît après le rendu côté client.
-- Lister, créer, activer et fermer des targets Chrome.
+- Inspecter l'unique target attribué sans pouvoir modifier son lifecycle.
 
 ## Validation
 

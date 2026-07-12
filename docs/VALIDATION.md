@@ -16,6 +16,9 @@ publiable par GitHub Actions.
 - `make check`: portail qualité standard et bloquant: `check-local`, puis le
   même contrôle dans l'image Docker, Chrome réel dans Docker et Symfony réel.
 - `make test-e2e`: scénarios Chrome réel contre les fixtures locales.
+- `make mock`: session supervisée au premier plan avec backend CDP simulé ; le
+  scénario unitaire associé prouve manifest, identité triple et teardown sans
+  Chrome réel.
 - `make docker-check`: `make check-local` dans l'image portable `cdpx-ci`.
 - `make docker-e2e`: Chrome réel dans l'image `cdpx-ci`.
 - `make docker-symfony-e2e`: e2e profiler contre une vraie app Symfony Docker.
@@ -45,7 +48,8 @@ comme la documentation humaine du produit:
 - **Validation**: matrice milestone → preuve (tableau ci-dessous), tests par
   module, risques/mitigations, inconnues assumées.
 - **Gaps**: violations (bloquantes) et warnings du catalogue. Le budget de
-  tests « legacy » (rattachés sans scénario documenté) est un ratchet à 0.
+  tests rattachés par un glob de feature sans scénario documenté est un
+  ratchet à 0.
 - **Run**: commandes du run, suites JUnit, tests en échec ou les plus lents,
   fins de logs repliables.
 
@@ -137,7 +141,7 @@ sont centralisés dans [GITHUB.md](GITHUB.md).
 | M4 SEO/perf | vitals avec interaction, a11y AXTree, coverage JS/CSS, SEO edge |
 | M5 orchestration | record/replay avec divergence, frame, allowlist, max-actions |
 | M6 distribution | `make docker-check`, `make docker-e2e`, image `cdpx-ci` |
-| M8 équipe/sécurité | unitaires policy/session/journal/redaction/artefacts + E2E multi-session Chrome réel |
+| M8 sessions/sécurité | unitaires policy/session/journal/redaction/artefacts + session mock supervisée + E2E multi-session Chrome réel |
 | Release | `make release`, tous les portails précédents + proof + wheel/sdist |
 
 ## Cas limites couverts
@@ -155,11 +159,11 @@ sont centralisés dans [GITHUB.md](GITHUB.md).
 - Interception: seules les actions `continue`, `block` ou statuts `200..599`
   sont acceptées ; une action inconnue échoue avant navigation.
 - SEO: JSON-LD invalide, Product incomplet, H1 dupliqués, longueurs estimées.
-- Mode équipe: session/run/target requis avant découverte, manifest/lease
-  privés, trois profils simultanés isolés, loopback, teardown et matrice
-  d'autorités exercés sur mock et Chrome réel.
-- Origines: legacy opt-in pour les mutations ; équipe fail-closed avec
-  `CDPX_ORIGINS` obligatoire, destinations et origine réelle contrôlées.
+- Sessions : session/run/target requis avant découverte, aucun endpoint ou
+  target implicite, manifest/lease privés, backend mock sous le même contrat,
+  trois profils Chrome simultanés isolés, teardown et matrice d'autorités.
+- Origines : allowlist fail-closed obligatoire, destinations et origine réelle
+  contrôlées avant/après navigation et avant action.
 - Sorties agentiques: JSON compact par défaut, limites `--limit`/`--max-actions`,
   NDJSON pour les flux, cookies/storage/saisies masqués, URL/query/headers/
   console/profiler nettoyés et contenu page marqué non fiable.
@@ -179,7 +183,8 @@ sont centralisés dans [GITHUB.md](GITHUB.md).
 - `a11y` est une vue AX compacte, `vitals` une mesure locale bornée, `seo` un
   contrôle on-page, `network` un résumé non-HAR et `replay` une comparaison
   partielle : aucun de ces signaux ne doit être présenté comme exhaustif.
-- Le TTL des artefacts autonomes est manifesté et purgeable mais aucun daemon
-  global ne déclenche actuellement `purge_expired` hors session supervisée.
-- `key` et le cycle de vie CLI `tabs` new/activate/close disposent de scénarios
-  Chrome dédiés, en complément du protocole figé par le mock.
+- Le TTL des preuves locales est manifesté et purgeable mais aucun daemon
+  global ne déclenche actuellement leur purge périodique.
+- `key` dispose de scénarios Chrome dédiés. `tabs list` est testé sous session
+  attribuée ; le lifecycle des targets est couvert par les scénarios du
+  superviseur et n'appartient pas à la surface CLI publique.

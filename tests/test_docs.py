@@ -23,11 +23,12 @@ GLOBAL_CONTRACT_TOKENS = [
     "--limit",
     "--max-actions",
     "--target",
-    "--host",
-    "--port",
+    "--session",
+    "--run-id",
     "--timeout",
-    "CDPX_HOST",
-    "CDPX_PORT",
+    "CDPX_SESSION",
+    "CDPX_RUN_ID",
+    "CDPX_TARGET",
     "CDPX_ORIGINS",
 ]
 
@@ -64,6 +65,37 @@ def test_readme_documents_cli_contract():
         assert re.search(exit_code.replace(" ", r"\s*"), README, re.I), (
             f"code de sortie non documenté: {exit_code}"
         )
+
+
+def test_active_user_docs_only_describe_the_supervised_session_contract():
+    specs, errors = load_feature_specs()
+    assert errors == []
+    documents = {
+        "README.md": README,
+        "HARNESS.md": Path("HARNESS.md").read_text(encoding="utf-8"),
+        "docs/PRIMITIVES.md": PRIMITIVES,
+        **{spec.source: spec.body for spec in specs},
+    }
+    removed_contracts = (
+        "--host",
+        "--port",
+        "CDPX_HOST",
+        "CDPX_PORT",
+        "--manifest",
+        "--evidence-dir",
+        "tabs new",
+        "tabs activate",
+        "tabs close",
+        "mode équipe",
+        "mode local historique",
+        "legacy",
+    )
+    for source, content in documents.items():
+        lowered = content.lower()
+        for removed in removed_contracts:
+            assert removed.lower() not in lowered, (
+                f"{source}: contrat supprimé encore documenté: {removed}"
+            )
 
 
 def _fenced_cdpx_lines(text: str) -> list[str]:

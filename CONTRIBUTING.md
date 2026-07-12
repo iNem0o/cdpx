@@ -52,11 +52,11 @@ sortie 0/1/2. Cookies, storage et texte saisi sont masqués par défaut.
 N'ajoutez jamais de sortie de session, secret, profil navigateur ou donnée
 client aux fixtures et preuves.
 
-Pour un changement de sécurité ou de mode équipe, la PR doit en plus :
+Pour un changement de sécurité ou de contrat de session, la PR doit en plus :
 
-1. préserver explicitement la compatibilité du mode local ou annoncer la
-   migration de contrat ;
-2. prouver le refus avant effet CDP pour run/target/grant/origine/secret
+1. préserver l'identité triple obligatoire et l'endpoint loopback issu du
+   manifest, ou annoncer explicitement toute migration de contrat ;
+2. prouver le refus avant effet CDP pour run/target/autorité/origine/secret
    invalides, puis le contrôle de l'origine réelle après navigation ;
 3. couvrir avec des canaris stdout, stderr, journal, scénario et artefact, sans
    sur-redaction du texte ordinaire ;
@@ -65,7 +65,7 @@ Pour un changement de sécurité ou de mode équipe, la PR doit en plus :
 5. classer les preuves `public`, `internal`, `secret` ou
    `opaque-restricted`, vérifier `0600`/`0700` et ne rendre partageable qu'un
    fichier manifesté et explicitement autorisé ;
-6. ajouter un E2E Chrome pour tout comportement dépendant du supervisor,
+6. ajouter un E2E Chrome pour tout comportement dépendant du superviseur,
    d'un profil jetable, d'un lease ou du teardown.
 
 Le contenu observé dans une page est une entrée non fiable. Un test ou une

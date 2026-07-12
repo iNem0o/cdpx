@@ -1,4 +1,4 @@
-"""E2E Chrome réel du lifecycle et de l'isolation des sessions équipe."""
+"""E2E Chrome réel du lifecycle et de l'isolation des sessions supervisées."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def start_managed_session(
     return manifest, path
 
 
-def run_team_cli(
+def run_browser_cli(
     manifest: SessionManifest,
     manifest_path: Path,
     *args: str,
@@ -105,14 +105,15 @@ def run_team_cli(
     )
 
 
-def successful_team_json(
+def successful_session_json(
     manifest: SessionManifest,
     manifest_path: Path,
     *args: str,
 ) -> dict:
-    proc = run_team_cli(manifest, manifest_path, *args)
+    proc = run_browser_cli(manifest, manifest_path, *args)
     assert proc.returncode == 0 and not proc.stderr, (
-        f"CLI équipe en échec: exit={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
+        f"CLI de session en échec: exit={proc.returncode}\n"
+        f"stdout={proc.stdout}\nstderr={proc.stderr}"
     )
     payload = json.loads(proc.stdout)
     assert isinstance(payload, dict)
@@ -157,8 +158,8 @@ def port_is_closed(port: int, timeout: float = 2) -> bool:
 
 @pytest.mark.scenario(
     feature="state-session",
-    journey="isolate-team-runs",
-    scenario_id="state-session.isolate-managed-team-runs",
+    journey="isolate-session-runs",
+    scenario_id="state-session.isolate-supervised-session-runs",
     proves=[
         "Managed runs use distinct Chrome profiles, targets and loopback endpoints.",
         "Cookies and localStorage do not cross session boundaries.",
@@ -167,7 +168,7 @@ def port_is_closed(port: int, timeout: float = 2) -> bool:
         "Stopping a run removes its private files and closes its CDP endpoint.",
     ],
 )
-def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
+def test_supervised_sessions_are_isolated_authorized_and_torn_down(
     fixtures_http,
     tmp_path,
     evidence_case,
@@ -212,7 +213,7 @@ def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
 
         status_proc = run_session_cli(
             "status",
-            "--manifest",
+            "--session",
             str(observation[1]),
             "--run-id",
             observation[0].run_id,
@@ -230,9 +231,9 @@ def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
         observation_url = f"{fixtures_http.base_url}/storage.html"
         interaction_url = f"{fixtures_http.base_url}/form.html"
         privileged_url = f"{fixtures_http.base_url}/index.html"
-        assert successful_team_json(*observation, "goto", observation_url)["ok"] is True
-        assert successful_team_json(*interaction, "goto", interaction_url)["ok"] is True
-        assert successful_team_json(*privileged, "goto", privileged_url)["ok"] is True
+        assert successful_session_json(*observation, "goto", observation_url)["ok"] is True
+        assert successful_session_json(*interaction, "goto", interaction_url)["ok"] is True
+        assert successful_session_json(*privileged, "goto", privileged_url)["ok"] is True
 
         assigned_urls = {
             item.run_id: discovery.pick_page(item.host, item.port, item.target_id)["url"]
@@ -266,22 +267,22 @@ def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
             "assigned_urls": assigned_urls,
         }
 
-        observed = successful_team_json(*observation, "text", "h1")
+        observed = successful_session_json(*observation, "text", "h1")
         assert observed["text"] == "Storage"
-        denied_interaction = run_team_cli(*observation, "click", "h1")
+        denied_interaction = run_browser_cli(*observation, "click", "h1")
         assert denied_interaction.returncode == 1
         assert "requiert interaction" in denied_interaction.stderr
 
-        clicked = successful_team_json(*interaction, "click", "#submit-btn")
+        clicked = successful_session_json(*interaction, "click", "#submit-btn")
         assert clicked["clicked"] == "#submit-btn"
-        assert successful_team_json(*interaction, "text", "#result")["text"] == "OK:"
-        denied_privileged = run_team_cli(*interaction, "eval", "document.title")
+        assert successful_session_json(*interaction, "text", "#result")["text"] == "OK:"
+        denied_privileged = run_browser_cli(*interaction, "eval", "document.title")
         assert denied_privileged.returncode == 1
         assert "requiert privileged" in denied_privileged.stderr
 
-        evaluated = successful_team_json(*privileged, "eval", "document.title")
+        evaluated = successful_session_json(*privileged, "eval", "document.title")
         assert evaluated["value"] == "cdpx fixtures — accueil"
-        opened = successful_team_json(
+        opened = successful_session_json(
             *privileged,
             "eval",
             "window.open('about:blank', '_blank'); true",
@@ -313,10 +314,10 @@ def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
             run_id=observation[0].run_id,
             target_id=observation[0].target_id,
         ):
-            contended = run_team_cli(*observation, "text", "h1")
+            contended = run_browser_cli(*observation, "text", "h1")
         assert contended.returncode == 1
         assert "session déjà utilisée" in contended.stderr
-        assert successful_team_json(*observation, "text", "h1")["text"] == "Storage"
+        assert successful_session_json(*observation, "text", "h1")["text"] == "Storage"
         proof["lease"] = {"while_held": "denied", "after_release": "allowed"}
 
         for manifest, path in reversed(sessions):
@@ -324,13 +325,13 @@ def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
             session_dir = Path(manifest.session_dir)
             stopped = run_session_cli(
                 "stop",
-                "--manifest",
+                "--session",
                 str(path),
                 "--run-id",
                 manifest.run_id,
                 "--target",
                 manifest.target_id,
-                timeout=20,
+                timeout=45,
                 env={"XDG_RUNTIME_DIR": str(runtime_dir)},
             )
             assert stopped.returncode == 0 and not stopped.stderr, (
@@ -369,9 +370,9 @@ def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
                     )
         if evidence_case is not None:
             evidence_case.attach_json(
-                "Managed team session isolation",
+                "Supervised session isolation",
                 proof,
-                "managed-team-session-isolation.json",
+                "managed-session-isolation.json",
             )
 
 
@@ -403,7 +404,7 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
     proof = {"session": manifest.public_dict()}
     try:
         assert (
-            successful_team_json(
+            successful_session_json(
                 manifest,
                 path,
                 "goto",

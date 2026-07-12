@@ -69,7 +69,7 @@ fixtures: ## lancer le site témoin sur :8899 (inspection manuelle / e2e piloté
 	$(PY) -m cdpx.testing.fixture_server --port 8899
 
 mock: ## lancer un faux Chrome scriptable (debug du CLI sans navigateur)
-	$(PY) -m cdpx.testing.mock_cdp
+	$(PY) -m cdpx.testing.mock_session
 
 clean: ## nettoyer artefacts
 	rm -rf .pytest_cache .ruff_cache .mypy_cache .proof dist build src/*.egg-info

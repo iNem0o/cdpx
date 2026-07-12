@@ -58,22 +58,25 @@ personne extérieure.
 Le suivi opérationnel vit dans [TODO.md](TODO.md) et
 [RELEASE-PLAN.md](RELEASE-PLAN.md).
 
-## M8 — Isolation et frontière de confiance équipe ✅
+## M8 — Sessions supervisées et frontière de confiance ✅
 
 Objectif : rendre l'exécution déterministe lorsque plusieurs agents utilisent
-cdpx en parallèle, sans casser le mode local pré-1.0.
+cdpx en parallèle et faire de cette supervision le contrat unique du produit.
 
 - session Chrome supervisée par run : profil jetable, target explicite, lease
   exclusif, TTL/owner et teardown ;
 - niveaux `observation`, `interaction`, `privileged`, avec commandes composées
   préflightées et refus par défaut des capacités non classées ;
-- loopback et `CDPX_ORIGINS` obligatoires en mode équipe, contrôle avant/après
-  navigation pour fermer la fenêtre de redirection ;
+- identité manifest/run/target et allowlist obligatoires avant discovery,
+  contrôle avant/après navigation pour fermer la fenêtre de redirection ;
+- suppression de la connexion directe, du target implicite et du lifecycle
+  public des targets ; backend mock exercé par le même contrat supervisé ;
 - journal v2 et références de secrets, redaction transversale, artefacts privés
   classifiés et staging CI allowlisté ;
 - interactions renforcées (`wait_visible`, actionability, hit-test, clear par
   événements) et assertions scénario après drainage final.
 
-Le code, les tests ciblés, `make check`, `make proof` et la validation du paquet
-distribué avec 31 commandes sont verts.
-Voir [M8](milestones/M8-isolation-securite-equipe.md).
+Le code, les tests ciblés, le HARNESS, les fiches features, le cockpit de
+preuve, `make check`, `make proof` et la validation du paquet distribué avec
+31 commandes sont verts.
+Voir [M8](milestones/M8-isolation-securite-session.md).

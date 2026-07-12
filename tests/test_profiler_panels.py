@@ -23,7 +23,8 @@ def read(name: str) -> str:
 
 @pytest.fixture()
 def client(mock):
-    target = discovery.pick_page("127.0.0.1", mock.http_port)
+    target_id = next(iter(mock.targets))
+    target = discovery.pick_page("127.0.0.1", mock.http_port, target_id)
     with CDPClient(target["webSocketDebuggerUrl"], timeout=5) as c:
         yield c
 

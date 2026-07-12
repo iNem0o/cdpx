@@ -2,10 +2,10 @@
 
 Ce que ça simule:
 - l'API HTTP de découverte (/json/list, /json/new, /json/activate, /json/close,
-  /json/version) sur un port,
-- l'endpoint WebSocket par target (ws://.../devtools/page/{id}) sur un autre
-  port (Chrome n'en utilise qu'un, mais le client suit le webSocketDebuggerUrl
-  publié par la découverte, donc la compat est totale).
+  /json/version),
+- l'endpoint WebSocket par target (ws://.../devtools/page/{id}),
+- un port loopback unique comme Chrome, afin que le mock puisse être attesté
+  par le supervisor de session.
 
 Ce que ça garantit:
 - chaque commande reçue est ENREGISTRÉE (self.commands) -> les tests valident
@@ -20,15 +20,20 @@ fixtures HTML.
 
 from __future__ import annotations
 
+import argparse
 import base64
-import http.server
 import json
+import signal
 import threading
 import urllib.parse
 import uuid
 from collections import deque
+from http import HTTPStatus
+from pathlib import Path
 from typing import Any
 
+from websockets.datastructures import Headers
+from websockets.http11 import Response
 from websockets.sync.server import Server, serve
 
 # PNG 1x1 transparent, valide. PDF minimal, valide en signature.
@@ -62,7 +67,7 @@ DEFAULT_COOKIES = [
 class MockCDP:
     """Faux Chrome scriptable. Voir tests/conftest.py pour l'usage type."""
 
-    def __init__(self) -> None:
+    def __init__(self, port: int = 0) -> None:
         self.targets: dict[str, dict] = {}
         self.commands: list[tuple[str, str, dict]] = []  # (target_id, method, params)
         self.eval_rules: list[tuple[str, deque]] = []  # (substring, valeurs successives)
@@ -70,8 +75,9 @@ class MockCDP:
         self.network_script: list[dict] = []  # évènements émis après Page.navigate
         self.error_methods: set[str] = set()  # méthodes qui répondent une erreur CDP
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
-        self._http: http.server.ThreadingHTTPServer | None = None
-        self._ws_server: Server | None = None
+        self._server: Server | None = None
+        self._requested_port = port
+        self.port = 0
         self.http_port = 0
         self.ws_port = 0
         self._add_target("about:blank", "Mock Tab")
@@ -97,15 +103,12 @@ class MockCDP:
 
     # -- cycle de vie ------------------------------------------------------------
     def start(self) -> MockCDP:
-        self._start_ws()
-        self._start_http()
+        self._start_server()
         return self
 
     def stop(self) -> None:
-        if self._http:
-            self._http.shutdown()
-        if self._ws_server:
-            self._ws_server.shutdown()
+        if self._server:
+            self._server.shutdown()
 
     def __enter__(self) -> MockCDP:
         return self.start()
@@ -121,63 +124,57 @@ class MockCDP:
 
     def _public_target(self, tid: str) -> dict:
         t = dict(self.targets[tid])
-        t["webSocketDebuggerUrl"] = f"ws://127.0.0.1:{self.ws_port}/devtools/page/{tid}"
+        t["webSocketDebuggerUrl"] = f"ws://127.0.0.1:{self.port}/devtools/page/{tid}"
         return t
 
-    # -- serveur HTTP découverte ---------------------------------------------------
-    def _start_http(self) -> None:
+    # -- serveur discovery + WebSocket CDP ------------------------------------------
+    def _start_server(self) -> None:
         mock = self
 
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *a):  # silence
-                pass
+        def reply(payload: Any, status: HTTPStatus = HTTPStatus.OK) -> Response:
+            body = (payload if isinstance(payload, str) else json.dumps(payload)).encode()
+            return Response(
+                status.value,
+                status.phrase,
+                Headers(
+                    [
+                        ("Content-Type", "application/json"),
+                        ("Content-Length", str(len(body))),
+                        ("Connection", "close"),
+                    ]
+                ),
+                body,
+            )
 
-            def _reply(self, obj, status=200):
-                body = (json.dumps(obj) if not isinstance(obj, str) else obj).encode()
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def _route(self):
-                parsed = urllib.parse.urlparse(self.path)
-                path = parsed.path
-                if path in ("/json", "/json/list"):
-                    return self._reply([mock._public_target(t) for t in mock.targets])
-                if path == "/json/version":
-                    return self._reply(
-                        {
-                            "Browser": "MockChrome/126.0",
-                            "Protocol-Version": "1.3",
-                            "webSocketDebuggerUrl": f"ws://127.0.0.1:{mock.ws_port}/devtools/browser",
-                        }
-                    )
-                if path == "/json/new":
-                    url = urllib.parse.unquote(parsed.query) or "about:blank"
-                    return self._reply(mock._add_target(url, "New Tab"))
-                if path.startswith("/json/activate/"):
-                    tid = path.rsplit("/", 1)[1]
-                    if tid in mock.targets:
-                        return self._reply("Target activated")
-                    return self._reply("No such target id", 404)
-                if path.startswith("/json/close/"):
-                    tid = path.rsplit("/", 1)[1]
-                    if mock.targets.pop(tid, None):
-                        return self._reply("Target is closing")
-                    return self._reply("No such target id", 404)
-                return self._reply({"error": "not found"}, 404)
-
-            do_GET = _route
-            do_PUT = _route
-
-        self._http = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.http_port = self._http.server_address[1]
-        threading.Thread(target=self._http.serve_forever, daemon=True).start()
-
-    # -- serveur WebSocket CDP -------------------------------------------------------
-    def _start_ws(self) -> None:
-        mock = self
+        def process_request(_connection, request):
+            parsed = urllib.parse.urlparse(request.path)
+            path = parsed.path
+            if path.startswith("/devtools/"):
+                return None
+            if path in ("/json", "/json/list"):
+                return reply([mock._public_target(t) for t in mock.targets])
+            if path == "/json/version":
+                return reply(
+                    {
+                        "Browser": "MockChrome/126.0",
+                        "Protocol-Version": "1.3",
+                        "webSocketDebuggerUrl": (f"ws://127.0.0.1:{mock.port}/devtools/browser"),
+                    }
+                )
+            if path == "/json/new":
+                url = urllib.parse.unquote(parsed.query) or "about:blank"
+                return reply(mock._add_target(url, "New Tab"))
+            if path.startswith("/json/activate/"):
+                tid = path.rsplit("/", 1)[1]
+                if tid in mock.targets:
+                    return reply("Target activated")
+                return reply("No such target id", HTTPStatus.NOT_FOUND)
+            if path.startswith("/json/close/"):
+                tid = path.rsplit("/", 1)[1]
+                if mock.targets.pop(tid, None):
+                    return reply("Target is closing")
+                return reply("No such target id", HTTPStatus.NOT_FOUND)
+            return reply({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
         def handler(ws):
             path = getattr(ws, "request", None)
@@ -194,10 +191,17 @@ class MockCDP:
                 for ev in events:
                     ws.send(json.dumps(ev))
 
-        ws_server = serve(handler, "127.0.0.1", 0)
-        self._ws_server = ws_server
-        self.ws_port = ws_server.socket.getsockname()[1]
-        threading.Thread(target=ws_server.serve_forever, daemon=True).start()
+        server = serve(
+            handler,
+            "127.0.0.1",
+            self._requested_port,
+            process_request=process_request,
+        )
+        self._server = server
+        self.port = int(server.socket.getsockname()[1])
+        self.http_port = self.port
+        self.ws_port = self.port
+        threading.Thread(target=server.serve_forever, daemon=True).start()
 
     # -- protocole scripté --------------------------------------------------------
     def _respond(self, tid: str, method: str, params: dict):
@@ -212,6 +216,9 @@ class MockCDP:
                     if isinstance(value, dict) and "raw" in value:
                         return value["raw"], None, events
                     return {"result": {"type": type(value).__name__, "value": value}}, None, events
+            if "window.location.href" in expr:
+                value = self.targets.get(tid, {}).get("url", "about:blank")
+                return {"result": {"type": "str", "value": value}}, None, events
             return {"result": {"type": "string", "value": "mock"}}, None, events
 
         if method == "Runtime.enable":
@@ -312,18 +319,32 @@ class MockCDP:
         return None, {"code": -32601, "message": f"'{method}' wasn't found"}, events
 
 
-def main() -> None:  # pragma: no cover - utilitaire manuel (make mock)
-    import time
+def main(argv: list[str] | None = None) -> int:  # pragma: no cover - processus supervisé
+    parser = argparse.ArgumentParser(prog="python -m cdpx.testing.mock_cdp")
+    parser.add_argument("--remote-debugging-port", type=int, default=0)
+    parser.add_argument("--user-data-dir", type=Path, required=True)
+    args = parser.parse_args(argv)
 
-    mock = MockCDP().start()
-    print(f"Mock CDP: découverte http://127.0.0.1:{mock.http_port}/json  ws port {mock.ws_port}")
-    print(f"  essayez: cdpx --port {mock.http_port} tabs list")
+    mock = MockCDP(port=args.remote_debugging_port).start()
+    args.user_data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    (args.user_data_dir / "DevToolsActivePort").write_text(
+        f"{mock.port}\n/devtools/browser/mock\n",
+        encoding="utf-8",
+    )
+    stopped = threading.Event()
+
+    def request_stop(_signum, _frame):
+        stopped.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
     try:
-        while True:
-            time.sleep(3600)
-    except KeyboardInterrupt:
+        while not stopped.wait(0.25):
+            pass
+    finally:
         mock.stop()
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

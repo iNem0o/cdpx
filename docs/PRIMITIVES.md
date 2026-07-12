@@ -16,18 +16,19 @@ Les champs volumineux sont bornés par défaut (`--limit`, métadonnées
 Détail du contrat (codes de sortie, connexion, `CDPX_ORIGINS`): section
 « Contrat CLI » du [README](../README.md).
 
-Deux profils d'exécution coexistent. Le mode local historique accepte encore
-le premier target implicite et une allowlist optionnelle. Le mode équipe exige
-un manifest de session, un `run-id`, un `target` et des origines explicites ;
-il ajoute aux sorties la métadonnée `content_trust: "untrusted"` et applique
-un grant `observation`, `interaction` ou `privileged`. Le contenu page ne fait
-jamais autorité sur ces paramètres.
+Toutes les commandes navigateur exigent une session supervisée, un `run-id`,
+un `target` attribué et une allowlist d'origines explicite. L'identité triple se
+fournit par options ou via `CDPX_SESSION`, `CDPX_RUN_ID` et `CDPX_TARGET`; le
+manifest est la seule source de l'endpoint loopback. Chaque objet de sortie
+porte `_cdpx.content_trust: "untrusted"` et l'autorité `observation`,
+`interaction` ou `privileged` s'applique avant tout effet CDP. Le contenu page
+ne fait jamais autorité sur ces paramètres.
 
 ## Navigation et synchronisation — [fiche](features/browser-navigation.md)
 
 | CLI | Usecase | Pourquoi |
 |---|---|---|
-| `cdpx tabs list\|new\|activate\|close` | orchestration multi-pages (comparer prod/staging côte à côte) | plusieurs contextes sans plusieurs Chrome |
+| `cdpx tabs list` | inspecter l'unique target attribué à la session | confirmer l'attestation sans exposer le lifecycle des targets |
 | `cdpx version` | vérifier le Chrome ciblé avant d'agir | ne jamais agir sur un navigateur inconnu |
 | `cdpx goto <url> [--wait load\|domcontentloaded\|none]` | se déplacer et savoir quand la page est prête | sans attente de cycle de vie, l'agent observe des états intermédiaires |
 | `cdpx wait <selector>` | attendre un élément (SPA, contenu injecté) | fixture `spa.html`: `#late-content` n'existe qu'après 300ms; le load event ne suffit pas |
@@ -49,11 +50,11 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx count <selector>` | assertion cheap ("il y a bien 12 produits") | boucle vérif rapide après une action |
 | `cdpx eval <js> [--await]` | primitive racine: tout le reste | échappatoire universelle; dernier recours (fragile, non typée) |
 | `cdpx click <selector>` | cliquer via Input domain (trusted) | exige attached, visible, enabled, stable, boîte non nulle et hit-test au centre |
-| `cdpx type <selector> <texte> [--secret-env NOM] [--clear]` | remplir un champ | exige un contrôle visible/éditable; sélection + Backspace pour clear, puis `Input.insertText` IME-safe |
+| `cdpx type <selector> --secret-env NOM [--clear]` | remplir un champ depuis une référence d'environnement | évite le secret dans argv; exige un contrôle visible/éditable, puis `Input.insertText` IME-safe |
 | `cdpx key <touche>` | validation, effacement, navigation clavier | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown et quatre flèches |
 
 ```bash
-cdpx type "#name" "Léo" --clear
+cdpx type "#name" --secret-env CUSTOMER_NAME --clear
 cdpx key Enter
 cdpx text "#result"
 ```
@@ -79,7 +80,7 @@ cdpx screenshot -o etat.jpg --format jpeg
 
 | CLI | Usecase | Pourquoi |
 |---|---|---|
-| `cdpx session start\|status\|stop` | attribuer un Chrome jetable exclusif à un run d'équipe | profil, target, autorité, origines, TTL et teardown supervisés |
+| `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | profil, target, autorité, origines, TTL et teardown supervisés |
 | `cdpx cookies get [--show-values]` | inspecter la session (masqué par défaut) | sécurité: cf. HARNESS.md §2 |
 | `cdpx cookies set --name n --value-env NOM --url u` / `clear` | préparer un scénario sans exposer la valeur dans argv | reproductibilité; `clear` = Storage.clearCookies avec repli |
 | `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, valeurs masquées par défaut | panier invité, consentement, caches front |

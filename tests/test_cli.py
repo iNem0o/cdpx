@@ -3,6 +3,7 @@ primitive -> JSON sur stdout + exit code. C'est le contrat vu par l'agent."""
 
 import json
 import pathlib
+from pathlib import Path
 
 import pytest
 
@@ -10,8 +11,26 @@ from cdpx import __version__
 from cdpx.cli import main
 
 
+@pytest.fixture(autouse=True)
+def managed_cli_session(cli_manifest):
+    return cli_manifest
+
+
 def run(mock, capsys, *argv):
-    code = main(["--port", str(mock.http_port), "--timeout", "5", *argv])
+    manifest = mock.cli_manifest
+    code = main(
+        [
+            "--session",
+            str(mock.cli_manifest_path),
+            "--run-id",
+            manifest.run_id,
+            "--target",
+            manifest.target_id,
+            "--timeout",
+            "5",
+            *argv,
+        ]
+    )
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -24,22 +43,11 @@ def test_tabs_list(mock, capsys):
     assert payload["tabs"][0]["type"] == "page" and "id" in payload["tabs"][0]
 
 
-def test_tabs_list_limit_has_collection_metadata(mock, capsys):
-    run(mock, capsys, "tabs", "new", "--url", "http://second.test/")
-    code, out, _ = run(mock, capsys, "--limit", "1", "tabs", "list")
-    payload = json.loads(out)
-    assert code == 0 and payload["count"] == 2
-    assert len(payload["tabs"]) == 1
-    assert payload["tabs_truncated"] is True
-    assert payload["tabs_total"] == 2 and payload["tabs_limit"] == 1
-
-
-def test_tabs_new_and_close(mock, capsys):
-    code, out, _ = run(mock, capsys, "tabs", "new", "--url", "http://x.test/")
-    tab = json.loads(out)
-    assert code == 0 and tab["url"] == "http://x.test/"
-    code, out, _ = run(mock, capsys, "tabs", "close", "--id", tab["id"])
-    assert code == 0 and json.loads(out) == {"closed": tab["id"]}
+@pytest.mark.parametrize("action", ["new", "activate", "close"])
+def test_tabs_lifecycle_actions_are_absent(action):
+    with pytest.raises(SystemExit) as exc:
+        main(["tabs", action])
+    assert exc.value.code == 2
 
 
 def test_goto(mock, capsys):
@@ -70,12 +78,26 @@ def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
 def test_eval(mock, capsys):
     mock.on_eval("6 * 7", 42)
     code, out, _ = run(mock, capsys, "eval", "6 * 7")
-    assert code == 0 and json.loads(out) == {"value": 42}
-    assert out == '{"value":42}\n'
+    payload = json.loads(out)
+    assert code == 0 and payload["value"] == 42
+    assert payload["_cdpx"]["content_trust"] == "untrusted"
 
 
 def test_pretty_output_is_explicit(mock, capsys):
-    code = main(["--port", str(mock.http_port), "--pretty", "eval", "1"])
+    manifest = mock.cli_manifest
+    code = main(
+        [
+            "--session",
+            str(mock.cli_manifest_path),
+            "--run-id",
+            manifest.run_id,
+            "--target",
+            manifest.target_id,
+            "--pretty",
+            "eval",
+            "1",
+        ]
+    )
     out = capsys.readouterr().out
     assert code == 0
     assert out.startswith("{\n")
@@ -119,12 +141,13 @@ def test_console_follow_outputs_compact_ndjson(mock, capsys):
         ]
     )
     code, out, _ = run(mock, capsys, "console", "--follow", "--max", "2")
-    lines = out.splitlines()
+    lines = [json.loads(line) for line in out.splitlines()]
     assert code == 0
-    assert lines == [
-        '{"kind":"console","type":"log","text":"one","ts":1.0}',
-        '{"kind":"console","type":"error","text":"two","ts":2.0}',
+    assert [(item["type"], item["text"]) for item in lines] == [
+        ("log", "one"),
+        ("error", "two"),
     ]
+    assert all(item["_cdpx"]["content_trust"] == "untrusted" for item in lines)
 
 
 def test_seo_with_navigation(mock, capsys):
@@ -157,10 +180,7 @@ def test_cookies_masked_output(mock, capsys):
 @pytest.mark.parametrize(
     "argv",
     [
-        ("tabs", "close"),
-        ("tabs", "activate"),
         ("cookies", "set", "--name", "flag"),
-        ("tabs", "list", "--id", "x"),
         ("cookies", "get", "--url", "http://x.test/"),
     ],
 )
@@ -183,23 +203,22 @@ def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
     proves=["Mutating command variants cannot bypass the configured origin guard."],
 )
 def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkeypatch):
-    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    monkeypatch.setenv("COOKIE_FLAG", "1")
     for argv in (
         (
             "cookies",
             "set",
             "--name",
             "flag",
-            "--value",
-            "1",
+            "--value-env",
+            "COOKIE_FLAG",
             "--url",
             "https://prod.example/",
         ),
-        ("cookies", "clear"),
         ("vitals", "https://prod.example/", "--click", "#go"),
     ):
         code, _, err = run(mock, capsys, *argv)
-        assert code == 1 and "mutation refusée" in err
+        assert code == 1 and "origine refusée" in err
 
 
 def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monkeypatch):
@@ -216,24 +235,27 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
         "goto",
         "https://prod.example/",
     )
-    assert code == 1 and "mutation refusée" in err
+    assert code == 1 and "origine refusée" in err
     assert mock.commands == []
 
 
 def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
-    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    target = next(iter(mock.targets))
+    mock.targets[target]["url"] = "https://prod.example/"
     code, _, err = run(mock, capsys, "click", "#submit")
     assert code == 1
-    assert "mutation refusée" in err
+    assert "origine refusée" in err
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_origin_guard_blocks_dom_diff(mock, capsys, monkeypatch):
     # dom-diff exécute de vraies mutations (click/type/key/eval): même garde que click.
-    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
+    target = next(iter(mock.targets))
+    mock.targets[target]["url"] = "https://prod.example/"
     code, _, err = run(mock, capsys, "dom-diff", "--", "click", "#x")
     assert code == 1
-    assert "mutation refusée" in err
-    assert mock.commands == []  # le guard tire avant la moindre commande CDP
+    assert "origine refusée" in err
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_origin_guard_allows_dom_diff_on_allowed_origin(mock, capsys, monkeypatch):
@@ -249,7 +271,8 @@ def test_origin_guard_allows_dom_diff_on_allowed_origin(mock, capsys, monkeypatc
 def test_screenshot(mock, capsys, tmp_path):
     dest = tmp_path / "s.png"
     code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest))
-    assert code == 0 and dest.exists()
+    data = json.loads(out)
+    assert code == 0 and Path(data["path"]).exists() and not dest.exists()
     assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "png"
 
 
@@ -257,7 +280,7 @@ def test_screenshot_format_jpeg(mock, capsys, tmp_path):
     dest = tmp_path / "s.jpg"
     code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest), "--format", "jpeg")
     data = json.loads(out)
-    assert code == 0 and dest.exists() and data["format"] == "jpeg"
+    assert code == 0 and Path(data["path"]).exists() and data["format"] == "jpeg"
     assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "jpeg"
 
 
@@ -298,7 +321,7 @@ DISPATCH_CASES = [
     ),
     (
         "type",
-        ["type", "#name", "Léo"],
+        ["type", "#name", "--secret-env", "CLI_TEXT"],
         {"focus": True},
         "Input.insertText",
         lambda d: d["typed"] is True and d["value_masked"] is True,
@@ -355,7 +378,10 @@ DISPATCH_CASES = [
 @pytest.mark.parametrize(
     "case_id,argv,rules,method,check", DISPATCH_CASES, ids=[c[0] for c in DISPATCH_CASES]
 )
-def test_cli_dispatch_emits_protocol_and_json(mock, capsys, case_id, argv, rules, method, check):
+def test_cli_dispatch_emits_protocol_and_json(
+    mock, capsys, monkeypatch, case_id, argv, rules, method, check
+):
+    monkeypatch.setenv("CLI_TEXT", "Léo")
     for substring, value in rules.items():
         mock.on_eval(substring, value)
     code, out, err = run(mock, capsys, *argv)
@@ -369,15 +395,10 @@ def test_cli_dispatch_emits_protocol_and_json(mock, capsys, case_id, argv, rules
 def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path):
     dest = tmp_path / "page.pdf"
     code, out, _ = run(mock, capsys, "pdf", "-o", str(dest))
-    assert code == 0 and json.loads(out)["bytes"] > 0
-    assert dest.read_bytes().startswith(b"%PDF")
+    data = json.loads(out)
+    assert code == 0 and data["bytes"] > 0
+    assert Path(data["path"]).read_bytes().startswith(b"%PDF") and not dest.exists()
     assert mock.commands_for("Page.printToPDF")
-
-
-def test_tabs_activate(mock, capsys):
-    tid = next(iter(mock.targets))
-    code, out, _ = run(mock, capsys, "tabs", "activate", "--id", tid)
-    assert code == 0 and json.loads(out) == {"activated": tid}
 
 
 def test_dom_diff_accepts_action_with_or_without_separator(mock, capsys):
@@ -476,13 +497,15 @@ def test_record_cli_executes_and_journals(mock, capsys, tmp_path):
     data = json.loads(out)
     assert code == 0 and data["ok"] is True and data["recorded"] == 1
     assert mock.commands_for("Page.navigate") == [{"url": "http://a.test/"}]
-    event = json.loads(journal.read_text().splitlines()[0])
+    event = json.loads(Path(data["path"]).read_text().splitlines()[0])
     assert event["action"] == ["goto", "http://a.test/"]  # le `--` ne fuit pas dans le journal
 
 
 def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path):
-    journal = tmp_path / "j.ndjson"
+    journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
+    journal.parent.mkdir(parents=True, mode=0o700)
     journal.write_text('{"action":["click","#gone"],"ok":true}\n', encoding="utf-8")
+    journal.chmod(0o600)
     mock.on_eval("getBoundingClientRect", None)
     code, out, _ = run(mock, capsys, "replay", str(journal))
     data = json.loads(out)
@@ -491,16 +514,14 @@ def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path):
 
 
 def test_replay_cli_green_journal_exits_0(mock, capsys, tmp_path):
-    journal = tmp_path / "j.ndjson"
+    journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
+    journal.parent.mkdir(parents=True, mode=0o700)
     journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
+    journal.chmod(0o600)
     code, out, _ = run(mock, capsys, "replay", str(journal))
     data = json.loads(out)
-    assert code == 0 and data == {
-        "path": str(journal),
-        "events": 1,
-        "played": 1,
-        "ok": True,
-    }
+    assert code == 0 and data["path"] == str(journal)
+    assert data["events"] == 1 and data["played"] == 1 and data["ok"] is True
 
 
 def test_emulate_composed_action_runs_in_same_connection(mock, capsys):
@@ -514,14 +535,18 @@ def test_emulate_composed_action_runs_in_same_connection(mock, capsys):
 
 
 def test_origin_guard_composed_commands_follow_action_verb(mock, capsys, monkeypatch, tmp_path):
-    monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
-    journal = tmp_path / "j.ndjson"
+    journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
+    target = next(iter(mock.targets))
+    mock.targets[target]["url"] = "https://prod.example/"
     # record avec verbe mutant: refusé (aucune commande CDP émise)
     code, _, err = run(mock, capsys, "record", "-o", str(journal), "--", "click", "#x")
-    assert code == 1 and "mutation refusée" in err and mock.commands == []
+    assert code == 1 and "origine refusée" in err
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
     # replay est gardé séquentiellement: une navigation de lecture vers une
     # origine permise n'est plus refusée à cause de l'onglet initial about:blank.
+    journal.parent.mkdir(parents=True, mode=0o700)
     journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
+    journal.chmod(0o600)
     mock.on_eval("window.location.href", "http://a.test/")
     code, out, err = run(mock, capsys, "replay", str(journal))
     assert code == 0 and json.loads(out)["ok"] is True and not err
@@ -536,11 +561,19 @@ def test_error_path_exit_code_and_stderr(mock, capsys):
     assert code == 1 and "kaboom" in err
 
 
-def test_discovery_error_when_no_chrome(capsys):
-    # port 1: fermé à coup sûr -> erreur propre, pas de traceback
-    code = main(["--port", "1", "tabs", "list"])
+def test_missing_session_fails_before_discovery(capsys, monkeypatch):
+    for name in ("CDPX_SESSION", "CDPX_RUN_ID", "CDPX_TARGET"):
+        monkeypatch.delenv(name, raising=False)
+    code = main(["tabs", "list"])
     err = capsys.readouterr().err
-    assert code == 1 and "cdpx:" in err
+    assert code == 2 and "CDPX_SESSION" in err
+
+
+@pytest.mark.parametrize("option", ["--host", "--port"])
+def test_direct_connection_options_are_removed(option):
+    with pytest.raises(SystemExit) as exc:
+        main([option, "1", "tabs", "list"])
+    assert exc.value.code == 2
 
 
 def test_usage_error_exit_2():

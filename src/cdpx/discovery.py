@@ -9,6 +9,7 @@ retombe sur GET pour les vieux Chrome/chromium headless.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -35,7 +36,7 @@ def _http(host: str, port: int, path: str, method: str = "GET") -> str:
             response = urllib.request.urlopen(req, timeout=10)
         with response as resp:
             return resp.read().decode("utf-8", "replace")
-    except urllib.error.URLError as e:
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as e:
         raise DiscoveryError(f"{method} {url}: {e}") from e
 
 
@@ -65,15 +66,10 @@ def close_tab(host: str, port: int, target_id: str) -> str:
     return _http(host, port, f"/json/close/{target_id}")
 
 
-def pick_page(host: str, port: int, target_id: str | None = None) -> dict:
-    """Retourne le target à piloter: celui demandé, sinon la première page."""
+def pick_page(host: str, port: int, target_id: str) -> dict:
+    """Retourne uniquement le target explicitement attribué."""
     targets = list_targets(host, port)
-    if target_id:
-        for t in targets:
-            if t.get("id") == target_id:
-                return t
-        raise DiscoveryError(f"target {target_id} introuvable")
     for t in targets:
-        if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+        if t.get("id") == target_id:
             return t
-    raise DiscoveryError("aucun target de type 'page' avec webSocketDebuggerUrl")
+    raise DiscoveryError(f"target {target_id} introuvable")

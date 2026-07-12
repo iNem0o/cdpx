@@ -23,7 +23,9 @@ ORDINARY_TEXT = "contact=alice@example.test order=123456 status=ready"
 
 @pytest.fixture()
 def client(mock):
-    target = mock._public_target(next(iter(mock.targets)))
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://demo.test/page"
+    target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as cdp:
         yield cdp
 
@@ -241,6 +243,7 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
         ["type", "#checkout-password", "@env:CHECKOUT_PASSWORD"],
         run_id="security-run",
         redaction_context=context,
+        origins="http://*.test",
     )
     safe_error = redact_tree(
         {"error": f"submission failed for {CANARY}; {ORDINARY_TEXT}"},
@@ -321,7 +324,7 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
         },
     )
 
-    result = advanced.replay(client, str(record_path), team_mode=True)
+    result = advanced.replay(client, str(record_path), origins="http://*.test")
 
     assert result["ok"] is False
     assert result["played"] == 0

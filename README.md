@@ -40,72 +40,47 @@ Pour contribuer, installez plutôt les dépendances de développement avec
 d'installation PyPI sera documentée seulement après publication effective du
 paquet afin de ne pas orienter les utilisateurs vers un nom non vérifié.
 
-## Démarrage rapide local
+## Démarrage rapide
 
-Le scénario suivant reste entièrement sur loopback. Dans un premier terminal,
-lancez le site témoin déterministe :
+Le scénario reste entièrement sur loopback. Lancez d'abord le site témoin :
 
 ```bash
 make fixtures
 ```
 
-Dans un deuxième terminal, démarrez un Chrome avec un profil jetable. Ne
-connectez jamais cdpx à votre navigateur personnel : `eval`, les cookies et le
-stockage donnent accès à la session ouverte.
+Dans un autre terminal, demandez à cdpx de créer une session supervisée. Elle
+possède son profil Chrome jetable, son port dynamique et un unique target :
 
 ```bash
-PROFILE_DIR=$(mktemp -d /tmp/cdpx-XXXXXX)
-chromium --headless=new --remote-debugging-port=9222 \
-  --user-data-dir="$PROFILE_DIR" --no-first-run --no-default-browser-check &
-CHROME_PID=$!
+cdpx session start --run-id demo --authority interaction --origins "http://127.0.0.1:*" --ttl 1800
 ```
 
-Si votre binaire s'appelle `google-chrome` ou `chromium-browser`, remplacez
-simplement `chromium`. Vous pouvez ensuite piloter la fixture :
+La sortie JSON fournit `manifest` et `target_id`. Exportez la triple identité
+retournée ; les arguments explicites équivalents restent possibles et sont
+prioritaires sur l'environnement.
 
 ```bash
-cdpx tabs list
+export CDPX_SESSION=/run/user/1000/cdpx/SESSION/manifest.json
+export CDPX_RUN_ID=demo
+export CDPX_TARGET=ABC123
+export FORM_NAME=Ada
+
 cdpx goto http://127.0.0.1:8899/form.html
 cdpx wait "#name"
-cdpx type "#name" "Ada" --clear
+cdpx type "#name" --secret-env FORM_NAME --clear
 cdpx click "#submit-btn"
 cdpx text "#result"
-cdpx screenshot -o /tmp/cdpx-form.jpg --format jpeg
+cdpx screenshot -o cdpx-form.jpg --format jpeg
+cdpx session stop --session "$CDPX_SESSION" --run-id "$CDPX_RUN_ID" --target "$CDPX_TARGET"
 ```
 
-À la fin, arrêtez le processus identifié par `CHROME_PID`, puis supprimez le
-répertoire identifié par `PROFILE_DIR`. Pour découvrir le CLI sans navigateur,
-`make mock` lance un faux Chrome et affiche la commande `cdpx --port ...` exacte
-à recopier.
+Une seule commande détient le lease à la fois. Le superviseur ferme le target,
+arrête Chrome et supprime profil, manifest et artefacts sur `stop`, à
+l'expiration du TTL ou à la disparition de `--owner-pid`.
 
-## Mode équipe isolé
-
-Le démarrage rapide précédent est le mode local historique : un opérateur gère
-Chrome et peut encore laisser cdpx choisir la première page. Un harness
-multi-agent doit utiliser une session gérée. `session start` crée un Chrome
-loopback avec profil jetable, un target attribué et un supervisor chargé du
-teardown. Le manifest privé lie ces ressources à un `run-id`, une autorité et
-une allowlist d'origines :
-
-```bash
-cdpx session start --run-id agent-42 --authority interaction --origins "http://*.test,http://127.0.0.1:*" --ttl 1800
-```
-
-La sortie JSON fournit `manifest` et `target_id`. Toute commande suivante doit
-répéter explicitement le manifest, le run et le target ; aucune première page
-implicite ni surcharge `--host`/`--port` n'est acceptée :
-
-```bash
-cdpx --session /tmp/cdpx-session/manifest.json --run-id agent-42 --target ABC123 goto http://shop.test/
-cdpx --session /tmp/cdpx-session/manifest.json --run-id agent-42 --target ABC123 click "#add-to-cart"
-cdpx session stop --manifest /tmp/cdpx-session/manifest.json --run-id agent-42 --target ABC123
-```
-
-Une seule commande peut détenir la session à la fois. Le supervisor ferme le
-target, arrête Chrome et supprime profil et dossier de session sur `stop`, à
-l'expiration du TTL, ou lorsque `--owner-pid` disparaît. Les niveaux
-`observation`, `interaction` et `privileged`, ainsi que les références de
-secrets, sont détaillés dans [HARNESS.md](HARNESS.md).
+Pour découvrir le CLI sans Chrome, `make mock` crée la même session supervisée
+avec un navigateur factice. La commande reste en foreground, affiche les trois
+exports et nettoie tout sur Ctrl-C.
 
 ## Sécurité et périmètre
 
@@ -113,13 +88,12 @@ secrets, sont détaillés dans [HARNESS.md](HARNESS.md).
   `--remote-debugging-address=0.0.0.0`.
 - Utilisez toujours un `--user-data-dir` jetable, sans sessions personnelles ou
   de production.
-- En mode local historique, `CDPX_ORIGINS` borne les mutations lorsqu'elle est
-  définie. En mode équipe, une liste non vide est obligatoire et toute
-  destination ou origine courante non autorisée est refusée avant de continuer.
+- `CDPX_ORIGINS` est obligatoire et non vide. Toute destination ou origine
+  courante non autorisée est refusée avant de continuer.
 - Les valeurs de cookies **et de storage** sont masquées par défaut.
   `--show-values` est un choix explicite et sa sortie ne doit pas être partagée.
 - Le contenu de la page, de la console, du réseau et du profiler est une entrée
-  non fiable. En mode équipe, les sorties portent `content_trust: "untrusted"` :
+  non fiable. Les sorties portent `_cdpx.content_trust: "untrusted"` :
   une instruction lue dans la page ne peut jamais modifier le run, ses grants
   ou les règles du harness.
 - Les règles complètes vivent dans [HARNESS.md](HARNESS.md). Une vulnérabilité
@@ -141,21 +115,19 @@ introuvable, timeout, erreur CDP, divergence de replay, mutation refusée) ;
 exit 2 = mauvaise invocation. Un appelant qui reçoit plusieurs exit 1 doit
 remonter le diagnostic au pilote humain au lieu d'insister à l'aveugle.
 
-**Connexion.** En mode local, `--host` (défaut `127.0.0.1`, variable
-`CDPX_HOST`), `--port` (défaut `9222`, variable `CDPX_PORT`) et `--target ID`
-sélectionnent le navigateur et l'onglet. Sans `--target`, la première page reste
-le comportement legacy. En mode équipe, `--session`, `--run-id` et `--target`
-sont tous obligatoires ; host, port, profil et target viennent du manifest et
-sont vérifiés sur loopback. Chaque invocation ouvre puis ferme sa connexion ;
-l'exclusivité est portée par le lease de session. `--timeout` borne les
-attentes CDP et les opérations de lifecycle dans les deux modes.
+**Connexion.** `--session`, `--run-id` et `--target` identifient la capacité
+navigateur attribuée. S'ils sont absents, cdpx lit respectivement
+`CDPX_SESSION`, `CDPX_RUN_ID` et `CDPX_TARGET`; une valeur explicite prime et
+une identité incomplète produit un exit 2 avant discovery. Host, port, profil
+et target viennent exclusivement du manifest et sont vérifiés sur loopback.
+Chaque invocation ouvre puis ferme sa connexion sous un lease exclusif.
+`--timeout` borne les attentes CDP et le lifecycle.
 
-**Budget d'action.** `--max-actions` limite un replay. En legacy,
-`CDPX_ORIGINS` protège les mutations. En mode équipe, l'autorité accordée et
+**Budget d'action.** `--max-actions` limite un replay. L'autorité accordée et
 l'allowlist obligatoire s'appliquent avant toute action : `observation` exclut
 `eval`, `interaction` ajoute clic/saisie/clavier, et `privileged` couvre les
-capacités sensibles (`eval`, cookies, storage, profiler, interception,
-émulation et lifecycle des targets).
+capacités sensibles (`eval`, cookies, storage, profiler, interception et
+émulation). Le lifecycle des targets reste exclusivement au superviseur.
 
 **Secrets.** Pour éviter qu'une valeur sensible entre dans argv, un journal ou
 une preuve, utiliser `type --secret-env NOM`, `cookies set --value-env NOM`,
@@ -169,7 +141,7 @@ Les huit fiches suivantes constituent la documentation utilisateur détaillée :
 
 | Fonctionnalité | Ce qu'elle couvre | Commandes | Documentation |
 |---|---|---|---|
-| Navigation et synchronisation | ouvrir, attendre l'état utile, gérer les onglets | `tabs`, `version`, `goto`, `wait` | [fiche](docs/features/browser-navigation.md) |
+| Navigation et synchronisation | inspecter le target attribué, ouvrir et attendre l'état utile | `tabs`, `version`, `goto`, `wait` | [fiche](docs/features/browser-navigation.md) |
 | DOM et actions utilisateur | lire le rendu, agir avec des évènements trusted | `eval`, `text`, `html`, `count`, `click`, `type`, `key` | [fiche](docs/features/dom-interaction.md) |
 | Capture et observabilité | pixels, PDF, console, réseau, métriques | `screenshot`, `pdf`, `console`, `network`, `metrics` | [fiche](docs/features/browser-capture-observability.md) |
 | État et session | sessions Chrome isolées, cookies et storage masqués | `session`, `cookies`, `storage` | [fiche](docs/features/state-session.md) |
@@ -182,7 +154,7 @@ Les huit fiches suivantes constituent la documentation utilisateur détaillée :
 
 | Commande | Rôle |
 |---|---|
-| `cdpx tabs` | lister, créer, activer ou fermer des onglets |
+| `cdpx tabs` | inspecter l'unique target attribué à la session |
 | `cdpx version` | identifier le Chrome et la version du protocole |
 | `cdpx goto` | naviguer et attendre un cycle de vie |
 | `cdpx wait` | attendre l'apparition d'un sélecteur |
@@ -212,7 +184,7 @@ Les huit fiches suivantes constituent la documentation utilisateur détaillée :
 | `cdpx record` | exécuter et journaliser une action en NDJSON |
 | `cdpx replay` | rejouer un journal et détecter les divergences |
 | `cdpx scenario` | exécuter un scénario métier YAML |
-| `cdpx session` | créer, inspecter ou arrêter une session Chrome d'équipe isolée |
+| `cdpx session` | créer, inspecter ou arrêter une session navigateur supervisée |
 
 `cdpx --help` expose les options courantes et `cdpx --version` la version du
 paquet. Le catalogue détaillé et les exemples vivent aussi dans

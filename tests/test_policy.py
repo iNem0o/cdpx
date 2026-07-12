@@ -15,17 +15,31 @@ from cdpx.policy import (
 )
 
 
-def test_team_context_requires_run_target_and_origins():
+def test_execution_context_requires_session_run_target_and_origins():
     with pytest.raises(PolicyError, match="run-id"):
-        ExecutionContext.team(
-            run_id="", target_id="T1", authority="observation", origins="http://x.test"
+        ExecutionContext.create(
+            run_id="",
+            target_id="T1",
+            authority="observation",
+            origins="http://x.test",
+            session_id="S1",
         )
     with pytest.raises(PolicyError, match="target"):
-        ExecutionContext.team(
-            run_id="R1", target_id="", authority="observation", origins="http://x.test"
+        ExecutionContext.create(
+            run_id="R1",
+            target_id="",
+            authority="observation",
+            origins="http://x.test",
+            session_id="S1",
         )
     with pytest.raises(PolicyError, match="CDPX_ORIGINS"):
-        ExecutionContext.team(run_id="R1", target_id="T1", authority="observation", origins="")
+        ExecutionContext.create(
+            run_id="R1",
+            target_id="T1",
+            authority="observation",
+            origins="",
+            session_id="S1",
+        )
 
 
 def test_origin_patterns_are_canonical_and_fail_closed():
@@ -38,7 +52,7 @@ def test_origin_patterns_are_canonical_and_fail_closed():
             parse_origins(invalid, required=True)
 
 
-def test_team_origins_apply_to_observation_and_interaction():
+def test_session_origins_apply_to_observation_and_interaction():
     patterns = parse_origins("http://*.test,http://127.0.0.1:*")
     assert_url_allowed("http://shop.test/page?token=secret", patterns)
     assert_url_allowed("http://127.0.0.1:8899/", patterns)
@@ -107,7 +121,6 @@ def test_target_must_be_the_owned_page_target():
         ("record", ["click", "#go"], Authority.INTERACTION),
         ("record", ["eval", "1"], Authority.PRIVILEGED),
         ("tabs", ["list"], Authority.OBSERVATION),
-        ("tabs", ["new"], Authority.PRIVILEGED),
     ],
 )
 def test_command_authority_matrix(command, action, expected):
@@ -117,11 +130,12 @@ def test_command_authority_matrix(command, action, expected):
 def test_unknown_commands_and_insufficient_grants_fail_closed():
     with pytest.raises(PolicyError, match="non classée"):
         authority_for("future-command")
-    context = ExecutionContext.team(
+    context = ExecutionContext.create(
         run_id="R1",
         target_id="T1",
         authority="observation",
         origins="http://*.test",
+        session_id="S1",
     )
     assert_authorized(context, "text")
     with pytest.raises(PolicyError, match="requiert interaction"):

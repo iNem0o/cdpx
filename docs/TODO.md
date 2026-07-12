@@ -4,7 +4,7 @@ Le socle fonctionnel M0-M6 est livré. La priorité actuelle est la première
 publication open source sur GitHub sous licence MIT. Le plan détaillé est
 [docs/RELEASE-PLAN.md](RELEASE-PLAN.md).
 
-## Durcissement harness équipe — validé
+## Contrat de session supervisée — validé
 
 Les mécanismes ci-dessous sont implémentés et validés par les portails ciblés,
 le portail intégré et le paquet installé :
@@ -12,7 +12,13 @@ le portail intégré et le paquet installé :
 - [x] Valider ensemble le lifecycle `session start/status/stop`, trois profils
       simultanés, target/run explicites, lease exclusif et teardown TTL/owner.
 - [x] Valider la matrice `observation` / `interaction` / `privileged`, le
-      loopback obligatoire et `CDPX_ORIGINS` fail-closed en mode équipe.
+      loopback obligatoire et l'allowlist d'origines fail-closed.
+- [x] Faire de la session supervisée l'unique contrat : identité triple avant
+      discovery, aucun endpoint/target implicite et lifecycle réservé au
+      superviseur.
+- [x] Faire passer `make mock` par le même manifest supervisé que Chrome réel.
+- [x] Aligner HARNESS, catalogue, fiches features, matrice de validation et
+      cockpit de preuve sur ce contrat unique.
 - [x] Valider les canaris de bout en bout : stdout/stderr, URL/headers,
       console, storage, profiler, journal v2, scénarios et staging de preuve.
 - [x] Valider le staging `.proof/shareable/`, les modes `0600`/`0700`, le
@@ -22,8 +28,8 @@ le portail intégré et le paquet installé :
 
 `SecureArtifactWriter` redige automatiquement texte, JSON et fichiers textuels
 enregistrés; le scanner de canaris reste le dernier verrou de publication pour
-les secrets connus. Une automatisation de purge des TTL hors sessions
-supervisées reste à décider.
+les secrets connus. Une automatisation de purge périodique des preuves locales
+reste à décider.
 
 ## Préparation open source
 

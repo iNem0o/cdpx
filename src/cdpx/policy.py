@@ -1,8 +1,7 @@
 """Politique d'exécution centralisée pour les usages agentiques de cdpx.
 
-Le mode historique reste disponible pour un opérateur local. Le mode équipe
-est volontairement fail-closed: run, target, autorité et origines sont fixés
-avant toute connexion au navigateur.
+Chaque commande navigateur s'exécute dans une session supervisée fail-closed:
+run, target, autorité et origines sont fixés avant toute connexion.
 """
 
 from __future__ import annotations
@@ -37,30 +36,15 @@ _DNS_PATTERN_RE = re.compile(r"(?:\*\.)?[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\Z
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    mode: str
     authority: Authority
     origins: tuple[str, ...]
-    run_id: str | None = None
-    target_id: str | None = None
-    session_id: str | None = None
+    run_id: str
+    target_id: str
+    session_id: str
     content_trust: str = "untrusted"
 
     @classmethod
-    def legacy(
-        cls,
-        *,
-        target_id: str | None = None,
-        origins: str | None = None,
-    ) -> ExecutionContext:
-        return cls(
-            mode="legacy",
-            authority=Authority.PRIVILEGED,
-            origins=parse_origins(origins, required=False),
-            target_id=target_id,
-        )
-
-    @classmethod
-    def team(
+    def create(
         cls,
         *,
         run_id: str,
@@ -70,15 +54,16 @@ class ExecutionContext:
         session_id: str | None = None,
     ) -> ExecutionContext:
         if not _RUN_ID_RE.fullmatch(run_id or ""):
-            raise PolicyError("mode équipe: --run-id explicite et sûr requis")
+            raise PolicyError("session: --run-id explicite et sûr requis")
         if not target_id:
-            raise PolicyError("mode équipe: --target explicite requis")
+            raise PolicyError("session: --target explicite requis")
+        if not session_id:
+            raise PolicyError("session: identifiant de session explicite requis")
         try:
             grant = Authority(authority)
         except ValueError as e:
             raise PolicyError(f"niveau d'autorité inconnu: {authority}") from e
         return cls(
-            mode="team",
             authority=grant,
             origins=parse_origins(origins, required=True),
             run_id=run_id,
@@ -86,13 +71,7 @@ class ExecutionContext:
             session_id=session_id,
         )
 
-    @property
-    def team_mode(self) -> bool:
-        return self.mode == "team"
-
     def metadata(self) -> dict[str, Any]:
-        if not self.team_mode:
-            return {}
         return {
             "run_id": self.run_id,
             "session_id": self.session_id,
@@ -133,7 +112,9 @@ def authority_for(command: str, action: list[str] | None = None) -> Authority:
     if command in _PRIVILEGED_COMMANDS:
         return Authority.PRIVILEGED
     if command == "tabs":
-        return Authority.OBSERVATION if action and action[0] == "list" else Authority.PRIVILEGED
+        if action and action[0] == "list":
+            return Authority.OBSERVATION
+        raise PolicyError("action tabs non classée par la politique")
     if command == "vitals":
         return Authority.INTERACTION if action and action[0] == "click" else Authority.OBSERVATION
     if command in _COMPOSED_COMMANDS:
@@ -177,25 +158,21 @@ def assert_authorized(
     command: str,
     action: list[str] | None = None,
 ) -> None:
-    if not context.team_mode:
-        return
     required = authority_for(command, action)
     assert_grant(context, required, command)
 
 
 def assert_grant(context: ExecutionContext, required: Authority, label: str) -> None:
-    if not context.team_mode:
-        return
     if _AUTHORITY_RANK[context.authority] < _AUTHORITY_RANK[required]:
         raise PolicyError(
-            f"mode équipe: {label} requiert {required.value}, grant={context.authority.value}"
+            f"session: {label} requiert {required.value}, authority={context.authority.value}"
         )
 
 
 def parse_origins(raw: str | None, *, required: bool = True) -> tuple[str, ...]:
     items = [item.strip() for item in (raw or "").split(",") if item.strip()]
     if required and not items:
-        raise PolicyError("mode équipe: CDPX_ORIGINS obligatoire et non vide")
+        raise PolicyError("session: CDPX_ORIGINS obligatoire et non vide")
     return tuple(dict.fromkeys(_canonical_origin_pattern(item) for item in items))
 
 
@@ -330,7 +307,7 @@ def is_loopback_host(host: str | None) -> bool:
 
 def assert_loopback_endpoint(discovery_host: str, websocket_url: str | None = None) -> None:
     if not is_loopback_host(discovery_host):
-        raise PolicyError(f"mode équipe: endpoint de découverte non loopback: {discovery_host}")
+        raise PolicyError(f"session: endpoint de découverte non loopback: {discovery_host}")
     if websocket_url is None:
         return
     try:
@@ -338,7 +315,7 @@ def assert_loopback_endpoint(discovery_host: str, websocket_url: str | None = No
     except ValueError as e:
         raise PolicyError("WebSocket CDP invalide") from e
     if parsed.scheme not in {"ws", "wss"} or not is_loopback_host(parsed.hostname):
-        raise PolicyError(f"mode équipe: WebSocket CDP non loopback: {websocket_url}")
+        raise PolicyError(f"session: WebSocket CDP non loopback: {websocket_url}")
 
 
 def validate_target(target: dict[str, Any], expected_id: str) -> dict[str, Any]:

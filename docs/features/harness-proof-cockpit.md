@@ -124,13 +124,18 @@ un e2e piloté à la main.
 
 ### `make mock`
 
-Lance un faux Chrome scriptable (mock CDP) pour déboguer le CLI sans
-navigateur ; le port de découverte est affiché au démarrage.
+Lance au premier plan une session supervisée avec backend mock pour déboguer le
+CLI sans navigateur. La commande affiche les exports `CDPX_SESSION`,
+`CDPX_RUN_ID` et `CDPX_TARGET`, puis attend. Les commandes métier utilisent ces
+variables exactement comme avec Chrome réel ; aucun endpoint brut n'est exposé.
 
 ```bash
-make mock &
-cdpx --port 9333 tabs list
+make mock
 ```
+
+Dans un second terminal, copier les exports affichés puis exécuter par exemple
+`cdpx goto http://demo.test/` et `cdpx tabs list`. `Ctrl-C` dans le premier
+terminal arrête le backend et supprime manifest, profil et artefacts privés.
 
 ### `make docker-build`
 

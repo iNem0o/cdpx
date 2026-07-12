@@ -29,9 +29,10 @@ make mock                # faux Chrome scriptable, sans navigateur
 Essai rapide sans Chrome:
 
 ```
-make mock &                    # affiche le port de découverte
-cdpx --port <PORT> tabs list
-cdpx --port <PORT> goto http://demo.test/
+make mock &                    # affiche les exports de la session supervisée
+# recopier les exports CDPX_SESSION/CDPX_RUN_ID/CDPX_TARGET affichés
+cdpx goto http://demo.test/
+cdpx tabs list
 ```
 
 ## Invariants (non négociables)

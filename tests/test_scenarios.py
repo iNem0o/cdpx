@@ -12,7 +12,9 @@ from cdpx.primitives import profiler_panels
 
 
 def client_for(mock):
-    target = discovery.pick_page("127.0.0.1", mock.http_port)
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://shop.test/"
+    target = discovery.pick_page("127.0.0.1", mock.http_port, target_id)
     return CDPClient(target["webSocketDebuggerUrl"], timeout=5)
 
 
@@ -74,7 +76,9 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path):
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+        )
 
     assert result["verdict"] == "pass"
     assert result["findings"] == []
@@ -109,11 +113,17 @@ def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock,
             evidence_root=tmp_path,
             timeout=0.5,
             settle=0,
+            origins="http://*.test",
         )
 
     assert result["verdict"] == "pass"
     assert result["steps"][0]["result"]["visible"] is True
-    assert len(mock.commands_for("Runtime.evaluate")) == 2
+    visibility_checks = [
+        item
+        for item in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_visible" in item["expression"]
+    ]
+    assert len(visibility_checks) == 2
 
 
 def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
@@ -157,7 +167,9 @@ def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+        )
 
     assert result["verdict"] == "pass"
     (artifact,) = [a for a in result["artifacts"] if a["type"] == "profiler"]
@@ -181,7 +193,9 @@ def test_run_scenario_failure_still_captures_checkpoint_and_final(mock, tmp_path
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+        )
 
     assert result["verdict"] == "fail"
     assert result["steps"][0]["ok"] is False
@@ -223,7 +237,9 @@ def test_run_scenario_console_and_network_assertions_fail(mock, tmp_path):
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+        )
 
     assert result["verdict"] == "fail"
     assert [finding["code"] for finding in result["findings"]] == [
@@ -272,7 +288,9 @@ def test_final_drain_precedes_console_and_network_assertions(mock, tmp_path, mon
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+        )
 
     assert result["verdict"] == "fail"
     assert [record["actual"] for record in result["assertions"]] == [1, 1]
@@ -313,7 +331,9 @@ def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
         }
     )
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0.01)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+        )
     artifact = next(a for a in result["artifacts"] if a["type"] == "network")
     data = json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
     headers = data["requests"][0]["headers"]
@@ -344,7 +364,6 @@ def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mo
             scenario,
             evidence_root=tmp_path,
             origins="http://shop.test",
-            strict_origins=True,
             settle=0,
         )
 
@@ -394,7 +413,9 @@ def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, m
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+        )
 
     serialized = json.dumps(result, ensure_ascii=False)
     assert secret not in serialized
@@ -405,41 +426,17 @@ def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, m
     assert "".join(chars) == secret
 
 
-def test_scenario_literal_type_is_registered_before_passive_collection(mock, tmp_path):
-    secret = "legacy-literal-canary-1192"
-    mock.script_console(
-        [{"type": "log", "args": [{"type": "string", "value": secret}], "timestamp": 1.0}]
-    )
-    mock.on_eval(
-        "__cdpx_actionability",
-        json.dumps(
+def test_scenario_literal_type_is_rejected_before_cdp(mock):
+    with pytest.raises(scenarios.ScenarioUsageError, match="text|secret_ref"):
+        scenarios.parse(
             {
-                "attached": True,
-                "visible": True,
-                "enabled": True,
-                "stable": True,
-                "receives_events": True,
-                "editable": True,
-                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+                "name": "literal_type",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"type": {"selector": "#field", "text": "literal"}}],
             }
-        ),
-    )
-    mock.on_eval("__cdpx_prepare_text", True)
-    scenario = scenarios.parse(
-        {
-            "name": "literal_type",
-            "context": {"base_url": "http://shop.test"},
-            "steps": [{"type": {"selector": "#field", "text": secret}}],
-            "artifacts": ["console"],
-        }
-    )
+        )
 
-    with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
-
-    assert secret not in json.dumps(result, ensure_ascii=False)
-    assert scan_canaries(result["evidence_dir"], [secret]) == []
-    assert mock.commands_for("Input.insertText")[-1]["text"] == secret
+    assert mock.commands == []
 
 
 @pytest.mark.parametrize("fails", [False, True])
@@ -461,7 +458,9 @@ def test_scenario_eval_never_persists_result_or_error(mock, tmp_path, fails):
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+        )
 
     assert canary not in json.dumps(result, ensure_ascii=False)
     assert scan_canaries(result["evidence_dir"], [canary]) == []
@@ -483,7 +482,9 @@ def test_scenario_artifacts_are_private_classified_and_manifested(mock, tmp_path
     )
 
     with client_for(mock) as client:
-        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+        )
 
     run_dir = Path(result["evidence_dir"])
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -502,12 +503,25 @@ def test_scenario_artifacts_are_private_classified_and_manifested(mock, tmp_path
 
 
 def run_cli(mock, capsys, *argv):
-    code = main(["--port", str(mock.http_port), "--timeout", "5", *argv])
+    manifest = mock.cli_manifest
+    code = main(
+        [
+            "--session",
+            str(mock.cli_manifest_path),
+            "--run-id",
+            manifest.run_id,
+            "--target",
+            manifest.target_id,
+            "--timeout",
+            "5",
+            *argv,
+        ]
+    )
     out = capsys.readouterr()
     return code, out.out, out.err
 
 
-def test_scenario_cli_run_passes_with_json(mock, capsys, tmp_path):
+def test_scenario_cli_run_passes_with_json(mock, cli_manifest, capsys, tmp_path):
     scenario = tmp_path / "scenario.yml"
     scenario.write_text(
         """
@@ -528,8 +542,6 @@ artifacts:
         "scenario",
         "run",
         str(scenario),
-        "--evidence-dir",
-        str(tmp_path / "evidence"),
         "--settle",
         "0.01",
     )
@@ -540,7 +552,7 @@ artifacts:
     assert data["verdict"] == "pass"
 
 
-def test_scenario_cli_invalid_file_exits_2(mock, capsys, tmp_path):
+def test_scenario_cli_invalid_file_exits_2(mock, cli_manifest, capsys, tmp_path):
     scenario = tmp_path / "bad.yml"
     scenario.write_text("[]\n", encoding="utf-8")
 

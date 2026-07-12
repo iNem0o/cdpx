@@ -311,8 +311,7 @@ def record(
     *,
     run_id: str | None = None,
     redaction_context: RedactionContext | None = None,
-    origins: str | None = None,
-    strict_origins: bool = False,
+    origins: str,
 ) -> dict:
     """Exécute l'action puis la journalise (résultat compris) en NDJSON.
 
@@ -327,23 +326,21 @@ def record(
         if isinstance(input_spec, dict) and input_spec.get("secret_ref"):
             execution_action = journal.materialize_action(stored_action)
             context.register_secret(execution_action[2])
-    if strict_origins:
-        allowed = parse_origins(origins, required=True)
-        if execution_action[0] == "goto":
-            assert_url_allowed(execution_action[1], allowed)
-        else:
-            assert_url_allowed(
-                _require_current_http_url(client, "avant action record"),
-                allowed,
-            )
+    allowed = parse_origins(origins, required=True)
+    if execution_action[0] == "goto":
+        assert_url_allowed(execution_action[1], allowed)
+    else:
+        assert_url_allowed(
+            _require_current_http_url(client, "avant action record"),
+            allowed,
+        )
     error: Exception | None = None
     try:
         result: dict = actions.run_action(client, execution_action)
-        if strict_origins:
-            assert_url_allowed(
-                _require_current_http_url(client, "après action record"),
-                parse_origins(origins, required=True),
-            )
+        assert_url_allowed(
+            _require_current_http_url(client, "après action record"),
+            allowed,
+        )
         ok = True
     except ACTION_ERRORS as e:
         result = {"error": str(e)}
@@ -397,10 +394,8 @@ def replay(
     client: CDPClient,
     path: str,
     max_actions: int | None = None,
-    origins: str | None = None,
     *,
-    team_mode: bool = False,
-    strict_origins: bool = False,
+    origins: str,
     redaction_context: RedactionContext | None = None,
 ) -> dict:
     """Rejoue un journal NDJSON action par action, arrêt à la première divergence.
@@ -449,7 +444,7 @@ def replay(
                 "divergence": f"line {lineno}: action redacted non rejouable",
             }
         try:
-            materialized = journal.materialize_action(event["action"], team_mode=team_mode)
+            materialized = journal.materialize_action(event["action"])
         except (ValueError, journal.JournalError) as e:
             return {
                 "path": path,
@@ -491,10 +486,10 @@ def replay(
                 "ok": False,
                 "divergence": f"event {index}: ok=false journalisé",
             }
-    origin_patterns = parse_origins(origins, required=True) if strict_origins else ()
+    origin_patterns = parse_origins(origins, required=True)
     played = 0
     for index, (event, action) in enumerate(zip(events, materialized_actions, strict=True)):
-        if strict_origins and action[0] == "goto":
+        if action[0] == "goto":
             try:
                 assert_url_allowed(action[1], origin_patterns)
             except ACTION_ERRORS as e:
@@ -505,24 +500,12 @@ def replay(
                     "ok": False,
                     "divergence": f"event {index}: {e}",
                 }
-        if strict_origins and action[0] != "goto":
+        if action[0] != "goto":
             try:
                 assert_url_allowed(
                     _require_current_http_url(client, "avant action"),
                     origin_patterns,
                 )
-            except ACTION_ERRORS as e:
-                return {
-                    "path": path,
-                    "events": len(events),
-                    "played": played,
-                    "ok": False,
-                    "divergence": f"event {index}: {e}",
-                }
-        if origins and action[0] in actions.MUTATING_VERBS:
-            try:
-                current_url = _require_current_http_url(client, "avant mutation")
-                assert_origin_allowed(action[0], current_url, origins)
             except ACTION_ERRORS as e:
                 return {
                     "path": path,
@@ -543,32 +526,18 @@ def replay(
             }
         played += 1
         if action[0] == "goto":
-            if origins:
-                try:
-                    current_url = _require_current_http_url(client, "après navigation")
-                    if strict_origins:
-                        assert_url_allowed(current_url, origin_patterns)
-                except ACTION_ERRORS as e:
-                    return {
-                        "path": path,
-                        "events": len(events),
-                        "played": played,
-                        "ok": False,
-                        "divergence": f"event {index}: {e}",
-                    }
-        elif origins and action[0] in actions.MUTATING_VERBS:
             try:
-                current_url = _require_current_http_url(client, "après mutation")
-                assert_origin_allowed(action[0], current_url, origins)
+                current_url = _require_current_http_url(client, "après navigation")
+                assert_url_allowed(current_url, origin_patterns)
             except ACTION_ERRORS as e:
                 return {
                     "path": path,
                     "events": len(events),
                     "played": played,
                     "ok": False,
-                    "divergence": f"event {index}: destination après action: {e}",
+                    "divergence": f"event {index}: {e}",
                 }
-        elif strict_origins:
+        else:
             try:
                 assert_url_allowed(
                     _require_current_http_url(client, "après action"),

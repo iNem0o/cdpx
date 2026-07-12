@@ -7,10 +7,13 @@ Ce projet suit un versionnage sémantique.
 
 ### Ajouté
 
-- Nouvelle commande `cdpx session start|status|stop` pour le mode équipe :
-  profil Chrome jetable loopback, port dynamique, target unique, manifest
-  privé, lease exclusif, TTL/owner et teardown supervisé. La surface publique
-  passe de 30 à 31 commandes.
+- Nouvelle commande `cdpx session start|status|stop` : profil navigateur
+  jetable loopback, port dynamique, target unique, manifest privé, lease
+  exclusif, TTL/owner et teardown supervisé. La surface publique passe de 30 à
+  31 commandes.
+- `make mock` démarre une session supervisée au premier plan avec le même
+  contrat manifest/run/target que Chrome réel, affiche les exports nécessaires
+  et nettoie ses ressources sur `Ctrl-C`.
 - Politique d'autorités `observation`, `interaction`, `privileged`; les
   commandes composées, replay et scénarios sont préflightés au niveau maximal
   requis et toute capacité non classée est refusée.
@@ -24,18 +27,23 @@ Ce projet suit un versionnage sémantique.
 
 ### Modifié
 
-- **Breaking** : avec `--session`, `--run-id` et `--target` sont obligatoires,
-  `--host`/`--port` ne sont pas surchargeables et `CDPX_ORIGINS` doit être non
-  vide. Le mode local historique conserve la première page implicite et
-  l'allowlist opt-in.
+- **Breaking** : la session supervisée devient l'unique contrat d'exécution.
+  `--session`, `--run-id` et `--target` (ou leurs variables d'environnement)
+  sont requis avant discovery ; la connexion directe par `--host`/`--port`, le
+  target implicite et l'allowlist optionnelle sont supprimés.
+- **Breaking** : `tabs` expose uniquement `list`; création, activation et
+  fermeture des targets appartiennent au superviseur de session.
 - **Breaking** : `storage` masque désormais toutes les valeurs par défaut et
   expose `values_masked`; `--show-values` devient l'opt-in explicite, comme
   pour les cookies.
 - **Breaking** : `type` ne retourne plus le texte saisi mais
   `typed:true,value_masked:true`. `record` écrit le schéma
-  `cdpx.record/v2` : une saisie littérale ou un `eval` est redacted et non
-  rejouable; une saisie rejouable exige une référence d'environnement en mode
-  équipe. Les anciens évènements v1 sensibles sont refusés dans ce mode.
+  `cdpx.record/v2` : la saisie CLI exige `--secret-env`, `record type` exige
+  `@env:NOM`, un scénario exige `secret_ref`, et `eval` reste redacted et non
+  rejouable. Les évènements v1 sensibles sont refusés.
+- **Breaking** : screenshots, PDF, journaux et preuves de scénarios sont
+  toujours confinés sous les artefacts privés de la session ; l'option
+  `scenario --evidence-dir` et les chemins de sortie arbitraires disparaissent.
 - `click` exige désormais un élément attaché, visible, activé, stable, de
   taille non nulle et recevant le hit-test central. `type --clear` sélectionne
   le contenu puis émet Backspace avant `Input.insertText`; `wait_visible`
@@ -49,9 +57,10 @@ Ce projet suit un versionnage sémantique.
 
 ### Sécurité
 
-- Le mode équipe impose loopback, affectation exacte session/run/target,
-  exclusivité par lease et métadonnée `content_trust:"untrusted"` sur les
-  sorties. Les destinations et origines réelles sont contrôlées en fail-closed.
+- Toute commande navigateur impose loopback, affectation exacte
+  session/run/target, exclusivité par lease et métadonnée
+  `_cdpx.content_trust:"untrusted"` sur les sorties. Les destinations et
+  origines réelles sont contrôlées en fail-closed.
 - `replay` relit `window.location.href` après chaque navigation et avant la
   mutation suivante : une redirection vers une origine interdite ne peut plus
   recevoir le clic suivant.

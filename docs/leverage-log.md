@@ -41,6 +41,19 @@ Git publique utilisée pour empêcher les doublons.
     du superviseur sans Chrome réel.
   - Verification (commande/CI): `make proof` vert; `make cov` vert à 85,69 %.
 
+- Session-Key: agent/github-integration-hardening@0c4353d
+  - Symptom: [HIGH] cette standardisation transverse a dépassé deux heures sans
+    ExecPlan suivi dans le dépôt; la première passe release a aussi interrompu
+    un arrêt de session E2E après 20 secondes alors que le CLI en autorise 30.
+  - Root cause (missing capability): le dépôt ne fournit ni `PLANS.md` ni
+    répertoire `docs/exec-plans/`, et le timeout du wrapper E2E était plus court
+    que celui du contrat qu'il vérifie.
+  - Fix encoded (doc/script/lint): le wrapper E2E attend désormais 45 secondes
+    et le contrat supervisé est verrouillé par les features et le cockpit;
+    l'absence d'ExecPlan reste à traiter dans une évolution dédiée du harness.
+  - Verification (commande/CI): test E2E ciblé de session puis `make release`
+    verts, cockpit à 551/551 tests sans violation ni avertissement.
+
 ## Réponses CDP croisées pendant une interception
 
 - **Symptôme :** `Page.navigate` expirait dans Chrome Docker lorsque Fetch

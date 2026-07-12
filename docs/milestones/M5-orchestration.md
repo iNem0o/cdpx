@@ -10,9 +10,10 @@ observables, sans créer un langage de macros illimité.
 ### `record` / `replay`
 
 `record` exécute une action et écrit une ligne `cdpx.record/v2` privée. Actions,
-résultats et erreurs sont redacted. Une saisie littérale et `eval` sont
-non-rejouables; `type ... @env:NOM` persiste seulement la référence et permet
-un rejeu. Une référence absente est refusée avant effet CDP.
+résultats et erreurs sont redacted. Une saisie littérale est refusée,
+`type ... @env:NOM` persiste seulement la référence et permet un rejeu, tandis
+que `eval` reste non rejouable. Une référence absente est refusée avant effet
+CDP.
 
 `replay` valide tout le journal, sa rejouabilité, les secrets et
 `--max-actions` avant la première action. Il compare les résultats enregistrés
@@ -24,7 +25,7 @@ remplace pas une assertion métier explicite.
 
 Le runner compose `goto`, `wait_visible`, `wait_text`, `click`, `type`, `key`
 et `eval`, puis assertions et captures. `wait_visible` vérifie rendu/boîte non
-nulle; une saisie peut utiliser `secret_ref`; le drainage console/réseau final
+nulle; une saisie exige `secret_ref`; le drainage console/réseau final
 précède le verdict. Les artefacts sont privés et classifiés.
 
 ### `frame`
@@ -35,10 +36,8 @@ frontière cross-origin.
 
 ### Garde-fous
 
-- Legacy : `CDPX_ORIGINS` est opt-in et borne les mutations; les lectures
-  restent permises pour compatibilité.
-- Équipe : manifest/run/target et allowlist sont obligatoires; toutes les
-  origines consultées sont fail-closed et l'autorité maximale du fichier est
+- Manifest/run/target et allowlist sont obligatoires ; toutes les origines
+  consultées sont fail-closed et l'autorité maximale du fichier est
   préflightée. L'isolation complète du navigateur appartient au M8.
 - `--max-actions` borne un replay donné, pas un compteur cumulatif de session.
 
@@ -51,6 +50,6 @@ interactions et preuves. Symfony Docker : scénarios contre l'application témoi
 ## Definition of Done
 
 - [x] parcours record/replay complet sur fixtures mock et Chrome réel ;
-- [x] allowlist legacy et contrôles de redirection testés ;
+- [x] allowlist obligatoire et contrôles de redirection testés ;
 - [x] scénarios YAML, assertions et preuves documentés ;
 - [x] garde-fous exécutables décrits dans HARNESS.md.

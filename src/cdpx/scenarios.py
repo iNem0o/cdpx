@@ -261,8 +261,7 @@ def run(
     evidence_root: str | Path = ".cdpx-evidence",
     timeout: float = 15.0,
     settle: float = 0.5,
-    origins: str | None = None,
-    strict_origins: bool = False,
+    origins: str,
     redaction_context: RedactionContext | None = None,
     run_id: str | None = None,
     artifact_ttl: float = 86400,
@@ -271,7 +270,7 @@ def run(
     for step in scenario.steps:
         if step.verb == "type":
             _type_action(step.value, context=redaction)
-    allowed_origins = parse_origins(origins, required=strict_origins) or None
+    allowed_origins = parse_origins(origins, required=True)
     writer = SecureArtifactWriter(
         evidence_root,
         _run_key(scenario.name, run_id=run_id),
@@ -295,7 +294,7 @@ def run(
         }
         started = time.monotonic()
         try:
-            _assert_origin(client, scenario, step, origins, strict=strict_origins)
+            _assert_origin(client, scenario, step, origins)
             result = _run_step(client, scenario, step, timeout, redaction)
             if step.verb == "goto":
                 run_state.last_url = _absolute_url(scenario.base_url, step.value)
@@ -314,22 +313,21 @@ def run(
             record["elapsed_ms"] = round((time.monotonic() - started) * 1000, 1)
             run_state.steps.append(record)
             collector.drain(client, settle)
-            if strict_origins:
-                try:
-                    actual_url = _assert_current_origin(client, origins)
-                    if step.verb == "goto":
-                        run_state.last_url = actual_url
-                except ACTION_ERRORS as e:
-                    origin_blocked = True
-                    safe_error = redact_text(
-                        str(e),
-                        context=redaction,
-                        path="$.step.origin_error",
-                    )
-                    if record["ok"]:
-                        record["ok"] = False
-                        record["error"] = safe_error
-                    run_state.finding("origin_refused", safe_error, step=step.label)
+            try:
+                actual_url = _assert_current_origin(client, origins)
+                if step.verb == "goto":
+                    run_state.last_url = actual_url
+            except ACTION_ERRORS as e:
+                origin_blocked = True
+                safe_error = redact_text(
+                    str(e),
+                    context=redaction,
+                    path="$.step.origin_error",
+                )
+                if record["ok"]:
+                    record["ok"] = False
+                    record["error"] = safe_error
+                run_state.finding("origin_refused", safe_error, step=step.label)
             if not origin_blocked:
                 _capture_many(
                     client,
@@ -344,7 +342,7 @@ def run(
             break
 
     collector.drain(client, settle)
-    if strict_origins and not origin_blocked:
+    if not origin_blocked:
         try:
             _assert_current_origin(client, origins)
         except ACTION_ERRORS as e:
@@ -356,20 +354,19 @@ def run(
             )
     if not origin_blocked:
         _run_assertions(client, collector, run_state, scenario.assertions)
-        if strict_origins:
-            try:
-                _assert_current_origin(client, origins)
-            except ACTION_ERRORS as e:
-                origin_blocked = True
-                run_state.finding(
-                    "origin_refused",
-                    redact_text(
-                        str(e),
-                        context=redaction,
-                        path="$.assertions.origin_error",
-                    ),
-                    step="assertions",
-                )
+        try:
+            _assert_current_origin(client, origins)
+        except ACTION_ERRORS as e:
+            origin_blocked = True
+            run_state.finding(
+                "origin_refused",
+                redact_text(
+                    str(e),
+                    context=redaction,
+                    path="$.assertions.origin_error",
+                ),
+                step="assertions",
+            )
     if not origin_blocked:
         _capture_many(client, collector, run_state, scenario.artifacts, "final", None, timeout)
     result = redact_tree(run_state.as_dict(), context=redaction)
@@ -457,13 +454,12 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
         if isinstance(value, list):
             _require_pair(value, f"{prefix}{verb}")
         elif isinstance(value, dict):
-            _unknown(value, {"selector", "text", "secret_ref", "clear"}, f"{prefix}{verb}.")
+            _unknown(value, {"selector", "secret_ref", "clear"}, f"{prefix}{verb}.")
             if not isinstance(value.get("selector"), str):
                 raise ScenarioUsageError(f"{prefix}{verb}.selector doit être une chaîne")
-            has_text = isinstance(value.get("text"), str)
             has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
-            if has_text == has_secret_ref:
-                raise ScenarioUsageError(f"{prefix}{verb} exige exactement text ou secret_ref")
+            if not has_secret_ref:
+                raise ScenarioUsageError(f"{prefix}{verb} exige secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear doit être booléen")
         else:
@@ -501,13 +497,10 @@ def _run_step(
 
 def _type_action(value: Any, *, context: RedactionContext) -> list[str]:
     if isinstance(value, dict):
-        if "secret_ref" in value:
-            secret_ref = value["secret_ref"]
-            if secret_ref not in os.environ:
-                raise ScenarioUsageError(f"secret_ref introuvable: {secret_ref}")
-            text = os.environ[secret_ref]
-        else:
-            text = value["text"]
+        secret_ref = value["secret_ref"]
+        if secret_ref not in os.environ:
+            raise ScenarioUsageError(f"secret_ref introuvable: {secret_ref}")
+        text = os.environ[secret_ref]
         context.register_secret(text)
         action = ["type", value["selector"], text]
         if value.get("clear"):
@@ -665,24 +658,16 @@ def _assert_origin(
     client: CDPClient,
     scenario: Scenario,
     step: ScenarioStep,
-    origins: str | None,
-    *,
-    strict: bool = False,
+    origins: str,
 ) -> None:
-    if strict:
-        allowed = parse_origins(origins, required=True)
-        if step.verb == "goto":
-            assert_url_allowed(_absolute_url(scenario.base_url, step.value), allowed)
-        else:
-            assert_url_allowed(_current_url(client), allowed)
-        return
-    if not origins or step.verb not in actions.MUTATING_VERBS:
-        return
-    current_url = _current_url(client)
-    advanced.assert_origin_allowed(step.verb, current_url, origins)
+    allowed = parse_origins(origins, required=True)
+    if step.verb == "goto":
+        assert_url_allowed(_absolute_url(scenario.base_url, step.value), allowed)
+    else:
+        assert_url_allowed(_current_url(client), allowed)
 
 
-def _assert_current_origin(client: CDPClient, origins: str | None) -> str:
+def _assert_current_origin(client: CDPClient, origins: str) -> str:
     current_url = _current_url(client)
     assert_url_allowed(current_url, parse_origins(origins, required=True))
     return current_url

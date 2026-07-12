@@ -7,9 +7,13 @@ ports éphémères -> zéro collision, parallélisable):
 """
 
 import os
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
+from cdpx import session as session_mod
+from cdpx.session import SessionManifest, write_manifest
 from cdpx.testing.evidence import EvidenceSession
 from cdpx.testing.fixture_server import FixtureServer
 from cdpx.testing.mock_cdp import MockCDP
@@ -80,6 +84,44 @@ def pytest_sessionfinish(session, exitstatus):
 def mock():
     with MockCDP() as m:
         yield m
+
+
+@pytest.fixture()
+def cli_manifest(mock, tmp_path, monkeypatch):
+    """Manifest privé relié au mock pour les tests du contrat CLI."""
+    monkeypatch.setattr(session_mod, "assert_session_active", lambda _manifest: None)
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://demo.test/page"
+    now = datetime.now(UTC)
+    session_id = "c" * 24
+    session_dir = Path(tmp_path) / session_id
+    manifest = SessionManifest(
+        session_id=session_id,
+        run_id="R1",
+        profile_id="d" * 16,
+        browser_kind="mock",
+        authority="privileged",
+        origins=("http://*.test", "http://127.0.0.1:*", "https://*.test"),
+        host="127.0.0.1",
+        port=mock.http_port,
+        target_id=target_id,
+        websocket_url=mock._public_target(target_id)["webSocketDebuggerUrl"],
+        browser_pid=os.getpid(),
+        browser_start_time="mock-browser-start",
+        supervisor_pid=os.getpid(),
+        supervisor_start_time="mock-supervisor-start",
+        owner_pid=os.getpid(),
+        owner_start_time="mock-owner-start",
+        session_dir=str(session_dir),
+        profile_dir=str(session_dir / "profile"),
+        artifacts_dir=str(session_dir / "artifacts"),
+        created_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+    )
+    path = write_manifest(manifest)
+    mock.cli_manifest = manifest
+    mock.cli_manifest_path = path
+    return manifest
 
 
 @pytest.fixture()

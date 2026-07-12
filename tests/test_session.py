@@ -37,6 +37,7 @@ def manifest_for(root: Path) -> SessionManifest:
         session_id=SESSION_ID,
         run_id="R1",
         profile_id=PROFILE_ID,
+        browser_kind="chrome",
         authority="interaction",
         origins=("http://*.test",),
         host="127.0.0.1",
@@ -57,7 +58,7 @@ def manifest_for(root: Path) -> SessionManifest:
     )
 
 
-def test_manifest_is_private_and_builds_team_context(tmp_path):
+def test_manifest_is_private_and_builds_execution_context(tmp_path):
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
@@ -65,8 +66,41 @@ def test_manifest_is_private_and_builds_team_context(tmp_path):
     loaded = load_manifest(path, run_id="R1", target_id="T1")
     assert loaded == manifest
     context = loaded.execution_context()
-    assert context.team_mode is True
     assert context.authority.value == "interaction"
+    assert context.session_id == SESSION_ID
+
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="exercise-session-without-chrome",
+    scenario_id="state-session.run-supervised-mock-session",
+    proves=[
+        "The packaged mock uses the same attested manifest and loopback endpoint contract.",
+        "Stopping the mock session removes its private runtime tree.",
+    ],
+)
+def test_mock_backend_uses_supervised_session_contract(tmp_path):
+    manifest, path = start_session(
+        run_id="mock-contract",
+        authority="privileged",
+        origins="http://*.test",
+        browser_kind="mock",
+        owner_pid=os.getpid(),
+        root=tmp_path,
+        timeout=10,
+    )
+    session_dir = Path(manifest.session_dir)
+    try:
+        assert manifest.browser_kind == "mock"
+        assert manifest.port == int(manifest.websocket_url.split(":")[2].split("/")[0])
+        assert session_mod.discovery.version(manifest.host, manifest.port)["Browser"].startswith(
+            "MockChrome/"
+        )
+        assert_session_active(manifest)
+    finally:
+        stop_session(path, run_id=manifest.run_id, target_id=manifest.target_id)
+
+    assert not session_dir.exists()
 
 
 def test_manifest_refuses_permissions_and_assignment_mismatch(tmp_path):
@@ -277,6 +311,7 @@ def test_start_session_bootstraps_and_returns_supervised_manifest(tmp_path, monk
             session_id=data["session_id"],
             run_id=data["run_id"],
             profile_id=data["profile_id"],
+            browser_kind=data["browser_kind"],
             authority=data["authority"],
             origins=tuple(data["origins"]),
             host="127.0.0.1",
@@ -431,6 +466,7 @@ def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, 
                 "session_id": SESSION_ID,
                 "run_id": "run-supervisor",
                 "profile_id": PROFILE_ID,
+                "browser_kind": "chrome",
                 "authority": "interaction",
                 "origins": ["http://demo.test"],
                 "owner_pid": None,
@@ -518,6 +554,13 @@ def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, 
                     "webSocketDebuggerUrl": "ws://127.0.0.1:9444/devtools/page/ASSIGNED",
                 },
                 {"id": "WORKER", "type": "worker"},
+            ],
+            [
+                {
+                    "id": "ASSIGNED",
+                    "type": "page",
+                    "webSocketDebuggerUrl": "ws://127.0.0.1:9444/devtools/page/ASSIGNED",
+                }
             ],
             [
                 {
@@ -617,6 +660,37 @@ def test_single_target_enforcement_fails_closed_when_popup_cannot_close(
         session_mod._enforce_single_page_target(manifest)
 
 
+def test_single_target_enforcement_waits_for_async_close(tmp_path, monkeypatch):
+    manifest = manifest_for(tmp_path)
+    assigned = {
+        "id": manifest.target_id,
+        "type": "page",
+        "webSocketDebuggerUrl": manifest.websocket_url,
+    }
+    popup = {
+        "id": "POPUP",
+        "type": "page",
+        "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/POPUP",
+    }
+    discoveries = iter(([assigned, popup], [assigned, popup], [assigned], [assigned]))
+    monkeypatch.setattr(
+        session_mod.discovery,
+        "list_targets",
+        lambda *_args: next(discoveries),
+    )
+    closed: list[str] = []
+    monkeypatch.setattr(
+        session_mod.discovery,
+        "close_tab",
+        lambda _host, _port, target_id: closed.append(target_id),
+    )
+    monkeypatch.setattr(session_mod.time, "sleep", lambda _seconds: None)
+
+    session_mod._enforce_single_page_target(manifest, close_timeout=0.1)
+
+    assert closed == ["POPUP"]
+
+
 def test_exact_target_attestation_rejects_extra_page(tmp_path, monkeypatch):
     manifest = manifest_for(tmp_path)
     monkeypatch.setattr(
@@ -701,7 +775,7 @@ def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, mon
         assert_session_active(
             replace(active, expires_at=(datetime.now(UTC) - timedelta(seconds=1)).isoformat())
         )
-    with pytest.raises(PolicyError, match="Chrome"):
+    with pytest.raises(PolicyError, match="navigateur"):
         assert_session_active(replace(active, browser_pid=999_999))
     with pytest.raises(PolicyError, match="supervisor"):
         assert_session_active(replace(active, supervisor_pid=999_998))

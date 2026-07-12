@@ -193,9 +193,9 @@ def test_project_features_expose_user_doc_html():
             assert f"<code>{entrypoint}</code>" in doc, f"{spec.id}: doc manquante {entrypoint}"
 
 
-def test_legacy_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
+def test_undocumented_scenario_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
     # Catalogue synthétique: un test_globs de fiche plus large que les tests
-    # des scénarios documentés -> mapping "legacy". Le vrai catalogue n'en a
+    # des scénarios documentés -> mapping sans scénario documenté. Le vrai catalogue n'en a
     # plus aucun (budget 0); ce test garde le garde-fou vivant.
     from cdpx.proofing import features as features_module
 
@@ -209,7 +209,7 @@ def test_legacy_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
     )
     spec = parse_feature_doc(path)
     monkeypatch.setattr(features_module, "load_feature_specs", lambda: ([spec], []))
-    monkeypatch.setattr(features_module, "LEGACY_WARNING_BUDGET", 0)
+    monkeypatch.setattr(features_module, "UNDOCUMENTED_SCENARIO_WARNING_BUDGET", 0)
     scenarios = {
         "suites": {
             "unit": [
@@ -229,7 +229,9 @@ def test_legacy_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
     inventory = build_feature_inventory(
         [{"name": "demo", "help": "démo"}], scenarios, {"changed_files": []}
     )
-    assert any("legacy warnings over budget" in item for item in inventory["violations"])
+    assert any(
+        "undocumented scenario warnings over budget" in item for item in inventory["violations"]
+    )
 
 
 def test_build_feature_inventory_fails_unmapped_public_entrypoint():

@@ -165,6 +165,10 @@ final class Kernel extends BaseKernel
             ->controller([ScenarioController::class, 'resource']);
 
         $routes
+            ->add('favicon', '/favicon.ico')
+            ->controller([ApiController::class, 'favicon']);
+
+        $routes
             ->add('api_echo', '/api/echo')
             ->controller([ApiController::class, 'echoJson']);
 

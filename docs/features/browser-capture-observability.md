@@ -68,8 +68,7 @@ ou attacher une preuve pixel à un scénario de recette.
 Options propres :
 
 - `-o`, `--output` : chemin du fichier image écrit (défaut : `screenshot.png`).
-  En legacy, les répertoires parents sont créés si besoin. En équipe, seul le
-  basename est retenu et le fichier est confiné sous
+  Seul le basename demandé est retenu et le fichier est toujours confiné sous
   `artifacts/captures/` de la session.
 - `--full-page` : capture au-delà du viewport (`captureBeyondViewport`), pour
   obtenir la page entière et pas seulement la zone visible.
@@ -84,14 +83,13 @@ cdpx screenshot --format jpeg -o preuves/accueil.jpg
 Sortie JSON (chemin écrit, poids en octets, format et mode utilisés) :
 
 ```json
-{"path": "preuves/accueil.jpg", "bytes": 48231, "format": "jpeg", "full_page": false}
+{"path": "/runtime/session/artifacts/captures/accueil.jpg", "bytes": 48231, "format": "jpeg", "full_page": false, "classification": "opaque-restricted", "upload_allowed": false, "retention": "session", "_cdpx": {"content_trust": "untrusted"}}
 ```
 
-En mode équipe, la sortie ajoute
-`classification:"opaque-restricted"`, `upload_allowed:false` et
-`retention:"session"`; le fichier est `0600`. Si l'origine réelle devient
-interdite pendant la capture, cdpx supprime le fichier avant de retourner
-l'erreur.
+La sortie ajoute `classification:"opaque-restricted"`,
+`upload_allowed:false` et `retention:"session"`; le fichier est `0600`. Si
+l'origine réelle devient interdite pendant la capture, cdpx supprime le fichier
+avant de retourner l'erreur.
 
 Pièges :
 
@@ -118,10 +116,9 @@ page — livrable d'audit SEO, preuve de recette datée.
 Options propres :
 
 - `-o`, `--output` : chemin du fichier PDF écrit (défaut : `page.pdf`). En
-  legacy, les répertoires parents sont créés. En équipe, seul le basename est
-  conservé sous `artifacts/captures/`, avec les mêmes métadonnées
-  `opaque-restricted`, rétention session et suppression si l'origine finale est
-  refusée.
+  pratique, seul le basename est conservé sous `artifacts/captures/`, avec les
+  mêmes métadonnées `opaque-restricted`, rétention session et suppression si
+  l'origine finale est refusée.
 
 ```bash
 cdpx pdf -o preuves/audit-accueil.pdf
@@ -130,7 +127,7 @@ cdpx pdf -o preuves/audit-accueil.pdf
 Sortie JSON :
 
 ```json
-{"path": "preuves/audit-accueil.pdf", "bytes": 105320}
+{"path": "/runtime/session/artifacts/captures/audit-accueil.pdf", "bytes": 105320, "classification": "opaque-restricted", "upload_allowed": false, "retention": "session", "_cdpx": {"content_trust": "untrusted"}}
 ```
 
 Pièges :

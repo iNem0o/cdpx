@@ -30,10 +30,11 @@ IGNORED_PATH_PARTS = {
 }
 FEATURE_STATUSES = {"planned", "active", "validated", "deprecated"}
 
-# Ratchet: nombre maximal de tests rattachés par test_globs "legacy" (sans
-# scénario documenté). Il ne peut que BAISSER — un dépassement est une
-# violation bloquante, pour que la dette narrative ne recroisse jamais.
-LEGACY_WARNING_BUDGET = 0
+# Ratchet : nombre maximal de tests rattachés seulement par le test_globs large
+# d'une feature, sans scénario documenté. Il ne peut que BAISSER — un
+# dépassement est une violation bloquante, pour que la dette narrative ne
+# recroisse jamais.
+UNDOCUMENTED_SCENARIO_WARNING_BUDGET = 0
 
 # Sections obligatoires du corps Markdown (FR, affichées telles quelles dans
 # le rapport de preuve). "Usage" porte la doc utilisateur par entrypoint.
@@ -219,10 +220,15 @@ def build_feature_inventory(
         if scenario_spec is not None:
             _attach_to_journey_tree(feature, enriched, scenario_spec)
 
-    legacy_count = sum(1 for warning in warnings if warning.startswith("scenario mapped by legacy"))
-    if legacy_count > LEGACY_WARNING_BUDGET:
+    undocumented_count = sum(
+        1
+        for warning in warnings
+        if warning.startswith("scenario mapped only by feature test_globs")
+    )
+    if undocumented_count > UNDOCUMENTED_SCENARIO_WARNING_BUDGET:
         violations.append(
-            f"legacy warnings over budget: {legacy_count} > {LEGACY_WARNING_BUDGET} "
+            "undocumented scenario warnings over budget: "
+            f"{undocumented_count} > {UNDOCUMENTED_SCENARIO_WARNING_BUDGET} "
             "(documenter les scénarios ou élargir les specs, pas le budget)"
         )
 
@@ -547,7 +553,9 @@ def _resolve_scenario_owner(
         return {
             "feature": glob_owners[0],
             "scenario": None,
-            "warning": f"scenario mapped by legacy test_globs without documented spec: {nodeid}",
+            "warning": (
+                f"scenario mapped only by feature test_globs without documented scenario: {nodeid}"
+            ),
             "error": "",
         }
     if len(glob_owners) > 1:

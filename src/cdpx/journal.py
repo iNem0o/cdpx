@@ -73,15 +73,14 @@ def serialize_action(
 def materialize_action(
     stored: list[str] | Mapping[str, Any],
     *,
-    team_mode: bool = False,
     environ: Mapping[str, str] | None = None,
 ) -> list[str]:
     if isinstance(stored, list):
         if not all(isinstance(item, str) for item in stored):
             raise JournalError("action v1 invalide")
         actions.validate_action(stored)
-        if team_mode and stored[0] in {"type", "eval"}:
-            raise JournalError("action v1 sensible refusée en mode équipe")
+        if stored[0] in {"type", "eval"}:
+            raise JournalError("action v1 sensible refusée")
         return list(stored)
     if not isinstance(stored, Mapping):
         raise JournalError("action de journal invalide")

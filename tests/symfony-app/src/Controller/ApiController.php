@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Cibles locales réelles du collector http_client. Docker reste autonome:
@@ -12,6 +13,11 @@ use Symfony\Component\HttpFoundation\Request;
  */
 final class ApiController
 {
+    public function favicon(): Response
+    {
+        return new Response(null, Response::HTTP_NO_CONTENT);
+    }
+
     public function echoJson(): JsonResponse
     {
         return new JsonResponse(['ok' => true, 'source' => 'api-echo']);

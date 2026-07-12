@@ -12,6 +12,7 @@ from pathlib import Path
 
 from cdpx.client import CDPClient
 from cdpx.primitives import capture
+from cdpx.session import SessionManifest
 from cdpx.testing.evidence import EvidenceCase, slugify
 
 
@@ -64,16 +65,24 @@ def stop_process(proc: subprocess.Popen, timeout: float = 5) -> None:
 
 
 def run_cli(
-    port: int,
+    manifest: SessionManifest,
+    manifest_path: str | Path,
     *args: str,
-    target: str | None = None,
     timeout: float = 15,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the installed cdpx CLI as a black box and capture its full contract."""
-    command = [sys.executable, "-m", "cdpx.cli", "--port", str(port)]
-    if target is not None:
-        command.extend(["--target", target])
+    command = [
+        sys.executable,
+        "-m",
+        "cdpx.cli",
+        "--session",
+        str(manifest_path),
+        "--run-id",
+        manifest.run_id,
+        "--target",
+        manifest.target_id,
+    ]
     command.extend(args)
     return subprocess.run(
         command,

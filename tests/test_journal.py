@@ -69,12 +69,12 @@ def test_any_redacted_action_is_stored_safely_and_marked_non_replayable():
     assert replayable is True
 
 
-def test_v1_sensitive_actions_are_rejected_in_team_mode():
+def test_v1_sensitive_actions_are_always_rejected():
     with pytest.raises(JournalError, match="v1 sensible"):
-        materialize_action(["type", "#password", "raw"], team_mode=True)
+        materialize_action(["type", "#password", "raw"])
     with pytest.raises(JournalError, match="v1 sensible"):
-        materialize_action(["eval", "1 + 1"], team_mode=True)
-    assert materialize_action(["click", "#go"], team_mode=True) == ["click", "#go"]
+        materialize_action(["eval", "1 + 1"])
+    assert materialize_action(["click", "#go"]) == ["click", "#go"]
 
 
 def test_secure_append_permissions_are_enforced(tmp_path):
@@ -107,13 +107,16 @@ def test_record_v2_executes_secret_but_never_persists_it(mock, tmp_path, monkeyp
 
     monkeypatch.setenv("CHECKOUT_PASSWORD", "runtime-canary-secret")
     monkeypatch.setattr(advanced.actions, "run_action", run_action)
-    target = mock._public_target(next(iter(mock.targets)))
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://demo.test/page"
+    target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
         result = advanced.record(
             client,
             str(path),
             ["type", "#password", "@env:CHECKOUT_PASSWORD"],
             run_id="R1",
+            origins="http://*.test",
         )
     raw = path.read_text(encoding="utf-8")
     event = json.loads(raw)
@@ -136,13 +139,25 @@ def test_record_eval_never_persists_result_or_error(mock, tmp_path, monkeypatch,
         return {"value": canary}
 
     monkeypatch.setattr(advanced.actions, "run_action", run_action)
-    target = mock._public_target(next(iter(mock.targets)))
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://demo.test/page"
+    target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
         if fails:
             with pytest.raises(ValueError, match="eval failed"):
-                advanced.record(client, str(path), ["eval", "window.readSecret()"])
+                advanced.record(
+                    client,
+                    str(path),
+                    ["eval", "window.readSecret()"],
+                    origins="http://*.test",
+                )
         else:
-            advanced.record(client, str(path), ["eval", "window.readSecret()"])
+            advanced.record(
+                client,
+                str(path),
+                ["eval", "window.readSecret()"],
+                origins="http://*.test",
+            )
 
     raw = path.read_text(encoding="utf-8")
     event = json.loads(raw)
@@ -163,9 +178,11 @@ def test_replay_v2_resolves_all_refs_before_first_action(mock, tmp_path, monkeyp
         encoding="utf-8",
     )
     monkeypatch.delenv("MISSING", raising=False)
-    target = mock._public_target(next(iter(mock.targets)))
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://demo.test/page"
+    target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
-        result = advanced.replay(client, str(path), team_mode=True)
+        result = advanced.replay(client, str(path), origins="http://*.test")
     assert result["played"] == 0 and result["ok"] is False
     assert "MISSING" in result["divergence"]
     assert mock.commands == []

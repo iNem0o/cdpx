@@ -196,8 +196,9 @@ Les actions acceptées viennent de l'interpréteur partagé
 - `goto <url>` — naviguer.
 - `wait <selecteur>` — attendre un sélecteur CSS.
 - `click <selecteur>` — cliquer un élément.
-- `type <selecteur> <texte> [--clear]` — taper du texte (option `--clear`
-  pour vider le champ avant).
+- `type <selecteur> <texte> [--clear]` — taper un texte non sensible (option
+  `--clear` pour vider le champ avant). Les secrets appartiennent aux surfaces
+  dédiées qui acceptent une référence d'environnement.
 - `key <touche>` — presser une touche (Enter, Tab, Escape, ArrowUp/Down).
 - `eval <js>` — évaluer du JavaScript.
 
@@ -238,10 +239,10 @@ Sortie:
 
 Pièges et cas d'erreur:
 
-- **Sécurité**: en legacy avec `CDPX_ORIGINS`, `dom-diff` portant une action
-  mutante (`click`, `type`, `key`, `eval`) est refusé hors des origines
-  autorisées. En mode équipe, l'allowlist est obligatoire et l'autorité suit
-  l'action (`eval` exige `privileged`), y compris pour les lectures.
+- **Sécurité** : l'allowlist est obligatoire et l'autorité suit l'action
+  (`eval` exige `privileged`), y compris pour les lectures. Ne jamais passer de
+  secret à l'action composée `type`; utiliser `cdpx type --secret-env` ou un
+  scénario avec `secret_ref`.
 - Une action absente ou inconnue échoue avec le rappel d'usage de
   l'interpréteur (exit 2 pour une erreur d'usage).
 - `changed: false` avec `diff: []` est un résultat valide: l'action n'a rien

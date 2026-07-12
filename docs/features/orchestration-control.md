@@ -78,13 +78,13 @@ nommée, jamais d'échappatoire shell.
 
 Options globales et codes de sortie: voir la section Contrat CLI du README.
 
-En local historique, `CDPX_ORIGINS` protège les mutations lorsqu'elle est
-définie. En mode équipe, elle est obligatoire et toutes les actions sont
-préflightées avec le grant du manifest. Pour les commandes composées, le niveau
-suit le verbe (`goto`/`wait`: observation; `click`/`type`/`key`: interaction;
-`eval`: privileged). `replay` et `scenario` prennent le niveau maximal de tout
-le fichier avant effet CDP. Destinations et origine réelle sont vérifiées ; le
-contenu page reste une entrée non fiable. `frame` est une observation.
+L'allowlist de la session est obligatoire et toutes les actions sont
+préflightées avec l'autorité du manifest. Pour les commandes composées, le
+niveau suit le verbe (`goto`/`wait`: observation;
+`click`/`type`/`key`: interaction; `eval`: privileged). `replay` et `scenario`
+prennent le niveau maximal de tout le fichier avant effet CDP. Destinations et
+origine réelle sont vérifiées ; le contenu page reste une entrée non fiable.
+`frame` est une observation.
 
 ### `cdpx intercept`
 
@@ -124,8 +124,8 @@ Erreurs et pièges : toute autre action que `goto <url>` après `--` est
 refusée. Une règle sans `=>`, une faute de frappe (`typo`) ou un statut hors
 `200..599` échoue au parsing **avant** `Fetch.enable`/navigation ; aucune
 branche par défaut ne continue silencieusement. Si `load` n'arrive jamais, la
-commande timeout. En mode équipe, `intercept` exige `privileged` et une
-destination autorisée. Le document principal est lui aussi intercepté : une
+commande timeout. `intercept` exige `privileged` et une destination autorisée.
+Le document principal est lui aussi intercepté : une
 règle trop large (`* => 503`) casse la page porteuse.
 
 ### `cdpx emulate`
@@ -174,9 +174,9 @@ Erreurs et pièges : sans preset ni `--reset`, la commande échoue
 (`preset inconnu: None`, exit 1). PIÈGE PRINCIPAL : `cdpx emulate mobile` sans
 action applique bien les overrides mais ils disparaissent dès la fin de la
 commande — un `cdpx goto` lancé ensuite tourne SANS émulation (voir Limites
-connues). Sous `CDPX_ORIGINS`, la commande est classée par le verbe de son
-action : `emulate mobile -- goto ...` est une lecture, `emulate mobile --
-click ...` est une mutation soumise à la garde.
+connues). La commande est classée par le verbe de son action :
+`emulate mobile -- goto ...` relève d'observation, `emulate mobile -- click
+...` exige interaction et toute destination reste bornée par l'allowlist.
 
 ### `cdpx frame`
 
@@ -203,9 +203,8 @@ cdpx frame "#status"
 Erreurs et pièges : si aucun élément ne matche, ou si l'iframe est
 cross-origin (son `contentDocument` est inaccessible), la sortie porte
 `"text":null` avec exit 0 — vérifier la valeur, pas le code de sortie.
-En legacy, c'est une lecture non bloquée par une allowlist de mutations. En
-mode équipe, `frame` relève d'observation mais exige tout de même que l'origine
-courante appartienne à l'allowlist obligatoire.
+`frame` relève d'observation mais exige tout de même que l'origine courante
+appartienne à l'allowlist obligatoire.
 
 ### `cdpx record`
 
@@ -219,20 +218,19 @@ append : plusieurs invocations construisent un parcours. Chaque ligne contient
 schéma, `run_id`, action structurée ou argv, `replayable`, verdict, résultat
 nettoyé et timestamp. Un échec est écrit avant l'exit 1.
 
-Une saisie littérale est masquée et marquée non rejouable. Pour un parcours
-rejouable, utiliser `@env:NOM` : seule la référence est persistée, la valeur est
+`record type` exige `@env:NOM` : seule la référence est persistée, la valeur est
 résolue en mémoire et enregistrée dans le contexte de redaction. `eval` est
-toujours masqué, hashé et non rejouable. En mode équipe, `record type` refuse
-toute autre forme et prévalide la référence avant connexion.
+toujours masqué, hashé et non rejouable. Toute autre forme de saisie est
+refusée avant connexion.
 
 Options propres à la commande :
 
-- `-o`, `--output` : chemin du journal NDJSON (défaut `cdpx-record.ndjson`).
-  Les répertoires parents sont créés si besoin.
+- `-o`, `--output` : nom du journal NDJSON (défaut `cdpx-record.ndjson`).
+  Seul son basename est retenu.
 - `action` (après `--`) : l'action à exécuter et journaliser.
 
-En mode équipe, seul le basename de `--output` est retenu : le journal est
-confiné sous `artifacts/journals/` de la session, en `0600`, avec métadonnées
+Le journal est confiné sous `artifacts/journals/` de la session, en `0600`,
+avec métadonnées
 `classification:"internal"`, `upload_allowed:false`, `retention:"session"`.
 `replay` ne peut relire qu'un fichier régulier privé de ce même dossier.
 
@@ -255,8 +253,8 @@ Ligne NDJSON écrite dans le journal :
 
 Erreurs et pièges : une référence env absente est refusée avant effet CDP. Une
 action qui échoue est journalisée `ok:false` avant l'exit 1. Le fichier et son
-dossier sont forcés respectivement en `0600` et `0700`. En équipe, l'autorité
-requise suit l'action et l'origine réelle est revalidée après exécution.
+dossier sont forcés respectivement en `0600` et `0700`. L'autorité requise suit
+l'action et l'origine réelle est revalidée après exécution.
 
 ### `cdpx replay`
 
@@ -272,9 +270,9 @@ réellement exécutée et son résultat non volatil est comparé au résultat
 enregistré.
 
 Après chaque `goto`, replay relit `window.location.href` au lieu de conserver
-l'URL demandée. En équipe, cette URL finale est contrôlée immédiatement et à
-nouveau juste avant la mutation suivante : une redirection autorisée → origine
-interdite ne peut pas recevoir le clic suivant.
+l'URL demandée. Cette URL finale est contrôlée immédiatement et à nouveau juste
+avant la mutation suivante : une redirection autorisée → origine interdite ne
+peut pas recevoir le clic suivant.
 
 Options propres à la commande :
 
@@ -305,13 +303,13 @@ journal plus long que `--max-actions` provoque
 `budget --max-actions dépassé` (exit 1, rien n'est rejoué). `played` compte
 les actions effectivement rejouées avec succès ; l'index de `divergence` est
 celui de l'évènement fautif (base 0). Les clés volatiles (`elapsed_ms`, IDs de
-loader/frame, coordonnées) sont ignorées dans la comparaison. En équipe, les
-journaux v1 contenant `type` ou `eval` sont refusés ; les actions v1 non
+loader/frame, coordonnées) sont ignorées dans la comparaison. Les journaux v1
+contenant `type` ou `eval` sont refusés ; les actions v1 non
 sensibles restent compatibles.
 
 ### `cdpx scenario`
 
-Synopsis : `cdpx scenario run <fichier.yml> [--evidence-dir DIR] [--settle S]`
+Synopsis : `cdpx scenario run <fichier.yml> [--settle S]`
 
 Exécute un scénario métier déclaratif YAML contre l'onglet ciblé. Le scénario
 décrit un contexte (`base_url`, émulation optionnelle), une suite de steps, des
@@ -328,8 +326,8 @@ Format P0 supporté :
   dans la même connexion CDP que les steps.
 - Steps : `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
   `wait_text`. `wait_visible` exige un élément attaché, rendu, visible et doté
-  d'une boîte non nulle. `type` accepte `{selector, text, clear}` en legacy ou
-  `{selector, secret_ref, clear}`; `secret_ref` est obligatoire en équipe.
+  d'une boîte non nulle. `type` accepte uniquement
+  `{selector, secret_ref, clear}` et prévalide la référence d'environnement.
 - `capture` sur step : liste parmi `screenshot`, `console`, `network`,
   `profiler`. Ces preuves sont collectées immédiatement après le step, même si
   le step échoue.
@@ -367,13 +365,12 @@ artifacts:
 
 ```bash
 cdpx scenario run checkout_guest_add_to_cart.yml
-cdpx scenario run checkout_guest_add_to_cart.yml --evidence-dir .proof/manual-scenarios
 ```
 
 Sortie réussie :
 
 ```json
-{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":".cdpx-evidence/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":".cdpx-evidence/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png","classification":"opaque-restricted","upload_allowed":false}]}
+{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":"/runtime/session/artifacts/scenarios/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":"/runtime/session/artifacts/scenarios/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png","classification":"opaque-restricted","upload_allowed":false}],"_cdpx":{"content_trust":"untrusted"}}
 ```
 
 Erreurs et pièges : un YAML invalide ou un champ inconnu sort en exit 2. Un
@@ -385,17 +382,16 @@ capture `profiler` utilise d'abord les headers Symfony observés pendant le run
 tente la dernière URL naviguée, puis ajoute un finding warning
 `profiler_unavailable` si aucun profiler n'est disponible. Le collector effectue
 un dernier drainage console/réseau **avant** les assertions, afin qu'une erreur
-tardive participe au verdict. En équipe, chaque origine est contrôlée avant le
-step et après stabilisation ; une redirection hors allowlist bloque mutation,
-capture et assertions suivantes.
+tardive participe au verdict. Chaque origine est contrôlée avant le step et
+après stabilisation ; une redirection hors allowlist bloque mutation, capture
+et assertions suivantes.
 
 Le dossier de run est `0700`, ses fichiers et son manifest sont `0600`. Les
 JSON console/réseau/profiler sont `internal`; screenshots et autres binaires
 sont `opaque-restricted`, avec `upload_allowed:false`. Le résultat et les
-erreurs sont redacted avant persistance. En équipe, le dossier de scénario est
-forcé sous les artefacts de session et son TTL ne dépasse pas le temps restant
-du manifest; le teardown supprime l'ensemble. En legacy, le TTL manifesté par
-défaut est de 24 heures et nécessite une purge explicite à échéance.
+erreurs sont redacted avant persistance. Le dossier de scénario est forcé sous
+les artefacts de session et son TTL ne dépasse pas le temps restant du manifest;
+le teardown supprime l'ensemble.
 
 ## Parcours utilisateur
 

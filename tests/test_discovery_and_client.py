@@ -7,7 +7,8 @@ from cdpx.client import CDPClient, CDPError, CDPTimeout
 
 
 def _connect(mock) -> CDPClient:
-    target = discovery.pick_page("127.0.0.1", mock.http_port)
+    target_id = next(iter(mock.targets))
+    target = discovery.pick_page("127.0.0.1", mock.http_port, target_id)
     return CDPClient(target["webSocketDebuggerUrl"], timeout=5)
 
 

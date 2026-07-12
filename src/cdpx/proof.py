@@ -561,7 +561,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
                 "name": "tests/test_proof.py",
                 "type": "Unit tests",
                 "evidence": "tests/test_proof.py",
-                "review_focus": "Parsing JUnit, aide CLI et résumé legacy.",
+                "review_focus": "Parsing JUnit, aide CLI et résumé historique.",
             }
         )
 

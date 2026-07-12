@@ -201,7 +201,7 @@ def test_parse_help_commands_uses_captured_argparse_help():
     assert any(command["help"] for command in commands if command["name"] == "seo")
 
 
-def test_build_summary_preserves_legacy_artifact_keys():
+def test_build_summary_preserves_historical_artifact_keys():
     unit = {
         "tests": 2,
         "passed": 2,

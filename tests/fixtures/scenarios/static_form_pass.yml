@@ -8,7 +8,7 @@ steps:
   - label: fill_name
     type:
       selector: "#name"
-      text: "Leo"
+      secret_ref: E2E_FORM_NAME
       clear: true
     capture: [console]
   - label: submit

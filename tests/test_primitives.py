@@ -17,7 +17,9 @@ FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 @pytest.fixture()
 def client(mock):
-    target = discovery.pick_page("127.0.0.1", mock.http_port)
+    target_id = next(iter(mock.targets))
+    mock.targets[target_id]["url"] = "http://demo.test/page"
+    target = discovery.pick_page("127.0.0.1", mock.http_port, target_id)
     with CDPClient(target["webSocketDebuggerUrl"], timeout=5) as c:
         yield c
 
@@ -997,7 +999,7 @@ def test_frame_text_reads_iframe_content(mock, client):
 def test_record_executes_action_and_journals_result(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    res = advanced.record(client, str(path), ["click", "#submit"])
+    res = advanced.record(client, str(path), ["click", "#submit"], origins="http://*.test")
     assert res["ok"] is True and res["recorded"] == 1
     # l'action a été réellement exécutée (protocole émis), pas seulement journalisée
     assert [m["type"] for m in mock.commands_for("Input.dispatchMouseEvent")] == [
@@ -1015,7 +1017,7 @@ def test_record_journals_failure_then_raises(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", None)  # élément introuvable
     with pytest.raises(inputs.ElementNotFound):
-        advanced.record(client, str(path), ["click", "#missing"])
+        advanced.record(client, str(path), ["click", "#missing"], origins="http://*.test")
     event = json.loads(path.read_text().splitlines()[0])
     assert event["ok"] is False and event["action"] == ["click", "#missing"]
     assert "#missing" in event["result"]["error"]
@@ -1024,19 +1026,17 @@ def test_record_journals_failure_then_raises(mock, client, tmp_path):
 def test_replay_reexecutes_journal_against_browser(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    advanced.record(client, str(path), ["goto", "http://site.test/"])
-    advanced.record(client, str(path), ["click", "#submit"])
+    advanced.record(client, str(path), ["goto", "http://site.test/"], origins="http://*.test")
+    advanced.record(client, str(path), ["click", "#submit"], origins="http://*.test")
     mock.commands.clear()
-    res = advanced.replay(client, str(path))
+    res = advanced.replay(client, str(path), origins="http://*.test")
     assert res == {"path": str(path), "events": 2, "played": 2, "ok": True}
     # le rejeu a bien ré-émis navigation puis clic, dans l'ordre du journal
     methods = [m for (_t, m, _p) in mock.commands]
     assert methods.index("Page.navigate") < methods.index("Input.dispatchMouseEvent")
 
 
-def test_replay_keeps_v1_type_result_compatibility_without_exposing_text(
-    client, tmp_path, monkeypatch
-):
+def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypatch):
     path = tmp_path / "legacy-type.ndjson"
     path.write_text(
         '{"action":["type","#name","legacy-secret"],"ok":true,'
@@ -1054,9 +1054,10 @@ def test_replay_keeps_v1_type_result_compatibility_without_exposing_text(
         },
     )
 
-    result = advanced.replay(client, str(path))
+    result = advanced.replay(client, str(path), origins="http://*.test")
 
-    assert result["ok"] is True and result["played"] == 1
+    assert result["ok"] is False and result["played"] == 0
+    assert "v1 sensible" in result["divergence"]
     assert "legacy-secret" not in json.dumps(result)
 
 
@@ -1069,7 +1070,7 @@ def test_replay_stops_at_first_divergence(mock, client, tmp_path):
         encoding="utf-8",
     )
     mock.on_eval("getBoundingClientRect", None)  # le clic rejoué échoue
-    res = advanced.replay(client, str(path))
+    res = advanced.replay(client, str(path), origins="http://*.test")
     assert res["ok"] is False and res["played"] == 1
     assert res["divergence"].startswith("event 1:")
     # arrêt net: l'action suivante du journal n'a pas été rejouée
@@ -1079,7 +1080,7 @@ def test_replay_stops_at_first_divergence(mock, client, tmp_path):
 def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["click","#submit"],"ok":false}\n', encoding="utf-8")
-    res = advanced.replay(client, str(path))
+    res = advanced.replay(client, str(path), origins="http://*.test")
     assert res["ok"] is False and res["divergence"] == "event 0: ok=false journalisé"
     assert mock.commands == []  # un enregistrement en échec ne se rejoue pas
 
@@ -1087,14 +1088,17 @@ def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
 def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n{not-json}\n', "utf-8")
-    res = advanced.replay(client, str(path))
+    res = advanced.replay(client, str(path), origins="http://*.test")
     assert res["ok"] is False and res["divergence"].startswith("line 2:")
     assert mock.commands == []  # journal corrompu -> rien n'est rejoué
     path.write_text('{"ok":true}\n', encoding="utf-8")
-    assert advanced.replay(client, str(path))["divergence"] == "line 1: action manquante"
+    assert (
+        advanced.replay(client, str(path), origins="http://*.test")["divergence"]
+        == "line 1: action manquante"
+    )
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n' * 3, encoding="utf-8")
     with pytest.raises(ValueError):
-        advanced.replay(client, str(path), max_actions=2)
+        advanced.replay(client, str(path), max_actions=2, origins="http://*.test")
     assert mock.commands == []  # budget dépassé -> rien n'est rejoué
 
 
@@ -1105,7 +1109,7 @@ def test_replay_validates_action_grammar_before_any_execution(mock, client, tmp_
         '{"action":["shell","oops"],"ok":true,"result":{}}\n',
         encoding="utf-8",
     )
-    res = advanced.replay(client, str(path))
+    res = advanced.replay(client, str(path), origins="http://*.test")
     assert res["ok"] is False and res["divergence"].startswith("line 2:")
     assert mock.commands == []
 
@@ -1117,7 +1121,7 @@ def test_replay_compares_semantic_results(mock, client, tmp_path):
         '"result":{"url":"http://other.test/","ok":true,"elapsed_ms":999}}\n',
         encoding="utf-8",
     )
-    res = advanced.replay(client, str(path))
+    res = advanced.replay(client, str(path), origins="http://*.test")
     assert res["ok"] is False and res["played"] == 1
     assert res["divergence"] == {
         "event": 0,
@@ -1137,8 +1141,8 @@ def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path
     )
     mock.on_eval("window.location.href", "http://prod.example/")
     res = advanced.replay(client, str(path), origins="http://*.test")
-    assert res["ok"] is False and res["played"] == 1
-    assert "mutation refusée" in str(res["divergence"])
+    assert res["ok"] is False and res["played"] == 0
+    assert "origine refusée" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
@@ -1154,17 +1158,17 @@ def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, cli
     res = advanced.replay(client, str(path), origins="http://*.test")
 
     assert res["ok"] is False and res["played"] == 1
-    assert "mutation refusée" in str(res["divergence"])
+    assert "origine refusée" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
     location_reads = [
         params
         for params in mock.commands_for("Runtime.evaluate")
         if params["expression"] == "window.location.href"
     ]
-    assert len(location_reads) == 2  # après goto, puis immédiatement avant le clic
+    assert len(location_reads) == 1  # destination réelle refusée immédiatement après goto
 
 
-def test_replay_strict_rejects_forbidden_goto_before_navigation(mock, client, tmp_path):
+def test_replay_rejects_forbidden_goto_before_navigation(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","https://forbidden.example/"],"ok":true}\n',
@@ -1175,7 +1179,6 @@ def test_replay_strict_rejects_forbidden_goto_before_navigation(mock, client, tm
         client,
         str(path),
         origins="http://allowed.test",
-        strict_origins=True,
     )
 
     assert result["ok"] is False and result["played"] == 0
@@ -1183,7 +1186,7 @@ def test_replay_strict_rejects_forbidden_goto_before_navigation(mock, client, tm
     assert mock.commands_for("Page.navigate") == []
 
 
-def test_record_strict_rejects_forbidden_goto_before_navigation_or_journal(mock, client, tmp_path):
+def test_record_rejects_forbidden_goto_before_navigation_or_journal(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
 
     with pytest.raises(ValueError, match="origine refusée"):
@@ -1192,7 +1195,6 @@ def test_record_strict_rejects_forbidden_goto_before_navigation_or_journal(mock,
             str(path),
             ["goto", "https://forbidden.example/"],
             origins="http://allowed.test",
-            strict_origins=True,
         )
 
     assert mock.commands_for("Page.navigate") == []
@@ -1240,7 +1242,7 @@ def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
     res = advanced.replay(client, str(path), origins="http://*.test")
 
     assert res["ok"] is False and res["played"] == 1
-    assert "destination après action: mutation refusée" in str(res["divergence"])
+    assert "destination après action: origine refusée" in str(res["divergence"])
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
 
 

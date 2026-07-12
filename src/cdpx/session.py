@@ -1,4 +1,4 @@
-"""Sessions Chrome jetables et exclusives pour le mode équipe.
+"""Sessions navigateur jetables, attestées et exclusives.
 
 Le manifest est la capacité locale attribuée à un run. Il lie un profil,
 un target et un niveau d'autorité. Les fichiers privés restent sous un dossier
@@ -51,6 +51,7 @@ CHROME_CANDIDATES = (
     "google-chrome-stable",
     "chrome",
 )
+BROWSER_KINDS = {"chrome", "mock"}
 _SESSION_ID_RE = re.compile(r"[0-9a-f]{24}\Z")
 _PROFILE_ID_RE = re.compile(r"[0-9a-f]{16}\Z")
 _TARGET_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,256}\Z")
@@ -59,6 +60,7 @@ _BOOTSTRAP_FIELDS = {
     "session_id",
     "run_id",
     "profile_id",
+    "browser_kind",
     "authority",
     "origins",
     "owner_pid",
@@ -74,6 +76,7 @@ _ATTESTED_POLICY_FIELDS = (
     "session_id",
     "run_id",
     "profile_id",
+    "browser_kind",
     "authority",
     "origins",
     "owner_pid",
@@ -124,6 +127,7 @@ class SessionManifest:
     session_id: str
     run_id: str
     profile_id: str
+    browser_kind: str
     authority: str
     origins: tuple[str, ...]
     host: str
@@ -148,7 +152,7 @@ class SessionManifest:
         return Path(self.session_dir) / MANIFEST_NAME
 
     def execution_context(self) -> ExecutionContext:
-        return ExecutionContext.team(
+        return ExecutionContext.create(
             run_id=self.run_id,
             target_id=self.target_id,
             authority=self.authority,
@@ -162,6 +166,7 @@ class SessionManifest:
             "session_id": self.session_id,
             "run_id": self.run_id,
             "profile": {"id": self.profile_id, "ephemeral": True},
+            "browser_kind": self.browser_kind,
             "authority": self.authority,
             "origins": list(self.origins),
             "host": self.host,
@@ -169,7 +174,6 @@ class SessionManifest:
             "target_id": self.target_id,
             "created_at": self.created_at,
             "expires_at": self.expires_at,
-            "content_trust": "untrusted",
         }
 
 
@@ -294,7 +298,9 @@ def _validate_manifest_fields(manifest: SessionManifest) -> None:
         raise PolicyError("manifest de session: target invalide")
     if not isinstance(manifest.authority, str) or not isinstance(manifest.origins, tuple):
         raise PolicyError("manifest de session: autorité/origines invalides")
-    context = ExecutionContext.team(
+    if manifest.browser_kind not in {"chrome", "mock"}:
+        raise PolicyError("manifest de session: browser_kind invalide")
+    context = ExecutionContext.create(
         run_id=manifest.run_id,
         target_id=manifest.target_id,
         authority=manifest.authority,
@@ -510,6 +516,23 @@ def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
     return command
 
 
+def build_mock_command(profile_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "cdpx.testing.mock_cdp",
+        "--remote-debugging-port=0",
+        f"--user-data-dir={profile_dir}",
+    ]
+
+
+def _browser_markers(browser_kind: str, profile_dir: str | Path) -> tuple[str, ...]:
+    profile_marker = f"--user-data-dir={profile_dir}"
+    if browser_kind == "mock":
+        return ("-m", "cdpx.testing.mock_cdp", profile_marker)
+    return (profile_marker,)
+
+
 def _positive_finite(value: float, label: str) -> float:
     if not isinstance(value, int | float) or isinstance(value, bool):
         raise PolicyError(f"{label} numérique requis")
@@ -527,15 +550,19 @@ def start_session(
     ttl: float = 3600,
     owner_pid: int | None = None,
     chrome_bin: str | None = None,
+    browser_kind: str = "chrome",
     root: str | Path | None = None,
     timeout: float = 30,
 ) -> tuple[SessionManifest, Path]:
+    if browser_kind not in BROWSER_KINDS:
+        raise PolicyError(f"backend navigateur inconnu: {browser_kind}")
     # Valide les grants avant de créer le moindre fichier/processus.
-    preliminary = ExecutionContext.team(
+    preliminary = ExecutionContext.create(
         run_id=run_id,
         target_id="pending",
         authority=authority,
         origins=origins,
+        session_id="pending",
     )
     ttl = _positive_finite(ttl, "TTL de session")
     timeout = _positive_finite(timeout, "timeout de démarrage")
@@ -547,7 +574,9 @@ def start_session(
             owner_start_time, _ = _process_identity(owner)
         except PolicyError as e:
             raise PolicyError(f"owner-pid introuvable ou invérifiable: {owner}") from e
-    chrome = find_chrome(chrome_bin)
+    if browser_kind == "mock" and chrome_bin is not None:
+        raise PolicyError("le backend mock n'accepte pas --chrome")
+    chrome = find_chrome(chrome_bin) if browser_kind == "chrome" else sys.executable
     created = _now()
     try:
         expires = created + timedelta(seconds=ttl)
@@ -567,6 +596,7 @@ def start_session(
             "session_id": session_id,
             "run_id": run_id,
             "profile_id": secrets.token_hex(8),
+            "browser_kind": browser_kind,
             "authority": preliminary.authority.value,
             "origins": list(preliminary.origins),
             "owner_pid": owner,
@@ -614,7 +644,7 @@ def start_session(
                 detail = supervisor_log.read_text(encoding="utf-8", errors="replace")[-2000:]
                 raise PolicyError(f"supervisor de session arrêté prématurément: {detail}")
             time.sleep(0.05)
-        raise PolicyError(f"session Chrome non prête après {timeout}s")
+        raise PolicyError(f"session navigateur non prête après {timeout}s")
     except Exception:
         if supervisor is not None:
             _abort_supervisor(supervisor, session_dir)
@@ -647,7 +677,7 @@ def stop_session(
             _terminate_owned_pid(
                 manifest.browser_pid,
                 manifest.browser_start_time,
-                f"--user-data-dir={manifest.profile_dir}",
+                _browser_markers(manifest.browser_kind, manifest.profile_dir),
             )
             _terminate_owned_pid(
                 manifest.supervisor_pid,
@@ -671,7 +701,7 @@ def session_status(
         "browser_running": _process_matches(
             manifest.browser_pid,
             manifest.browser_start_time,
-            f"--user-data-dir={manifest.profile_dir}",
+            _browser_markers(manifest.browser_kind, manifest.profile_dir),
         ),
         "supervisor_running": _process_matches(
             manifest.supervisor_pid,
@@ -688,8 +718,8 @@ def assert_session_active(manifest: SessionManifest) -> None:
     _assert_process_identity(
         manifest.browser_pid,
         manifest.browser_start_time,
-        f"--user-data-dir={manifest.profile_dir}",
-        "Chrome",
+        _browser_markers(manifest.browser_kind, manifest.profile_dir),
+        "navigateur",
     )
     _assert_process_identity(
         manifest.supervisor_pid,
@@ -926,7 +956,11 @@ def _assert_exact_target(manifest: SessionManifest) -> dict[str, Any]:
     return target
 
 
-def _enforce_single_page_target(manifest: SessionManifest) -> None:
+def _enforce_single_page_target(
+    manifest: SessionManifest,
+    *,
+    close_timeout: float = 2.0,
+) -> None:
     pages = _page_targets(manifest.host, manifest.port)
     for target in pages:
         target_id = target.get("id")
@@ -937,7 +971,18 @@ def _enforce_single_page_target(manifest: SessionManifest) -> None:
                 discovery.close_tab(manifest.host, manifest.port, target_id)
             except discovery.DiscoveryError as e:
                 raise PolicyError(f"fermeture du target supplémentaire échouée: {target_id}") from e
-    _assert_exact_target(manifest)
+    # Chrome répond avant que /json/list cesse toujours d'exposer le target en
+    # cours de fermeture. Attendre cette transition de façon bornée évite un
+    # faux refus tout en échouant fermé si un target supplémentaire persiste.
+    deadline = time.monotonic() + close_timeout
+    while True:
+        pages = _page_targets(manifest.host, manifest.port)
+        if len(pages) == 1:
+            _assert_exact_target(manifest)
+            return
+        if time.monotonic() >= deadline:
+            _assert_exact_target(manifest)
+        time.sleep(0.05)
 
 
 def _secure_regular_file(path: Path, label: str) -> os.stat_result:
@@ -1023,9 +1068,11 @@ def _validate_bootstrap_payload(
         or not all(isinstance(item, str) and item for item in origins)
     ):
         raise PolicyError("bootstrap de session: origins invalides")
-    if not all(isinstance(payload[key], str) for key in ("run_id", "authority")):
-        raise PolicyError("bootstrap de session: run/authority invalides")
-    context = ExecutionContext.team(
+    if not all(isinstance(payload[key], str) for key in ("run_id", "authority", "browser_kind")):
+        raise PolicyError("bootstrap de session: run/authority/browser_kind invalides")
+    if payload["browser_kind"] not in BROWSER_KINDS:
+        raise PolicyError("bootstrap de session: browser_kind invalide")
+    context = ExecutionContext.create(
         run_id=payload["run_id"],
         target_id="pending",
         authority=payload["authority"],
@@ -1094,8 +1141,13 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
         log_path = session_dir / "chrome-stderr.log"
         log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         chrome_log = os.fdopen(log_fd, "w", encoding="utf-8")
+        browser_command = (
+            build_chrome_command(data["chrome_bin"], profile_dir)
+            if data["browser_kind"] == "chrome"
+            else build_mock_command(profile_dir)
+        )
         chrome = subprocess.Popen(
-            build_chrome_command(data["chrome_bin"], profile_dir),
+            browser_command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=chrome_log,
@@ -1108,9 +1160,11 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
         ws_url = str(target["webSocketDebuggerUrl"])
         assert_loopback_endpoint("127.0.0.1", ws_url)
         browser_start_time, browser_argv = _process_identity(chrome.pid)
-        profile_marker = f"--user-data-dir={profile_dir}"
-        if not _argv_has_marker(browser_argv, profile_marker):
-            raise PolicyError("Chrome démarré sans le profil jetable attribué")
+        if not _argv_has_markers(
+            browser_argv,
+            _browser_markers(data["browser_kind"], profile_dir),
+        ):
+            raise PolicyError("navigateur démarré sans les marqueurs attribués")
         supervisor_start_time, supervisor_argv = _process_identity(os.getpid())
         expected_bootstrap = str(session_dir / "bootstrap.json")
         expected_supervisor_markers = (
@@ -1126,6 +1180,7 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
             session_id=data["session_id"],
             run_id=data["run_id"],
             profile_id=data["profile_id"],
+            browser_kind=data["browser_kind"],
             authority=data["authority"],
             origins=tuple(data["origins"]),
             host="127.0.0.1",
