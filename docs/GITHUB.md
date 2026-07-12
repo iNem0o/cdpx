@@ -34,7 +34,7 @@ explicite.
 | Merge | squash uniquement ; branche supprimée après merge |
 | Actions par défaut | `contents: read`, pas d'approbation de PR par workflow |
 | Actions tierces | GitHub et actions explicitement autorisées, toutes épinglées par SHA |
-| Artefacts PR | 30 jours |
+| Artefacts PR | staging `.proof/shareable/` uniquement, 14 jours |
 | Vulnérabilités | signalement privé et alertes Dependabot activés si le plan le permet |
 
 Le dépôt ne contient volontairement ni `.github/settings.yml` sans application

@@ -4,8 +4,8 @@ title = "Interception, émulation et orchestration"
 status = "validated"
 summary = "Contrôler le comportement réseau, émuler des contraintes d'appareil, lire des iframes, exécuter des scénarios métier et enregistrer/rejouer des actions navigateur bornées."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
-path_globs = ["src/cdpx/primitives/advanced.py", "src/cdpx/primitives/actions.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/test_scenarios.py"]
-test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
+path_globs = ["src/cdpx/primitives/advanced.py", "src/cdpx/primitives/actions.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/test_journal.py", "tests/test_scenarios.py"]
+test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 docs = ["docs/PRIMITIVES.md", "docs/milestones/M3-interception-emulation.md", "docs/milestones/M5-orchestration.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -45,7 +45,7 @@ report_text = "Ce scénario prouve que des actions navigateur bornées et des co
 given = "Un journal NDJSON d'actions enregistrées, des fixtures iframe ou des contraintes d'émulation sont disponibles."
 when = "cdpx valide le journal entier (syntaxe, actions, budget) puis rejoue réellement chaque action contre le navigateur, émule, lit des iframes ou applique la garde d'origine."
 then = "Chaque action est rejouée dans la limite du budget, le rejeu s'arrête à la première divergence, et le résultat reste borné, vérifiable et rattaché à la feature d'orchestration."
-tests = ["tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
+tests = ["tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -78,13 +78,13 @@ nommée, jamais d'échappatoire shell.
 
 Options globales et codes de sortie: voir la section Contrat CLI du README.
 
-Garde d'origine (`CDPX_ORIGINS`) : quand la variable est définie, les
-mutations hors liste d'origines sont refusées. Pour les commandes composées
-(`emulate`, `record`), le caractère mutant suit le VERBE de l'action :
-`click`, `type`, `key` et `eval` mutent ; `goto` et `wait` lisent. `intercept`
-et `replay` sont mutants en bloc (un journal peut contenir n'importe quelle
-action). `scenario run` applique la garde juste avant chaque step mutant,
-après les navigations déclarées. `frame` est une lecture pure.
+En local historique, `CDPX_ORIGINS` protège les mutations lorsqu'elle est
+définie. En mode équipe, elle est obligatoire et toutes les actions sont
+préflightées avec le grant du manifest. Pour les commandes composées, le niveau
+suit le verbe (`goto`/`wait`: observation; `click`/`type`/`key`: interaction;
+`eval`: privileged). `replay` et `scenario` prennent le niveau maximal de tout
+le fichier avant effet CDP. Destinations et origine réelle sont vérifiées ; le
+contenu page reste une entrée non fiable. `frame` est une observation.
 
 ### `cdpx intercept`
 
@@ -103,7 +103,8 @@ Options propres à la commande :
 
 - `--rule` (requis, répétable) : règle `PATTERN => ACTION`. `PATTERN` est un
   motif fnmatch (`*api*`) ou une sous-chaîne de l'URL ; `ACTION` vaut un code
-  HTTP numérique (ex. `503`, réponse JSON `{"cdpx":"intercept","status":N}`),
+  HTTP numérique **de 200 à 599** (ex. `503`, réponse JSON
+  `{"cdpx":"intercept","status":N}`),
   `block` ou `continue`. Première règle qui matche gagne ; une requête sans
   règle continue normalement.
 - `--settle` : période de calme (secondes, défaut 0.5) après l'évènement
@@ -120,12 +121,12 @@ cdpx intercept --rule "*tracker* => block" --rule "*api* => continue" -- goto ht
 ```
 
 Erreurs et pièges : toute autre action que `goto <url>` après `--` est
-refusée (`intercept supporte: -- goto <url>`, exit 1). Une règle sans `=>`
-provoque `règle attendue: PATTERN => ACTION`. Si l'évènement `load` n'arrive
-jamais, la commande sort en timeout (option globale `--timeout`) avec exit 1.
-Sous `CDPX_ORIGINS`, `intercept` est mutant en bloc : l'origine de l'onglet
-courant doit figurer dans la liste. Le document principal lui-même est
-intercepté : une règle trop large (`* => 503`) casse la page porteuse.
+refusée. Une règle sans `=>`, une faute de frappe (`typo`) ou un statut hors
+`200..599` échoue au parsing **avant** `Fetch.enable`/navigation ; aucune
+branche par défaut ne continue silencieusement. Si `load` n'arrive jamais, la
+commande timeout. En mode équipe, `intercept` exige `privileged` et une
+destination autorisée. Le document principal est lui aussi intercepté : une
+règle trop large (`* => 503`) casse la page porteuse.
 
 ### `cdpx emulate`
 
@@ -202,7 +203,9 @@ cdpx frame "#status"
 Erreurs et pièges : si aucun élément ne matche, ou si l'iframe est
 cross-origin (son `contentDocument` est inaccessible), la sortie porte
 `"text":null` avec exit 0 — vérifier la valeur, pas le code de sortie.
-Lecture pure : jamais bloquée par `CDPX_ORIGINS`.
+En legacy, c'est une lecture non bloquée par une allowlist de mutations. En
+mode équipe, `frame` relève d'observation mais exige tout de même que l'origine
+courante appartienne à l'allowlist obligatoire.
 
 ### `cdpx record`
 
@@ -211,12 +214,16 @@ Synopsis : `cdpx record [-o journal.ndjson] -- <action ...>`
 Exécute RÉELLEMENT une action (via l'interpréteur d'actions partagé :
 `goto <url>`, `wait <sélecteur>`, `click <sélecteur>`,
 `type <sélecteur> <texte> [--clear]`, `key <touche>`, `eval <js>`) puis la
-journalise en NDJSON, résultat compris :
-`{"action":[...],"ok":bool,"result":{...},"ts":...}`. Le journal est ouvert en
-append : plusieurs invocations successives construisent un parcours complet,
-rejouable ensuite avec `cdpx replay`. Un échec d'action est d'abord journalisé
-avec `ok:false` et l'erreur dans `result`, PUIS la commande sort en exit 1 :
-le journal reste la trace fidèle de ce qui s'est réellement passé.
+journalise dans le schéma NDJSON `cdpx.record/v2`. Le journal est ouvert en
+append : plusieurs invocations construisent un parcours. Chaque ligne contient
+schéma, `run_id`, action structurée ou argv, `replayable`, verdict, résultat
+nettoyé et timestamp. Un échec est écrit avant l'exit 1.
+
+Une saisie littérale est masquée et marquée non rejouable. Pour un parcours
+rejouable, utiliser `@env:NOM` : seule la référence est persistée, la valeur est
+résolue en mémoire et enregistrée dans le contexte de redaction. `eval` est
+toujours masqué, hashé et non rejouable. En mode équipe, `record type` refuse
+toute autre forme et prévalide la référence avant connexion.
 
 Options propres à la commande :
 
@@ -224,28 +231,32 @@ Options propres à la commande :
   Les répertoires parents sont créés si besoin.
 - `action` (après `--`) : l'action à exécuter et journaliser.
 
+En mode équipe, seul le basename de `--output` est retenu : le journal est
+confiné sous `artifacts/journals/` de la session, en `0600`, avec métadonnées
+`classification:"internal"`, `upload_allowed:false`, `retention:"session"`.
+`replay` ne peut relire qu'un fichier régulier privé de ce même dossier.
+
 ```bash
 cdpx record -o parcours.ndjson -- goto http://demo.test/
 cdpx record -o parcours.ndjson -- click "#acheter"
+cdpx record -o parcours.ndjson -- type "#password" @env:CHECKOUT_PASSWORD --clear
 cdpx record -o parcours.ndjson -- wait "#confirmation"
 ```
 
 ```json
-{"path":"parcours.ndjson","recorded":1,"ok":true}
+{"schema":"cdpx.record/v2","path":"parcours.ndjson","recorded":1,"replayable":true,"ok":true}
 ```
 
 Ligne NDJSON écrite dans le journal :
 
 ```json
-{"action":["goto","http://demo.test/"],"ok":true,"result":{"url":"http://demo.test/","frameId":"7C93","loaderId":"A1F0","errorText":null,"waited":"load","ok":true,"elapsed_ms":48.2},"ts":1767225600.123}
+{"schema":"cdpx.record/v2","run_id":"checkout-17","action":{"verb":"type","selector":"#password","input":{"secret_ref":"CHECKOUT_PASSWORD","source":"env"},"clear":true},"replayable":true,"ok":true,"result":{"typed":true,"value_masked":true,"selector":"#password","cleared":true},"ts":1783814400.123}
 ```
 
-Erreurs et pièges : une action inconnue ou mal formée est refusée avec le
-rappel des actions supportées (exit 1). Une action qui échoue (sélecteur
-introuvable, timeout, exception JS) est journalisée `ok:false` avant l'exit 1
-— un journal contenant un évènement `ok:false` fera diverger `replay` dès cet
-évènement. Sous `CDPX_ORIGINS`, `record -- click ...` est une mutation,
-`record -- goto ...` une lecture.
+Erreurs et pièges : une référence env absente est refusée avant effet CDP. Une
+action qui échoue est journalisée `ok:false` avant l'exit 1. Le fichier et son
+dossier sont forcés respectivement en `0600` et `0700`. En équipe, l'autorité
+requise suit l'action et l'origine réelle est revalidée après exécution.
 
 ### `cdpx replay`
 
@@ -254,11 +265,16 @@ Synopsis : `cdpx replay <journal.ndjson>` (budget : option globale `--max-action
 Rejoue un journal NDJSON produit par `cdpx record` contre le navigateur,
 action par action, et s'arrête à la première divergence. Toute la validation
 se fait AVANT la première exécution : syntaxe JSON de chaque ligne, présence
-d'une `action` par évènement, respect du budget `--max-actions` — un journal
-invalide ne touche jamais le navigateur. Ensuite chaque action est réellement
-exécutée ; une divergence est soit un évènement journalisé `ok:false`, soit
-une action qui échoue au rejeu. Usecase : vérifier qu'un parcours enregistré
-hier passe toujours sur la version du jour.
+d'une action, schéma/rejouabilité, résolution de toutes les références de
+secret, autorité maximale et budget `--max-actions`. Une seule référence
+absente garantit `played:0` et aucune commande CDP. Ensuite chaque action est
+réellement exécutée et son résultat non volatil est comparé au résultat
+enregistré.
+
+Après chaque `goto`, replay relit `window.location.href` au lieu de conserver
+l'URL demandée. En équipe, cette URL finale est contrôlée immédiatement et à
+nouveau juste avant la mutation suivante : une redirection autorisée → origine
+interdite ne peut pas recevoir le clic suivant.
 
 Options propres à la commande :
 
@@ -288,8 +304,10 @@ Erreurs et pièges : une ligne non-JSON ou sans `action` produit
 journal plus long que `--max-actions` provoque
 `budget --max-actions dépassé` (exit 1, rien n'est rejoué). `played` compte
 les actions effectivement rejouées avec succès ; l'index de `divergence` est
-celui de l'évènement fautif (base 0). Sous `CDPX_ORIGINS`, `replay` est
-mutant en bloc, quel que soit le contenu du journal.
+celui de l'évènement fautif (base 0). Les clés volatiles (`elapsed_ms`, IDs de
+loader/frame, coordonnées) sont ignorées dans la comparaison. En équipe, les
+journaux v1 contenant `type` ou `eval` sont refusés ; les actions v1 non
+sensibles restent compatibles.
 
 ### `cdpx scenario`
 
@@ -309,7 +327,9 @@ Format P0 supporté :
 - `context.emulation` : optionnel, `mobile`, `slow-3g` ou `cpu-4x`, appliqué
   dans la même connexion CDP que les steps.
 - Steps : `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
-  `wait_text`. `type` accepte `{selector, text, clear}`.
+  `wait_text`. `wait_visible` exige un élément attaché, rendu, visible et doté
+  d'une boîte non nulle. `type` accepte `{selector, text, clear}` en legacy ou
+  `{selector, secret_ref, clear}`; `secret_ref` est obligatoire en équipe.
 - `capture` sur step : liste parmi `screenshot`, `console`, `network`,
   `profiler`. Ces preuves sont collectées immédiatement après le step, même si
   le step échoue.
@@ -329,6 +349,10 @@ steps:
     wait_visible: '[data-testid="add-to-cart"]'
   - click: '[data-testid="add-to-cart"]'
     capture: [screenshot, console]
+  - type:
+      selector: '[name="password"]'
+      secret_ref: CHECKOUT_PASSWORD
+      clear: true
   - wait_text: ['[data-testid="cart-count"]', '1']
 assertions:
   - no_console_errors: true
@@ -349,7 +373,7 @@ cdpx scenario run checkout_guest_add_to_cart.yml --evidence-dir .proof/manual-sc
 Sortie réussie :
 
 ```json
-{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":".cdpx-evidence/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":".cdpx-evidence/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png"}]}
+{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":".cdpx-evidence/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":".cdpx-evidence/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png","classification":"opaque-restricted","upload_allowed":false}]}
 ```
 
 Erreurs et pièges : un YAML invalide ou un champ inconnu sort en exit 2. Un
@@ -359,9 +383,19 @@ elles accumulent les findings puis les preuves finales sont collectées. Une
 capture `profiler` utilise d'abord les headers Symfony observés pendant le run
 (`X-Debug-Token-Link` ou `X-Debug-Token`) ; si aucun header n'a été vu, cdpx
 tente la dernière URL naviguée, puis ajoute un finding warning
-`profiler_unavailable` si aucun profiler n'est disponible. Sous
-`CDPX_ORIGINS`, les steps mutants (`click`, `type`, `key`, `eval`) vérifient
-l'origine courante au moment du step.
+`profiler_unavailable` si aucun profiler n'est disponible. Le collector effectue
+un dernier drainage console/réseau **avant** les assertions, afin qu'une erreur
+tardive participe au verdict. En équipe, chaque origine est contrôlée avant le
+step et après stabilisation ; une redirection hors allowlist bloque mutation,
+capture et assertions suivantes.
+
+Le dossier de run est `0700`, ses fichiers et son manifest sont `0600`. Les
+JSON console/réseau/profiler sont `internal`; screenshots et autres binaires
+sont `opaque-restricted`, avec `upload_allowed:false`. Le résultat et les
+erreurs sont redacted avant persistance. En équipe, le dossier de scénario est
+forcé sous les artefacts de session et son TTL ne dépasse pas le temps restant
+du manifest; le teardown supprime l'ensemble. En legacy, le TTL manifesté par
+défaut est de 24 heures et nécessite une purge explicite à échéance.
 
 ## Parcours utilisateur
 
@@ -407,3 +441,6 @@ déclaratifs, console, réseau et profiler collectés par `cdpx scenario run`.
 - Record/replay exécute des actions réelles mais le langage d'actions reste
   volontairement compact (goto, wait, click, type, key, eval) — ce n'est pas
   un langage de macros navigateur complet.
+- Replay compare les résultats enregistrés hors champs volatils ; un résultat
+  identique ne garantit pas à lui seul l'effet métier attendu. Ajouter une
+  assertion observable dans un scénario pour le prouver.

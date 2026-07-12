@@ -218,9 +218,10 @@ Synopsis: `cdpx a11y`
 
 Retourne l'arbre d'accessibilité (AXTree) compacté de la page courante:
 la vision **sémantique** de la page à bas coût en tokens. Chaque nœud non
-ignoré expose son `role` et son `name` accessibles — exactement ce que voit
-un lecteur d'écran, et un excellent proxy pour vérifier libellés, structure
-de titres et zones de repère sans parser le HTML complet.
+ignoré expose son `role` et son `name` dans la vue AX compacte de Chrome.
+C'est un signal utile pour vérifier libellés,
+structure de titres et zones de repère sans parser le HTML complet, mais pas
+une reproduction exhaustive de chaque lecteur d'écran.
 
 Options propres: aucune (la commande opère sur la page courante de l'onglet
 cible; naviguer d'abord avec `cdpx goto` si besoin).
@@ -322,7 +323,15 @@ du sous-ensemble RGAA automatisé.
 
 ## Limites connues
 
-Les vitals sont des diagnostics locaux déterministes; le support navigateur
-détermine si tous les champs INP/event-timing et long-task d'attribution sont
-observables. La couverture RGAA est un sous-ensemble automatisé regroupé par
-thème et n'est pas présentée comme un audit RGAA complet.
+- `seo` contrôle le DOM rendu de **la page courante**. Il ne crawl pas un site,
+  ne vérifie ni indexation réelle, robots serveur, backlinks, logs ni données
+  Search Console.
+- `vitals` est un diagnostic local borné par le navigateur et la fenêtre
+  `--settle`, pas une méthodologie de laboratoire multi-run ni une mesure de
+  terrain CrUX/RUM. Le support navigateur détermine les signaux INP/event
+  timing disponibles.
+- `a11y` compacte l'AXTree et ne constitue ni un test avec technologies
+  d'assistance réelles ni un audit RGAA complet. La couverture RGAA Symfony est
+  un sous-ensemble automatisé regroupé par thème.
+- `coverage` ne voit que le code exécuté pendant le chargement instrumenté et
+  n'est pas une analyse statique complète des bundles.

@@ -9,7 +9,8 @@ La suite réelle complète donc le mock sans le remplacer.
 ## État validé
 
 `tests/e2e/test_e2e_chrome.py` exerce les familles de commandes sur les mêmes
-fixtures déterministes que les tests unitaires. Elle couvre notamment :
+fixtures déterministes que les tests unitaires; `test_e2e_sessions.py` couvre
+le lifecycle multi-session. Elles couvrent notamment :
 
 - navigation, attente SPA et cycle de vie des onglets ;
 - clic, saisie, clavier, iframe et garde d'origine ;
@@ -17,10 +18,12 @@ fixtures déterministes que les tests unitaires. Elle couvre notamment :
 - cookies, stockage, SEO, vitals, accessibilité et couverture ;
 - interception, émulation, record/replay et scénarios déclaratifs ;
 - contrat du binaire installé : stdout, stderr et codes de sortie.
+- trois profils/targets simultanés, isolation cookies/storage, grants, lease,
+  stop et teardown sur signal normal du supervisor.
 
-Chaque test qui exige une preuve visuelle attache un screenshot au dossier du
-cas. Les comptes exacts ne sont pas figés dans cette page : les JUnit produits
-par `make proof` font foi.
+Chaque scénario qui exige une preuve visuelle attache un screenshot local
+`opaque-restricted` au dossier du cas. Le manifest le relie à la preuve, mais
+ses octets ne quittent pas automatiquement `.proof/` via le staging CI.
 
 ## Exécution
 

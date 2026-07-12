@@ -44,7 +44,7 @@ ui_text = "Le rapport compare des variantes déterministes du profiler Symfony."
 report_text = "Ce scénario prouve que baseline/dégradé, N+1 façon Doctrine, rafales de requêtes dupliquées, cache hit/miss/expiré, coût de rendu Twig, sections Stopwatch, issues du client HTTP, messages Messenger, issues de routing et en-têtes de cache de réponse sont lus dans les vrais panels du WebProfiler et disponibles comme preuves Symfony structurées."
 given = "L'app de test Symfony exerce de vrais collecteurs (Doctrine, cache, HTTP client, Messenger...) sous `/scenario/profiler/{case}`."
 when = "cdpx navigue chaque cas, suit le vrai token WebProfiler et parse le HTML des panels (db, twig, cache, exception, http_client, messenger, router, time, logger)."
-then = "Le rapport lie les preuves JSON de comparaison, les tokens profiler, les logs Docker, JUnit et les captures d'écran à la feature diagnostics développeur."
+then = "Le rapport lie les preuves JSON nettoyées, les logs Docker, JUnit et les captures d'écran privées à la feature diagnostics développeur sans publier le token profiler."
 tests = ["tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants"]
 expected_proofs = ["junit", "json", "screenshot"]
 
@@ -127,11 +127,12 @@ Sortie (extrait réaliste, tronqué aux panels demandés):
 
 ```json
 {
-  "token": "a1b2c3",
+  "token_present": true,
   "url": "http://127.0.0.1:8000/produit/42",
   "status": 200,
-  "profiler_url": "http://127.0.0.1:8000/_profiler/a1b2c3",
+  "profiler_url": "http://127.0.0.1:8000/_profiler/***",
   "profiler_status": 200,
+  "response_headers": {"x-debug-token-link": "http://127.0.0.1:8000/_profiler/***"},
   "panels": {
     "db": {
       "available": true,
@@ -159,6 +160,9 @@ Pièges et cas d'erreur:
 - **Breaking change** (post-0.1.0): les champs `signals` (en-têtes
   `X-CDPX-*`) et `profiler_bytes` ont disparu; `panels` est désormais un
   objet structuré par panel, plus jamais une enveloppe `raw`.
+- Le token brut n'est jamais retourné : la sortie expose seulement
+  `token_present`, masque le segment dans `profiler_url` et nettoie headers,
+  URL/query, SQL/messages et résultats une seconde fois à la frontière stdout.
 - Si aucune réponse ne porte `X-Debug-Token-Link` ni `X-Debug-Token`
   (profiler désactivé, environnement `prod`), la commande échoue avec
   `header X-Debug-Token-Link/X-Debug-Token introuvable` (exit 1).
@@ -234,10 +238,10 @@ Sortie:
 
 Pièges et cas d'erreur:
 
-- **Sécurité**: avec `CDPX_ORIGINS` défini, `dom-diff` portant une action
+- **Sécurité**: en legacy avec `CDPX_ORIGINS`, `dom-diff` portant une action
   mutante (`click`, `type`, `key`, `eval`) est refusé hors des origines
-  autorisées (`mutation refusée hors CDPX_ORIGINS`, exit 1); avec `goto` ou
-  `wait`, c'est une lecture permise.
+  autorisées. En mode équipe, l'allowlist est obligatoire et l'autorité suit
+  l'action (`eval` exige `privileged`), y compris pour les lectures.
 - Une action absente ou inconnue échoue avec le rappel d'usage de
   l'interpréteur (exit 2 pour une erreur d'usage).
 - `changed: false` avec `diff: []` est un résultat valide: l'action n'a rien
@@ -271,8 +275,8 @@ captures d'écran).
 
 Pièges et cas d'erreur:
 
-- Docker absent: la cible échoue localement, mais `make proof` enregistre ce
-  cas comme statut `unavailable` explicite et non bloquant.
+- Docker absent : la cible et la preuve de release échouent avec un statut
+  `unavailable` explicite ; il n'existe pas de succès release dégradé.
 - Docker présent mais scénario Symfony en échec: le verdict global de
   `make proof` est bloqué — un vrai échec ne se déguise pas en absence.
 - Le premier lancement construit l'image Symfony: prévoir un temps de build
@@ -293,25 +297,22 @@ Pièges et cas d'erreur:
 
 Les parseurs de panels sont validés unitairement sur du HTML committé
 (`tests/fixtures/profiler/`, markup WebProfilerBundle réel élagué), servi
-aussi par le serveur de fixtures pour l'e2e Chrome. `make proof` tente en
-plus automatiquement le portail Docker Symfony: Docker indisponible est
-rapporté comme `unavailable` et non bloquant pour préserver la portabilité
-locale, tandis qu'un run Symfony en échec avec Docker disponible bloque le
-verdict global de preuve.
+aussi par le serveur de fixtures pour l'e2e Chrome. `make proof` exécute le
+portail Docker Symfony : indisponibilité, skip ou échec bloque le verdict.
 
 ## Preuves
 
-Les preuves attendues sont JUnit et captures d'écran pour les scénarios
-Chrome sur fixtures. Le portail Symfony ajoute `.proof/symfony-e2e.log`,
+Les preuves locales attendues sont JUnit et captures d'écran privées pour les
+scénarios Chrome. Le portail Symfony ajoute `.proof/symfony-e2e.log`,
 `.proof/symfony-e2e-junit.xml`, le JSON de comparaison des diagnostics
-profiler, le JSON de diff DOM et des captures d'écran navigateur quand
-Docker est disponible.
+profiler, le JSON de diff DOM et des captures d'écran navigateur. Les captures
+opaques restent hors `.proof/shareable/`.
 
 ## Limites connues
 
-La disponibilité de Docker dépend de l'environnement; son absence est
-visible dans le rapport et se résout en installant Docker puis en relançant
-`make proof` ou `make docker-symfony-e2e`. Le parsing des panels est couplé
+La disponibilité de Docker dépend de l'environnement; son absence bloque la
+preuve et se résout en installant Docker puis en relançant `make proof` ou
+`make docker-symfony-e2e`. Le parsing des panels est couplé
 au markup HTML du WebProfilerBundle 7.x (aucune API JSON n'existe côté
 Symfony): une évolution majeure du bundle peut demander une re-capture des
 fixtures et un ajustement des parseurs — le contrat de tolérance

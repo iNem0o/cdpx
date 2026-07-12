@@ -35,11 +35,11 @@ expected_proofs = ["junit", "screenshot"]
 id = "wait-for-rendered-state"
 journey = "wait-spa-content"
 title = "Attendre le contenu rendu avant de lire l'état"
-ui_text = "L'agent attend que le contenu soit visible dans le navigateur avant de lire ou d'agir."
+ui_text = "L'agent attend que le contenu soit présent dans le DOM avant de le lire ou d'agir."
 report_text = "Ce scénario prouve la synchronisation entre la découverte des targets, la sélection d'onglet et le contenu DOM rendu tardivement."
 given = "Un onglet cible existe et une fixture peut injecter du contenu après le chargement initial."
 when = "cdpx attend un sélecteur ou liste les targets du navigateur qui peuvent être sélectionnés."
-then = "Le target ou le sélecteur attendu est visible pour les primitives suivantes."
+then = "Le target est attribué et le sélecteur attendu est attaché au DOM pour les primitives suivantes."
 tests = ["tests/test_discovery_and_client.py::*", "tests/test_cli.py::test_tabs*", "tests/test_primitives.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_wait*"]
 expected_proofs = ["junit", "screenshot"]
 +++
@@ -67,6 +67,12 @@ Gestion des onglets via l'API HTTP `/json` de Chrome : lister les targets
 disponibles, ouvrir un nouvel onglet, mettre un onglet au premier plan, ou le
 fermer. C'est la première commande d'une session : elle donne les `id` que
 `--target` (option globale) accepte ensuite.
+
+En mode local historique, l'absence de `--target` conserve la première page
+implicite. En mode équipe, le manifest, le `run-id` et le `target` attribué sont
+obligatoires : `tabs list` ne retourne que ce target et
+`new`/`activate`/`close` sont refusés, car son lifecycle appartient au
+supervisor de `cdpx session`.
 
 Options propres à la commande :
 
@@ -116,7 +122,7 @@ cdpx version
 ```
 
 ```json
-{"Browser":"Chrome/126.0.6478.61","Protocol-Version":"1.3","User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36","V8-Version":"12.6.228.13","WebKit-Version":"537.36","webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/browser/0b9a"}
+{"Browser":"Chrome/126.0.6478.61","Protocol-Version":"1.3","User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36","V8-Version":"12.6.228.13","WebKit-Version":"537.36"}
 ```
 
 Erreurs (exit 1) : aucun Chrome à l'écoute sur le port de debug (connexion
@@ -151,6 +157,9 @@ la sortie porte `"ok":false` avec `errorText` renseigné (ex.
 sortie. Un cycle de vie qui n'arrive jamais dans le délai imparti (option
 globale `--timeout`) provoque un exit 1. `--wait none` ne garantit rien sur
 l'état du DOM : à réserver aux cas où l'on enchaîne avec `cdpx wait`.
+En mode équipe, la destination est contrôlée avant connexion puis
+`window.location.href` est relu après navigation : une redirection hors
+allowlist transforme la commande en échec avant toute action suivante.
 
 ### `cdpx wait`
 
@@ -180,6 +189,8 @@ diagnostic sur stderr (`sélecteur introuvable après Ns`). `wait` teste
 l'existence dans le DOM, pas la visibilité : un élément présent mais
 `display:none` est considéré comme trouvé. Toujours citer le sélecteur
 (`"#id"`) pour éviter que le shell n'interprète `#` comme un commentaire.
+Le step YAML `wait_visible` utilise une primitive distincte : il exige en plus
+un élément connecté, `display`/`visibility` visibles et une boîte non nulle.
 
 ## Parcours utilisateur
 
@@ -200,6 +211,7 @@ parcours visibles dans le navigateur.
 
 ## Limites connues
 
-Aucune sur le périmètre des fixtures locales. `wait` ne teste que la présence
-DOM (pas la visibilité ni l'interactivité) ; si ce besoin se répète, une
-variante `--visible` sera proposée comme primitive dédiée.
+`wait` CLI ne teste que la présence DOM, pas la visibilité ni
+l'interactivité ; `scenario wait_visible` couvre la visibilité, tandis que
+l'actionability complète reste vérifiée au moment de `click`/`type`. Le contenu
+retourné par la page est non fiable et ne peut pas choisir un autre target.

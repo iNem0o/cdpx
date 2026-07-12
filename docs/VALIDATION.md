@@ -1,9 +1,10 @@
 # VALIDATION.md
 
 Preuve reproductible des milestones cdpx. Les sorties restent compactes pour
-les agents: stdout JSON quand c'est utile, logs bruts dans `.proof/`, et les
-checks lourds explicitement séparés. `.proof/` est généré localement ou publié
-comme artefact GitHub Actions; il n'est pas versionné.
+les agents : stdout JSON quand c'est utile, logs privés dans `.proof/`, et les
+checks lourds explicitement séparés. `.proof/` n'est pas versionné. Seul son
+staging manifesté `.proof/shareable/`, nettoyé et sans artefact opaque, est
+publiable par GitHub Actions.
 
 ## Portails
 
@@ -21,14 +22,15 @@ comme artefact GitHub Actions; il n'est pas versionné.
 - `make proof`: collecte lint, format, tests unitaires/intégration, e2e Chrome,
   e2e Symfony (Docker), aide CLI, JUnit XML, logs, scénarios pytest et
   screenshots e2e, puis écrit `.proof/proof-report.html` et
-  `.proof/validation-summary.json`.
+  `.proof/validation-summary.json`. L'arbre local complet reste privé ; une
+  seconde étape construit le staging partageable et scanne les canaris.
 - `make release`: portail agrégé bloquant. Il exige `check`, les contrôles
   Docker, Chrome réel, Symfony réel sans skip, la preuve complète et les
   artefacts wheel/sdist. `check-local` seul ne constitue jamais un verdict de
   release.
 - `make dist`: construit wheel et sdist, applique `twine check --strict`,
   contrôle les contenus requis/interdits, puis installe le wheel dans un venv
-  temporaire pour vérifier la licence, l'aide et les 30 commandes.
+  temporaire pour vérifier la licence, l'aide et les 31 commandes.
 
 ## Le rapport de preuve
 
@@ -47,6 +49,18 @@ comme la documentation humaine du produit:
 - **Run**: commandes du run, suites JUnit, tests en échec ou les plus lents,
   fins de logs repliables.
 
+Tous les fichiers gérés sont écrits sous des dossiers `0700` et en `0600`.
+Le manifest `cdpx.artifacts/v1` porte SHA-256, classification, autorisation
+d'upload, version de redaction et expiration. Les textes nettoyés sont
+`internal`; screenshots, PDF et binaires sont `opaque-restricted` et ne sont
+jamais copiés dans le staging. Le scan de canaris échoue fermé avant upload.
+Le manifest du proof porte le TTL effectif de publication : 14 jours par
+défaut et en PR, 30 jours sur un tag. La variable
+`CDPX_PROOF_RETENTION_DAYS` accepte uniquement un entier de 1 à 90 ; une
+valeur invalide bloque la preuve avant de remplacer l'arbre existant. Ce TTL
+est une donnée de rétention purgeable, pas un daemon de suppression
+automatique.
+
 Politique Symfony: Docker, Compose et la suite Symfony réelle sont obligatoires
 pour toute preuve de release. Une preuve `unavailable` ou un test Symfony
 skippé rend le verdict rouge. Il n'existe pas de succès release dégradé sans
@@ -63,7 +77,7 @@ Le workflow `CI` s'exécute sur toute pull request, sans filtre de chemins. Il
 comprend les compatibilités Python 3.11/3.12 et un portail complet qui appelle
 `make release`. Ce dernier couvre successivement lint, format, mypy, unitaires,
 Docker, Chrome réel, Symfony réel, cockpit, wheel/sdist, `twine check --strict`,
-contenu des archives, installation isolée du wheel et comptage des 30 commandes.
+contenu des archives, installation isolée du wheel et comptage des 31 commandes.
 
 Le check stable **`PR Gate / Required`** dépend de tous ces jobs. Il échoue si
 l'un d'eux échoue, est annulé ou est skippé. C'est le seul nom destiné à la
@@ -75,24 +89,33 @@ de `.proof/validation-summary.json`, de l'issue réelle de `make release` et des
 archives réellement présentes. Il affiche verdict, SHA, version, tests
 passed/failed/skipped/unavailable, Chrome, Symfony, commandes CLI, catalogue,
 packaging et nom de l'artefact. Aucun nombre n'est codé en dur, hors le contrat
-public attendu de 30 commandes.
+public attendu de 31 commandes.
 
-L'artefact `pr-proof-<run-id>-<attempt>` est conservé 30 jours et publié avec
-`if: always()`. Selon le point d'échec, il contient tout ou partie de :
+L'artefact `pr-proof-<run-id>-<attempt>` est conservé **14 jours** et publié
+avec `if: always()`. Il prend exclusivement `.proof/shareable/`; une absence de
+staging est une erreur d'upload. Selon le point d'échec, il contient les
+fichiers textuels manifestés disponibles, notamment :
 
 - `proof-report.html` et `validation-summary.json` ;
 - les JUnit unitaires, Chrome et Symfony ;
-- les logs Ruff, mypy, pytest, Docker/Chrome/Symfony et le log complet du portail ;
-- les scénarios, screenshots et preuves sous `.proof/evidence/` ;
-- le résumé GitHub, le manifeste packaging avec SHA-256, le wheel et le sdist.
+- les logs textuels redacted produits par le cockpit : Ruff, mypy,
+  pytest et Docker/Chrome/Symfony ;
+- les scénarios et métadonnées textuelles sous `.proof/evidence/` ;
+- `artifact-manifest.json`, qui indique aussi les fichiers opaques retenus en
+  local mais volontairement exclus de l'upload.
+
+Le log brut du portail, les screenshots/PDF/binaires du proof local et les
+distributions ne sont pas dans cet artefact PR. Sur tag, `release-proof`
+conserve un staging manifesté avec un TTL aligné de 30 jours ; wheel et sdist
+sont publiés séparément dans `python-package-distributions` pendant 90 jours.
 
 Depuis le run GitHub, téléchargez l'artefact dans la section *Artifacts*. En
 CLI : `gh run download <RUN_ID> -n pr-proof-<RUN_ID>-<ATTEMPT>`. Commencez par
 `validation-summary.json`, ouvrez ensuite `proof-report.html`, puis le JUnit ou
-le log de la couche rouge. Lors d'un échec avant `make proof`, le rapport peut
-être absent mais `.ci-artifacts/make-release.log` et le résumé de repli restent
-disponibles ; aucune suite lourde n'est relancée seulement pour fabriquer un
-artefact.
+le log de la couche rouge. Lors d'un échec avant la construction du staging,
+l'upload peut lui-même signaler l'absence de fichier : le log du job et le
+résumé GitHub restent alors les diagnostics disponibles. Aucune suite lourde
+n'est relancée seulement pour fabriquer un artefact.
 
 Reproduisez d'abord avec la cible indiquée (`make check-local`, `make
 docker-e2e`, `make docker-symfony-e2e`, `make proof` ou `make dist`), puis avec
@@ -114,6 +137,7 @@ sont centralisés dans [GITHUB.md](GITHUB.md).
 | M4 SEO/perf | vitals avec interaction, a11y AXTree, coverage JS/CSS, SEO edge |
 | M5 orchestration | record/replay avec divergence, frame, allowlist, max-actions |
 | M6 distribution | `make docker-check`, `make docker-e2e`, image `cdpx-ci` |
+| M8 équipe/sécurité | unitaires policy/session/journal/redaction/artefacts + E2E multi-session Chrome réel |
 | Release | `make release`, tous les portails précédents + proof + wheel/sdist |
 
 ## Cas limites couverts
@@ -125,17 +149,37 @@ sont centralisés dans [GITHUB.md](GITHUB.md).
   screenshot dans `.proof/evidence/`.
 - Cookies: `Storage.clearCookies` avec fallback CDP historique.
 - Interception: réponse fulfill encodée, block réseau, continue, règle invalide.
-- Replay: NDJSON invalide, action manquante, divergence `ok:false`, budget
-  `--max-actions`.
+- Replay: journal v1/v2, secret ref absente avant effet CDP, NDJSON invalide,
+  action manquante, divergence `ok:false`, budget, comparaison sémantique et
+  origine réelle relue après redirection/avant mutation.
+- Interception: seules les actions `continue`, `block` ou statuts `200..599`
+  sont acceptées ; une action inconnue échoue avant navigation.
 - SEO: JSON-LD invalide, Product incomplet, H1 dupliqués, longueurs estimées.
-- Origines: mutations refusées hors `CDPX_ORIGINS`, lectures permises.
+- Mode équipe: session/run/target requis avant découverte, manifest/lease
+  privés, trois profils simultanés isolés, loopback, teardown et matrice
+  d'autorités exercés sur mock et Chrome réel.
+- Origines: legacy opt-in pour les mutations ; équipe fail-closed avec
+  `CDPX_ORIGINS` obligatoire, destinations et origine réelle contrôlées.
 - Sorties agentiques: JSON compact par défaut, limites `--limit`/`--max-actions`,
-  NDJSON pour les flux, secrets cookies masqués.
+  NDJSON pour les flux, cookies/storage/saisies masqués, URL/query/headers/
+  console/profiler nettoyés et contenu page marqué non fiable.
+- Interactions: `wait_visible` distingue visibilité et présence DOM ; `click`
+  refuse détaché, caché, désactivé, instable ou recouvert ; `type --clear`
+  sélectionne puis émet Backspace avant `Input.insertText`; le clavier étendu
+  est verrouillé par mock et par Home/Delete/End/Space sur Chrome réel.
+- Scénarios: drainage console/réseau final avant assertions et `secret_ref`
+  absent refusé avant action.
 
 ## Dette non bloquante
 
-- `KEY_MAP` reste volontairement minimal; il s'étend sur besoin réel et testé.
+- `KEY_MAP` reste volontairement borné aux touches nommées testées; toute
+  extension exige besoin, mock et scénario Chrome.
 - `eval` reste une échappatoire surveillée; un usage répété se promeut en
   primitive nommée.
+- `a11y` est une vue AX compacte, `vitals` une mesure locale bornée, `seo` un
+  contrôle on-page, `network` un résumé non-HAR et `replay` une comparaison
+  partielle : aucun de ces signaux ne doit être présenté comme exhaustif.
+- Le TTL des artefacts autonomes est manifesté et purgeable mais aucun daemon
+  global ne déclenche actuellement `purge_expired` hors session supervisée.
 - `key` et le cycle de vie CLI `tabs` new/activate/close disposent de scénarios
   Chrome dédiés, en complément du protocole figé par le mock.

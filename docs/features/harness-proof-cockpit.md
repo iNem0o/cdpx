@@ -39,7 +39,7 @@ ui_text = "Le rapport généré permet à un humain de naviguer de la feature pr
 report_text = "Ce scénario prouve que le rapport se lit comme un cockpit orienté produit, et non comme une liste plate d'artefacts CI."
 given = "Les fiches features, les preuves pytest, le XML JUnit et les journaux de commandes existent pour le run."
 when = "python -m cdpx.proof construit le résumé de validation et le rapport HTML, en rendant la doc Markdown des fiches features."
-then = "Le rapport expose depuis un seul artefact les dossiers de features, les explications de scénarios, les tests, les captures et les manques."
+then = "Le rapport local relie dossiers de features, scénarios, tests, captures privées et manques; le staging CI ne contient que les fichiers textuels manifestés et nettoyés."
 tests = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*"]
 expected_proofs = ["junit"]
 +++
@@ -49,8 +49,8 @@ expected_proofs = ["junit"]
 Rendre le harness du projet observable, reproductible et auditable à travers
 un cockpit central. Les cibles make sont les portails : `make check` tranche
 avant tout merge, les cibles Docker isolent les vérifications lourdes, et
-`make proof` transforme les preuves collectées (JUnit, journaux, captures,
-fiches features) en un rapport HTML feature-centrique — la documentation
+`make proof` transforme les preuves collectées (JUnit, journaux, captures
+locales privées, fiches features) en un rapport HTML feature-centrique — la documentation
 humaine du produit, où chaque affirmation est reliée à sa preuve.
 
 ## Usage
@@ -160,7 +160,7 @@ wheel + sdist dans `dist/` — après un `make check` vert, jamais sans.
 ### `make smoke-dist`
 
 Crée un environnement virtuel temporaire, y installe le wheel construit et
-vérifie la licence MIT, `cdpx --version`, `cdpx --help` et les 30 commandes.
+vérifie la licence MIT, `cdpx --version`, `cdpx --help` et les 31 commandes.
 L'environnement est supprimé même en cas d'échec.
 
 ### `make proof`
@@ -192,13 +192,28 @@ Construit le cockpit de preuve : lit les fiches features de `docs/features/`
 (front matter TOML strict + doc utilisateur Markdown), les preuves pytest
 collectées, le XML JUnit, les journaux de commandes (`make-check-pytest.log`,
 `e2e-chrome.log`, `symfony-e2e.log`), l'aide CLI et le contexte git, puis
-publie deux artefacts dans `.proof/` :
+publie deux artefacts principaux dans l'arbre privé `.proof/` :
 
 - `.proof/proof-report.html` — le cockpit de preuve feature-centrique : la
   documentation humaine du produit, navigable de la feature au parcours, au
-  scénario, au test et à la preuve (captures comprises), manques inclus ;
+  scénario, au test et à la preuve locale (captures comprises), manques inclus ;
 - `.proof/validation-summary.json` — le même contenu pour les machines
   (CI, agents), avec violations et avertissements d'inventaire.
+
+Les dossiers sont forcés en `0700` et les fichiers en `0600`. Un manifest
+`cdpx.artifacts/v1` classe chaque fichier (`public`, `internal`, `secret`,
+`opaque-restricted`), enregistre SHA-256, version de redaction, TTL et droit
+d'upload. `make proof` construit ensuite `.proof/shareable/` uniquement avec
+les fichiers textuels `internal` explicitement autorisés. Captures, PDF et
+binaires restent opaques/restreints en local. Un scan de canaris échoue fermé
+avant publication.
+
+La CI PR conserve ce staging 14 jours. Sur tag, `release-proof` le conserve
+30 jours et les distributions séparées 90 jours. Le manifest porte la même
+rétention que l'upload : `CDPX_PROOF_RETENTION_DAYS`, entier strict de 1 à
+90, vaut 14 par défaut et 30 dans le workflow de release. Une valeur invalide
+fait échouer la preuve. Hors session supervisée, la purge locale n'est pas
+déclenchée par un daemon global.
 
 Une fiche feature invalide (section manquante, entrypoint sans doc
 utilisateur, scénario orphelin) est une violation qui fait échouer la
@@ -226,9 +241,9 @@ d'origine, filet de dispatch des sous-commandes).
 
 ## Preuves
 
-Preuves attendues : rapports JUnit, plus les artefacts de preuve générés
-(`.proof/proof-report.html`, `.proof/validation-summary.json`, journaux de
-commandes).
+Preuves attendues : rapports JUnit, artefacts locaux privés
+(`.proof/proof-report.html`, `.proof/validation-summary.json`, journaux et
+captures), plus `.proof/shareable/` et son manifest pour la CI.
 
 ## Limites connues
 
@@ -237,3 +252,6 @@ commandes).
 - Docker/Compose absent ou test Symfony skippé : `make proof` et
   `make release` échouent. Le rapport conserve le statut `unavailable` comme
   diagnostic, jamais comme succès dégradé.
+- `SecureArtifactWriter` redige automatiquement texte, JSON et fichiers
+  textuels enregistrés, mais ne peut inspecter sûrement un binaire opaque ni
+  deviner toute PII. Le scan de canaris reste le dernier verrou de staging.

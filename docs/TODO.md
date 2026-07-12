@@ -4,10 +4,31 @@ Le socle fonctionnel M0-M6 est livré. La priorité actuelle est la première
 publication open source sur GitHub sous licence MIT. Le plan détaillé est
 [docs/RELEASE-PLAN.md](RELEASE-PLAN.md).
 
+## Durcissement harness équipe — validé
+
+Les mécanismes ci-dessous sont implémentés et validés par les portails ciblés,
+le portail intégré et le paquet installé :
+
+- [x] Valider ensemble le lifecycle `session start/status/stop`, trois profils
+      simultanés, target/run explicites, lease exclusif et teardown TTL/owner.
+- [x] Valider la matrice `observation` / `interaction` / `privileged`, le
+      loopback obligatoire et `CDPX_ORIGINS` fail-closed en mode équipe.
+- [x] Valider les canaris de bout en bout : stdout/stderr, URL/headers,
+      console, storage, profiler, journal v2, scénarios et staging de preuve.
+- [x] Valider le staging `.proof/shareable/`, les modes `0600`/`0700`, le
+      manifeste de classification/rétention et l'exclusion des binaires opaques.
+- [x] Valider dans le wheel installé la surface publique de 31 commandes après
+      ajout de `cdpx session` (`make dist` au sein du portail intégré).
+
+`SecureArtifactWriter` redige automatiquement texte, JSON et fichiers textuels
+enregistrés; le scanner de canaris reste le dernier verrou de publication pour
+les secrets connus. Une automatisation de purge des TTL hors sessions
+supervisées reste à décider.
+
 ## Préparation open source
 
 - [x] Refaire le README pour un utilisateur extérieur avec quickstart local,
-      statut pré-1.0, sécurité et catalogue des 30 commandes.
+      statut pré-1.0, sécurité et catalogue de la surface CLI.
 - [x] Ajouter les politiques de contribution, sécurité, conduite et support.
 - [x] Retirer de la documentation produit les références privées ou client.
 - [x] Finaliser la relicence MIT et les métadonnées de paquet après validation
@@ -17,7 +38,7 @@ publication open source sur GitHub sous licence MIT. Le plan détaillé est
 - [x] Ne plus versionner `.proof/`; publier les rapports comme artefacts CI.
 - [x] Vérifier le contenu exact du wheel et du sdist, y compris la licence et
       l'absence de fichiers internes.
-- [x] Installer le wheel dans un environnement propre et recompter les 30
+- [x] Installer le wheel dans un environnement propre et recompter les 31
       commandes depuis l'artefact.
 - [x] Exécuter `make release` sur l'état intégré puis confirmer les mêmes
       portails sur un vrai runner GitHub.
@@ -26,8 +47,9 @@ publication open source sur GitHub sous licence MIT. Le plan détaillé est
 
 ## Dette technique continue
 
-- [ ] Étendre `KEY_MAP` uniquement lorsqu'un besoin réel est accompagné d'un
-      test mock et d'un scénario navigateur.
+- [ ] Étendre `KEY_MAP` au-delà du jeu désormais testé (édition/navigation,
+      Space et quatre flèches) uniquement avec un besoin réel, un test mock et
+      un scénario navigateur.
 - [ ] Promouvoir un usage répété de `eval` en primitive nommée lorsqu'il revient
       au moins trois fois.
 - [x] Épingler les images de validation par digest et confier leur mise à jour

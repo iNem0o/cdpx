@@ -5,6 +5,63 @@ Ce projet suit un versionnage sémantique.
 
 ## [Non publié]
 
+### Ajouté
+
+- Nouvelle commande `cdpx session start|status|stop` pour le mode équipe :
+  profil Chrome jetable loopback, port dynamique, target unique, manifest
+  privé, lease exclusif, TTL/owner et teardown supervisé. La surface publique
+  passe de 30 à 31 commandes.
+- Politique d'autorités `observation`, `interaction`, `privileged`; les
+  commandes composées, replay et scénarios sont préflightés au niveau maximal
+  requis et toute capacité non classée est refusée.
+- Références de secrets : `type --secret-env`, `cookies set --value-env`,
+  `record type ... @env:NOM` et `scenario type.secret_ref`.
+- Redaction transversale des secrets enregistrés, Bearer/JWT, URL/query,
+  headers sensibles, console, réseau, profiler, erreurs, journaux et scénarios.
+  `SecureArtifactWriter` réapplique ce nettoyage aux textes, JSON et fichiers
+  textuels enregistrés. Les artefacts portent classification, SHA-256,
+  politique de redaction, TTL et décision d'upload dans un manifest privé.
+
+### Modifié
+
+- **Breaking** : avec `--session`, `--run-id` et `--target` sont obligatoires,
+  `--host`/`--port` ne sont pas surchargeables et `CDPX_ORIGINS` doit être non
+  vide. Le mode local historique conserve la première page implicite et
+  l'allowlist opt-in.
+- **Breaking** : `storage` masque désormais toutes les valeurs par défaut et
+  expose `values_masked`; `--show-values` devient l'opt-in explicite, comme
+  pour les cookies.
+- **Breaking** : `type` ne retourne plus le texte saisi mais
+  `typed:true,value_masked:true`. `record` écrit le schéma
+  `cdpx.record/v2` : une saisie littérale ou un `eval` est redacted et non
+  rejouable; une saisie rejouable exige une référence d'environnement en mode
+  équipe. Les anciens évènements v1 sensibles sont refusés dans ce mode.
+- `click` exige désormais un élément attaché, visible, activé, stable, de
+  taille non nulle et recevant le hit-test central. `type --clear` sélectionne
+  le contenu puis émet Backspace avant `Input.insertText`; `wait_visible`
+  teste réellement la visibilité. `key` couvre désormais Backspace/Delete,
+  Home/End, PageUp/PageDown, Space et les quatre flèches en plus du jeu initial.
+- Les assertions console/réseau des scénarios sont évaluées après un drainage
+  final. Les preuves de scénario sont privées, manifestées et classifiées;
+  screenshots/PDF/binaires sont `opaque-restricted`.
+- La CI PR publie uniquement `.proof/shareable/` pendant 14 jours. La preuve
+  release est conservée 30 jours et les distributions 90 jours.
+
+### Sécurité
+
+- Le mode équipe impose loopback, affectation exacte session/run/target,
+  exclusivité par lease et métadonnée `content_trust:"untrusted"` sur les
+  sorties. Les destinations et origines réelles sont contrôlées en fail-closed.
+- `replay` relit `window.location.href` après chaque navigation et avant la
+  mutation suivante : une redirection vers une origine interdite ne peut plus
+  recevoir le clic suivant.
+- Le parseur d'interception refuse toute action autre que `continue`, `block`
+  ou un statut HTTP `200..599`; une faute de frappe ne continue plus
+  silencieusement la requête.
+- Les sorties publiques de découverte ne contiennent plus les URL WebSocket de
+  débogage. Le staging de preuve exclut les fichiers opaques et échoue fermé si
+  un canari connu subsiste.
+
 ## [0.2.0] — 2026-07-11
 
 ### Modifié

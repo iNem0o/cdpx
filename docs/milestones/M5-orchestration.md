@@ -1,28 +1,56 @@
-# M5 — Orchestration & sessions
+# M5 — Orchestration et garde-fous
 
 ## Pourquoi
-Passer de primitives unitaires à des parcours: recette automatisée, non-
-régression, exécution agentique longue mais BORNÉE.
 
-## Contenu
-### cdpx record / replay
-- record: chaque commande cdpx (avec succès/échec + extraits de sortie) est
-  journalisée en NDJSON -> un parcours devient un artefact versionnable.
-- replay: rejoue le journal, s'arrête à la première divergence (exit 1 +
-  diff). Usecase: "le tunnel de commande marche encore après la MEP ?"
+Composer les primitives en parcours de recette bornés, rejouables et
+observables, sans créer un langage de macros illimité.
 
-### cdpx frame
-- Runtime.evaluate avec contextId de l'iframe (Page.getFrameTree +
-  Runtime.executionContextCreated). Fixture iframe.html/child.html déjà prête.
+## État livré
 
-### Garde-fous agentiques (HARNESS)
-- Allowlist d'origines: variable CDPX_ORIGINS="http://*.test,http://localhost:*";
-  hors liste, les primitives MUTANTES (click/type/eval/intercept) refusent
-  avec exit 1, les lectures restent permises. Défaut: tout permis en usage
-  humain, allowlist OBLIGATOIRE dès que l'agent tourne en autonome.
-- Budget: --max-actions par session pour borner une boucle agentique.
+### `record` / `replay`
+
+`record` exécute une action et écrit une ligne `cdpx.record/v2` privée. Actions,
+résultats et erreurs sont redacted. Une saisie littérale et `eval` sont
+non-rejouables; `type ... @env:NOM` persiste seulement la référence et permet
+un rejeu. Une référence absente est refusée avant effet CDP.
+
+`replay` valide tout le journal, sa rejouabilité, les secrets et
+`--max-actions` avant la première action. Il compare les résultats enregistrés
+hors champs volatils, relit l'URL réelle après navigation et bloque une
+redirection hors origine avant la mutation suivante. Une comparaison verte ne
+remplace pas une assertion métier explicite.
+
+### Scénarios YAML
+
+Le runner compose `goto`, `wait_visible`, `wait_text`, `click`, `type`, `key`
+et `eval`, puis assertions et captures. `wait_visible` vérifie rendu/boîte non
+nulle; une saisie peut utiliser `secret_ref`; le drainage console/réseau final
+précède le verdict. Les artefacts sont privés et classifiés.
+
+### `frame`
+
+La lecture parcourt les `contentDocument` des iframes same-origin et retourne
+le premier match. Elle n'utilise pas de contextId CDP et ne traverse pas la
+frontière cross-origin.
+
+### Garde-fous
+
+- Legacy : `CDPX_ORIGINS` est opt-in et borne les mutations; les lectures
+  restent permises pour compatibilité.
+- Équipe : manifest/run/target et allowlist sont obligatoires; toutes les
+  origines consultées sont fail-closed et l'autorité maximale du fichier est
+  préflightée. L'isolation complète du navigateur appartient au M8.
+- `--max-actions` borne un replay donné, pas un compteur cumulatif de session.
+
+## Preuves
+
+Mock CDP : parsing, protocole, journal v2, références de secrets, divergences,
+origines et drainage. Chrome réel : record/replay, scénarios pass/fail,
+interactions et preuves. Symfony Docker : scénarios contre l'application témoin.
 
 ## Definition of Done
-- [ ] un parcours record/replay complet sur les fixtures en e2e
-- [ ] allowlist testée: mutation refusée hors origine, lecture permise
-- [ ] HARNESS.md mis à jour (le harness tranche, mécaniquement)
+
+- [x] parcours record/replay complet sur fixtures mock et Chrome réel ;
+- [x] allowlist legacy et contrôles de redirection testés ;
+- [x] scénarios YAML, assertions et preuves documentés ;
+- [x] garde-fous exécutables décrits dans HARNESS.md.

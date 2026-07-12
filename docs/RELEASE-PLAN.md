@@ -6,7 +6,7 @@ par elle-même l'autorisation de pousser, taguer ou publier.
 
 ## Baseline
 
-- 30 commandes CLI regroupées en huit features documentées ;
+- 31 commandes CLI regroupées en huit features documentées ;
 - contrat stdout JSON, stderr diagnostics et exit 0/1/2 ;
 - tests mock déterministes, Chrome réel et Symfony Dockerisé ;
 - `make check-local`, `make check`, `make proof` et `make release` comme sources
@@ -36,7 +36,8 @@ par elle-même l'autorisation de pousser, taguer ou publier.
 - [x] Pull requests : appeler les cibles Make sans dupliquer leur logique.
 - [x] Conserver Docker, Chrome et Symfony comme portes obligatoires.
 - [x] Utiliser des permissions minimales et épingler les actions tierces.
-- [x] Publier JUnit, logs et cockpit `.proof/` comme artefacts temporaires.
+- [x] Publier uniquement le staging textuel manifesté `.proof/shareable/`
+      comme artefact temporaire; garder captures/PDF/binaires opaques privés.
 - [x] Valider localement la syntaxe des workflows avec `actionlint`.
 - [x] Exécuter les workflows sur un vrai runner GitHub.
 
@@ -44,7 +45,7 @@ par elle-même l'autorisation de pousser, taguer ou publier.
 
 - [x] Construire wheel et sdist depuis l'état intégré et contrôler leur contenu.
 - [x] Installer le wheel dans un environnement vierge et vérifier
-      `cdpx --help`, `cdpx --version` et les 30 commandes.
+      `cdpx --help`, `cdpx --version` et les 31 commandes.
 - [x] Préparer une GitHub Release sur tag sans la déclencher.
 - [x] Préparer PyPI Trusted Publishing par OIDC, sans token longue durée.
 - [x] Préparer la version `0.2.0`, adaptée aux changements pré-1.0.

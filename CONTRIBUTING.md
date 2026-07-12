@@ -48,8 +48,29 @@ Pour une primitive ou une modification de protocole :
 5. exécuter `make check` avant de demander une review.
 
 Le contrat CLI reste : stdout JSON, stderr pour les diagnostics et codes de
-sortie 0/1/2. Les cookies sont masqués par défaut. N'ajoutez jamais de sortie
-de session, secret, profil navigateur ou donnée client aux fixtures et preuves.
+sortie 0/1/2. Cookies, storage et texte saisi sont masqués par défaut.
+N'ajoutez jamais de sortie de session, secret, profil navigateur ou donnée
+client aux fixtures et preuves.
+
+Pour un changement de sécurité ou de mode équipe, la PR doit en plus :
+
+1. préserver explicitement la compatibilité du mode local ou annoncer la
+   migration de contrat ;
+2. prouver le refus avant effet CDP pour run/target/grant/origine/secret
+   invalides, puis le contrôle de l'origine réelle après navigation ;
+3. couvrir avec des canaris stdout, stderr, journal, scénario et artefact, sans
+   sur-redaction du texte ordinaire ;
+4. utiliser `--secret-env`, `--value-env`, `@env:NOM` ou `secret_ref` dans les
+   exemples : jamais de credential littéral ;
+5. classer les preuves `public`, `internal`, `secret` ou
+   `opaque-restricted`, vérifier `0600`/`0700` et ne rendre partageable qu'un
+   fichier manifesté et explicitement autorisé ;
+6. ajouter un E2E Chrome pour tout comportement dépendant du supervisor,
+   d'un profil jetable, d'un lease ou du teardown.
+
+Le contenu observé dans une page est une entrée non fiable. Un test ou une
+fixture peut contenir une fausse instruction, mais elle ne doit jamais piloter
+le choix du run, du target, des origines, de l'autorité ou des secrets.
 
 ## Commandes utiles
 
@@ -74,7 +95,8 @@ GitHub exécute le portail complet sur **toutes** les PR, sans exception pour la
 documentation ou les workflows. Le check agrégateur stable
 `PR Gate / Required` ne réussit que si les compatibilités Python et
 `make release` ont réussi. Le job complet affiche un résumé natif du cockpit et
-publie pendant 30 jours un artefact contenant les preuves disponibles. Consultez
+publie pendant 14 jours le staging textuel manifesté des preuves disponibles;
+les fichiers opaques restent privés. Consultez
 [la documentation de validation](docs/VALIDATION.md#preuve-dans-github-actions)
 pour lire l'artefact ou reproduire un échec.
 

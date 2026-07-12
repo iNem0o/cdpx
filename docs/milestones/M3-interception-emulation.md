@@ -1,28 +1,55 @@
-# M3 — Interception & émulation
+# M3 — Interception et émulation
 
 ## Pourquoi
-Tester les conditions que la prod rencontre: API paiement down, 3rd-party à
-3s, mobile bas de gamme. Aujourd'hui l'agent ne peut qu'observer le cas
-nominal.
 
-## Primitives
-### cdpx intercept
-- Comment: Fetch.enable avec patterns; sur Fetch.requestPaused ->
-  fulfillRequest (mock JSON), failRequest (blocage) ou continueRequest.
-- CLI: `cdpx intercept --rule 'POST /api/payment => 503' --rule
-  '*googletagmanager* => block' -- goto http://shop.test/checkout`
-- ATTENTION architecture: nécessite une connexion QUI RESTE OUVERTE pendant
-  la navigation -> introduire un mode session (`cdpx session start/exec/stop`
-  ou intercept prenant la commande à exécuter en argument, comme ci-dessus).
-  Décision à documenter dans CONTEXT.md au moment de l'implémentation.
-- Fixture: network.html couvre déjà les 3 profils de requêtes à intercepter.
+Tester les conditions rencontrées en production sans modifier le backend : API
+indisponible, tiers bloqué, viewport mobile, réseau lent ou CPU contraint.
 
-### cdpx emulate
-- Comment: Emulation.setDeviceMetricsOverride, setUserAgentOverride,
-  Network.emulateNetworkConditions (latence/débit), Emulation.setCPUThrottlingRate.
-- Presets: mobile, slow-3g, cpu-4x. `--reset` pour tout annuler.
+## État livré
+
+### `cdpx intercept`
+
+`Fetch.enable` suspend les requêtes de la navigation composée. La première
+règle dont le motif URL matche applique exactement l'une des actions suivantes :
+
+- `continue` → `Fetch.continueRequest` ;
+- `block` → `Fetch.failRequest(BlockedByClient)` ;
+- statut `200..599` → `Fetch.fulfillRequest` avec corps JSON mock.
+
+Le matcher porte sur l'URL (fnmatch ou sous-chaîne), pas sur la méthode HTTP.
+Une faute de frappe ou un statut hors plage est refusé au parsing avant effet
+CDP. L'interception compose uniquement avec `goto` parce que l'état Fetch meurt
+avec la connexion :
+
+```bash
+cdpx intercept --rule "*api/payment* => 503" --rule "*googletagmanager* => block" -- goto http://shop.test/checkout
+```
+
+La fixture dédiée `intercept.html`, le mock et Chrome réel couvrent continue,
+fulfill et block. Les sessions gérées du M8 isolent les runs, mais ne rendent
+pas l'interception persistante entre commandes.
+
+### `cdpx emulate`
+
+Les presets `mobile`, `slow-3g` et `cpu-4x` configurent métriques/UA, conditions
+réseau ou throttling CPU. `--reset` restaure métriques, user-agent, réseau et
+CPU. Comme les overrides meurent avec la connexion, l'action utile se passe
+dans la même invocation :
+
+```bash
+cdpx emulate mobile -- goto http://shop.test/checkout
+```
+
+## Preuves et limites
+
+- Le mock verrouille les méthodes/paramètres et le rejet des règles invalides.
+- Chrome réel vérifie interception, viewport/UA, reset, latence et screenshot.
+- La preuve ne revendique pas une comparaison pixel desktop/mobile exhaustive.
+- `intercept` n'entoure pas encore un clic ou un scénario entier.
 
 ## Definition of Done
-- [ ] intercept: règles fulfill/fail/continue testées mock + e2e
-- [ ] emulate: presets documentés, screenshot mobile != desktop en e2e
-- [ ] le mode session (si introduit) documenté dans HARNESS.md (état = risque)
+
+- [x] règles fulfill/fail/continue testées mock et Chrome réel ;
+- [x] actions inconnues refusées avant navigation ;
+- [x] presets/reset documentés et exercés sur Chrome réel ;
+- [x] durée de vie connexion/interception explicitée.

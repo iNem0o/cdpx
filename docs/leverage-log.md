@@ -29,6 +29,18 @@ Git publique utilisée pour empêcher les doublons.
   - Verification (commande/CI): `make release` local vert, puis runs GitHub
     `29161949162` et `29162518918` verts avec `PR Gate / Required`.
 
+- Session-Key: agent/github-integration-hardening@3547736
+  - Symptom: `make proof` échouait alors que les tests passaient, car deux noms
+    de tests record/replay ne correspondaient plus aux globs de preuve; la
+    première passe `make cov` restait aussi sous le seuil à cause du superviseur.
+  - Root cause (missing capability): le cockpit relie les preuves aux node IDs
+    pytest et les branches bootstrap/readiness/signaux de session manquaient de
+    couverture déterministe.
+  - Fix encoded (doc/script/lint): les node IDs record/replay sont réalignés et
+    des tests unitaires bornés couvrent démarrage, erreurs, readiness et teardown
+    du superviseur sans Chrome réel.
+  - Verification (commande/CI): `make proof` vert; `make cov` vert à 85,69 %.
+
 ## Réponses CDP croisées pendant une interception
 
 - **Symptôme :** `Page.navigate` expirait dans Chrome Docker lorsque Fetch

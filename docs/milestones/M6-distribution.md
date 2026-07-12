@@ -11,7 +11,8 @@ développement et de la plateforme CI.
 - wheel et sdist construits par `python -m build` et contrôlés par Twine ;
 - image `cdpx-ci` contenant Chromium et l'outillage de validation ;
 - application Symfony témoin orchestrée par Docker Compose ;
-- `make proof` pour les JUnit, logs, scénarios et screenshots ;
+- `make proof` pour les JUnit, logs, scénarios et screenshots dans un arbre
+  local privé, puis staging textuel partageable manifesté ;
 - snippet navigateur réutilisable dans `docs/CLAUDE-browser-snippet.md`.
 
 L'hébergement et la publication publique sont traités par M7. GitHub Actions
@@ -28,6 +29,17 @@ make release
 
 Docker, Chrome et Symfony sont obligatoires pour la release. Le wheel doit
 également être installé dans un environnement propre avant publication.
+
+## Politique des preuves distribuées
+
+- dossiers `0700`, fichiers/manifests `0600`, écriture atomique ;
+- manifest avec SHA-256, classification, autorisation d'upload, redaction et
+  TTL ;
+- screenshots, PDF et binaires `opaque-restricted`, conservés hors
+  `.proof/shareable/` ;
+- scan de canaris fail-closed avant upload ;
+- rétention : preuve PR 14 jours, preuve release 30 jours, distributions
+  vérifiées 90 jours.
 
 ## Definition of Done
 

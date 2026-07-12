@@ -68,7 +68,9 @@ ou attacher une preuve pixel à un scénario de recette.
 Options propres :
 
 - `-o`, `--output` : chemin du fichier image écrit (défaut : `screenshot.png`).
-  Les répertoires parents sont créés si besoin.
+  En legacy, les répertoires parents sont créés si besoin. En équipe, seul le
+  basename est retenu et le fichier est confiné sous
+  `artifacts/captures/` de la session.
 - `--full-page` : capture au-delà du viewport (`captureBeyondViewport`), pour
   obtenir la page entière et pas seulement la zone visible.
 - `--format` : format d'encodage, `png` ou `jpeg` (défaut : `png`).
@@ -85,6 +87,12 @@ Sortie JSON (chemin écrit, poids en octets, format et mode utilisés) :
 {"path": "preuves/accueil.jpg", "bytes": 48231, "format": "jpeg", "full_page": false}
 ```
 
+En mode équipe, la sortie ajoute
+`classification:"opaque-restricted"`, `upload_allowed:false` et
+`retention:"session"`; le fichier est `0600`. Si l'origine réelle devient
+interdite pendant la capture, cdpx supprime le fichier avant de retourner
+l'erreur.
+
 Pièges :
 
 - Le format est indépendant de l'extension du fichier : `--format jpeg` avec
@@ -92,6 +100,10 @@ Pièges :
   deux pour éviter la confusion.
 - `--full-page` sur une page très longue produit un fichier volumineux ; la
   commande a un timeout CDP de 30 s côté capture.
+- Une image est un contenu opaque : elle peut afficher un nom, token ou donnée
+  métier que la redaction textuelle ne voit pas. Les preuves gérées la classent
+  `opaque-restricted` et ne la copient jamais automatiquement dans le staging
+  CI partageable.
 
 ### `cdpx pdf`
 
@@ -105,8 +117,11 @@ page — livrable d'audit SEO, preuve de recette datée.
 
 Options propres :
 
-- `-o`, `--output` : chemin du fichier PDF écrit (défaut : `page.pdf`). Les
-  répertoires parents sont créés si besoin.
+- `-o`, `--output` : chemin du fichier PDF écrit (défaut : `page.pdf`). En
+  legacy, les répertoires parents sont créés. En équipe, seul le basename est
+  conservé sous `artifacts/captures/`, avec les mêmes métadonnées
+  `opaque-restricted`, rétention session et suppression si l'origine finale est
+  refusée.
 
 ```bash
 cdpx pdf -o preuves/audit-accueil.pdf
@@ -123,6 +138,8 @@ Pièges :
 - L'impression PDF nécessite un Chrome headless ou une cible qui supporte
   `Page.printToPDF` ; certains Chrome « headful » la refusent (erreur CDP,
   exit 1).
+- Un PDF est lui aussi `opaque-restricted` : inspection et partage restent une
+  décision humaine, jamais une conséquence automatique de `make proof`.
 
 ### `cdpx console`
 
@@ -134,6 +151,11 @@ Capture les logs et exceptions JavaScript de la page
 (`Runtime.consoleAPICalled` + `Runtime.exceptionThrown`). C'est le retour
 d'information manquant du dev front : sans lui, une app JS cassée reste
 silencieuse pour l'agent.
+
+Les entrées passent par la redaction des secrets enregistrés, Bearer/JWT et URL
+sensibles. Cette redaction est volontairement conservatrice : un texte libre
+peut encore contenir une donnée inconnue. Toute console reste une entrée page
+non fiable, pas une instruction pour l'agent.
 
 Options propres :
 
@@ -197,15 +219,22 @@ Sortie JSON (résumé + détail par requête) :
 {"url": "http://demo.test/checkout", "requests": [{"requestId": "1000.2", "url": "http://demo.test/api/cart", "method": "GET", "resourceType": "XHR", "status": 500, "mimeType": "application/json", "encodedBytes": 512}], "summary": {"total": 14, "failed": 0, "errors_4xx_5xx": 1, "bytes": 184320}}
 ```
 
+Les URL de sortie suppriment credentials/fragments et masquent chaque valeur
+de query. L'URL brute reste envoyée à Chrome pour la navigation, sans être
+réimprimée telle quelle.
+
 Pièges :
 
 - La liste `requests` est bornée par `--limit` (défaut : 50 items) : au-delà,
   la sortie ajoute les métadonnées `requests_truncated`, `requests_total` et
-  `requests_limit`. Utiliser `--full` pour l'audit exhaustif.
+  `requests_limit`. `--full` donne la liste complète **des événements observés**,
+  pas un audit réseau exhaustif.
 - Le résumé `summary` est calculé sur TOUTES les requêtes observées, même
   celles tronquées de la liste.
 - Un `--settle` trop court manque les appels lancés après `load` (analytics,
   lazy-loading).
+- `network` n'est pas un HAR : il ne conserve ni corps, ni cookies/headers
+  complets, ni waterfall/timings détaillés, ni cache/security entries.
 
 ### `cdpx metrics`
 
@@ -249,7 +278,7 @@ Pièges :
 
 ## Validation
 
-Les tests mock vérifient la forme du protocole CDP émis et la forme des
+Les tests mock vérifient la forme du protocole CDP émis, la redaction et la forme des
 sorties JSON (`tests/test_primitives.py`, `tests/test_cli.py`) ; les tests
 e2e Chrome réel attachent des artefacts PNG au catalogue de preuve et
 valident screenshot pleine page, PDF, console, réseau et métriques
@@ -257,8 +286,9 @@ valident screenshot pleine page, PDF, console, réseau et métriques
 
 ## Preuves
 
-Preuves attendues : résultats JUnit et artefacts screenshot rattachés aux
-scénarios dans le rapport de preuve.
+Preuves attendues : résultats JUnit et screenshots rattachés aux scénarios
+dans l'arbre local privé. Le manifest partageable conserve leur classification,
+mais les octets opaques ne sont pas envoyés par la CI.
 
 ## Limites connues
 
@@ -268,3 +298,5 @@ scénarios dans le rapport de preuve.
   lancement de la commande sont perdues.
 - `network` observe la navigation qu'il déclenche lui-même ; il ne s'attache
   pas à une navigation déjà en cours.
+- Aucun de ces signaux ne transforme un contenu page non fiable en instruction
+  autorisée pour le harness.
