@@ -7,9 +7,47 @@ import argparse
 import hashlib
 import json
 import os
+import secrets
 import subprocess
 from pathlib import Path
 from typing import Any
+
+PR_PROOF_RETENTION_DAYS = 14
+
+
+def _secure_output_dir(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError(f"symbolic output directory refused: {path}")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not path.is_dir():
+        raise ValueError(f"output directory required: {path}")
+    path.chmod(0o700)
+
+
+def _write_private_text(path: Path, value: str) -> None:
+    _secure_output_dir(path.parent)
+    if path.is_symlink():
+        raise ValueError(f"symbolic output file refused: {path}")
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def write_private_outputs(output_dir: Path, markdown: str, packaging: dict[str, Any]) -> None:
+    _secure_output_dir(output_dir)
+    _write_private_text(output_dir / "github-summary.md", markdown)
+    _write_private_text(
+        output_dir / "packaging-summary.json",
+        json.dumps(packaging, indent=2) + "\n",
+    )
 
 
 def _load_summary(path: Path) -> tuple[dict[str, Any], str | None]:
@@ -62,7 +100,7 @@ def build_report(
     artifact_name: str,
     release_outcome: str,
 ) -> tuple[str, dict[str, Any]]:
-    archives = []
+    archives: list[dict[str, Any]] = []
     if dist_dir.is_dir():
         for path in sorted(item for item in dist_dir.iterdir() if item.is_file()):
             archives.append(
@@ -96,7 +134,7 @@ def build_report(
         "release_outcome": release_outcome,
         "twine_strict": "passed" if packaging_ok else "failed-or-unavailable",
         "isolated_wheel_install": "passed" if packaging_ok else "failed-or-unavailable",
-        "cli_contract": "passed" if packaging_ok and cli_count == 30 else "failed-or-unavailable",
+        "cli_contract": "passed" if packaging_ok and cli_count == 31 else "failed-or-unavailable",
         "archive_contents": "passed" if packaging_ok else "failed-or-unavailable",
         "archives": archives,
     }
@@ -126,7 +164,10 @@ def build_report(
             f"| Packaging | wheel={'yes' if has_wheel else 'no'} · "
             f"sdist={'yes' if has_sdist else 'no'} · release gate={release_outcome} |"
         ),
-        f"| Cockpit artifact | `{artifact_name}` (30 days) |",
+        (
+            f"| Cockpit artifact | `{artifact_name}` "
+            f"({PR_PROOF_RETENTION_DAYS} days, manifested text only) |"
+        ),
     ]
     if summary_error:
         lines.extend(["", f"> {summary_error}"])
@@ -137,9 +178,10 @@ def build_report(
     lines.extend(
         [
             "",
-            "The artifact contains every available cockpit file, JUnit report, log, screenshot, "
-            "packaging diagnostic, wheel, and sdist. Checkboxes in the PR description do not "
-            "replace `PR Gate / Required`.",
+            "The PR artifact contains only the manifested, redacted textual staging from "
+            "`.proof/shareable/`. Screenshots, opaque binaries, raw portal logs, wheels, and "
+            "sdists are not included. Checkboxes in the PR description do not replace "
+            "`PR Gate / Required`.",
         ]
     )
     return "\n".join(lines) + "\n", packaging
@@ -162,11 +204,7 @@ def main() -> int:
         artifact_name=args.artifact_name,
         release_outcome=args.release_outcome,
     )
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "github-summary.md").write_text(markdown, encoding="utf-8")
-    (args.output_dir / "packaging-summary.json").write_text(
-        json.dumps(packaging, indent=2) + "\n", encoding="utf-8"
-    )
+    write_private_outputs(args.output_dir, markdown, packaging)
     print(markdown, end="")
     return 0
 

@@ -1,7 +1,8 @@
 import json
+import stat
 from pathlib import Path
 
-from scripts.github_summary import build_report
+from scripts.github_summary import build_report, write_private_outputs
 
 
 def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch):
@@ -12,8 +13,8 @@ def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch
     (dist / "cdpx-0.2.0.tar.gz").write_bytes(b"sdist")
     summary = {
         "ok": True,
-        "project": {"version": "0.2.0", "cli_command_count": 30},
-        "cli_command_count": 30,
+        "project": {"version": "0.2.0", "cli_command_count": 31},
+        "cli_command_count": 31,
         "totals": {"passed": 343, "failed": 0, "skipped": 0, "unavailable": 0},
         "commands": [{"id": "e2e", "status": "ok"}, {"id": "symfony-e2e", "status": "ok"}],
         "junit": {"e2e": {"tests": 32, "skipped": 0}, "symfony": {"tests": 7, "skipped": 0}},
@@ -32,8 +33,13 @@ def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch
     assert "cdpx PR proof: PASS" in markdown
     assert "343 passed" in markdown
     assert "32 tests" in markdown and "7 tests" in markdown
-    assert "30 commands" in markdown
+    assert "31 commands" in markdown
     assert "pr-proof-123-1" in markdown
+    assert "14 days, manifested text only" in markdown
+    assert (
+        "Screenshots, opaque binaries, raw portal logs, wheels, and sdists are not included"
+        in markdown
+    )
     assert packaging["ok"] is True
     assert len(packaging["archives"]) == 2
     assert all(len(item["sha256"]) == 64 for item in packaging["archives"])
@@ -64,3 +70,13 @@ def test_packaging_summary_is_json_serializable(tmp_path: Path):
     )
 
     json.dumps(packaging)
+
+
+def test_github_summary_outputs_are_private(tmp_path: Path):
+    output_dir = tmp_path / "diagnostics"
+
+    write_private_outputs(output_dir, "safe summary\n", {"ok": True})
+
+    assert stat.S_IMODE(output_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE((output_dir / "github-summary.md").stat().st_mode) == 0o600
+    assert stat.S_IMODE((output_dir / "packaging-summary.json").stat().st_mode) == 0o600

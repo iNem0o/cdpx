@@ -101,8 +101,17 @@ def test_release_portal_and_ci_require_all_runtime_proofs():
     assert "if: ${{ always() }}" in ci
     assert "GITHUB_STEP_SUMMARY" in ci
     assert "scripts/github_summary.py" in ci
-    assert ".ci-artifacts/make-release.log" in ci
+    assert ".ci-artifacts/make-release.log" not in ci
+    assert "tee .ci-artifacts" not in ci
+    assert 'CDPX_PROOF_RETENTION_DAYS: "14"' in ci
+    assert "path: .proof/shareable/" in ci
     assert "paths:" not in ci and "paths-ignore:" not in ci
+
+    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    compose = Path("docker-compose.symfony-e2e.yml").read_text(encoding="utf-8")
+    assert 'CDPX_PROOF_RETENTION_DAYS: "30"' in release
+    assert "path: .proof/shareable/" in release
+    assert "CDPX_PROOF_RETENTION_DAYS" in compose
 
 
 def test_github_workflows_are_parseable_and_actions_are_sha_pinned():

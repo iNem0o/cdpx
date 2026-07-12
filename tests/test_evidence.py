@@ -1,4 +1,22 @@
-from cdpx.testing.evidence import EvidenceCase, EvidenceSession, classify_nodeid, marker_metadata
+import json
+import stat
+from datetime import datetime
+
+import pytest
+
+from cdpx.artifacts import ArtifactClassification
+from cdpx.security.redaction import RedactionContext
+from cdpx.testing.evidence import (
+    EvidenceCase,
+    EvidenceSession,
+    classify_nodeid,
+    marker_metadata,
+    proof_retention_days,
+)
+
+
+def mode(path):
+    return stat.S_IMODE(path.stat().st_mode)
 
 
 class FakeItem:
@@ -42,6 +60,134 @@ def test_evidence_case_attaches_artifacts(tmp_path):
     assert data["artifacts"][1]["type"] == "json"
     assert data["artifacts"][2]["type"] == "logs"
     assert all(tmp_path.as_posix() in artifact["path"] for artifact in data["artifacts"])
+    assert data["artifacts"][0]["classification"] == "opaque-restricted"
+    assert data["artifacts"][0]["upload_allowed"] is False
+    assert data["artifacts"][1]["classification"] == "internal"
+    assert data["artifacts"][1]["upload_allowed"] is True
+    assert mode(case.artifact_dir) == 0o700
+    assert all(mode(tmp_path / artifact["path"]) == 0o600 for artifact in data["artifacts"])
+
+
+def test_evidence_redacts_reports_and_textual_attachments(tmp_path):
+    context = RedactionContext.from_secrets(["proof-canary-123"])
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_redaction",
+        root=tmp_path,
+        suite="unit",
+        title="redaction",
+        redaction_context=context,
+    )
+
+    class Report:
+        duration = 0.01
+        when = "call"
+        outcome = "failed"
+        longreprtext = "failure proof-canary-123"
+        capstdout = "Bearer abc.def_ghi proof-canary-123"
+        capstderr = "https://demo.test/path?token=proof-canary-123#fragment"
+
+    case.set_report(Report())
+    text_artifact = case.attach_text("secret proof-canary-123", "value=proof-canary-123")
+    json_artifact = case.attach_json(
+        "payload", {"url": "https://demo.test/?token=proof-canary-123", "token": "raw"}
+    )
+
+    serialized = json.dumps(case.as_dict(), ensure_ascii=False)
+    assert "proof-canary-123" not in serialized
+    assert "proof-canary-123" not in (tmp_path / text_artifact["path"]).read_text()
+    assert "proof-canary-123" not in (tmp_path / json_artifact["path"]).read_text()
+    assert "***" in serialized
+
+
+def test_attach_file_redacts_text_but_keeps_binary_restricted(tmp_path):
+    context = RedactionContext.from_secrets(["canary-value"])
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_file",
+        root=tmp_path,
+        suite="unit",
+        title="file",
+        redaction_context=context,
+    )
+    source = tmp_path / "source.log"
+    source.write_text("canary-value\n", encoding="utf-8")
+    binary = tmp_path / "source.bin"
+    binary.write_bytes(b"\x00canary-value")
+
+    text_entry = case.attach_file(source, "log")
+    binary_entry = case.attach_file(binary, "binary")
+
+    assert (tmp_path / text_entry["path"]).read_text() == "***\n"
+    assert text_entry["upload_allowed"] is True
+    assert binary_entry["classification"] == ArtifactClassification.OPAQUE_RESTRICTED.value
+    assert binary_entry["upload_allowed"] is False
+
+
+def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
+    session = EvidenceSession(tmp_path, ttl=3600)
+    case = session.case_for_item(FakeItem("tests/test_cli.py::test_manifest"))
+    case.attach_text("safe", "hello")
+    case.status = "passed"
+
+    session.write()
+
+    manifest_path = tmp_path / "evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema"] == "cdpx.evidence/v1"
+    assert manifest["expires_at"] > manifest["created_at"]
+    assert manifest["redaction_policy"] == "1"
+    assert any(item["classification"] == "internal" for item in manifest["artifacts"])
+    assert mode(tmp_path) == 0o700
+    assert mode(manifest_path) == 0o600
+
+
+def test_evidence_session_uses_validated_proof_retention_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "30")
+    session = EvidenceSession(tmp_path)
+    session.case_for_item(FakeItem("tests/test_cli.py::test_manifest")).status = "passed"
+
+    session.write()
+
+    manifest = json.loads((tmp_path / "evidence-manifest.json").read_text(encoding="utf-8"))
+    created = datetime.fromisoformat(manifest["created_at"])
+    expires = datetime.fromisoformat(manifest["expires_at"])
+    assert (expires - created).days == 30
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", " 14", "91", "abc"])
+def test_proof_retention_environment_is_strict_and_bounded(value, monkeypatch):
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", value)
+
+    with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
+        proof_retention_days()
+
+
+def test_proof_retention_defaults_to_fourteen_days(monkeypatch):
+    monkeypatch.delenv("CDPX_PROOF_RETENTION_DAYS", raising=False)
+
+    assert proof_retention_days() == 14
+
+
+def test_evidence_session_rejects_invalid_environment_retention(tmp_path, monkeypatch):
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "91")
+
+    with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
+        EvidenceSession(tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_attachment_filename_cannot_escape_private_case_dir(tmp_path):
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_traversal",
+        root=tmp_path,
+        suite="unit",
+        title="traversal",
+    )
+
+    with pytest.raises(ValueError, match="nom de preuve invalide"):
+        case.attach_text("unsafe", "value", "../escape.txt")
+
+    assert not (tmp_path.parent / "escape.txt").exists()
 
 
 def test_marker_metadata_captures_feature_and_journey():

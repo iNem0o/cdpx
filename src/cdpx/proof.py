@@ -10,19 +10,35 @@ from __future__ import annotations
 
 import html
 import json
+import mimetypes
 import os
 import platform
 import re
+import secrets
 import shutil
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cdpx.artifacts import (
+    ArtifactClassification,
+    ArtifactError,
+    SecureArtifactWriter,
+    scan_canaries,
+)
 from cdpx.proofing.features import build_feature_inventory, feature_failures
+from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
+from cdpx.testing.evidence import (
+    PROOF_RETENTION_ENV,
+    environment_secret_values,
+    proof_retention_seconds,
+    redaction_context_from_environment,
+)
 
 PROOF_DIR = Path(".proof")
 REPORT_HTML = PROOF_DIR / "proof-report.html"
@@ -41,6 +57,43 @@ GENERATED_PREFIXES = (".proof/", ".idea/")
 PRIVATE_WORKTREE_PREFIXES = ("AGENTS.md", "article/", "presentation/")
 VALIDATION_DOC = Path("docs/VALIDATION.md")
 
+_ALLOWED_ENV_NAMES = {
+    "CI",
+    "COLORTERM",
+    "HOME",
+    "LANG",
+    "LANGUAGE",
+    "LC_ALL",
+    "LOGNAME",
+    "NO_COLOR",
+    "PATH",
+    "PYTHONHASHSEED",
+    "PYTHONIOENCODING",
+    "PYTHONUNBUFFERED",
+    PROOF_RETENTION_ENV,
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "TZ",
+    "USER",
+    "VIRTUAL_ENV",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_RUNTIME_DIR",
+}
+_TEXTUAL_PROOF_SUFFIXES = {
+    ".css",
+    ".html",
+    ".js",
+    ".json",
+    ".log",
+    ".md",
+    ".txt",
+    ".xml",
+    ".yml",
+    ".yaml",
+}
+
 
 @dataclass
 class CommandEvidence:
@@ -57,11 +110,66 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _secure_dir(path: Path) -> None:
+    if path.is_symlink():
+        raise ArtifactError(f"dossier de preuve symbolique interdit: {path}")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not path.is_dir():
+        raise ArtifactError(f"dossier de preuve requis: {path}")
+    path.chmod(0o700)
+
+
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    _secure_dir(path.parent)
+    if path.is_symlink():
+        raise ArtifactError(f"lien symbolique interdit: {path}")
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_private_text(path: Path, value: str) -> None:
+    _write_private_bytes(path, value.encode("utf-8"))
+
+
+def _harden_tree(root: Path) -> None:
+    if not root.exists():
+        return
+    for path in sorted(root.rglob("*"), reverse=True):
+        if path.is_symlink():
+            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
+        path.chmod(0o700 if path.is_dir() else 0o600)
+    root.chmod(0o700)
+
+
+@contextmanager
+def _private_umask():
+    previous = os.umask(0o077)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+def _sanitize_argv(argv: list[str], context: RedactionContext) -> list[str]:
+    return [
+        redact_text(value, context=context, path=f"$.argv[{index}]")
+        for index, value in enumerate(argv)
+    ]
+
+
 def _repo_env() -> dict[str, str]:
-    env = os.environ.copy()
+    env = {name: value for name, value in os.environ.items() if name in _ALLOWED_ENV_NAMES}
     src = str(Path("src").resolve())
-    current = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = src if not current else f"{src}{os.pathsep}{current}"
+    env["PYTHONPATH"] = src
     return env
 
 
@@ -72,12 +180,15 @@ def run_evidence(
     log_path: Path,
     *,
     env: dict[str, str],
+    redaction_context: RedactionContext | None = None,
 ) -> CommandEvidence:
+    context = redaction_context or redaction_context_from_environment()
     started = _now()
     start = time.monotonic()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    _secure_dir(log_path.parent)
+    safe_argv = _sanitize_argv(argv, context)
     header = [
-        f"$ {' '.join(argv)}",
+        f"$ {' '.join(safe_argv)}",
         f"started_at: {started}",
         "",
         "--- output ---",
@@ -94,13 +205,13 @@ def run_evidence(
             errors="replace",
         )
         exit_code = proc.returncode
-        output = proc.stdout
+        output = redact_text(proc.stdout, context=context, path=f"$.commands.{id}.stdout")
     except FileNotFoundError as exc:
         exit_code = 127
-        output = f"{exc}\n"
+        output = redact_text(str(exc), context=context, path=f"$.commands.{id}.error") + "\n"
     duration = time.monotonic() - start
     footer = ["", "--- result ---", f"exit_code: {exit_code}", f"duration_s: {duration:.3f}", ""]
-    log_path.write_text("\n".join(header) + "\n" + output + "\n".join(footer), encoding="utf-8")
+    _write_private_text(log_path, "\n".join(header) + "\n" + output + "\n".join(footer))
     return CommandEvidence(
         id=id,
         label=label,
@@ -140,29 +251,42 @@ def _run_text(
 
 
 def _write_command_log(
-    log_path: Path, argv: list[str], started: str, body: str, result: str
+    log_path: Path,
+    argv: list[str],
+    started: str,
+    body: str,
+    result: str,
+    *,
+    redaction_context: RedactionContext | None = None,
 ) -> None:
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(
+    context = redaction_context or redaction_context_from_environment()
+    _secure_dir(log_path.parent)
+    _write_private_text(
+        log_path,
         "\n".join(
             [
-                f"$ {' '.join(argv)}",
+                f"$ {' '.join(_sanitize_argv(argv, context))}",
                 f"started_at: {started}",
                 "",
                 "--- output ---",
-                body.rstrip(),
+                redact_text(body, context=context, path="$.command.body").rstrip(),
                 "",
                 "--- result ---",
-                result.rstrip(),
+                redact_text(result, context=context, path="$.command.result").rstrip(),
                 "",
             ]
         ),
-        encoding="utf-8",
     )
 
 
-def write_symfony_unavailable_evidence(reason: str) -> None:
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+def write_symfony_unavailable_evidence(
+    reason: str,
+    *,
+    redaction_context: RedactionContext | None = None,
+) -> None:
+    context = redaction_context or redaction_context_from_environment()
+    _secure_dir(EVIDENCE_DIR)
+    safe_reason = redact_text(reason, context=context, path="$.symfony.reason")
     payload = {
         "suite": "symfony",
         "generated_at": _now(),
@@ -184,7 +308,7 @@ def write_symfony_unavailable_evidence(reason: str) -> None:
                 "duration_s": 0.0,
                 "status": "unavailable",
                 "phase": "setup",
-                "message": reason,
+                "message": safe_reason,
                 "stdout": "",
                 "stderr": "",
                 "artifacts": [
@@ -200,13 +324,17 @@ def write_symfony_unavailable_evidence(reason: str) -> None:
             }
         ],
     }
-    (EVIDENCE_DIR / "symfony-scenarios.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    _write_private_text(
+        EVIDENCE_DIR / "symfony-scenarios.json",
+        json.dumps(redact_tree(payload, context=context), ensure_ascii=False, indent=2) + "\n",
     )
 
 
-def run_symfony_evidence() -> CommandEvidence:
+def run_symfony_evidence(
+    *,
+    redaction_context: RedactionContext | None = None,
+) -> CommandEvidence:
+    context = redaction_context or redaction_context_from_environment()
     argv = [
         "docker",
         "compose",
@@ -220,16 +348,23 @@ def run_symfony_evidence() -> CommandEvidence:
     ]
     started = _now()
     start = time.monotonic()
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    compose_env = os.environ.copy()
+    _secure_dir(EVIDENCE_DIR)
+    compose_env = _repo_env()
     compose_env["CDPX_E2E_UID"] = str(os.getuid())
     compose_env["CDPX_E2E_GID"] = str(os.getgid())
 
     checks: list[str] = []
     if shutil.which("docker") is None:
         reason = "Docker CLI not found; Symfony e2e is required for release proof."
-        _write_command_log(SYMFONY_LOG, argv, started, reason, "status: unavailable\nexit_code: 1")
-        write_symfony_unavailable_evidence(reason)
+        _write_command_log(
+            SYMFONY_LOG,
+            argv,
+            started,
+            reason,
+            "status: unavailable\nexit_code: 1",
+            redaction_context=context,
+        )
+        write_symfony_unavailable_evidence(reason, redaction_context=context)
         return CommandEvidence(
             id="symfony-e2e",
             label="Symfony E2E Docker",
@@ -249,9 +384,14 @@ def run_symfony_evidence() -> CommandEvidence:
             )
             body = "\n\n".join(checks + [reason])
             _write_command_log(
-                SYMFONY_LOG, argv, started, body, "status: unavailable\nexit_code: 1"
+                SYMFONY_LOG,
+                argv,
+                started,
+                body,
+                "status: unavailable\nexit_code: 1",
+                redaction_context=context,
             )
-            write_symfony_unavailable_evidence(reason)
+            write_symfony_unavailable_evidence(reason, redaction_context=context)
             return CommandEvidence(
                 id="symfony-e2e",
                 label="Symfony E2E Docker",
@@ -302,6 +442,7 @@ def run_symfony_evidence() -> CommandEvidence:
         started,
         body,
         f"exit_code: {result_code}\nduration_s: {duration:.3f}",
+        redaction_context=context,
     )
     return CommandEvidence(
         id="symfony-e2e",
@@ -314,7 +455,8 @@ def run_symfony_evidence() -> CommandEvidence:
     )
 
 
-def collect_git_context() -> dict:
+def collect_git_context(*, redaction_context: RedactionContext | None = None) -> dict:
+    context = redaction_context or redaction_context_from_environment()
     branch_code, branch = _run_text(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     sha_code, sha = _run_text(["git", "rev-parse", "--short", "HEAD"])
     status_code, status = _run_text(["git", "status", "--short"])
@@ -330,11 +472,12 @@ def collect_git_context() -> dict:
         if path == "AGENTS.md" or path.startswith(PRIVATE_WORKTREE_PREFIXES[1:]):
             continue
         safe_status_lines.append(line)
-    status = "\n".join(safe_status_lines)
+    status = redact_text("\n".join(safe_status_lines), context=context, path="$.git.status")
     if status:
         status += "\n"
-    GIT_STATUS.write_text(status, encoding="utf-8")
-    GIT_DIFF_STAT.write_text(stat, encoding="utf-8")
+    stat = redact_text(stat, context=context, path="$.git.diff_stat")
+    _write_private_text(GIT_STATUS, status)
+    _write_private_text(GIT_DIFF_STAT, stat)
 
     changed_files = []
     generated_files = []
@@ -351,7 +494,9 @@ def collect_git_context() -> dict:
             changed_files.append(item)
 
     return {
-        "branch": branch.strip() if branch_code == 0 else "unknown",
+        "branch": redact_text(branch.strip(), context=context, path="$.git.branch")
+        if branch_code == 0
+        else "unknown",
         "sha": sha.strip() if sha_code == 0 else "unknown",
         "status_code": status_code,
         "diff_stat_code": stat_code,
@@ -801,8 +946,14 @@ def enrich_scenario_evidence(scenario_evidence: dict, feature_inventory: dict) -
     }
 
 
-def write_scenario_evidence(root: Path, scenario_evidence: dict) -> None:
-    root.mkdir(parents=True, exist_ok=True)
+def write_scenario_evidence(
+    root: Path,
+    scenario_evidence: dict,
+    *,
+    redaction_context: RedactionContext | None = None,
+) -> None:
+    context = redaction_context or redaction_context_from_environment()
+    _secure_dir(root)
     for suite, scenarios in scenario_evidence.get("suites", {}).items():
         if not scenarios:
             continue
@@ -813,7 +964,8 @@ def write_scenario_evidence(root: Path, scenario_evidence: dict) -> None:
             "count": len(scenarios),
             "scenarios": sorted(scenarios, key=lambda item: item["nodeid"]),
         }
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        cleaned = redact_tree(payload, context=context, path=f"$.scenarios.{suite}")
+        _write_private_text(path, json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n")
 
 
 def build_project_risks_and_unknowns() -> dict:
@@ -841,10 +993,15 @@ def build_project_risks_and_unknowns() -> dict:
             "how_to_verify": "Vérifier les logs réseau et les fixtures sous `tests/fixtures/`.",
         },
         {
-            "item": "Captures visuelles persistées",
-            "why": "Les e2e valident le screenshot PNG sans le conserver dans `.proof`.",
+            "item": "Portée des captures visuelles",
+            "why": (
+                "Les captures E2E sont conservées dans l'arbre privé `.proof/evidence/` "
+                "et exclues du staging partageable; elles ne constituent pas un diff "
+                "visuel exhaustif."
+            ),
             "how_to_verify": (
-                "Ajouter une capture dédiée dans `.proof/` si une preuve visuelle est requise."
+                "Inspecter le catalogue privé et ajouter une assertion ou une baseline dédiée "
+                "pour toute régression visuelle à contractualiser."
             ),
         },
         {
@@ -1627,9 +1784,9 @@ def build_summary(
             suite_failures.append(f"required JUnit empty: {suite.get('path', command_id)}")
         if command_id in {"e2e", "symfony-e2e"} and suite.get("skipped", 0):
             suite_failures.append(f"{command_id} tests skipped ({suite['skipped']})")
-    if "cli-help" in command_ids and project["cli_command_count"] != 30:
+    if "cli-help" in command_ids and project["cli_command_count"] != 31:
         suite_failures.append(
-            f"CLI contract expected 30 commands, found {project['cli_command_count']}"
+            f"CLI contract expected 31 commands, found {project['cli_command_count']}"
         )
     unavailable = sum(
         1
@@ -1703,10 +1860,91 @@ def build_summary(
     return summary
 
 
-def generate() -> dict:
+def _sanitize_text_file(path: Path, context: RedactionContext) -> None:
+    if not path.exists() or path.is_symlink():
+        return
+    value = path.read_text(encoding="utf-8", errors="replace")
+    cleaned = redact_text(value, context=context, path=f"$.files.{path.name}")
+    _write_private_text(path, cleaned)
+
+
+def _proof_artifact_policy(path: Path) -> tuple[ArtifactClassification, bool]:
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if mime.startswith("text/") or path.suffix.lower() in _TEXTUAL_PROOF_SUFFIXES:
+        return ArtifactClassification.INTERNAL, True
+    return ArtifactClassification.OPAQUE_RESTRICTED, False
+
+
+def build_shareable_proof(
+    proof_dir: Path = PROOF_DIR,
+    *,
+    canaries: list[str] | None = None,
+    ttl: float | None = None,
+) -> Path:
+    """Build the only CI-uploadable proof tree from an explicit manifest.
+
+    Textual proof material is already redacted when it reaches this function.
+    Opaque/binary attachments remain in the private local proof and are never
+    copied to staging. A final exact-value canary scan fails closed.
+    """
+
+    selected_ttl = proof_retention_seconds() if ttl is None else ttl
+    if selected_ttl <= 0:
+        raise ArtifactError("TTL de proof strictement positif requis")
+    if proof_dir.is_symlink() or not proof_dir.is_dir():
+        raise ArtifactError(f"répertoire de preuve invalide: {proof_dir}")
+    staging = proof_dir / "shareable"
+    store_root = proof_dir / ".artifact-store"
+    excluded_roots = {staging.resolve(), store_root.resolve()}
+    source_paths: list[Path] = []
+    for path in sorted(proof_dir.rglob("*")):
+        resolved = path.resolve()
+        if any(resolved == root or root in resolved.parents for root in excluded_roots):
+            continue
+        if path.is_symlink():
+            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
+        if path.is_file():
+            source_paths.append(path)
+
+    if store_root.exists():
+        shutil.rmtree(store_root)
+    writer = SecureArtifactWriter(store_root, "proof", ttl=selected_ttl)
+    for source in source_paths:
+        relative = source.relative_to(proof_dir).as_posix()
+        classification, upload_allowed = _proof_artifact_policy(source)
+        writer.register_file(
+            source,
+            name=f".proof/{relative}",
+            classification=classification,
+            upload_allowed=upload_allowed,
+        )
+
+    # Publish a read-only copy of the full private manifest so reviewers can
+    # see which opaque files were deliberately withheld from CI upload.
+    manifest_copy = proof_dir / "artifact-manifest.json"
+    _write_private_bytes(manifest_copy, writer.manifest_path.read_bytes())
+    writer.register_file(
+        manifest_copy,
+        name=".proof/artifact-manifest.json",
+        classification=ArtifactClassification.INTERNAL,
+        upload_allowed=True,
+    )
+    writer.build_shareable(staging)
+
+    matches = scan_canaries(staging, canaries or [])
+    if matches:
+        shutil.rmtree(staging)
+        raise ArtifactError(f"canary détecté dans le staging partageable: {', '.join(matches)}")
+    _harden_tree(proof_dir)
+    return staging
+
+
+def _generate() -> dict:
+    retention_seconds = proof_retention_seconds()
     if PROOF_DIR.exists():
         shutil.rmtree(PROOF_DIR)
-    PROOF_DIR.mkdir(parents=True)
+    _secure_dir(PROOF_DIR)
+    context = redaction_context_from_environment()
     env = _repo_env()
     unit_xml = PROOF_DIR / "unit-junit.xml"
     e2e_xml = PROOF_DIR / "e2e-junit.xml"
@@ -1719,6 +1957,7 @@ def generate() -> dict:
             [sys.executable, "-m", "ruff", "check", "src", "tests"],
             PROOF_DIR / "ruff-check.log",
             env=env,
+            redaction_context=context,
         ),
         run_evidence(
             "ruff-format",
@@ -1726,6 +1965,7 @@ def generate() -> dict:
             [sys.executable, "-m", "ruff", "format", "--check", "src", "tests"],
             PROOF_DIR / "ruff-format.log",
             env=env,
+            redaction_context=context,
         ),
         run_evidence(
             "mypy",
@@ -1733,6 +1973,7 @@ def generate() -> dict:
             [sys.executable, "-m", "mypy", "src/cdpx"],
             PROOF_DIR / "mypy.log",
             env=env,
+            redaction_context=context,
         ),
         run_evidence(
             "unit",
@@ -1748,6 +1989,7 @@ def generate() -> dict:
             ],
             UNIT_LOG,
             env=env,
+            redaction_context=context,
         ),
         run_evidence(
             "e2e",
@@ -1757,28 +1999,33 @@ def generate() -> dict:
                 "-m",
                 "pytest",
                 "tests/e2e/test_e2e_chrome.py",
+                "tests/e2e/test_e2e_sessions.py",
                 "-v",
                 f"--cdpx-evidence-dir={EVIDENCE_DIR}",
                 f"--junitxml={e2e_xml}",
             ],
             E2E_LOG,
             env=env,
+            redaction_context=context,
         ),
-        run_symfony_evidence(),
+        run_symfony_evidence(redaction_context=context),
         run_evidence(
             "cli-help",
             "Aide CLI",
             [sys.executable, "-m", "cdpx.cli", "--help"],
             CLI_HELP,
             env=env,
+            redaction_context=context,
         ),
     ]
 
+    for path in (unit_xml, e2e_xml, symfony_xml):
+        _sanitize_text_file(path, context)
     unit = parse_junit(unit_xml)
     e2e = parse_junit(e2e_xml)
     symfony = parse_junit(symfony_xml)
     help_commands = parse_help_commands(CLI_HELP.read_text(encoding="utf-8", errors="replace"))
-    git_context = collect_git_context()
+    git_context = collect_git_context(redaction_context=context)
     summary = build_summary(
         commands,
         unit,
@@ -1789,12 +2036,32 @@ def generate() -> dict:
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
-    write_scenario_evidence(EVIDENCE_DIR, summary["scenario_evidence"])
-    SUMMARY_JSON.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    summary = redact_tree(summary, context=context, path="$.summary")
+    write_scenario_evidence(
+        EVIDENCE_DIR,
+        summary["scenario_evidence"],
+        redaction_context=context,
     )
-    REPORT_HTML.write_text(render_html(summary), encoding="utf-8")
+    _write_private_text(
+        SUMMARY_JSON,
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+    )
+    _write_private_text(
+        REPORT_HTML,
+        redact_text(render_html(summary), context=context, path="$.report_html"),
+    )
+    _harden_tree(PROOF_DIR)
+    build_shareable_proof(
+        PROOF_DIR,
+        canaries=environment_secret_values(),
+        ttl=retention_seconds,
+    )
     return summary
+
+
+def generate() -> dict:
+    with _private_umask():
+        return _generate()
 
 
 def main() -> int:

@@ -20,6 +20,7 @@ services:
       SYMFONY_E2E_URL: http://symfony:8000
       CDPX_E2E_UID: "${CDPX_E2E_UID:-1000}"
       CDPX_E2E_GID: "${CDPX_E2E_GID:-1000}"
+      CDPX_PROOF_RETENTION_DAYS: "${CDPX_PROOF_RETENTION_DAYS:-14}"
     depends_on:
       symfony:
         condition: service_healthy

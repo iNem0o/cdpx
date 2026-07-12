@@ -1,5 +1,149 @@
+import json
+import stat
+from datetime import datetime
+
+import pytest
+
 from cdpx import proof
+from cdpx.artifacts import ArtifactError
 from cdpx.cli import build_parser
+from cdpx.security.redaction import RedactionContext
+
+
+def mode(path):
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setenv("HOME", "/tmp/home")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
+    monkeypatch.setenv("CDPX_TEST_SECRET", "cdpx-secret")
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "30")
+
+    env = proof._repo_env()
+
+    assert env["PATH"] == "/usr/bin"
+    assert env["HOME"] == "/tmp/home"
+    assert "PYTHONPATH" in env
+    assert "GITHUB_TOKEN" not in env
+    assert "AWS_SECRET_ACCESS_KEY" not in env
+    assert "CDPX_TEST_SECRET" not in env
+    assert env["CDPX_PROOF_RETENTION_DAYS"] == "30"
+
+
+def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path, monkeypatch):
+    secret = "proof-secret-123"
+    context = RedactionContext.from_secrets([secret])
+
+    class Completed:
+        returncode = 0
+        stdout = f"token={secret}\nBearer abcdefghijk"
+
+    monkeypatch.setattr(proof.subprocess, "run", lambda *args, **kwargs: Completed())
+    log = tmp_path / "logs" / "command.log"
+
+    proof.run_evidence(
+        "secret",
+        "Secret",
+        ["tool", secret],
+        log,
+        env={"PATH": "/usr/bin"},
+        redaction_context=context,
+    )
+
+    contents = log.read_text(encoding="utf-8")
+    assert secret not in contents
+    assert "***" in contents
+    assert mode(log.parent) == 0o700
+    assert mode(log) == 0o600
+
+
+def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(tmp_path):
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+    proof._write_private_text(proof_dir / "validation-summary.json", '{"ok": true}\n')
+    proof._write_private_bytes(proof_dir / "evidence" / "shot.png", b"\x89PNG\r\n")
+
+    staging = proof.build_shareable_proof(proof_dir, canaries=["never-present"], ttl=7200)
+
+    assert (staging / ".proof" / "proof-report.html").exists()
+    assert (staging / ".proof" / "validation-summary.json").exists()
+    assert not (staging / ".proof" / "evidence" / "shot.png").exists()
+    public_manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
+    assert public_manifest["expires_at"] > public_manifest["created_at"]
+    assert all(item["upload_allowed"] for item in public_manifest["artifacts"])
+    assert mode(staging) == 0o700
+    assert mode(staging / "manifest.json") == 0o600
+    assert mode(staging / ".proof" / "proof-report.html") == 0o600
+    private_manifest = json.loads(
+        (proof_dir / "artifact-manifest.json").read_text(encoding="utf-8")
+    )
+    screenshot = next(
+        item for item in private_manifest["artifacts"] if item["path"].endswith("shot.png")
+    )
+    assert screenshot["classification"] == "opaque-restricted"
+    assert screenshot["upload_allowed"] is False
+
+
+def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "unsafe.log", "leaked-canary")
+
+    with pytest.raises(ArtifactError, match="canary"):
+        proof.build_shareable_proof(proof_dir, canaries=["leaked-canary"])
+
+    assert not (proof_dir / "shareable").exists()
+
+
+def test_build_shareable_proof_uses_validated_environment_retention(tmp_path, monkeypatch):
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "30")
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+
+    staging = proof.build_shareable_proof(proof_dir)
+
+    manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
+    created = datetime.fromisoformat(manifest["created_at"])
+    expires = datetime.fromisoformat(manifest["expires_at"])
+    assert (expires - created).days == 30
+
+
+def test_build_shareable_proof_rejects_invalid_environment_retention(tmp_path, monkeypatch):
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "unbounded")
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+
+    with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
+        proof.build_shareable_proof(proof_dir)
+
+    assert not (proof_dir / "shareable").exists()
+
+
+def test_generate_rejects_invalid_retention_before_replacing_existing_proof(tmp_path, monkeypatch):
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir()
+    marker = proof_dir / "keep.txt"
+    marker.write_text("preserve", encoding="utf-8")
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "0")
+
+    with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
+        proof.generate()
+
+    assert marker.read_text(encoding="utf-8") == "preserve"
+
+
+def test_project_unknowns_describe_private_screenshot_scope():
+    packet = proof.build_project_risks_and_unknowns()
+    screenshot = next(
+        item for item in packet["unknowns"] if item["item"] == "Portée des captures visuelles"
+    )
+
+    assert ".proof/evidence/" in screenshot["why"]
+    assert "exclues du staging partageable" in screenshot["why"]
+    assert "sans le conserver" not in screenshot["why"]
 
 
 def empty_scenario_evidence():

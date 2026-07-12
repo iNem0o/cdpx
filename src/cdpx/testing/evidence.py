@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
+import os
 import re
-import shutil
+import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from cdpx.artifacts import REDACTION_POLICY_VERSION, ArtifactClassification
+from cdpx.security.redaction import (
+    RedactionContext,
+    redact_text,
+    redact_tree,
+    secret_values_from_environment,
+)
 
 E2E_PREFIX = "tests/e2e/"
 INTEGRATION_MODULES = {
@@ -18,6 +29,118 @@ INTEGRATION_MODULES = {
     "tests/test_discovery_and_client.py",
     "tests/test_fixture_server.py",
 }
+EVIDENCE_SCHEMA = "cdpx.evidence/v1"
+PROOF_RETENTION_ENV = "CDPX_PROOF_RETENTION_DAYS"
+DEFAULT_PROOF_RETENTION_DAYS = 14
+MIN_PROOF_RETENTION_DAYS = 1
+MAX_PROOF_RETENTION_DAYS = 90
+DEFAULT_EVIDENCE_TTL = DEFAULT_PROOF_RETENTION_DAYS * 24 * 60 * 60
+_TEXT_MIME_PREFIXES = ("text/",)
+_TEXT_MIMES = {
+    "application/json",
+    "application/javascript",
+    "application/sql",
+    "application/xml",
+    "application/x-ndjson",
+    "image/svg+xml",
+}
+
+
+def _secure_dir(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError(f"dossier de preuve symbolique interdit: {path}")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not path.is_dir():
+        raise ValueError(f"dossier de preuve requis: {path}")
+    path.chmod(0o700)
+
+
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    _secure_dir(path.parent)
+    if path.is_symlink():
+        raise ValueError(f"lien symbolique interdit pour une preuve: {path}")
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_private_text(path: Path, value: str) -> None:
+    _write_private_bytes(path, value.encode("utf-8"))
+
+
+def _iso(value: datetime) -> str:
+    return value.isoformat(timespec="seconds")
+
+
+def redaction_context_from_environment(
+    environ: Mapping[str, str] | None = None,
+) -> RedactionContext:
+    """Build a process-local registry without serialising environment values."""
+
+    return RedactionContext.from_secrets(environment_secret_values(environ))
+
+
+def environment_secret_values(environ: Mapping[str, str] | None = None) -> list[str]:
+    values = environ if environ is not None else os.environ
+    detected = secret_values_from_environment(values)
+    canaries = [
+        value for name, value in values.items() if value and name.startswith("CDPX_PROOF_CANARY")
+    ]
+    return list(dict.fromkeys([*detected, *canaries]))
+
+
+def proof_retention_days(environ: Mapping[str, str] | None = None) -> int:
+    """Retourne la rétention du proof, avec validation stricte fail-closed."""
+
+    values = os.environ if environ is None else environ
+    raw = values.get(PROOF_RETENTION_ENV)
+    if raw is None:
+        return DEFAULT_PROOF_RETENTION_DAYS
+    if not re.fullmatch(r"[1-9][0-9]*", raw):
+        raise ValueError(f"{PROOF_RETENTION_ENV} doit être un entier positif")
+    days = int(raw)
+    if not MIN_PROOF_RETENTION_DAYS <= days <= MAX_PROOF_RETENTION_DAYS:
+        raise ValueError(
+            f"{PROOF_RETENTION_ENV} doit être compris entre "
+            f"{MIN_PROOF_RETENTION_DAYS} et {MAX_PROOF_RETENTION_DAYS}"
+        )
+    return days
+
+
+def proof_retention_seconds(environ: Mapping[str, str] | None = None) -> int:
+    return proof_retention_days(environ) * 24 * 60 * 60
+
+
+def _is_textual(mime: str, path: Path) -> bool:
+    return (
+        mime.startswith(_TEXT_MIME_PREFIXES)
+        or mime in _TEXT_MIMES
+        or path.suffix.lower()
+        in {
+            ".json",
+            ".log",
+            ".md",
+            ".txt",
+            ".xml",
+            ".yml",
+            ".yaml",
+        }
+    )
+
+
+def _attachment_name(value: str) -> str:
+    path = Path(value)
+    if path.is_absolute() or len(path.parts) != 1 or path.name in {"", ".", ".."}:
+        raise ValueError(f"nom de preuve invalide: {value}")
+    return path.name
 
 
 def utc_now() -> str:
@@ -59,6 +182,10 @@ class EvidenceArtifact:
     path: str
     bytes: int
     mime: str
+    sha256: str
+    classification: str
+    upload_allowed: bool
+    redaction_policy: str = REDACTION_POLICY_VERSION
     created_at: str = field(default_factory=utc_now)
 
     def as_dict(self) -> dict[str, Any]:
@@ -68,6 +195,10 @@ class EvidenceArtifact:
             "path": self.path,
             "bytes": self.bytes,
             "mime": self.mime,
+            "sha256": self.sha256,
+            "classification": self.classification,
+            "upload_allowed": self.upload_allowed,
+            "redaction_policy": self.redaction_policy,
             "created_at": self.created_at,
         }
 
@@ -91,6 +222,7 @@ class EvidenceCase:
     stdout: str = ""
     stderr: str = ""
     artifacts: list[EvidenceArtifact] = field(default_factory=list)
+    redaction_context: RedactionContext = field(default_factory=redaction_context_from_environment)
 
     @property
     def slug(self) -> str:
@@ -100,40 +232,117 @@ class EvidenceCase:
     def artifact_dir(self) -> Path:
         return self.root / "artifacts" / self.suite / self.slug
 
-    def attach_file(self, path: str | Path, label: str, type: str | None = None) -> dict[str, Any]:
+    def attach_file(
+        self,
+        path: str | Path,
+        label: str,
+        type: str | None = None,
+        *,
+        classification: ArtifactClassification | None = None,
+        upload_allowed: bool | None = None,
+    ) -> dict[str, Any]:
         src = Path(path)
-        self.artifact_dir.mkdir(parents=True, exist_ok=True)
-        dest = self.artifact_dir / src.name
-        if src.resolve() != dest.resolve():
-            shutil.copy2(src, dest)
-        artifact_type = type or dest.suffix.lstrip(".") or "file"
+        if src.is_symlink() or not src.is_file():
+            raise ValueError(f"fichier de preuve invalide: {src}")
+        _secure_dir(self.artifact_dir)
+        safe_stem = slugify(redact_text(src.stem, context=self.redaction_context, path="$.name"))
+        dest = self.artifact_dir / f"{safe_stem}{src.suffix.lower()}"
+        artifact_type = type or src.suffix.lstrip(".") or "file"
         mime = mimetypes.guess_type(dest.name)[0] or "application/octet-stream"
+        textual = _is_textual(mime, src)
+        selected_classification = classification or (
+            ArtifactClassification.INTERNAL if textual else ArtifactClassification.OPAQUE_RESTRICTED
+        )
+        selected_upload = textual if upload_allowed is None else upload_allowed
+        if selected_classification in {
+            ArtifactClassification.SECRET,
+            ArtifactClassification.OPAQUE_RESTRICTED,
+        }:
+            selected_upload = False
+        data = src.read_bytes()
+        if textual:
+            decoded = data.decode("utf-8", errors="replace")
+            if mime == "application/json" or src.suffix.lower() == ".json":
+                try:
+                    payload = json.loads(decoded)
+                except json.JSONDecodeError:
+                    cleaned = redact_text(
+                        decoded,
+                        context=self.redaction_context,
+                        path=f"$.artifacts.{dest.name}",
+                    )
+                else:
+                    cleaned = (
+                        json.dumps(
+                            redact_tree(
+                                payload,
+                                context=self.redaction_context,
+                                path=f"$.artifacts.{dest.name}",
+                            ),
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n"
+                    )
+            else:
+                cleaned = redact_text(
+                    decoded,
+                    context=self.redaction_context,
+                    path=f"$.artifacts.{dest.name}",
+                )
+            data = cleaned.encode("utf-8")
+        _write_private_bytes(dest, data)
         artifact = EvidenceArtifact(
             type=artifact_type,
-            label=label,
+            label=redact_text(label, context=self.redaction_context, path="$.artifact.label"),
             path=str(dest),
-            bytes=dest.stat().st_size,
+            bytes=len(data),
             mime=mime,
+            sha256=hashlib.sha256(data).hexdigest(),
+            classification=selected_classification.value,
+            upload_allowed=selected_upload,
         )
         self.artifacts.append(artifact)
         return artifact.as_dict()
 
     def attach_text(self, label: str, text: str, filename: str | None = None) -> dict[str, Any]:
-        name = filename or f"{slugify(label)}.txt"
-        self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        name = _attachment_name(filename or f"{slugify(label)}.txt")
+        _secure_dir(self.artifact_dir)
         dest = self.artifact_dir / name
-        dest.write_text(text, encoding="utf-8")
-        return self.attach_file(dest, label, "logs")
+        _write_private_text(
+            dest,
+            redact_text(text, context=self.redaction_context, path=f"$.artifacts.{name}"),
+        )
+        return self.attach_file(
+            dest,
+            label,
+            "logs",
+            classification=ArtifactClassification.INTERNAL,
+            upload_allowed=True,
+        )
 
     def attach_json(self, label: str, data: Any, filename: str | None = None) -> dict[str, Any]:
-        name = filename or f"{slugify(label)}.json"
-        self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        name = _attachment_name(filename or f"{slugify(label)}.json")
+        _secure_dir(self.artifact_dir)
         dest = self.artifact_dir / name
-        dest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return self.attach_file(dest, label, "json")
+        cleaned = redact_tree(data, context=self.redaction_context, path=f"$.artifacts.{name}")
+        _write_private_text(dest, json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n")
+        return self.attach_file(
+            dest,
+            label,
+            "json",
+            classification=ArtifactClassification.INTERNAL,
+            upload_allowed=True,
+        )
 
     def attach_screenshot(self, path: str | Path, label: str = "Screenshot") -> dict[str, Any]:
-        return self.attach_file(path, label, "screenshot")
+        return self.attach_file(
+            path,
+            label,
+            "screenshot",
+            classification=ArtifactClassification.OPAQUE_RESTRICTED,
+            upload_allowed=False,
+        )
 
     def set_report(self, report: Any) -> None:
         self.duration_s = round(float(getattr(report, "duration", 0.0) or 0.0), 3)
@@ -149,15 +358,27 @@ class EvidenceCase:
             self.status = outcome or self.status
         longrepr = getattr(report, "longreprtext", None)
         if longrepr:
-            self.message = str(longrepr).splitlines()[-1][:500]
-        self.stdout = getattr(report, "capstdout", "") or ""
-        self.stderr = getattr(report, "capstderr", "") or ""
+            self.message = redact_text(
+                str(longrepr).splitlines()[-1][:500],
+                context=self.redaction_context,
+                path="$.message",
+            )
+        self.stdout = redact_text(
+            getattr(report, "capstdout", "") or "",
+            context=self.redaction_context,
+            path="$.stdout",
+        )
+        self.stderr = redact_text(
+            getattr(report, "capstderr", "") or "",
+            context=self.redaction_context,
+            path="$.stderr",
+        )
 
     def has_artifact_type(self, type: str) -> bool:
         return any(artifact.type == type for artifact in self.artifacts)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "nodeid": self.nodeid,
             "suite": self.suite,
             "title": self.title,
@@ -175,14 +396,28 @@ class EvidenceCase:
             "stderr": self.stderr,
             "artifacts": [artifact.as_dict() for artifact in self.artifacts],
         }
+        return redact_tree(payload, context=self.redaction_context, path="$.case")
 
 
 class EvidenceSession:
-    def __init__(self, root: str | Path, suite_override: str | None = None):
+    def __init__(
+        self,
+        root: str | Path,
+        suite_override: str | None = None,
+        *,
+        ttl: float | None = None,
+        redaction_context: RedactionContext | None = None,
+    ):
+        selected_ttl = proof_retention_seconds() if ttl is None else ttl
+        if selected_ttl <= 0:
+            raise ValueError("TTL de preuve strictement positif requis")
         self.root = Path(root)
         self.suite_override = suite_override
         self.cases: dict[str, EvidenceCase] = {}
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.redaction_context = redaction_context or redaction_context_from_environment()
+        self.created_at = datetime.now(UTC)
+        self.expires_at = self.created_at + timedelta(seconds=selected_ttl)
+        _secure_dir(self.root)
 
     def case_for_item(self, item: Any) -> EvidenceCase:
         nodeid = item.nodeid
@@ -200,6 +435,7 @@ class EvidenceSession:
             journey=metadata.get("journey", ""),
             scenario_id=metadata.get("scenario_id", ""),
             proves=list(metadata.get("proves", [])),
+            redaction_context=self.redaction_context,
         )
         self.cases[nodeid] = case
         return case
@@ -217,12 +453,66 @@ class EvidenceSession:
                 "count": len(cases),
                 "scenarios": sorted(cases, key=lambda item: item["nodeid"]),
             }
-            path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
+            cleaned = redact_tree(
+                payload,
+                context=self.redaction_context,
+                path=f"$.suites.{suite}",
             )
+            _write_private_text(path, json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n")
             paths.append(str(path))
+        self._write_manifest([Path(path) for path in paths])
         return paths
+
+    def _write_manifest(self, scenario_paths: list[Path]) -> None:
+        artifact_paths = [
+            Path(artifact.path) for case in self.cases.values() for artifact in case.artifacts
+        ]
+        metadata_by_path = {
+            Path(artifact.path).resolve(): artifact
+            for case in self.cases.values()
+            for artifact in case.artifacts
+        }
+        entries = []
+        for path in sorted(scenario_paths + artifact_paths):
+            if path.is_symlink() or not path.is_file():
+                raise ValueError(f"preuve non manifestable: {path}")
+            relative = path.resolve().relative_to(self.root.resolve()).as_posix()
+            metadata = metadata_by_path.get(path.resolve())
+            data = path.read_bytes()
+            entries.append(
+                {
+                    "path": relative,
+                    "bytes": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "mime": (
+                        metadata.mime
+                        if metadata is not None
+                        else mimetypes.guess_type(path.name)[0] or "application/json"
+                    ),
+                    "classification": (
+                        metadata.classification
+                        if metadata is not None
+                        else ArtifactClassification.INTERNAL.value
+                    ),
+                    "upload_allowed": metadata.upload_allowed if metadata is not None else True,
+                    "redaction_policy": REDACTION_POLICY_VERSION,
+                    "created_at": (
+                        metadata.created_at if metadata is not None else _iso(self.created_at)
+                    ),
+                }
+            )
+        payload = {
+            "schema": EVIDENCE_SCHEMA,
+            "created_at": _iso(self.created_at),
+            "expires_at": _iso(self.expires_at),
+            "redaction_policy": REDACTION_POLICY_VERSION,
+            "artifacts": entries,
+            "redaction": self.redaction_context.report.as_dict(),
+        }
+        _write_private_text(
+            self.root / "evidence-manifest.json",
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        )
 
 
 def start_timer() -> float:
