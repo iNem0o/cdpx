@@ -1,9 +1,11 @@
 import json
+import stat
 from pathlib import Path
 
 import pytest
 
 from cdpx import discovery, scenarios
+from cdpx.artifacts import scan_canaries
 from cdpx.cli import main
 from cdpx.client import CDPClient
 from cdpx.primitives import profiler_panels
@@ -89,8 +91,34 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path):
     assert all(Path(artifact["path"]).exists() for artifact in result["artifacts"])
 
 
+def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock, tmp_path):
+    mock.on_eval("__cdpx_visible", False, True)
+    mock.on_eval("querySelector", True)
+    scenario = scenarios.parse(
+        {
+            "name": "visible",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"wait_visible": "#revealed"}],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=0.5,
+            settle=0,
+        )
+
+    assert result["verdict"] == "pass"
+    assert result["steps"][0]["result"]["visible"] is True
+    assert len(mock.commands_for("Runtime.evaluate")) == 2
+
+
 def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
     fixtures = Path(__file__).parent / "fixtures" / "profiler"
+    mock.on_eval("window.location.href", "http://shop.test/")
     mock.script_network(
         [
             {
@@ -134,7 +162,8 @@ def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
     assert result["verdict"] == "pass"
     (artifact,) = [a for a in result["artifacts"] if a["type"] == "profiler"]
     data = json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
-    assert data["token"] == "fixed-token"
+    assert data["token_present"] is True
+    assert "token" not in data
     assert data["panels"]["db"]["queries"] == 6
     assert data["panels"]["router"]["route"] == "scenario_profiler"
     assert "signals" not in data
@@ -203,6 +232,58 @@ def test_run_scenario_console_and_network_assertions_fail(mock, tmp_path):
     ]
 
 
+def test_final_drain_precedes_console_and_network_assertions(mock, tmp_path, monkeypatch):
+    class LateCollector(scenarios.PassiveCollector):
+        def __init__(self, context=None):
+            super().__init__(context)
+            self.drain_count = 0
+
+        def drain(self, client, settle):
+            self.drain_count += 1
+            if self.drain_count != 3:
+                return
+            self.console_entries.append(
+                {
+                    "kind": "console",
+                    "type": "error",
+                    "text": "late console error",
+                    "ts": 2.0,
+                }
+            )
+            self.requests["LATE"] = {
+                "requestId": "LATE",
+                "url": "http://shop.test/api/late",
+                "method": "GET",
+                "status": 500,
+            }
+
+    monkeypatch.setattr(scenarios, "PassiveCollector", LateCollector)
+    scenario = scenarios.parse(
+        {
+            "name": "late_observability",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/"}],
+            "assertions": [
+                {"no_console_errors": True},
+                {"network_errors_max": 0},
+            ],
+            "artifacts": ["console", "network"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+
+    assert result["verdict"] == "fail"
+    assert [record["actual"] for record in result["assertions"]] == [1, 1]
+    artifacts = {
+        artifact["type"]: json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
+        for artifact in result["artifacts"]
+    }
+    assert artifacts["console"]["errors"] == result["assertions"][0]["actual"]
+    assert artifacts["network"]["summary"]["errors_4xx_5xx"] == result["assertions"][1]["actual"]
+
+
 def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
     mock.script_network(
         [
@@ -237,9 +318,186 @@ def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
     data = json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
     headers = data["requests"][0]["headers"]
     assert headers == {
-        "authorization": "***",
-        "set-cookie": "***",
-        "content-type": "text/html",
+        "Authorization": "***",
+        "Set-Cookie": "***",
+        "Content-Type": "text/html",
+    }
+
+
+def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mock, tmp_path):
+    mock.on_eval("window.location.href", "https://forbidden.example/redirected")
+    scenario = scenarios.parse(
+        {
+            "name": "redirect_guard",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {"goto": "/start", "capture": ["screenshot"]},
+                {"click": "#danger"},
+            ],
+            "artifacts": ["network"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            origins="http://shop.test",
+            strict_origins=True,
+            settle=0,
+        )
+
+    assert result["verdict"] == "fail"
+    assert result["steps"][0]["ok"] is False
+    assert [finding["code"] for finding in result["findings"]] == ["origin_refused"]
+    assert result["artifacts"] == []
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, monkeypatch):
+    secret = "checkout-password-canary-9347"
+    monkeypatch.setenv("CHECKOUT_PASSWORD", secret)
+    mock.script_console(
+        [{"type": "log", "args": [{"type": "string", "value": secret}], "timestamp": 1.0}]
+    )
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps(
+            {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "stable": True,
+                "receives_events": True,
+                "editable": True,
+                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+            }
+        ),
+    )
+    mock.on_eval("__cdpx_prepare_text", True)
+    scenario = scenarios.parse(
+        {
+            "name": "secret_ref",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "type": {
+                        "selector": "#password",
+                        "secret_ref": "CHECKOUT_PASSWORD",
+                        "clear": True,
+                    }
+                }
+            ],
+            "artifacts": ["console", "network"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+
+    serialized = json.dumps(result, ensure_ascii=False)
+    assert secret not in serialized
+    assert result["steps"][0]["result"]["typed"] is True
+    assert result["steps"][0]["result"]["value_masked"] is True
+    assert scan_canaries(result["evidence_dir"], [secret]) == []
+    chars = [item["text"] for item in mock.commands_for("Input.insertText")]
+    assert "".join(chars) == secret
+
+
+def test_scenario_literal_type_is_registered_before_passive_collection(mock, tmp_path):
+    secret = "legacy-literal-canary-1192"
+    mock.script_console(
+        [{"type": "log", "args": [{"type": "string", "value": secret}], "timestamp": 1.0}]
+    )
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps(
+            {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "stable": True,
+                "receives_events": True,
+                "editable": True,
+                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+            }
+        ),
+    )
+    mock.on_eval("__cdpx_prepare_text", True)
+    scenario = scenarios.parse(
+        {
+            "name": "literal_type",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"type": {"selector": "#field", "text": secret}}],
+            "artifacts": ["console"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+
+    assert secret not in json.dumps(result, ensure_ascii=False)
+    assert scan_canaries(result["evidence_dir"], [secret]) == []
+    assert mock.commands_for("Input.insertText")[-1]["text"] == secret
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_scenario_eval_never_persists_result_or_error(mock, tmp_path, fails):
+    canary = "scenario-eval-canary-5571"
+    if fails:
+        mock.on_eval(
+            "window.readSensitive",
+            {"raw": {"exceptionDetails": {"text": f"failure contained {canary}"}}},
+        )
+    else:
+        mock.on_eval("window.readSensitive", canary)
+    scenario = scenarios.parse(
+        {
+            "name": "eval_result",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"eval": "window.readSensitive()"}],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+
+    assert canary not in json.dumps(result, ensure_ascii=False)
+    assert scan_canaries(result["evidence_dir"], [canary]) == []
+    step = result["steps"][0]
+    if fails:
+        assert step["error"] == "***" and step["error_masked"] is True
+    else:
+        assert step["result"] == {"value": "***", "value_masked": True}
+
+
+def test_scenario_artifacts_are_private_classified_and_manifested(mock, tmp_path):
+    scenario = scenarios.parse(
+        {
+            "name": "private_evidence",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/"}],
+            "artifacts": ["screenshot", "console"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(client, scenario, evidence_root=tmp_path, settle=0)
+
+    run_dir = Path(result["evidence_dir"])
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert stat.S_IMODE(run_dir.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600 for path in run_dir.iterdir() if path.is_file()
+    )
+    classes = {artifact["type"]: artifact["classification"] for artifact in result["artifacts"]}
+    assert classes == {"screenshot": "opaque-restricted", "console": "internal"}
+    assert all(not artifact["upload_allowed"] for artifact in result["artifacts"])
+    assert {entry["path"] for entry in manifest["artifacts"]} >= {
+        "final-screenshot.png",
+        "final-console.json",
+        "scenario-result.json",
     }
 
 

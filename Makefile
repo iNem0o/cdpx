@@ -91,4 +91,4 @@ smoke-dist: ## installer le wheel en environnement propre et vérifier métadonn
 	"$$venv/bin/python" -m pip install --disable-pip-version-check --quiet dist/*.whl; \
 	"$$venv/bin/cdpx" --version; \
 	"$$venv/bin/cdpx" --help >/dev/null; \
-	"$$venv/bin/python" -c 'from importlib.metadata import metadata; from cdpx.cli import build_parser; from cdpx.proof import parse_help_commands; m = metadata("cdpx"); assert m["License-Expression"] == "MIT"; assert m["License-File"] == "LICENSE"; assert len(parse_help_commands(build_parser().format_help())) == 30'
+	"$$venv/bin/python" -c 'from importlib.metadata import metadata; from cdpx.cli import build_parser; from cdpx.proof import parse_help_commands; m = metadata("cdpx"); assert m["License-Expression"] == "MIT"; assert m["License-File"] == "LICENSE"; assert len(parse_help_commands(build_parser().format_help())) == 31'

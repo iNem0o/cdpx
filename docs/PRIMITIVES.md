@@ -16,6 +16,13 @@ Les champs volumineux sont bornés par défaut (`--limit`, métadonnées
 Détail du contrat (codes de sortie, connexion, `CDPX_ORIGINS`): section
 « Contrat CLI » du [README](../README.md).
 
+Deux profils d'exécution coexistent. Le mode local historique accepte encore
+le premier target implicite et une allowlist optionnelle. Le mode équipe exige
+un manifest de session, un `run-id`, un `target` et des origines explicites ;
+il ajoute aux sorties la métadonnée `content_trust: "untrusted"` et applique
+un grant `observation`, `interaction` ou `privileged`. Le contenu page ne fait
+jamais autorité sur ces paramètres.
+
 ## Navigation et synchronisation — [fiche](features/browser-navigation.md)
 
 | CLI | Usecase | Pourquoi |
@@ -41,9 +48,9 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx html [selector]` | outerHTML — inspection structurelle | vérifier attributs, classes, data-* |
 | `cdpx count <selector>` | assertion cheap ("il y a bien 12 produits") | boucle vérif rapide après une action |
 | `cdpx eval <js> [--await]` | primitive racine: tout le reste | échappatoire universelle; dernier recours (fragile, non typée) |
-| `cdpx click <selector>` | cliquer via Input domain (trusted) | scrollIntoView + mouse events au centre; passe les filtres `isTrusted` |
-| `cdpx type <selector> <texte> [--clear]` | remplir un champ | focus réel + `Input.insertText` (IME-safe) |
-| `cdpx key <touche>` | validation, navigation clavier (Enter, Tab, Escape, flèches) | soumettre un formulaire comme un humain |
+| `cdpx click <selector>` | cliquer via Input domain (trusted) | exige attached, visible, enabled, stable, boîte non nulle et hit-test au centre |
+| `cdpx type <selector> <texte> [--secret-env NOM] [--clear]` | remplir un champ | exige un contrôle visible/éditable; sélection + Backspace pour clear, puis `Input.insertText` IME-safe |
+| `cdpx key <touche>` | validation, effacement, navigation clavier | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown et quatre flèches |
 
 ```bash
 cdpx type "#name" "Léo" --clear
@@ -72,9 +79,10 @@ cdpx screenshot -o etat.jpg --format jpeg
 
 | CLI | Usecase | Pourquoi |
 |---|---|---|
+| `cdpx session start\|status\|stop` | attribuer un Chrome jetable exclusif à un run d'équipe | profil, target, autorité, origines, TTL et teardown supervisés |
 | `cdpx cookies get [--show-values]` | inspecter la session (masqué par défaut) | sécurité: cf. HARNESS.md §2 |
-| `cdpx cookies set --name n --value v --url u` / `clear` | préparer un scénario (consentement, feature flag) | reproductibilité; `clear` = Storage.clearCookies avec repli |
-| `cdpx storage [--kind local\|session]` | localStorage/sessionStorage | panier invité, consentement, caches front |
+| `cdpx cookies set --name n --value-env NOM --url u` / `clear` | préparer un scénario sans exposer la valeur dans argv | reproductibilité; `clear` = Storage.clearCookies avec repli |
+| `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, valeurs masquées par défaut | panier invité, consentement, caches front |
 
 ## Audits SEO, performance, accessibilité — [fiche](features/seo-performance-accessibility.md)
 
@@ -84,6 +92,11 @@ cdpx screenshot -o etat.jpg --format jpeg
 | `cdpx vitals <url> [--click sel]` | LCP/CLS/INP basiques | objectiver la perf perçue, interaction pour INP |
 | `cdpx a11y` | arbre d'accessibilité compacté | vision sémantique structurée low-cost |
 | `cdpx coverage <url>` | JS/CSS mort par fichier | dette front mesurée, pas devinée |
+
+Portée exacte : `seo` est un diagnostic on-page du DOM rendu, pas un crawl ni
+une preuve d'indexation ; `vitals` est une mesure locale bornée, pas une
+méthodologie lab/field complète ; `a11y` est une vue compacte de l'AXTree, pas
+un audit RGAA exhaustif.
 
 ```bash
 cdpx seo https://www.exemple.fr/collection/robes
@@ -109,8 +122,8 @@ cdpx dom-diff -- click "#submit-btn"
 | `cdpx intercept --rule "PATTERN => 503\|block\|continue" -- goto <url>` | mocker/bloquer des requêtes pendant une navigation | commande composée: `Fetch.enable` meurt avec la connexion |
 | `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | device mobile, throttling réseau/CPU | forme composée obligatoire pour agir sous émulation: les overrides meurent avec la connexion |
 | `cdpx frame <selector>` | lire dans une iframe same-origin | contenus embarqués (paiement, consentement) |
-| `cdpx record [-o j.ndjson] -- <action>` | exécuter UNE action et la journaliser (résultat compris) | construire un parcours rejouable, trace fidèle |
-| `cdpx replay <j.ndjson>` | rejouer le journal, stop à la première divergence | non-régression de parcours; budget `--max-actions` |
+| `cdpx record [-o j.ndjson] -- <action>` | exécuter UNE action et écrire un journal `cdpx.record/v2` redacted | `type` rejouable via `@env:NOM`; eval/littéraux sensibles non rejouables |
+| `cdpx replay <j.ndjson>` | prévalider puis rejouer, stop à la première divergence | relit l'URL réelle après navigation et avant mutation; budget `--max-actions` |
 | `cdpx scenario run <fichier.yml>` | exécuter un parcours métier déclaratif | verdict unique pass/fail, findings et dossier de preuves |
 
 ```bash
@@ -120,6 +133,17 @@ cdpx record -o parcours.ndjson -- click "#add-to-cart"
 cdpx --max-actions 20 replay parcours.ndjson
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
+
+Une règle d'interception n'accepte que `continue`, `block` ou un statut
+`200..599`; toute faute de frappe est refusée au parsing. Dans un scénario,
+`wait_visible` vérifie réellement attachement, display/visibility et boîte non
+nulle, et une saisie sensible se décrit avec `secret_ref`. Le drainage final
+console/réseau précède les assertions.
+
+Limites : `network` n'est pas un HAR (pas de corps ni de chronologie complète)
+et `replay` compare seulement les champs enregistrés non volatils. Un rejeu
+vert ne prouve un effet métier que si le journal ou le scénario porte une
+assertion observable correspondante.
 
 ## Harness et cockpit de preuve — [fiche](features/harness-proof-cockpit.md)
 

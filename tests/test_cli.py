@@ -301,7 +301,7 @@ DISPATCH_CASES = [
         ["type", "#name", "Léo"],
         {"focus": True},
         "Input.insertText",
-        lambda d: d["typed"] == "Léo",
+        lambda d: d["typed"] is True and d["value_masked"] is True,
     ),
     ("key", ["key", "Enter"], {}, "Input.dispatchKeyEvent", lambda d: d["pressed"] == "Enter"),
     (
@@ -384,9 +384,9 @@ def test_dom_diff_accepts_action_with_or_without_separator(mock, capsys):
     mock.on_eval("__cdpx_dom_snapshot", json.dumps(["<body>"]))
     mock.on_eval("2 + 2", 4)
     code, out, _ = run(mock, capsys, "dom-diff", "eval", "2 + 2")
-    assert code == 0 and json.loads(out)["action"] == ["eval", "2 + 2"]
+    assert code == 0 and json.loads(out)["action"] == ["eval", "***"]
     code, out, _ = run(mock, capsys, "dom-diff", "--", "eval", "2 + 2")
-    assert code == 0 and json.loads(out)["action"] == ["eval", "2 + 2"]
+    assert code == 0 and json.loads(out)["action"] == ["eval", "***"]
 
 
 def test_profiler_cli_panels_flag(mock, capsys):
@@ -412,12 +412,13 @@ def test_profiler_cli_panels_flag(mock, capsys):
         "__cdpx_profiler_panels",
         json.dumps([{"panel": "db", "status": 200, "html": db_html}]),
     )
+    mock.on_eval("window.location.href", "http://s.test/")
     code, out, _ = run(
         mock, capsys, "profiler", "http://s.test/", "--settle", "0.05", "--panels", "db"
     )
     data = json.loads(out)
     assert code == 0
-    assert data["token"] == "tok"
+    assert data["token_present"] is True and "token" not in data
     assert data["panels"]["db"]["queries"] == 6
     assert "signals" not in data and "profiler_bytes" not in data
 
@@ -521,6 +522,7 @@ def test_origin_guard_composed_commands_follow_action_verb(mock, capsys, monkeyp
     # replay est gardé séquentiellement: une navigation de lecture vers une
     # origine permise n'est plus refusée à cause de l'onglet initial about:blank.
     journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
+    mock.on_eval("window.location.href", "http://a.test/")
     code, out, err = run(mock, capsys, "replay", str(journal))
     assert code == 0 and json.loads(out)["ok"] is True and not err
     # record avec verbe de lecture: permis même hors liste

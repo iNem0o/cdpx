@@ -7,8 +7,7 @@ macro language.
 
 from __future__ import annotations
 
-import json
-import mimetypes
+import os
 import re
 import time
 import urllib.parse
@@ -19,8 +18,18 @@ from typing import Any
 
 import yaml
 
+from cdpx.artifacts import ArtifactClassification, ArtifactEntry, SecureArtifactWriter
 from cdpx.client import CDPClient, CDPError, CDPTimeout
-from cdpx.primitives import actions, advanced, capture, dev, inputs, js, profiler_panels
+from cdpx.policy import assert_url_allowed, parse_origins
+from cdpx.primitives import actions, advanced, capture, dev, inputs, js, nav, profiler_panels
+from cdpx.security import (
+    MASK,
+    RedactionContext,
+    redact_headers,
+    redact_text,
+    redact_tree,
+    redact_url,
+)
 
 STEP_ACTIONS = {"goto", "wait_visible", "click", "type", "key", "eval", "wait_text"}
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
@@ -34,13 +43,6 @@ ACTION_ERRORS = (
     js.JSException,
     inputs.ElementNotFound,
 )
-SENSITIVE_HEADERS = {
-    "authorization",
-    "cookie",
-    "set-cookie",
-    "proxy-authorization",
-    "x-api-key",
-}
 
 
 class ScenarioUsageError(ValueError):
@@ -70,6 +72,7 @@ class Scenario:
 class ScenarioRun:
     name: str
     evidence_dir: Path
+    writer: SecureArtifactWriter = field(repr=False)
     findings: list[dict[str, Any]] = field(default_factory=list)
     steps: list[dict[str, Any]] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
@@ -106,7 +109,9 @@ class ScenarioRun:
 
 
 class PassiveCollector:
-    def __init__(self) -> None:
+    def __init__(self, context: RedactionContext | None = None) -> None:
+        self.redaction = context or RedactionContext()
+        self.allowed_origins: tuple[str, ...] | None = None
         self.console_entries: list[dict[str, Any]] = []
         self.requests: dict[str, dict[str, Any]] = {}
         self.profiler_hits: list[dict[str, Any]] = []
@@ -142,11 +147,21 @@ class PassiveCollector:
     def profiler(self, client: CDPClient, timeout: float) -> dict[str, Any] | None:
         if not self.profiler_hits:
             return None
-        return profiler_panels.collect(client, self.profiler_hits[-1], timeout=timeout)
+        return profiler_panels.collect(
+            client,
+            self.profiler_hits[-1],
+            timeout=timeout,
+            context=self.redaction,
+            allowed_origins=self.allowed_origins,
+            page_url=_current_url(client),
+        )
 
     def _ingest(self, events: list[dict[str, Any]]) -> None:
         self.console_entries.extend(
-            capture.console_entries(_events(events, capture.CONSOLE_EVENTS))
+            capture.console_entries(
+                _events(events, capture.CONSOLE_EVENTS),
+                context=self.redaction,
+            )
         )
         for ev in _events(events, _NET_EVENTS):
             params = ev.get("params", {})
@@ -156,7 +171,12 @@ class PassiveCollector:
             entry = self.requests.setdefault(request_id, {"requestId": request_id})
             if ev["method"] == "Network.requestWillBeSent":
                 request = params.get("request", {})
-                entry["url"] = request.get("url")
+                request_url = request.get("url")
+                entry["url"] = (
+                    redact_url(request_url, context=self.redaction, path="$.network.url")
+                    if isinstance(request_url, str)
+                    else request_url
+                )
                 entry["method"] = request.get("method")
                 entry["resourceType"] = params.get("type")
                 # Une redirection n'émet pas de responseReceived: son token
@@ -166,8 +186,18 @@ class PassiveCollector:
                     self.profiler_hits.append(hit)
             elif ev["method"] == "Network.responseReceived":
                 response = params.get("response", {})
-                headers = _redact_headers(response.get("headers", {}))
-                entry["url"] = response.get("url") or entry.get("url")
+                headers = redact_headers(
+                    response.get("headers", {}),
+                    context=self.redaction,
+                    path="$.network.headers",
+                )
+                response_url = response.get("url")
+                if isinstance(response_url, str):
+                    entry["url"] = redact_url(
+                        response_url,
+                        context=self.redaction,
+                        path="$.network.url",
+                    )
                 entry["status"] = response.get("status")
                 entry["mimeType"] = response.get("mimeType")
                 entry["headers"] = headers
@@ -232,14 +262,30 @@ def run(
     timeout: float = 15.0,
     settle: float = 0.5,
     origins: str | None = None,
+    strict_origins: bool = False,
+    redaction_context: RedactionContext | None = None,
+    run_id: str | None = None,
+    artifact_ttl: float = 86400,
 ) -> dict[str, Any]:
-    run_state = ScenarioRun(scenario.name, _run_dir(evidence_root, scenario.name))
-    run_state.evidence_dir.mkdir(parents=True, exist_ok=True)
-    collector = PassiveCollector()
+    redaction = redaction_context or RedactionContext()
+    for step in scenario.steps:
+        if step.verb == "type":
+            _type_action(step.value, context=redaction)
+    allowed_origins = parse_origins(origins, required=strict_origins) or None
+    writer = SecureArtifactWriter(
+        evidence_root,
+        _run_key(scenario.name, run_id=run_id),
+        ttl=artifact_ttl,
+        redaction_context=redaction,
+    )
+    run_state = ScenarioRun(scenario.name, writer.run_dir, writer)
+    collector = PassiveCollector(redaction)
+    collector.allowed_origins = allowed_origins
     collector.enable(client)
     if scenario.emulation:
         advanced.emulate(client, scenario.emulation)
 
+    origin_blocked = False
     for step in scenario.steps:
         record = {
             "index": step.index,
@@ -249,35 +295,91 @@ def run(
         }
         started = time.monotonic()
         try:
-            _assert_origin(client, step, origins)
-            result = _run_step(client, scenario, step, timeout)
+            _assert_origin(client, scenario, step, origins, strict=strict_origins)
+            result = _run_step(client, scenario, step, timeout, redaction)
             if step.verb == "goto":
                 run_state.last_url = _absolute_url(scenario.base_url, step.value)
-            record["result"] = result
+            record["result"] = _persistable_step_result(step, result, redaction)
         except ACTION_ERRORS as e:
             record["ok"] = False
-            record["error"] = str(e)
-            run_state.finding("step_failed", str(e), step=step.label)
+            if step.verb == "eval":
+                redaction.mark("$.step.error")
+                safe_error = MASK
+                record["error_masked"] = True
+            else:
+                safe_error = redact_text(str(e), context=redaction, path="$.step.error")
+            record["error"] = safe_error
+            run_state.finding("step_failed", safe_error, step=step.label)
         finally:
             record["elapsed_ms"] = round((time.monotonic() - started) * 1000, 1)
             run_state.steps.append(record)
             collector.drain(client, settle)
-            _capture_many(
-                client,
-                collector,
-                run_state,
-                step.capture,
-                step.label,
-                step.index,
-                timeout,
-            )
+            if strict_origins:
+                try:
+                    actual_url = _assert_current_origin(client, origins)
+                    if step.verb == "goto":
+                        run_state.last_url = actual_url
+                except ACTION_ERRORS as e:
+                    origin_blocked = True
+                    safe_error = redact_text(
+                        str(e),
+                        context=redaction,
+                        path="$.step.origin_error",
+                    )
+                    if record["ok"]:
+                        record["ok"] = False
+                        record["error"] = safe_error
+                    run_state.finding("origin_refused", safe_error, step=step.label)
+            if not origin_blocked:
+                _capture_many(
+                    client,
+                    collector,
+                    run_state,
+                    step.capture,
+                    step.label,
+                    step.index,
+                    timeout,
+                )
         if not record["ok"]:
             break
 
-    _run_assertions(client, collector, run_state, scenario.assertions)
     collector.drain(client, settle)
-    _capture_many(client, collector, run_state, scenario.artifacts, "final", None, timeout)
-    return run_state.as_dict()
+    if strict_origins and not origin_blocked:
+        try:
+            _assert_current_origin(client, origins)
+        except ACTION_ERRORS as e:
+            origin_blocked = True
+            run_state.finding(
+                "origin_refused",
+                redact_text(str(e), context=redaction, path="$.final.origin_error"),
+                step="final",
+            )
+    if not origin_blocked:
+        _run_assertions(client, collector, run_state, scenario.assertions)
+        if strict_origins:
+            try:
+                _assert_current_origin(client, origins)
+            except ACTION_ERRORS as e:
+                origin_blocked = True
+                run_state.finding(
+                    "origin_refused",
+                    redact_text(
+                        str(e),
+                        context=redaction,
+                        path="$.assertions.origin_error",
+                    ),
+                    step="assertions",
+                )
+    if not origin_blocked:
+        _capture_many(client, collector, run_state, scenario.artifacts, "final", None, timeout)
+    result = redact_tree(run_state.as_dict(), context=redaction)
+    writer.write_json(
+        "scenario-result.json",
+        result,
+        classification=ArtifactClassification.INTERNAL,
+        upload_allowed=False,
+    )
+    return result
 
 
 def _parse_steps(value: Any, where: str) -> list[ScenarioStep]:
@@ -355,16 +457,26 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
         if isinstance(value, list):
             _require_pair(value, f"{prefix}{verb}")
         elif isinstance(value, dict):
-            _unknown(value, {"selector", "text", "clear"}, f"{prefix}{verb}.")
-            if not isinstance(value.get("selector"), str) or not isinstance(value.get("text"), str):
-                raise ScenarioUsageError(f"{prefix}{verb}.selector/text doivent être des chaînes")
+            _unknown(value, {"selector", "text", "secret_ref", "clear"}, f"{prefix}{verb}.")
+            if not isinstance(value.get("selector"), str):
+                raise ScenarioUsageError(f"{prefix}{verb}.selector doit être une chaîne")
+            has_text = isinstance(value.get("text"), str)
+            has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
+            if has_text == has_secret_ref:
+                raise ScenarioUsageError(f"{prefix}{verb} exige exactement text ou secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear doit être booléen")
         else:
             raise ScenarioUsageError(f"{prefix}{verb} doit être [selector, text] ou un objet")
 
 
-def _run_step(client: CDPClient, scenario: Scenario, step: ScenarioStep, timeout: float) -> dict:
+def _run_step(
+    client: CDPClient,
+    scenario: Scenario,
+    step: ScenarioStep,
+    timeout: float,
+    context: RedactionContext,
+) -> dict:
     if step.verb == "goto":
         return actions.run_action(
             client,
@@ -372,7 +484,7 @@ def _run_step(client: CDPClient, scenario: Scenario, step: ScenarioStep, timeout
             timeout,
         )
     if step.verb == "wait_visible":
-        return actions.run_action(client, ["wait", step.value], timeout)
+        return nav.wait_for_visible(client, step.value, timeout=min(timeout, 10.0))
     if step.verb == "click":
         return actions.run_action(client, ["click", step.value], timeout)
     if step.verb == "key":
@@ -380,20 +492,41 @@ def _run_step(client: CDPClient, scenario: Scenario, step: ScenarioStep, timeout
     if step.verb == "eval":
         return actions.run_action(client, ["eval", step.value], timeout)
     if step.verb == "type":
-        return actions.run_action(client, _type_action(step.value), timeout)
+        return actions.run_action(client, _type_action(step.value, context=context), timeout)
     if step.verb == "wait_text":
         selector, expected = step.value
         return _wait_text(client, selector, expected, timeout)
     raise ScenarioUsageError(f"action inconnue: {step.verb}")
 
 
-def _type_action(value: Any) -> list[str]:
+def _type_action(value: Any, *, context: RedactionContext) -> list[str]:
     if isinstance(value, dict):
-        action = ["type", value["selector"], value["text"]]
+        if "secret_ref" in value:
+            secret_ref = value["secret_ref"]
+            if secret_ref not in os.environ:
+                raise ScenarioUsageError(f"secret_ref introuvable: {secret_ref}")
+            text = os.environ[secret_ref]
+        else:
+            text = value["text"]
+        context.register_secret(text)
+        action = ["type", value["selector"], text]
         if value.get("clear"):
             action.append("--clear")
         return action
+    context.register_secret(value[1])
     return ["type", value[0], value[1]]
+
+
+def _persistable_step_result(
+    step: ScenarioStep,
+    result: dict[str, Any],
+    context: RedactionContext,
+) -> dict[str, Any]:
+    if step.verb != "eval":
+        safe = redact_tree(result, context=context)
+        return safe if isinstance(safe, dict) else {"redacted": True}
+    context.mark(f"$.steps[{step.index}].result.value")
+    return {"value": MASK, "value_masked": True}
 
 
 def _wait_text(client: CDPClient, selector: str, expected: str, timeout: float) -> dict[str, Any]:
@@ -435,7 +568,7 @@ def _run_assertions(
                 f"assertion_{name}",
                 f"assertion échouée: {name}",
             )
-        run_state.assertions.append(record)
+        run_state.assertions.append(redact_tree(record, context=collector.redaction))
 
 
 def _capture_many(
@@ -470,22 +603,31 @@ def _capture_one(
     stem = f"final-{artifact}" if index is None else f"{index:03d}-{slugify(label)}-{artifact}"
     if artifact == "screenshot":
         result = capture.screenshot(client, str(run_state.evidence_dir / f"{stem}.png"))
-        run_state.artifacts.append(_artifact("screenshot", label, Path(result["path"])))
+        entry = run_state.writer.register_file(
+            result["path"],
+            classification=ArtifactClassification.OPAQUE_RESTRICTED,
+            upload_allowed=False,
+        )
+        run_state.artifacts.append(_artifact("screenshot", label, entry, run_state.evidence_dir))
         return
     if artifact == "console":
-        path = run_state.evidence_dir / f"{stem}.json"
-        _write_json(path, collector.console())
-        run_state.artifacts.append(_artifact("console", label, path))
+        entry = run_state.writer.write_json(f"{stem}.json", collector.console())
+        run_state.artifacts.append(_artifact("console", label, entry, run_state.evidence_dir))
         return
     if artifact == "network":
-        path = run_state.evidence_dir / f"{stem}.json"
-        _write_json(path, collector.network())
-        run_state.artifacts.append(_artifact("network", label, path))
+        entry = run_state.writer.write_json(f"{stem}.json", collector.network())
+        run_state.artifacts.append(_artifact("network", label, entry, run_state.evidence_dir))
         return
     if artifact == "profiler":
         profiler_result = collector.profiler(client, timeout)
         if profiler_result is None and run_state.last_url:
-            profiler_result = dev.profiler(client, run_state.last_url, timeout=timeout)
+            profiler_result = dev.profiler(
+                client,
+                run_state.last_url,
+                timeout=timeout,
+                context=collector.redaction,
+                allowed_origins=collector.allowed_origins,
+            )
         if profiler_result is None:
             run_state.finding(
                 "profiler_unavailable",
@@ -494,26 +636,63 @@ def _capture_one(
                 step=label,
             )
             return
-        path = run_state.evidence_dir / f"{stem}.json"
-        _write_json(path, profiler_result)
-        run_state.artifacts.append(_artifact("profiler", label, path))
+        entry = run_state.writer.write_json(
+            f"{stem}.json",
+            redact_tree(profiler_result, context=collector.redaction),
+        )
+        run_state.artifacts.append(_artifact("profiler", label, entry, run_state.evidence_dir))
 
 
-def _artifact(kind: str, label: str, path: Path) -> dict[str, Any]:
+def _artifact(
+    kind: str,
+    label: str,
+    entry: ArtifactEntry,
+    evidence_dir: Path,
+) -> dict[str, Any]:
     return {
         "type": kind,
         "label": label,
-        "path": str(path),
-        "bytes": path.stat().st_size,
-        "mime": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+        "path": str(evidence_dir / entry.path),
+        "bytes": entry.bytes,
+        "mime": entry.mime,
+        "sha256": entry.sha256,
+        "classification": entry.classification,
+        "upload_allowed": entry.upload_allowed,
     }
 
 
-def _assert_origin(client: CDPClient, step: ScenarioStep, origins: str | None) -> None:
+def _assert_origin(
+    client: CDPClient,
+    scenario: Scenario,
+    step: ScenarioStep,
+    origins: str | None,
+    *,
+    strict: bool = False,
+) -> None:
+    if strict:
+        allowed = parse_origins(origins, required=True)
+        if step.verb == "goto":
+            assert_url_allowed(_absolute_url(scenario.base_url, step.value), allowed)
+        else:
+            assert_url_allowed(_current_url(client), allowed)
+        return
     if not origins or step.verb not in actions.MUTATING_VERBS:
         return
-    current_url = js.evaluate(client, "window.location.href")
+    current_url = _current_url(client)
     advanced.assert_origin_allowed(step.verb, current_url, origins)
+
+
+def _assert_current_origin(client: CDPClient, origins: str | None) -> str:
+    current_url = _current_url(client)
+    assert_url_allowed(current_url, parse_origins(origins, required=True))
+    return current_url
+
+
+def _current_url(client: CDPClient) -> str:
+    current_url = js.evaluate(client, "window.location.href")
+    if not isinstance(current_url, str):
+        raise ScenarioUsageError("URL courante indéterminable")
+    return current_url
 
 
 def _absolute_url(base_url: str, value: str) -> str:
@@ -537,20 +716,10 @@ def _network_errors(summary: dict[str, int]) -> int:
     return summary.get("failed", 0) + summary.get("errors_4xx_5xx", 0)
 
 
-def _redact_headers(headers: dict[str, Any]) -> dict[str, Any]:
-    return {
-        str(name).lower(): "***" if str(name).lower() in SENSITIVE_HEADERS else value
-        for name, value in headers.items()
-    }
-
-
-def _write_json(path: Path, data: Any) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _run_dir(root: str | Path, name: str) -> Path:
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return Path(root) / f"{slugify(name)}-{stamp}"
+def _run_key(name: str, *, run_id: str | None = None) -> str:
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    prefix = f"{run_id}-" if run_id else ""
+    return slugify(f"{prefix}{name}-{stamp}")
 
 
 def slugify(value: str) -> str:

@@ -10,8 +10,11 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from cdpx import journal
 from cdpx.client import CDPClient, CDPError, CDPTimeout
+from cdpx.policy import assert_url_allowed, parse_origins
 from cdpx.primitives import actions, inputs, js, nav
+from cdpx.security import MASK, RedactionContext, redact_tree
 
 # Garde d'origine (CDPX_ORIGINS): mutations refusées hors liste, lectures
 # permises. Les commandes composées (dom-diff, record, emulate) sont classées
@@ -83,7 +86,7 @@ def intercept_goto(
     timeout: float = 30.0,
     settle: float = 0.5,
 ) -> dict:
-    parsed_rules = [_parse_rule(rule) for rule in rules]
+    parsed_rules = [parse_intercept_rule(rule) for rule in rules]
     client.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
     client.send("Page.enable")
     navigation_id = client.send_nowait("Page.navigate", {"url": url})
@@ -112,24 +115,29 @@ def intercept_goto(
         req_url = request.get("url", "")
         rule = _match_rule(parsed_rules, req_url)
         action = rule["action"] if rule else "continue"
-        if action == "block":
+        if action == "continue":
+            client.send("Fetch.continueRequest", {"requestId": params["requestId"]})
+        elif action == "block":
             client.send(
                 "Fetch.failRequest",
                 {"requestId": params["requestId"], "errorReason": "BlockedByClient"},
             )
-        elif action.isdigit():
-            body = json.dumps({"cdpx": "intercept", "status": int(action)}).encode()
+        elif (
+            action.isascii() and len(action) == 3 and action.isdigit() and 200 <= int(action) <= 599
+        ):
+            status = int(action)
+            body = json.dumps({"cdpx": "intercept", "status": status}).encode()
             client.send(
                 "Fetch.fulfillRequest",
                 {
                     "requestId": params["requestId"],
-                    "responseCode": int(action),
+                    "responseCode": status,
                     "responseHeaders": [{"name": "Content-Type", "value": "application/json"}],
                     "body": base64.b64encode(body).decode(),
                 },
             )
         else:
-            client.send("Fetch.continueRequest", {"requestId": params["requestId"]})
+            raise AssertionError(f"action d'interception non validée: {action}")
         hits.append({"url": req_url, "action": action})
     navigation = client.wait_response(
         navigation_id, timeout=max(0.1, timeout - (time.monotonic() - started))
@@ -205,7 +213,12 @@ try {
 
         # Une redirection peut avoir changé l'origine depuis l'URL demandée.
         # Revalider juste avant l'interaction trusted évite de cliquer ailleurs.
-        assert_origin_allowed("click", _current_http_url(client) or url, origins)
+        current_url = (
+            _require_current_http_url(client, "avant interaction vitals")
+            if origins
+            else (_current_http_url(client) or url)
+        )
+        assert_origin_allowed("click", current_url, origins)
         inputs.click(client, click_selector)
     client.collect_events(settle)
     value = js.evaluate(client, "JSON.stringify(window.__cdpxVitals || {})")
@@ -291,28 +304,93 @@ def frame_text(client: CDPClient, selector: str) -> dict:
     return {"selector": selector, "text": js.evaluate(client, expr)}
 
 
-def record(client: CDPClient, path: str, action: list[str]) -> dict:
+def record(
+    client: CDPClient,
+    path: str,
+    action: list[str],
+    *,
+    run_id: str | None = None,
+    redaction_context: RedactionContext | None = None,
+    origins: str | None = None,
+    strict_origins: bool = False,
+) -> dict:
     """Exécute l'action puis la journalise (résultat compris) en NDJSON.
 
     L'échec est journalisé (ok:false + erreur) AVANT d'être relancé: le journal
     reste la trace fidèle de ce qui s'est réellement passé.
     """
+    context = redaction_context or RedactionContext()
+    stored_action, replayable = journal.serialize_action(action, context=context)
+    execution_action = action
+    if isinstance(stored_action, dict) and stored_action.get("verb") == "type":
+        input_spec = stored_action.get("input", {})
+        if isinstance(input_spec, dict) and input_spec.get("secret_ref"):
+            execution_action = journal.materialize_action(stored_action)
+            context.register_secret(execution_action[2])
+    if strict_origins:
+        allowed = parse_origins(origins, required=True)
+        if execution_action[0] == "goto":
+            assert_url_allowed(execution_action[1], allowed)
+        else:
+            assert_url_allowed(
+                _require_current_http_url(client, "avant action record"),
+                allowed,
+            )
     error: Exception | None = None
     try:
-        result: dict = actions.run_action(client, action)
+        result: dict = actions.run_action(client, execution_action)
+        if strict_origins:
+            assert_url_allowed(
+                _require_current_http_url(client, "après action record"),
+                parse_origins(origins, required=True),
+            )
         ok = True
     except ACTION_ERRORS as e:
         result = {"error": str(e)}
         ok = False
         error = e
-    event = {"action": action, "ok": ok, "result": result, "ts": round(time.time(), 3)}
+    safe_result = _persistable_action_result(
+        execution_action,
+        result,
+        ok=ok,
+        context=context,
+    )
+    event = {
+        "schema": journal.SCHEMA,
+        "run_id": run_id,
+        "action": stored_action,
+        "replayable": replayable,
+        "ok": ok,
+        "result": safe_result,
+        "ts": round(time.time(), 3),
+    }
     out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+    journal.append_event(out, event)
     if error is not None:
         raise error
-    return {"path": str(out), "recorded": 1, "ok": ok}
+    return {
+        "schema": journal.SCHEMA,
+        "path": str(out),
+        "recorded": 1,
+        "replayable": replayable,
+        "ok": ok,
+    }
+
+
+def _persistable_action_result(
+    action: list[str],
+    result: dict[str, Any],
+    *,
+    ok: bool,
+    context: RedactionContext,
+) -> dict[str, Any]:
+    """Ne persiste jamais une valeur ou erreur arbitraire issue de ``eval``."""
+    if action[0] != "eval":
+        safe = redact_tree(result, context=context)
+        return safe if isinstance(safe, dict) else {"redacted": True}
+    field = "value" if ok else "error"
+    context.mark(f"$.result.{field}")
+    return {field: MASK, f"{field}_masked": True}
 
 
 def replay(
@@ -320,13 +398,19 @@ def replay(
     path: str,
     max_actions: int | None = None,
     origins: str | None = None,
+    *,
+    team_mode: bool = False,
+    strict_origins: bool = False,
+    redaction_context: RedactionContext | None = None,
 ) -> dict:
     """Rejoue un journal NDJSON action par action, arrêt à la première divergence.
 
     Toute la validation (syntaxe, actions présentes, budget) se fait AVANT la
     première exécution: un journal invalide ne touche jamais le navigateur.
     """
+    context = redaction_context or RedactionContext()
     events: list[dict] = []
+    materialized_actions: list[list[str]] = []
     for lineno, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
         if not line:
             continue
@@ -340,7 +424,7 @@ def replay(
                 "played": 0,
                 "divergence": f"line {lineno}: {e.msg}",
             }
-        if not isinstance(event, dict) or not isinstance(event.get("action"), list):
+        if not isinstance(event, dict) or not isinstance(event.get("action"), list | dict):
             return {
                 "path": path,
                 "ok": False,
@@ -348,9 +432,25 @@ def replay(
                 "played": 0,
                 "divergence": f"line {lineno}: action manquante",
             }
+        if event.get("schema") not in {None, journal.SCHEMA}:
+            return {
+                "path": path,
+                "ok": False,
+                "events": len(events) + 1,
+                "played": 0,
+                "divergence": f"line {lineno}: schema record inconnu",
+            }
+        if event.get("replayable") is False:
+            return {
+                "path": path,
+                "ok": False,
+                "events": len(events) + 1,
+                "played": 0,
+                "divergence": f"line {lineno}: action redacted non rejouable",
+            }
         try:
-            actions.validate_action(event["action"])
-        except ValueError as e:
+            materialized = journal.materialize_action(event["action"], team_mode=team_mode)
+        except (ValueError, journal.JournalError) as e:
             return {
                 "path": path,
                 "ok": False,
@@ -358,6 +458,8 @@ def replay(
                 "played": 0,
                 "divergence": f"line {lineno}: {e}",
             }
+        if materialized[0] == "type":
+            context.register_secret(materialized[2])
         if not isinstance(event.get("ok"), bool):
             return {
                 "path": path,
@@ -374,7 +476,10 @@ def replay(
                 "played": 0,
                 "divergence": f"line {lineno}: result doit être un objet",
             }
+        if "result" in event:
+            event = {**event, "result": redact_tree(event["result"], context=context)}
         events.append(event)
+        materialized_actions.append(materialized)
     if max_actions is not None and len(events) > max_actions:
         raise ValueError(f"budget --max-actions dépassé: {len(events)} > {max_actions}")
     for index, event in enumerate(events):
@@ -386,16 +491,39 @@ def replay(
                 "ok": False,
                 "divergence": f"event {index}: ok=false journalisé",
             }
+    origin_patterns = parse_origins(origins, required=True) if strict_origins else ()
     played = 0
-    current_url: str | None = None
-    for index, event in enumerate(events):
-        action = event["action"]
-        if origins and action[0] in actions.MUTATING_VERBS:
-            if current_url is None:
-                current_url = _current_http_url(client)
+    for index, (event, action) in enumerate(zip(events, materialized_actions, strict=True)):
+        if strict_origins and action[0] == "goto":
             try:
+                assert_url_allowed(action[1], origin_patterns)
+            except ACTION_ERRORS as e:
+                return {
+                    "path": path,
+                    "events": len(events),
+                    "played": played,
+                    "ok": False,
+                    "divergence": f"event {index}: {e}",
+                }
+        if strict_origins and action[0] != "goto":
+            try:
+                assert_url_allowed(
+                    _require_current_http_url(client, "avant action"),
+                    origin_patterns,
+                )
+            except ACTION_ERRORS as e:
+                return {
+                    "path": path,
+                    "events": len(events),
+                    "played": played,
+                    "ok": False,
+                    "divergence": f"event {index}: {e}",
+                }
+        if origins and action[0] in actions.MUTATING_VERBS:
+            try:
+                current_url = _require_current_http_url(client, "avant mutation")
                 assert_origin_allowed(action[0], current_url, origins)
-            except ValueError as e:
+            except ACTION_ERRORS as e:
                 return {
                     "path": path,
                     "events": len(events),
@@ -404,7 +532,7 @@ def replay(
                     "divergence": f"event {index}: {e}",
                 }
         try:
-            actual = actions.run_action(client, action)
+            actual = redact_tree(actions.run_action(client, action), context=context)
         except ACTION_ERRORS as e:
             return {
                 "path": path,
@@ -415,22 +543,48 @@ def replay(
             }
         played += 1
         if action[0] == "goto":
-            current_url = actual.get("url")
-        elif origins:
-            current_url = _current_http_url(client) or current_url
-            if action[0] in actions.MUTATING_VERBS:
+            if origins:
                 try:
-                    assert_origin_allowed(action[0], current_url, origins)
-                except ValueError as e:
+                    current_url = _require_current_http_url(client, "après navigation")
+                    if strict_origins:
+                        assert_url_allowed(current_url, origin_patterns)
+                except ACTION_ERRORS as e:
                     return {
                         "path": path,
                         "events": len(events),
                         "played": played,
                         "ok": False,
-                        "divergence": f"event {index}: destination après action: {e}",
+                        "divergence": f"event {index}: {e}",
                     }
+        elif origins and action[0] in actions.MUTATING_VERBS:
+            try:
+                current_url = _require_current_http_url(client, "après mutation")
+                assert_origin_allowed(action[0], current_url, origins)
+            except ACTION_ERRORS as e:
+                return {
+                    "path": path,
+                    "events": len(events),
+                    "played": played,
+                    "ok": False,
+                    "divergence": f"event {index}: destination après action: {e}",
+                }
+        elif strict_origins:
+            try:
+                assert_url_allowed(
+                    _require_current_http_url(client, "après action"),
+                    origin_patterns,
+                )
+            except ACTION_ERRORS as e:
+                return {
+                    "path": path,
+                    "events": len(events),
+                    "played": played,
+                    "ok": False,
+                    "divergence": f"event {index}: destination après action: {e}",
+                }
         if "result" in event:
-            differences = _semantic_differences(event["result"], actual)
+            expected = _normalized_replay_result(event, action)
+            differences = _semantic_differences(expected, actual)
             if differences:
                 return {
                     "path": path,
@@ -452,7 +606,35 @@ def _current_http_url(client: CDPClient) -> str | None:
     return value if parsed.scheme and parsed.netloc else None
 
 
+def _require_current_http_url(client: CDPClient, phase: str) -> str:
+    try:
+        current_url = _current_http_url(client)
+    except (ValueError, CDPError, CDPTimeout, js.JSException) as e:
+        raise ValueError(f"URL courante indéterminable {phase}: {e}") from e
+    if current_url is None:
+        raise ValueError(f"URL courante indéterminable {phase}")
+    return current_url
+
+
 _VOLATILE_RESULT_KEYS = {"elapsed_ms", "frameId", "loaderId", "x", "y"}
+
+
+def _normalized_replay_result(event: dict[str, Any], action: list[str]) -> Any:
+    """Adapte le seul ancien contrat devenu volontairement non sensible.
+
+    Les records v1 stockaient le texte saisi sous ``result.typed``. Depuis le
+    journal v2 ce champ est un booléen et la valeur ne quitte plus le process.
+    La comparaison conserve donc la compatibilité sans réintroduire le secret.
+    """
+    expected = event["result"]
+    if (
+        event.get("schema") is None
+        and action[0] == "type"
+        and isinstance(expected, dict)
+        and isinstance(expected.get("typed"), str)
+    ):
+        return {**expected, "typed": True}
+    return expected
 
 
 def _semantic_differences(expected: Any, actual: Any, path: str = "$") -> list[dict]:
@@ -500,10 +682,16 @@ def _coverage_bytes(functions: list[dict]) -> dict[str, int]:
     return {"total_bytes": used + unused, "used_bytes": used, "unused_bytes": unused}
 
 
-def _parse_rule(rule: str) -> dict:
+def parse_intercept_rule(rule: str) -> dict:
     if "=>" not in rule:
         raise ValueError("règle attendue: PATTERN => ACTION")
     pattern, action = [part.strip() for part in rule.split("=>", 1)]
+    if not pattern:
+        raise ValueError("motif d'interception vide")
+    if action not in {"continue", "block"}:
+        is_status = action.isascii() and len(action) == 3 and action.isdigit()
+        if not is_status or not 200 <= int(action) <= 599:
+            raise ValueError("action d'interception attendue: continue, block ou statut 200..599")
     return {"pattern": pattern, "action": action}
 
 

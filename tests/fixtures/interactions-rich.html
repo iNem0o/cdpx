@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>cdpx fixtures — interactions riches</title>
+  <style>
+    body { font: 16px/1.4 sans-serif; margin: 2rem; }
+    button, input { font: inherit; }
+    #hidden-button { display: none; }
+    #pointer-events-button { pointer-events: none; }
+    .hit-test-box { position: relative; width: 220px; height: 48px; margin: 1rem 0; }
+    .hit-test-box > button { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #cover { position: absolute; inset: 0; z-index: 2; background: rgb(180 40 40 / 65%); }
+    #descendant-button { position: relative; width: 220px; height: 48px; }
+    #descendant-hit-area {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+    output { display: block; margin-top: .5rem; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Interactions riches</h1>
+
+  <button id="hidden-button" type="button">Caché</button>
+  <button id="disabled-button" type="button" disabled>Désactivé</button>
+  <button id="aria-disabled-button" type="button" aria-disabled="true">ARIA désactivé</button>
+  <span inert><button id="inert-button" type="button">Inerte</button></span>
+  <button id="pointer-events-button" type="button">Sans événements pointeur</button>
+
+  <div class="hit-test-box">
+    <button id="covered-button" type="button">Recouvert</button>
+    <div id="cover" aria-label="Couche de recouvrement"></div>
+  </div>
+
+  <button id="descendant-button" type="button">
+    <span id="descendant-hit-area">Descendant cliquable</span>
+  </button>
+
+  <label for="controlled-input">Champ contrôlé</label>
+  <input id="controlled-input" value="legacy">
+  <output id="controlled-mirror">legacy</output>
+  <output id="interaction-state"></output>
+
+  <script>
+    (() => {
+      const clicks = {
+        hidden: 0,
+        disabled: 0,
+        ariaDisabled: 0,
+        inert: 0,
+        pointerEvents: 0,
+        covered: 0,
+        descendant: 0,
+      };
+      const inputEvents = [];
+      const state = document.querySelector('#interaction-state');
+      const input = document.querySelector('#controlled-input');
+      const mirror = document.querySelector('#controlled-mirror');
+
+      const render = () => {
+        state.textContent = JSON.stringify({ clicks, inputEvents });
+      };
+      const clickTargets = {
+        hidden: '#hidden-button',
+        disabled: '#disabled-button',
+        ariaDisabled: '#aria-disabled-button',
+        inert: '#inert-button',
+        pointerEvents: '#pointer-events-button',
+        covered: '#covered-button',
+        descendant: '#descendant-button',
+      };
+      for (const [name, selector] of Object.entries(clickTargets)) {
+        document.querySelector(selector).addEventListener('click', () => {
+          clicks[name] += 1;
+          render();
+        });
+      }
+      for (const type of ['beforeinput', 'input']) {
+        input.addEventListener(type, event => {
+          inputEvents.push({ type, inputType: event.inputType, value: input.value });
+          if (type === 'input') mirror.textContent = input.value;
+          render();
+        });
+      }
+
+      window.interactionFixture = {
+        snapshot: () => ({
+          clicks: { ...clicks },
+          input: input.value,
+          mirror: mirror.textContent,
+          inputEvents: inputEvents.map(event => ({ ...event })),
+        }),
+      };
+      render();
+    })();
+  </script>
+</body>
+</html>

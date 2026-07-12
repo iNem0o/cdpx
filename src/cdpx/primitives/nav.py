@@ -60,3 +60,37 @@ def wait_for(client: CDPClient, selector: str, timeout: float = 10.0, poll: floa
         if time.monotonic() >= deadline:
             raise CDPTimeout(f"sélecteur introuvable après {timeout}s: {selector}")
         time.sleep(poll)
+
+
+def wait_for_visible(
+    client: CDPClient,
+    selector: str,
+    timeout: float = 10.0,
+    poll: float = 0.05,
+) -> dict:
+    """Attend un élément attaché, rendu et doté d'une boîte non nulle."""
+    expr = (
+        "(() => {"
+        f"const el = document.querySelector({json.dumps(selector)});"
+        "if (!el || !el.isConnected) return false;"
+        "const style = window.getComputedStyle(el);"
+        'if (style.display === "none" || '
+        'style.visibility === "hidden" || '
+        'style.visibility === "collapse") return false;'
+        "const rect = el.getBoundingClientRect();"
+        "return rect.width > 0 && rect.height > 0;"
+        "})() /* __cdpx_visible */"
+    )
+    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    while True:
+        res = client.send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
+        if res.get("result", {}).get("value") is True:
+            return {
+                "visible": True,
+                "selector": selector,
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            }
+        if time.monotonic() >= deadline:
+            raise CDPTimeout(f"sélecteur non visible après {timeout}s: {selector}")
+        time.sleep(poll)

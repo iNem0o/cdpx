@@ -388,14 +388,15 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
         evidence_case.attach_json("Symfony profiler result", res, "symfony-profiler-result.json")
         evidence_case.attach_text(
             "Symfony profiler URL",
-            f"target={res['url']}\nprofiler={res['profiler_url']}\ntoken={res['token']}\n",
+            f"target={res['url']}\nprofiler={res['profiler_url']}\n"
+            f"token_present={res['token_present']}\n",
             "symfony-profiler-url.log",
         )
         evidence_case.attach_screenshot(shot, "Symfony profiler target")
 
     assert res["url"].endswith("/profiler-target")
     assert res["status"] == 200
-    assert res["token"]
+    assert res["token_present"] is True and "token" not in res
     assert res["profiler_url"].startswith(f"{SYMFONY_URL}/_profiler/")
     assert res["profiler_status"] == 200
     assert "signals" not in res and "profiler_bytes" not in res
@@ -472,7 +473,9 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
             "Symfony profiler variant comparison",
             {
                 "cases": panels,
-                "tokens": {case: result["token"] for case, result in results.items()},
+                "token_presence": {
+                    case: result["token_present"] for case, result in results.items()
+                },
             },
             "symfony-profiler-variant-comparison.json",
         )

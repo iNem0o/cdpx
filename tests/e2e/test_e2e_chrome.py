@@ -105,8 +105,9 @@ def cli_json(chrome: int, target: dict, *args: str) -> dict | list:
     return successful_json(run_cli(chrome, *args, target=target["id"]))
 
 
-def attach_cli_screenshot(evidence_case, target: dict, label: str = "final") -> None:
-    with CDPClient(target["webSocketDebuggerUrl"], timeout=10) as client:
+def attach_cli_screenshot(evidence_case, chrome: int, target: dict, label: str = "final") -> None:
+    assigned = discovery.pick_page("127.0.0.1", chrome, target["id"])
+    with CDPClient(assigned["webSocketDebuggerUrl"], timeout=10) as client:
         attach_screenshot(evidence_case, client, label)
 
 
@@ -133,7 +134,7 @@ def test_cli_browser_lifecycle_black_box(chrome, fixtures_http, evidence_case):
         assert any(
             item["id"] == created["id"] and item["type"] == "page" for item in listed["tabs"]
         )
-        attach_cli_screenshot(evidence_case, created, "active-tab")
+        attach_cli_screenshot(evidence_case, chrome, created, "active-tab")
     finally:
         closed = successful_json(run_cli(chrome, "tabs", "close", "--id", created["id"]))
     assert closed == {"closed": created["id"]}
@@ -158,7 +159,7 @@ def test_cli_dom_and_keyboard_black_box(chrome, cli_page, evidence_case):
     html = cli_json(chrome, target, "html", "#result")
     assert 'data-state="submitted"' in html["html"]
     assert "OK:Keyboard E2E" in html["html"]
-    attach_cli_screenshot(evidence_case, target)
+    attach_cli_screenshot(evidence_case, chrome, target)
 
 
 @pytest.mark.scenario(
@@ -189,7 +190,7 @@ def test_cli_jpeg_and_pdf_artifacts_black_box(chrome, cli_page, tmp_path, eviden
     assert jpeg.read_bytes().startswith(b"\xff\xd8\xff")
     assert printed["bytes"] == pdf.stat().st_size > 1000
     assert pdf.read_bytes().startswith(b"%PDF-")
-    attach_cli_screenshot(evidence_case, target)
+    attach_cli_screenshot(evidence_case, chrome, target)
 
 
 @pytest.mark.scenario(
@@ -208,7 +209,7 @@ def test_cli_console_follow_is_bounded_ndjson(chrome, cli_page, evidence_case):
     assert {entry["kind"] for entry in entries} == {"console", "exception"}
     assert any("fixture-log" in entry["text"] for entry in entries)
     assert any("fixture-uncaught" in entry["text"] for entry in entries)
-    attach_cli_screenshot(evidence_case, target)
+    attach_cli_screenshot(evidence_case, chrome, target)
 
 
 @pytest.mark.scenario(
@@ -247,10 +248,20 @@ def test_cli_cookie_masking_and_session_storage_black_box(chrome, cli_page, evid
         for cookie in shown["cookies"]
     )
     session = cli_json(chrome, target, "storage", "--kind", "session")
-    assert session["entries"] == {"cdpx-session": "oui"}
+    assert session["entries"] == {"cdpx-session": "***"}
+    assert session["values_masked"] is True
+    shown_session = cli_json(
+        chrome,
+        target,
+        "storage",
+        "--kind",
+        "session",
+        "--show-values",
+    )
+    assert shown_session["entries"] == {"cdpx-session": "oui"}
     assert cli_json(chrome, target, "cookies", "clear")["cleared"] is True
     assert cli_json(chrome, target, "cookies", "get")["count"] == 0
-    attach_cli_screenshot(evidence_case, target)
+    attach_cli_screenshot(evidence_case, chrome, target)
 
 
 @pytest.mark.scenario(
@@ -268,7 +279,7 @@ def test_cli_slow_3g_and_cpu_emulation_black_box(chrome, cli_page, evidence_case
     cpu = cli_json(chrome, target, "emulate", "cpu-4x", "--", "goto", f"{base}/index.html")
     assert cpu["applied"] is True and cpu["action"]["result"]["ok"] is True
     assert cpu["action"]["argv"][0] == "goto"
-    attach_cli_screenshot(evidence_case, target)
+    attach_cli_screenshot(evidence_case, chrome, target)
 
 
 @pytest.mark.scenario(
@@ -290,7 +301,7 @@ def test_cli_stdout_stderr_and_exit_contract(chrome, cli_page, evidence_case):
     usage_error = run_cli(chrome, "goto")
     assert usage_error.returncode == 2 and usage_error.stdout == ""
     assert "the following arguments are required: url" in usage_error.stderr
-    attach_cli_screenshot(evidence_case, target)
+    attach_cli_screenshot(evidence_case, chrome, target)
 
 
 def test_navigate_and_read_title(page):
@@ -312,6 +323,65 @@ def test_form_click_and_type(page):
     inputs.type_text(c, "#name", "Léo")
     inputs.click(c, "#submit-btn")
     assert js.get_text(c, "#result")["text"] == "OK:Léo"
+
+
+def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
+    c, base = page
+    nav.navigate(c, f"{base}/interactions-rich.html")
+
+    for selector, reason in (
+        ("#hidden-button", "non visible"),
+        ("#disabled-button", "désactivé"),
+        ("#aria-disabled-button", "désactivé"),
+        ("#inert-button", "désactivé"),
+        ("#pointer-events-button", "désactivé"),
+        ("#covered-button", "recouvert"),
+    ):
+        with pytest.raises(inputs.ElementNotInteractable, match=reason):
+            inputs.click(c, selector)
+
+    snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
+    assert snapshot["clicks"] == {
+        "hidden": 0,
+        "disabled": 0,
+        "ariaDisabled": 0,
+        "inert": 0,
+        "pointerEvents": 0,
+        "covered": 0,
+        "descendant": 0,
+    }
+
+    inputs.click(c, "#descendant-button")
+    assert js.evaluate(c, "window.interactionFixture.snapshot().clicks.descendant") == 1
+
+    for selector, reason in (
+        ("#hidden-button", "non visible"),
+        ("#disabled-button", "désactivé"),
+        ("#descendant-button", "non éditable"),
+    ):
+        with pytest.raises(inputs.ElementNotInteractable, match=reason):
+            inputs.type_text(c, selector, "must-not-be-typed")
+
+    type_result = inputs.type_text(c, "#controlled-input", "fresh", clear=True)
+    assert type_result["typed"] is True
+    assert type_result["value_masked"] is True
+    assert "fresh" not in json.dumps(type_result, ensure_ascii=False)
+    snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
+    assert snapshot["input"] == "fresh"
+    assert snapshot["mirror"] == "fresh"
+    assert any(
+        event["type"] == "beforeinput" and event["value"] == "legacy"
+        for event in snapshot["inputEvents"]
+    )
+    assert any(
+        event["type"] == "input" and event["value"] == "" for event in snapshot["inputEvents"]
+    )
+
+    for key in ("Home", "Delete", "End", "Space"):
+        assert inputs.press_key(c, key) == {"pressed": key}
+    snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
+    assert snapshot["input"] == "resh "
+    assert snapshot["mirror"] == "resh "
 
 
 def test_console_capture_real(page):
@@ -337,7 +407,8 @@ def test_profiler_fixture_real(page):
     # server et les parseurs en extraient les valeurs figées.
     c, base = page
     res = dev.profiler(c, f"{base}/api/profiler-sim")
-    assert res["token"] == "fixed-token"
+    assert res["token_present"] is True
+    assert "token" not in res and "fixed-token" not in json.dumps(res)
     assert res["profiler_status"] == 200
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["db"]["duplicates"] == 4
@@ -463,14 +534,15 @@ def test_pdf_real(page, tmp_path):
     assert dest.read_bytes().startswith(b"%PDF-")
 
 
-def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path):
+def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monkeypatch):
     journal = tmp_path / "session.ndjson"
     base = fixtures_http.base_url
+    monkeypatch.setenv("FORM_NAME", "Léo")
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
             advanced.record(c, str(journal), ["goto", f"{base}/form.html"])
-            advanced.record(c, str(journal), ["type", "#name", "Léo", "--clear"])
+            advanced.record(c, str(journal), ["type", "#name", "@env:FORM_NAME", "--clear"])
             advanced.record(c, str(journal), ["click", "#submit-btn"])
             assert js.get_text(c, "#result")["text"] == "OK:Léo"  # record a bien AGI
     finally:
@@ -664,7 +736,10 @@ def test_cookies_and_storage_real(page):
     cookies = state.get_cookies(c, show_values=True)["cookies"]
     assert any(ck["name"] == "jsCookie" for ck in cookies)
     storage = state.get_storage(c, "local")
-    assert storage["entries"].get("cdpx-key") == "cdpx-value"
+    assert storage["entries"].get("cdpx-key") == "***"
+    assert storage["values_masked"] is True
+    shown = state.get_storage(c, "local", show_values=True)
+    assert shown["entries"].get("cdpx-key") == "cdpx-value"
 
 
 def test_screenshot_real(page, tmp_path, evidence_case):

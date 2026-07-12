@@ -1,6 +1,6 @@
 """Primitives d'état: cookies, localStorage/sessionStorage.
 
-Sécurité (voir HARNESS.md): les valeurs de cookies sont MASQUÉES par défaut
+Sécurité (voir HARNESS.md): les valeurs d'état sont MASQUÉES par défaut
 dans les sorties. Un agent qui recopie ses sorties dans un ticket, un commit
 ou un log ne doit pas pouvoir exfiltrer une session par accident. Le flag
 show_values est un acte volontaire de l'humain.
@@ -12,8 +12,7 @@ import json
 
 from cdpx.client import CDPClient, CDPError
 from cdpx.primitives.js import evaluate
-
-MASK = "***"
+from cdpx.security import MASK
 
 
 def get_cookies(client: CDPClient, show_values: bool = False) -> dict:
@@ -48,9 +47,15 @@ def clear_cookies(client: CDPClient) -> dict:
         return {"cleared": True, "method": "Network.clearBrowserCookies"}
 
 
-def get_storage(client: CDPClient, kind: str = "local") -> dict:
+def get_storage(client: CDPClient, kind: str = "local", show_values: bool = False) -> dict:
     store = "localStorage" if kind == "local" else "sessionStorage"
     expr = f"JSON.stringify(Object.fromEntries(Object.entries({store})))"
     raw = evaluate(client, expr)
     data = json.loads(raw) if raw else {}
-    return {"kind": kind, "entries": data, "count": len(data)}
+    entries = data if show_values else {name: MASK for name in data}
+    return {
+        "kind": kind,
+        "entries": entries,
+        "count": len(data),
+        "values_masked": not show_values,
+    }

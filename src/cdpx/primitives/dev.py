@@ -11,7 +11,9 @@ import json
 import urllib.parse
 
 from cdpx.client import CDPClient
+from cdpx.policy import assert_url_allowed, origin_from_url
 from cdpx.primitives import actions, js, profiler_panels
+from cdpx.security import RedactionContext
 
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
@@ -83,22 +85,39 @@ def profiler(
     timeout: float = 30.0,
     settle: float = 0.2,
     panels: list[str] | None = None,
+    context: RedactionContext | None = None,
+    allowed_origins: tuple[str, ...] | None = None,
 ) -> dict:
     """Navigue, trouve X-Debug-Token-Link et parse les panels du Web Profiler.
 
     `panels=None` = tous les panels connus; `panels=[]` = sonde token seule.
     """
     keys = profiler_panels.normalize_panels(panels)
+    origins = allowed_origins or (origin_from_url(url),)
+    assert_url_allowed(url, origins)
     client.send("Network.enable")
     client.send("Page.enable")
     client.send("Page.navigate", {"url": url}, timeout=timeout)
     client.wait_event("Page.loadEventFired", timeout=timeout)
     events = client.collect_events(settle, NET_EVENTS)
 
+    final_url = js.evaluate(client, "window.location.href")
+    if not isinstance(final_url, str):
+        raise ValueError("URL finale du profiler indéterminable")
+    assert_url_allowed(final_url, origins)
+
     hit = find_profiler_hit(events, url)
     if not hit:
         raise ValueError("header X-Debug-Token-Link/X-Debug-Token introuvable")
-    return profiler_panels.collect(client, hit, panels=keys, timeout=timeout)
+    return profiler_panels.collect(
+        client,
+        hit,
+        panels=keys,
+        timeout=timeout,
+        context=context,
+        allowed_origins=origins,
+        page_url=final_url,
+    )
 
 
 def dom_diff(client: CDPClient, action: list[str]) -> dict:

@@ -86,6 +86,42 @@ def test_parse_exception_global_class_without_namespace():
     assert res["message"] == "cdpx scenario 500"
 
 
+def test_profiler_free_text_only_redacts_high_confidence_credentials():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"
+    exception_html = read("exception-raised.html").replace(
+        "cdpx scenario 404",
+        (
+            "order 123456 Bearer exception-secret "
+            f"jwt={jwt} https://alice:password@example.test/error?token=value#fragment"
+        ),
+    )
+    db_html = read("db.html").replace(
+        "FROM book t0</pre>",
+        (
+            "FROM book t0 /* order 123456 Bearer sql-secret "
+            "https://alice:password@example.test/query?token=value#fragment */</pre>"
+        ),
+        1,
+    )
+    http_html = read("http_client.html").replace(
+        "http://127.0.0.1:8000/api/echo",
+        "https://alice:password@example.test/api?token=value#fragment",
+    )
+
+    exception = profiler_panels.parse_panel("exception", 200, exception_html)
+    db = profiler_panels.parse_panel("db", 200, db_html)
+    http = profiler_panels.parse_panel("http_client", 200, http_html)
+    serialized = json.dumps({"exception": exception, "db": db, "http": http})
+
+    assert "exception-secret" not in serialized
+    assert "sql-secret" not in serialized
+    assert jwt not in serialized
+    assert "alice" not in serialized and "password" not in serialized
+    assert "order 123456" in exception["message"]
+    assert "order 123456" in db["list"][0]["sql"]
+    assert http["list"][0]["url"] == "https://example.test/api?token=***"
+
+
 def test_parse_http_client_requests_and_statuses():
     res = profiler_panels.parse_panel("http_client", 200, read("http_client.html"))
     assert res["available"] is True
@@ -202,11 +238,26 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
 
 def test_collect_assembles_contract(mock, client):
     mock.on_eval("__cdpx_profiler_panels", _panel_payload("db", "exception"))
-    res = profiler_panels.collect(client, HIT, panels=["db", "exception"])
-    assert res["token"] == "fixed-token"
+    hit = {
+        **HIT,
+        "headers": {
+            **HIT["headers"],
+            "Authorization": "Bearer header-secret",
+            "Set-Cookie": "session=header-secret; HttpOnly",
+        },
+    }
+    res = profiler_panels.collect(client, hit, panels=["db", "exception"])
+    assert "token" not in res and res["token_present"] is True
     assert res["url"] == HIT["url"]
-    assert res["profiler_url"] == HIT["link"]
+    assert res["profiler_url"] == "http://app.test/_profiler/***"
     assert res["profiler_status"] == 200
+    assert res["response_headers"] == {
+        "x-debug-token": "***",
+        "Authorization": "***",
+        "Set-Cookie": "***",
+    }
+    assert "fixed-token" not in json.dumps(res)
+    assert "header-secret" not in json.dumps(res)
     assert "signals" not in res and "profiler_bytes" not in res
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["exception"]["raised"] is False
@@ -223,3 +274,31 @@ def test_collect_marks_missing_panels_unavailable(mock, client):
     mock.on_eval("__cdpx_profiler_panels", _panel_payload("db"))
     res = profiler_panels.collect(client, HIT, panels=["db", "twig"])
     assert res["panels"]["twig"] == {"available": False, "status": 0}
+
+
+def test_collect_resolves_relative_link_before_same_origin_fetch(mock, client):
+    hit = {**HIT, "link": "/_profiler/relative-token"}
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps([{"panel": "db", "status": 200, "html": read("db.html")}]),
+    )
+
+    result = profiler_panels.collect(client, hit, panels=["db"])
+
+    assert result["token_present"] is True
+    panel_calls = [
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in call["expression"]
+    ]
+    assert len(panel_calls) == 1
+    assert '"http://app.test/_profiler/relative-token?panel=db"' in panel_calls[0]["expression"]
+
+
+def test_collect_rejects_cross_origin_link_before_fetch(mock, client):
+    hit = {**HIT, "link": "https://attacker.example/_profiler/stolen"}
+
+    with pytest.raises(ValueError, match="origine refusée"):
+        profiler_panels.collect(client, hit, panels=["db"])
+
+    assert mock.commands_for("Runtime.evaluate") == []

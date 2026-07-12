@@ -23,11 +23,15 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
+from collections.abc import Mapping
 from html.parser import HTMLParser
 from typing import Any
 
 from cdpx.client import CDPClient
+from cdpx.policy import assert_url_allowed, origin_from_url
 from cdpx.primitives import js
+from cdpx.security import RedactionContext, redact_headers, redact_text, redact_url
 
 # Clé de sortie -> valeur du paramètre ?panel= du WebProfilerBundle.
 PANEL_SOURCES: dict[str, str] = {
@@ -99,21 +103,47 @@ def collect(
     hit: dict[str, Any],
     panels: list[str] | None = None,
     timeout: float = 30.0,
+    context: RedactionContext | None = None,
+    allowed_origins: tuple[str, ...] | None = None,
+    page_url: str | None = None,
 ) -> dict[str, Any]:
     """Contrat complet de `cdpx profiler` à partir d'un hit X-Debug-Token(-Link).
 
     `hit` vient de dev.find_profiler_hit: {url, status, link, headers}.
     """
     keys = normalize_panels(panels) if panels is None else list(panels)
-    link = str(hit["link"])
+    link = _validated_profiler_link(
+        hit,
+        allowed_origins=allowed_origins,
+        page_url=page_url,
+    )
     token = link.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+    redaction = context or RedactionContext()
+    redaction.register_secret(token)
+    profiler_url = redact_text(
+        redact_url(link, context=redaction, path="$.profiler_url"),
+        context=redaction,
+        path="$.profiler_url",
+    )
+    hit_url = hit.get("url")
+    if isinstance(hit_url, str):
+        hit_url = redact_text(
+            redact_url(hit_url, context=redaction, path="$.url"),
+            context=redaction,
+            path="$.url",
+        )
+    headers = hit.get("headers")
     out: dict[str, Any] = {
-        "token": token,
-        "url": hit["url"],
+        "token_present": bool(token),
+        "url": hit_url,
         "status": hit["status"],
-        "profiler_url": link,
+        "profiler_url": profiler_url,
         "profiler_status": None,
-        "response_headers": hit["headers"],
+        "response_headers": redact_headers(
+            headers if isinstance(headers, Mapping) else {},
+            context=redaction,
+            path="$.response_headers",
+        ),
         "panels": {},
     }
     if not keys:
@@ -128,6 +158,27 @@ def collect(
     return out
 
 
+def _validated_profiler_link(
+    hit: Mapping[str, Any],
+    *,
+    allowed_origins: tuple[str, ...] | None,
+    page_url: str | None,
+) -> str:
+    raw_link = hit.get("link")
+    if not isinstance(raw_link, str) or not raw_link.strip():
+        raise ValueError("lien profiler absent ou invalide")
+    hit_url = hit.get("url")
+    base_url = hit_url if isinstance(hit_url, str) and hit_url else page_url
+    if not isinstance(base_url, str) or not base_url:
+        raise ValueError("origine de confiance du profiler indéterminable")
+    trust_url = page_url or base_url
+    origins = allowed_origins or (origin_from_url(trust_url),)
+    assert_url_allowed(trust_url, origins)
+    resolved = urllib.parse.urljoin(base_url, raw_link)
+    assert_url_allowed(resolved, origins)
+    return resolved
+
+
 def parse_panel(key: str, status: int, html: str) -> dict[str, Any]:
     """Parse un panel; ne lève jamais (parse_error en cas d'imprévu)."""
     if key not in PANEL_SOURCES:
@@ -138,7 +189,10 @@ def parse_panel(key: str, status: int, html: str) -> dict[str, Any]:
     try:
         parsed = parser(html)
     except Exception as e:  # noqa: BLE001 - contrat: jamais d'exception de parse
-        return {"available": True, "parse_error": f"{type(e).__name__}: {e}"}
+        return {
+            "available": True,
+            "parse_error": redact_text(f"{type(e).__name__}: {e}"),
+        }
     return {"available": True, **parsed}
 
 
@@ -476,7 +530,7 @@ def _parse_db(html: str) -> dict[str, Any]:
                 continue
             # La cellule Info contient le SQL puis le dump des paramètres.
             sql = re.split(r"\s+Parameters\b", row[sql_col])[0].strip()
-            entry: dict[str, Any] = {"sql": sql}
+            entry: dict[str, Any] = {"sql": redact_text(sql)}
             if time_col is not None and time_col < len(row):
                 entry["duration_ms"] = _float(row[time_col])
             out["list"].append(entry)
@@ -542,7 +596,7 @@ def _parse_exception(html: str) -> dict[str, Any]:
     message = None
     match = re.search(r'class="[^"]*exception-message[^"]*"[^>]*>(.*?)</', html, flags=re.DOTALL)
     if match:
-        message = _norm(re.sub(r"<[^>]+>", " ", match.group(1)))
+        message = redact_text(_norm(re.sub(r"<[^>]+>", " ", match.group(1))))
     # Classe: abbr[title] de la hiérarchie d'exception. Attention aux classes
     # globales (\RuntimeException): pas de backslash, donc pas un FQCN.
     exception_class = None
@@ -589,7 +643,10 @@ def _parse_http_client(html: str) -> dict[str, Any]:
     # en timeout n'a pas de statut du tout.
     traces = list(_HTTP_TRACE_RE.finditer(html))[:LIST_LIMIT]
     for idx, match in enumerate(traces):
-        entry: dict[str, Any] = {"method": match.group(1), "url": _norm(match.group(2))}
+        entry: dict[str, Any] = {
+            "method": match.group(1),
+            "url": redact_url(_norm(match.group(2))),
+        }
         segment_end = traces[idx + 1].start() if idx + 1 < len(traces) else len(html)
         status_match = _STATUS_SPAN_RE.search(html, match.end(), segment_end)
         if status_match:

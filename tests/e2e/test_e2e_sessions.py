@@ -1,0 +1,446 @@
+"""E2E Chrome réel du lifecycle et de l'isolation des sessions équipe."""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+from cdpx import discovery
+from cdpx.client import CDPClient
+from cdpx.primitives import capture, state
+from cdpx.session import (
+    SessionLease,
+    SessionManifest,
+    find_chrome,
+    load_manifest,
+    stop_session,
+)
+
+
+def run_session_cli(
+    *args: str,
+    timeout: float = 40,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "cdpx.cli", "--timeout", "30", "session", *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, **(env or {})},
+    )
+
+
+def start_managed_session(
+    *,
+    run_id: str,
+    authority: str,
+    origins: str,
+    chrome_bin: str,
+    runtime_dir: Path,
+) -> tuple[SessionManifest, Path]:
+    proc = run_session_cli(
+        "start",
+        "--run-id",
+        run_id,
+        "--authority",
+        authority,
+        "--origins",
+        origins,
+        "--ttl",
+        "300",
+        "--owner-pid",
+        str(os.getpid()),
+        "--chrome",
+        chrome_bin,
+        env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+    )
+    assert proc.returncode == 0 and not proc.stderr, (
+        f"session start en échec: exit={proc.returncode}\n"
+        f"stdout={proc.stdout}\nstderr={proc.stderr}"
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["started"] is True
+    path = Path(payload["manifest"])
+    manifest = load_manifest(path, run_id=run_id, target_id=payload["target_id"])
+    return manifest, path
+
+
+def run_team_cli(
+    manifest: SessionManifest,
+    manifest_path: Path,
+    *args: str,
+    timeout: float = 20,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cdpx.cli",
+            "--session",
+            str(manifest_path),
+            "--run-id",
+            manifest.run_id,
+            "--target",
+            manifest.target_id,
+            "--timeout",
+            "15",
+            *args,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=os.environ.copy(),
+    )
+
+
+def successful_team_json(
+    manifest: SessionManifest,
+    manifest_path: Path,
+    *args: str,
+) -> dict:
+    proc = run_team_cli(manifest, manifest_path, *args)
+    assert proc.returncode == 0 and not proc.stderr, (
+        f"CLI équipe en échec: exit={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
+    )
+    payload = json.loads(proc.stdout)
+    assert isinstance(payload, dict)
+    assert payload["_cdpx"] == {
+        "run_id": manifest.run_id,
+        "session_id": manifest.session_id,
+        "target_id": manifest.target_id,
+        "authority": manifest.authority,
+        "content_trust": "untrusted",
+    }
+    return payload
+
+
+def browser_state(manifest: SessionManifest) -> tuple[dict, dict]:
+    with CDPClient(manifest.websocket_url, timeout=10) as client:
+        cookies = state.get_cookies(client, show_values=True)
+        local_storage = state.get_storage(client, kind="local", show_values=True)
+    return cookies, local_storage
+
+
+def attach_session_screenshot(
+    evidence_case, manifest: SessionManifest, path: Path, label: str
+) -> None:
+    if evidence_case is None:
+        return
+    with CDPClient(manifest.websocket_url, timeout=10) as client:
+        capture.screenshot(client, str(path))
+    evidence_case.attach_file(path, label, "screenshot")
+
+
+def port_is_closed(port: int, timeout: float = 2) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                pass
+        except OSError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="isolate-team-runs",
+    scenario_id="state-session.isolate-managed-team-runs",
+    proves=[
+        "Managed runs use distinct Chrome profiles, targets and loopback endpoints.",
+        "Cookies and localStorage do not cross session boundaries.",
+        "Authority grants and the exclusive command lease are enforced by the real CLI.",
+        "A popup target is closed by the supervisor before it can persist in the run.",
+        "Stopping a run removes its private files and closes its CDP endpoint.",
+    ],
+)
+def test_managed_team_sessions_are_isolated_authorized_and_torn_down(
+    fixtures_http,
+    tmp_path,
+    evidence_case,
+):
+    chrome_bin = find_chrome()
+    runtime_dir = tmp_path / "runtime"
+    origins = fixtures_http.base_url
+    sessions: list[tuple[SessionManifest, Path]] = []
+    proof: dict = {
+        "sessions": [],
+        "status": {},
+        "isolation": {},
+        "authority": {},
+        "lease": {},
+        "teardown": [],
+    }
+
+    try:
+        for run_id, authority in (
+            ("e2e-observation", "observation"),
+            ("e2e-interaction", "interaction"),
+            ("e2e-privileged", "privileged"),
+        ):
+            manifest, path = start_managed_session(
+                run_id=run_id,
+                authority=authority,
+                origins=origins,
+                chrome_bin=chrome_bin,
+                runtime_dir=runtime_dir,
+            )
+            sessions.append((manifest, path))
+            proof["sessions"].append(manifest.public_dict())
+
+        observation, interaction, privileged = sessions
+        manifests = [item[0] for item in sessions]
+        assert len({item.session_id for item in manifests}) == 3
+        assert len({item.profile_id for item in manifests}) == 3
+        assert len({item.profile_dir for item in manifests}) == 3
+        assert len({item.target_id for item in manifests}) == 3
+        assert len({item.port for item in manifests}) == 3
+        assert all(Path(item.profile_dir).is_dir() for item in manifests)
+
+        status_proc = run_session_cli(
+            "status",
+            "--manifest",
+            str(observation[1]),
+            "--run-id",
+            observation[0].run_id,
+            "--target",
+            observation[0].target_id,
+            env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+        )
+        assert status_proc.returncode == 0 and not status_proc.stderr
+        status = json.loads(status_proc.stdout)
+        assert status["browser_running"] is True
+        assert status["supervisor_running"] is True
+        assert "websocket_url" not in status and "profile_dir" not in status
+        proof["status"] = status
+
+        observation_url = f"{fixtures_http.base_url}/storage.html"
+        interaction_url = f"{fixtures_http.base_url}/form.html"
+        privileged_url = f"{fixtures_http.base_url}/index.html"
+        assert successful_team_json(*observation, "goto", observation_url)["ok"] is True
+        assert successful_team_json(*interaction, "goto", interaction_url)["ok"] is True
+        assert successful_team_json(*privileged, "goto", privileged_url)["ok"] is True
+
+        assigned_urls = {
+            item.run_id: discovery.pick_page(item.host, item.port, item.target_id)["url"]
+            for item in manifests
+        }
+        assert assigned_urls == {
+            observation[0].run_id: observation_url,
+            interaction[0].run_id: interaction_url,
+            privileged[0].run_id: privileged_url,
+        }
+        attach_session_screenshot(
+            evidence_case,
+            observation[0],
+            tmp_path / "managed-session.png",
+            "Managed session target",
+        )
+
+        observation_cookies, observation_storage = browser_state(observation[0])
+        interaction_cookies, interaction_storage = browser_state(interaction[0])
+        observation_cookie_names = {item["name"] for item in observation_cookies["cookies"]}
+        interaction_cookie_names = {item["name"] for item in interaction_cookies["cookies"]}
+        assert "jsCookie" in observation_cookie_names
+        assert observation_storage["entries"]["cdpx-key"] == "cdpx-value"
+        assert "jsCookie" not in interaction_cookie_names
+        assert "cdpx-key" not in interaction_storage["entries"]
+        proof["isolation"] = {
+            "observation_cookie_names": sorted(observation_cookie_names),
+            "interaction_cookie_names": sorted(interaction_cookie_names),
+            "observation_local_storage_keys": sorted(observation_storage["entries"]),
+            "interaction_local_storage_keys": sorted(interaction_storage["entries"]),
+            "assigned_urls": assigned_urls,
+        }
+
+        observed = successful_team_json(*observation, "text", "h1")
+        assert observed["text"] == "Storage"
+        denied_interaction = run_team_cli(*observation, "click", "h1")
+        assert denied_interaction.returncode == 1
+        assert "requiert interaction" in denied_interaction.stderr
+
+        clicked = successful_team_json(*interaction, "click", "#submit-btn")
+        assert clicked["clicked"] == "#submit-btn"
+        assert successful_team_json(*interaction, "text", "#result")["text"] == "OK:"
+        denied_privileged = run_team_cli(*interaction, "eval", "document.title")
+        assert denied_privileged.returncode == 1
+        assert "requiert privileged" in denied_privileged.stderr
+
+        evaluated = successful_team_json(*privileged, "eval", "document.title")
+        assert evaluated["value"] == "cdpx fixtures — accueil"
+        opened = successful_team_json(
+            *privileged,
+            "eval",
+            "window.open('about:blank', '_blank'); true",
+        )
+        assert opened["value"] is True
+        popup_deadline = time.monotonic() + 5
+        pages = []
+        while time.monotonic() < popup_deadline:
+            pages = [
+                target
+                for target in discovery.list_targets(privileged[0].host, privileged[0].port)
+                if target.get("type") == "page"
+            ]
+            if [target.get("id") for target in pages] == [privileged[0].target_id]:
+                break
+            time.sleep(0.05)
+        assert [target.get("id") for target in pages] == [privileged[0].target_id]
+        proof["authority"] = {
+            "observation_text": "allowed",
+            "observation_click": "denied",
+            "interaction_click": "allowed",
+            "interaction_eval": "denied",
+            "privileged_eval": "allowed",
+            "popup_target": "closed_by_supervisor",
+        }
+
+        with SessionLease(
+            observation[1],
+            run_id=observation[0].run_id,
+            target_id=observation[0].target_id,
+        ):
+            contended = run_team_cli(*observation, "text", "h1")
+        assert contended.returncode == 1
+        assert "session déjà utilisée" in contended.stderr
+        assert successful_team_json(*observation, "text", "h1")["text"] == "Storage"
+        proof["lease"] = {"while_held": "denied", "after_release": "allowed"}
+
+        for manifest, path in reversed(sessions):
+            profile_dir = Path(manifest.profile_dir)
+            session_dir = Path(manifest.session_dir)
+            stopped = run_session_cli(
+                "stop",
+                "--manifest",
+                str(path),
+                "--run-id",
+                manifest.run_id,
+                "--target",
+                manifest.target_id,
+                timeout=20,
+                env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+            )
+            assert stopped.returncode == 0 and not stopped.stderr, (
+                f"session stop en échec: exit={stopped.returncode}\n"
+                f"stdout={stopped.stdout}\nstderr={stopped.stderr}"
+            )
+            result = json.loads(stopped.stdout)
+            closed = port_is_closed(manifest.port)
+            teardown = {
+                **result,
+                "manifest_removed": not path.exists(),
+                "profile_removed": not profile_dir.exists(),
+                "session_dir_removed": not session_dir.exists(),
+                "port_closed": closed,
+            }
+            proof["teardown"].append(teardown)
+            assert all(
+                teardown[key]
+                for key in (
+                    "stopped",
+                    "manifest_removed",
+                    "profile_removed",
+                    "session_dir_removed",
+                    "port_closed",
+                )
+            )
+    finally:
+        for manifest, path in reversed(sessions):
+            if path.exists():
+                with contextlib.suppress(Exception):
+                    stop_session(
+                        path,
+                        run_id=manifest.run_id,
+                        target_id=manifest.target_id,
+                        timeout=10,
+                    )
+        if evidence_case is not None:
+            evidence_case.attach_json(
+                "Managed team session isolation",
+                proof,
+                "managed-team-session-isolation.json",
+            )
+
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="teardown-supervisor-signal",
+    scenario_id="state-session.teardown-on-supervisor-signal",
+    proves=[
+        "A normal supervisor termination closes Chrome and removes its ephemeral profile.",
+        "The assigned CDP loopback endpoint is closed after teardown.",
+    ],
+)
+def test_supervisor_signal_still_tears_down_chrome_and_private_files(
+    fixtures_http,
+    tmp_path,
+    evidence_case,
+):
+    chrome_bin = find_chrome()
+    runtime_dir = tmp_path / "runtime"
+    manifest, path = start_managed_session(
+        run_id="e2e-signal-teardown",
+        authority="observation",
+        origins=fixtures_http.base_url,
+        chrome_bin=chrome_bin,
+        runtime_dir=runtime_dir,
+    )
+    session_dir = Path(manifest.session_dir)
+    profile_dir = Path(manifest.profile_dir)
+    proof = {"session": manifest.public_dict()}
+    try:
+        assert (
+            successful_team_json(
+                manifest,
+                path,
+                "goto",
+                f"{fixtures_http.base_url}/index.html",
+            )["ok"]
+            is True
+        )
+        attach_session_screenshot(
+            evidence_case,
+            manifest,
+            tmp_path / "signal-teardown-session.png",
+            "Session before supervisor teardown",
+        )
+        assert manifest.supervisor_pid is not None
+        os.kill(manifest.supervisor_pid, signal.SIGTERM)
+        deadline = time.monotonic() + 10
+        while session_dir.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        proof["teardown"] = {
+            "manifest_removed": not path.exists(),
+            "profile_removed": not profile_dir.exists(),
+            "session_dir_removed": not session_dir.exists(),
+            "port_closed": port_is_closed(manifest.port),
+        }
+        assert all(proof["teardown"].values())
+    finally:
+        if path.exists():
+            with contextlib.suppress(Exception):
+                stop_session(
+                    path,
+                    run_id=manifest.run_id,
+                    target_id=manifest.target_id,
+                    timeout=10,
+                )
+        if evidence_case is not None:
+            evidence_case.attach_json(
+                "Supervisor signal teardown",
+                proof,
+                "supervisor-signal-teardown.json",
+            )

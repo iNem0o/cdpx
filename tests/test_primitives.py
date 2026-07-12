@@ -3,12 +3,14 @@
 
 import json
 import pathlib
+import stat
 
 import pytest
 
 from cdpx import discovery
 from cdpx.client import CDPClient, CDPTimeout
 from cdpx.primitives import advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.security import RedactionContext
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -42,6 +44,30 @@ def test_wait_for_times_out(mock, client):
         nav.wait_for(client, "#never", timeout=0.15, poll=0.02)
 
 
+def test_wait_for_visible_polls_until_element_has_a_non_zero_box(mock, client):
+    mock.on_eval("__cdpx_visible", False, False, True)
+
+    res = nav.wait_for_visible(client, "#late-content", timeout=2, poll=0.01)
+
+    assert res["visible"] is True
+    assert res["selector"] == "#late-content"
+    calls = mock.commands_for("Runtime.evaluate")
+    assert len(calls) == 3
+    expression = calls[0]["expression"]
+    assert ".isConnected" in expression
+    assert 'style.display === "none"' in expression
+    assert 'style.visibility === "hidden"' in expression
+    assert 'style.visibility === "collapse"' in expression
+    assert "rect.width > 0 && rect.height > 0" in expression
+
+
+def test_wait_for_visible_times_out_while_element_stays_hidden(mock, client):
+    mock.on_eval("__cdpx_visible", False)
+
+    with pytest.raises(CDPTimeout, match="non visible"):
+        nav.wait_for_visible(client, "#hidden", timeout=0.15, poll=0.02)
+
+
 # -- js ---------------------------------------------------------------------------
 
 
@@ -65,31 +91,156 @@ def test_get_text_and_html_and_count(mock, client):
 # -- inputs -----------------------------------------------------------------------
 
 
+ACTIONABLE = {
+    "attached": True,
+    "visible": True,
+    "enabled": True,
+    "stable": True,
+    "receives_events": True,
+    "editable": True,
+    "rect": {"x": 10, "y": 20, "width": 100, "height": 30},
+}
+
+
 def test_click_dispatches_mouse_events_at_center(mock, client):
-    mock.on_eval(
-        "getBoundingClientRect", json.dumps({"x": 10, "y": 20, "width": 100, "height": 30})
-    )
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+
     res = inputs.click(client, "#submit-btn")
+
     assert (res["x"], res["y"]) == (60.0, 35.0)
-    mouse = mock.commands_for("Input.dispatchMouseEvent")
-    assert [m["type"] for m in mouse] == ["mouseMoved", "mousePressed", "mouseReleased"]
-    assert all(m["x"] == 60.0 and m["y"] == 35.0 for m in mouse)
+    assert mock.commands_for("Input.dispatchMouseEvent") == [
+        {
+            "type": "mouseMoved",
+            "x": 60.0,
+            "y": 35.0,
+            "button": "left",
+            "clickCount": 1,
+        },
+        {
+            "type": "mousePressed",
+            "x": 60.0,
+            "y": 35.0,
+            "button": "left",
+            "clickCount": 1,
+        },
+        {
+            "type": "mouseReleased",
+            "x": 60.0,
+            "y": 35.0,
+            "button": "left",
+            "clickCount": 1,
+        },
+    ]
+    (probe,) = mock.commands_for("Runtime.evaluate")
+    assert probe["awaitPromise"] is True
+    assert probe["returnByValue"] is True
+    expression = probe["expression"]
+    assert expression.count("requestAnimationFrame") == 2
+    assert '.matches(":disabled")' in expression
+    assert "aria-disabled" in expression
+    assert '.closest("[inert]")' in expression
+    assert "pointerEvents" in expression
+    assert "document.elementFromPoint" in expression
+    assert "element.contains(hit)" in expression
 
 
 def test_click_element_not_found(mock, client):
-    mock.on_eval("getBoundingClientRect", None)
-    with pytest.raises(inputs.ElementNotFound):
+    mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, "attached": False}))
+
+    with pytest.raises(inputs.ElementNotFound, match="sélecteur introuvable"):
         inputs.click(client, "#ghost")
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
-def test_type_text_focus_then_insert(mock, client):
-    mock.on_eval("focus", True)
+@pytest.mark.parametrize(
+    ("state", "message"),
+    [
+        ({"visible": False}, "non visible"),
+        ({"enabled": False}, "désactivé"),
+        ({"stable": False}, "instable"),
+        ({"receives_events": False}, "recouvert"),
+    ],
+)
+def test_click_refuses_non_actionable_element_without_input(mock, client, state, message):
+    mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, **state}))
+
+    with pytest.raises(inputs.ElementNotInteractable, match=message):
+        inputs.click(client, "#blocked")
+
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+
     res = inputs.type_text(client, "#name", "Léo", clear=True)
-    assert res["typed"] == "Léo"
+
+    assert res == {
+        "typed": True,
+        "value_masked": True,
+        "selector": "#name",
+        "cleared": True,
+    }
+    assert "Léo" not in json.dumps(res, ensure_ascii=False)
+    evaluations = mock.commands_for("Runtime.evaluate")
+    assert len(evaluations) == 2
+    prepare = evaluations[1]["expression"]
+    assert "el.select()" in prepare
+    assert "range.selectNodeContents(el)" in prepare
+    assert "selection.removeAllRanges()" in prepare
+    assert "el.value =" not in prepare
+    assert mock.commands_for("Input.dispatchKeyEvent") == [
+        {
+            "type": "rawKeyDown",
+            "key": "Backspace",
+            "code": "Backspace",
+            "windowsVirtualKeyCode": 8,
+        },
+        {
+            "type": "keyUp",
+            "key": "Backspace",
+            "code": "Backspace",
+            "windowsVirtualKeyCode": 8,
+        },
+    ]
     assert mock.commands_for("Input.insertText") == [{"text": "Léo"}]
-    # le clear passe bien dans l'expression de focus
-    (expr,) = [p["expression"] for p in mock.commands_for("Runtime.evaluate")]
-    assert "el.value = ''" in expr
+    methods = [method for _, method, _ in mock.commands]
+    assert methods == [
+        "Runtime.evaluate",
+        "Runtime.evaluate",
+        "Input.dispatchKeyEvent",
+        "Input.dispatchKeyEvent",
+        "Input.insertText",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("state", "message"),
+    [
+        ({"visible": False}, "non visible"),
+        ({"enabled": False}, "désactivé"),
+        ({"editable": False}, "non éditable"),
+    ],
+)
+def test_type_text_refuses_invalid_target_without_input(mock, client, state, message):
+    mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, **state}))
+
+    with pytest.raises(inputs.ElementNotInteractable, match=message):
+        inputs.type_text(client, "#blocked", "secret", clear=True)
+
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert mock.commands_for("Input.insertText") == []
+
+
+def test_type_text_refuses_missing_target_without_input(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, "attached": False}))
+
+    with pytest.raises(inputs.ElementNotFound, match="sélecteur introuvable"):
+        inputs.type_text(client, "#missing", "secret", clear=True)
+
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert mock.commands_for("Input.insertText") == []
 
 
 def test_press_key_enter_sequence(mock, client):
@@ -100,6 +251,32 @@ def test_press_key_enter_sequence(mock, client):
         inputs.press_key(client, "F13")
 
 
+def test_press_key_backspace_sequence(mock, client):
+    result = inputs.press_key(client, "Backspace")
+
+    assert result == {"pressed": "Backspace"}
+    assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == [
+        "rawKeyDown",
+        "keyUp",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("key", "types"),
+    [
+        ("Space", ["rawKeyDown", "char", "keyUp"]),
+        ("Delete", ["rawKeyDown", "keyUp"]),
+        ("Home", ["rawKeyDown", "keyUp"]),
+        ("ArrowLeft", ["rawKeyDown", "keyUp"]),
+        ("ArrowRight", ["rawKeyDown", "keyUp"]),
+        ("PageDown", ["rawKeyDown", "keyUp"]),
+    ],
+)
+def test_press_key_supports_common_navigation_and_editing_keys(mock, client, key, types):
+    assert inputs.press_key(client, key) == {"pressed": key}
+    assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == types
+
+
 # -- capture ----------------------------------------------------------------------
 
 
@@ -107,6 +284,7 @@ def test_screenshot_writes_valid_png(mock, client, tmp_path):
     out = tmp_path / "shot.png"
     res = capture.screenshot(client, str(out), full_page=True)
     assert out.read_bytes().startswith(b"\x89PNG")
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
     assert res["bytes"] > 0
     assert mock.commands_for("Page.captureScreenshot")[0]["captureBeyondViewport"] is True
 
@@ -115,6 +293,7 @@ def test_pdf_writes_valid_signature(mock, client, tmp_path):
     out = tmp_path / "page.pdf"
     capture.pdf(client, str(out))
     assert out.read_bytes().startswith(b"%PDF")
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
 
 
 def test_console_capture_normalizes_entries(mock, client):
@@ -159,10 +338,51 @@ def test_console_follow_yields_ndjson_ready_entries(mock, client):
     assert entries == [{"kind": "console", "type": "warn", "text": "fixture-warn", "ts": 12.0}]
 
 
+def test_console_entries_redact_credentials_tokens_and_sensitive_urls():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"
+    context = RedactionContext.from_secrets(["registered-secret"])
+    events = [
+        {
+            "method": "Runtime.consoleAPICalled",
+            "params": {
+                "type": "log",
+                "args": [
+                    {"value": "registered-secret"},
+                    {"value": "Bearer bearer-secret"},
+                    {
+                        "value": (
+                            "https://alice:password@example.test/callback?code=secret#fragment"
+                        )
+                    },
+                ],
+                "timestamp": 1.0,
+            },
+        },
+        {
+            "method": "Runtime.exceptionThrown",
+            "params": {
+                "exceptionDetails": {"exception": {"description": f"failure jwt={jwt}"}},
+                "timestamp": 2.0,
+            },
+        },
+    ]
+
+    entries = list(capture.console_entries(events, context=context))
+    serialized = json.dumps(entries)
+
+    assert "registered-secret" not in serialized
+    assert "bearer-secret" not in serialized
+    assert jwt not in serialized
+    assert "alice" not in serialized and "password" not in serialized
+    assert "https://example.test/callback?code=***" in entries[0]["text"]
+    assert context.report.redacted is True
+
+
 # -- net --------------------------------------------------------------------------
 
 
 def test_network_capture_assembles_requests(mock, client):
+    navigation_url = "http://browser:password@s.test/network.html?token=navigation-secret#fragment"
     mock.script_network(
         [
             {
@@ -170,14 +390,21 @@ def test_network_capture_assembles_requests(mock, client):
                 "params": {
                     "requestId": "R1",
                     "type": "Fetch",
-                    "request": {"url": "http://s.test/api/json", "method": "GET"},
+                    "request": {
+                        "url": "http://alice:password@s.test/api/json?token=one&token=two#part",
+                        "method": "GET",
+                    },
                 },
             },
             {
                 "method": "Network.responseReceived",
                 "params": {
                     "requestId": "R1",
-                    "response": {"status": 200, "mimeType": "application/json"},
+                    "response": {
+                        "url": "http://alice:password@s.test/api/json?token=three#response",
+                        "status": 200,
+                        "mimeType": "application/json",
+                    },
                 },
             },
             {
@@ -205,10 +432,45 @@ def test_network_capture_assembles_requests(mock, client):
             },
         ]
     )
-    res = net.capture(client, "http://s.test/network.html", settle=0.2)
+    res = net.capture(client, navigation_url, settle=0.2)
     assert res["summary"] == {"total": 3, "failed": 1, "errors_4xx_5xx": 1, "bytes": 123}
+    assert res["url"] == "http://s.test/network.html?token=***"
     r1 = next(r for r in res["requests"] if r["requestId"] == "R1")
     assert r1["status"] == 200 and r1["encodedBytes"] == 123
+    assert r1["url"] == "http://s.test/api/json?token=***"
+    assert mock.commands_for("Page.navigate") == [{"url": navigation_url}]
+
+
+def test_network_capture_masks_registered_secret_in_url_path(mock, client):
+    secret = "reset-token-canary"
+    navigation_url = f"http://s.test/reset/{secret}"
+    mock.script_network(
+        [
+            {
+                "method": "Network.requestWillBeSent",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Fetch",
+                    "request": {
+                        "url": "http://s.test/api/reset%2Dtoken%2Dcanary",
+                        "method": "GET",
+                    },
+                },
+            }
+        ]
+    )
+
+    result = net.capture(
+        client,
+        navigation_url,
+        settle=0,
+        context=RedactionContext.from_secrets([secret]),
+    )
+
+    serialized = json.dumps(result)
+    assert secret not in serialized and "reset%2Dtoken%2Dcanary" not in serialized
+    assert result["url"] == "http://s.test/reset/***"
+    assert result["requests"][0]["url"] == "http://s.test/api/***"
 
 
 # -- dev loop ---------------------------------------------------------------------
@@ -232,6 +494,7 @@ def _profiler_network_script(base_url: str, headers: dict) -> list[dict]:
 
 def test_profiler_reads_debug_token_link_and_parses_panels(mock, client, fixtures_http):
     link = f"{fixtures_http.base_url}/_profiler/fixed-token"
+    mock.on_eval("window.location.href", f"{fixtures_http.base_url}/api/profiler-sim")
     mock.script_network(
         _profiler_network_script(fixtures_http.base_url, {"X-Debug-Token-Link": link})
     )
@@ -241,14 +504,20 @@ def test_profiler_reads_debug_token_link_and_parses_panels(mock, client, fixture
         json.dumps([{"panel": "db", "status": 200, "html": db_html}]),
     )
     res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim", panels=["db"])
-    assert res["token"] == "fixed-token"
+    assert "token" not in res and res["token_present"] is True
+    assert res["profiler_url"].endswith("/_profiler/***")
+    assert "fixed-token" not in json.dumps(res)
     assert res["profiler_status"] == 200  # statut réel du fetch du panel
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["db"]["duplicates"] == 4
     assert "signals" not in res and "profiler_bytes" not in res
     assert mock.commands_for("Network.enable") == [{}]
     # protocole émis: un seul fetch page-context, promesse attendue
-    (call,) = mock.commands_for("Runtime.evaluate")
+    (call,) = [
+        item
+        for item in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in item["expression"]
+    ]
     assert call["awaitPromise"] is True
     assert f'"{link}?panel=db"' in call["expression"]
 
@@ -258,6 +527,7 @@ def test_profiler_prefers_redirect_response_token(mock, client, fixtures_http):
     # redirection n'existe que dans requestWillBeSent.redirectResponse et doit
     # gagner sur celui de la page suivie.
     base = fixtures_http.base_url
+    mock.on_eval("window.location.href", f"{base}/scenario/profiler/baseline")
     mock.script_network(
         [
             {
@@ -286,20 +556,85 @@ def test_profiler_prefers_redirect_response_token(mock, client, fixtures_http):
         ]
     )
     res = dev.profiler(client, f"{base}/scenario/profiler/routing-redirect", panels=[])
-    assert res["token"] == "redir-token"
+    assert "token" not in res and res["token_present"] is True
+    assert res["profiler_url"].endswith("/_profiler/***")
+    assert "redir-token" not in json.dumps(res)
+    assert "final-token" not in json.dumps(res)
     assert res["status"] == 302
 
 
 def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
+    mock.on_eval("window.location.href", f"{fixtures_http.base_url}/api/profiler-sim")
     mock.script_network(
         _profiler_network_script(fixtures_http.base_url, {"X-Debug-Token": "fixed-token"})
     )
     res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim", panels=[])
-    assert res["token"] == "fixed-token"
-    assert res["profiler_url"].endswith("/_profiler/fixed-token")
+    assert "token" not in res and res["token_present"] is True
+    assert res["profiler_url"].endswith("/_profiler/***")
+    assert res["response_headers"]["x-debug-token"] == "***"
+    assert "fixed-token" not in json.dumps(res)
     # sonde token seule: aucun fetch de panel
     assert res["panels"] == {} and res["profiler_status"] is None
-    assert mock.commands_for("Runtime.evaluate") == []
+    assert not any(
+        "__cdpx_profiler_panels" in call["expression"]
+        for call in mock.commands_for("Runtime.evaluate")
+    )
+
+
+def test_profiler_rejects_requested_origin_before_navigation(mock, client):
+    with pytest.raises(ValueError, match="origine refusée"):
+        dev.profiler(
+            client,
+            "https://attacker.example/report",
+            panels=["db"],
+            allowed_origins=("http://allowed.test",),
+        )
+
+    assert mock.commands_for("Network.enable") == []
+    assert mock.commands_for("Page.navigate") == []
+
+
+def test_profiler_rejects_cross_origin_header_before_panel_fetch(mock, client):
+    url = "http://allowed.test/report"
+    mock.on_eval("window.location.href", url)
+    mock.script_network(
+        _profiler_network_script(
+            "http://allowed.test",
+            {"X-Debug-Token-Link": "https://attacker.example/_profiler/stolen"},
+        )
+    )
+
+    with pytest.raises(ValueError, match="origine refusée"):
+        dev.profiler(client, url, panels=["db"])
+
+    assert not any(
+        "__cdpx_profiler_panels" in call["expression"]
+        for call in mock.commands_for("Runtime.evaluate")
+    )
+
+
+def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
+    requested = "http://allowed.test/report"
+    mock.on_eval("window.location.href", "https://attacker.example/redirected")
+    mock.script_network(
+        _profiler_network_script(
+            "http://allowed.test",
+            {"X-Debug-Token-Link": "http://allowed.test/_profiler/token"},
+        )
+    )
+
+    with pytest.raises(ValueError, match="origine refusée"):
+        dev.profiler(
+            client,
+            requested,
+            panels=["db"],
+            allowed_origins=("http://allowed.test",),
+        )
+
+    assert not any(
+        "__cdpx_profiler_panels" in call["expression"]
+        for call in mock.commands_for("Runtime.evaluate")
+    )
 
 
 def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):
@@ -348,10 +683,26 @@ def test_clear_cookies_falls_back_on_legacy_method(mock, client):
     assert mock.cookies == []
 
 
-def test_get_storage(mock, client):
-    mock.on_eval("localStorage", json.dumps({"cdpx-key": "cdpx-value"}))
+def test_get_storage_masks_values_by_default_with_explicit_opt_in(mock, client):
+    secret = "storage-secret-value"
+    mock.on_eval("localStorage", json.dumps({"cdpx-key": secret}))
     res = state.get_storage(client, "local")
-    assert res["entries"] == {"cdpx-key": "cdpx-value"} and res["count"] == 1
+    shown = state.get_storage(client, "local", show_values=True)
+
+    assert res == {
+        "kind": "local",
+        "entries": {"cdpx-key": "***"},
+        "count": 1,
+        "values_masked": True,
+    }
+    assert secret not in json.dumps(res)
+    assert shown == {
+        "kind": "local",
+        "entries": {"cdpx-key": secret},
+        "count": 1,
+        "values_masked": False,
+    }
+    assert len(mock.commands_for("Runtime.evaluate")) == 2
 
 
 # -- audit ------------------------------------------------------------------------
@@ -480,9 +831,78 @@ def test_intercept_goto_blocks_and_continues(mock, client):
     assert mock.commands_for("Fetch.continueRequest")[0]["requestId"] == "B"
 
 
-def test_intercept_rejects_invalid_rule(mock, client):
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "broken",
+        "=> block",
+        "* =>",
+        "* => typo",
+        "* => Continue",
+        "* => 199",
+        "* => 600",
+        "* => 200.0",
+    ],
+)
+def test_intercept_rejects_invalid_rule_before_cdp(mock, client, rule):
     with pytest.raises(ValueError):
-        advanced.intercept_goto(client, ["broken"], "http://s.test/")
+        advanced.intercept_goto(client, [rule], "http://s.test/")
+    assert mock.commands == []
+
+
+def test_intercept_prevalidates_every_rule_before_cdp(mock, client):
+    with pytest.raises(ValueError):
+        advanced.intercept_goto(
+            client,
+            ["*first* => continue", "*second* => typo"],
+            "http://s.test/",
+        )
+    assert mock.commands == []
+
+
+@pytest.mark.parametrize("status", [200, 599])
+def test_intercept_accepts_status_bounds(mock, client, status):
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "I1",
+                    "request": {"url": "http://s.test/api/status"},
+                },
+            }
+        ]
+    )
+    res = advanced.intercept_goto(
+        client,
+        [f"*status* => {status}"],
+        "http://s.test/",
+        settle=0,
+    )
+    assert res["hits"] == [{"url": "http://s.test/api/status", "action": str(status)}]
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == status
+
+
+def test_intercept_accepts_explicit_continue(mock, client):
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "I1",
+                    "request": {"url": "http://s.test/api/continue"},
+                },
+            }
+        ]
+    )
+    res = advanced.intercept_goto(
+        client,
+        ["*continue* => continue"],
+        "http://s.test/",
+        settle=0,
+    )
+    assert res["hits"] == [{"url": "http://s.test/api/continue", "action": "continue"}]
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "I1"}]
 
 
 def test_emulate_mobile_and_reset(mock, client):
@@ -614,6 +1034,32 @@ def test_replay_reexecutes_journal_against_browser(mock, client, tmp_path):
     assert methods.index("Page.navigate") < methods.index("Input.dispatchMouseEvent")
 
 
+def test_replay_keeps_v1_type_result_compatibility_without_exposing_text(
+    client, tmp_path, monkeypatch
+):
+    path = tmp_path / "legacy-type.ndjson"
+    path.write_text(
+        '{"action":["type","#name","legacy-secret"],"ok":true,'
+        '"result":{"typed":"legacy-secret","selector":"#name","cleared":false}}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        advanced.actions,
+        "run_action",
+        lambda _client, _action: {
+            "typed": True,
+            "value_masked": True,
+            "selector": "#name",
+            "cleared": False,
+        },
+    )
+
+    result = advanced.replay(client, str(path))
+
+    assert result["ok"] is True and result["played"] == 1
+    assert "legacy-secret" not in json.dumps(result)
+
+
 def test_replay_stops_at_first_divergence(mock, client, tmp_path):
     path = tmp_path / "record.ndjson"
     path.write_text(
@@ -689,10 +1135,113 @@ def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path
         '{"action":["click","#submit"],"ok":true}\n',
         encoding="utf-8",
     )
+    mock.on_eval("window.location.href", "http://prod.example/")
     res = advanced.replay(client, str(path), origins="http://*.test")
     assert res["ok"] is False and res["played"] == 1
     assert "mutation refusée" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text(
+        '{"action":["goto","http://allowed.test/start"],"ok":true}\n'
+        '{"action":["click","#submit"],"ok":true}\n',
+        encoding="utf-8",
+    )
+    mock.on_eval("window.location.href", "https://prod.example/redirected")
+
+    res = advanced.replay(client, str(path), origins="http://*.test")
+
+    assert res["ok"] is False and res["played"] == 1
+    assert "mutation refusée" in str(res["divergence"])
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+    location_reads = [
+        params
+        for params in mock.commands_for("Runtime.evaluate")
+        if params["expression"] == "window.location.href"
+    ]
+    assert len(location_reads) == 2  # après goto, puis immédiatement avant le clic
+
+
+def test_replay_strict_rejects_forbidden_goto_before_navigation(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text(
+        '{"action":["goto","https://forbidden.example/"],"ok":true}\n',
+        encoding="utf-8",
+    )
+
+    result = advanced.replay(
+        client,
+        str(path),
+        origins="http://allowed.test",
+        strict_origins=True,
+    )
+
+    assert result["ok"] is False and result["played"] == 0
+    assert "origine refusée" in result["divergence"]
+    assert mock.commands_for("Page.navigate") == []
+
+
+def test_record_strict_rejects_forbidden_goto_before_navigation_or_journal(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+
+    with pytest.raises(ValueError, match="origine refusée"):
+        advanced.record(
+            client,
+            str(path),
+            ["goto", "https://forbidden.example/"],
+            origins="http://allowed.test",
+            strict_origins=True,
+        )
+
+    assert mock.commands_for("Page.navigate") == []
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    ("events", "played"),
+    [
+        ('{"action":["click","#submit"],"ok":true}\n', 0),
+        (
+            '{"action":["goto","http://allowed.test/start"],"ok":true}\n'
+            '{"action":["click","#submit"],"ok":true}\n',
+            1,
+        ),
+    ],
+)
+def test_replay_origin_guard_fails_closed_when_current_url_is_unknown(
+    mock, client, tmp_path, events, played
+):
+    path = tmp_path / "record.ndjson"
+    path.write_text(events, encoding="utf-8")
+    mock.on_eval("window.location.href", None)
+
+    res = advanced.replay(client, str(path), origins="http://*.test")
+
+    assert res["ok"] is False and res["played"] == played
+    assert "URL courante indéterminable" in str(res["divergence"])
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
+    path = tmp_path / "record.ndjson"
+    path.write_text('{"action":["click","#submit"],"ok":true}\n', encoding="utf-8")
+    mock.on_eval(
+        "window.location.href",
+        "http://allowed.test/form",
+        "https://prod.example/redirected",
+    )
+    mock.on_eval(
+        "getBoundingClientRect",
+        json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}),
+    )
+
+    res = advanced.replay(client, str(path), origins="http://*.test")
+
+    assert res["ok"] is False and res["played"] == 1
+    assert "destination après action: mutation refusée" in str(res["divergence"])
+    assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
 
 
 def test_origin_guard_blocks_mutations_only_when_configured():
