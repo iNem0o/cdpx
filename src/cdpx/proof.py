@@ -17,6 +17,7 @@ import platform
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -29,7 +30,7 @@ from functools import cache, lru_cache
 from importlib import resources
 from pathlib import Path
 from string import Template
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from cdpx.artifacts import (
     ArtifactClassification,
@@ -240,9 +241,33 @@ def proof_timeout_scale(environ: dict[str, str] | None = None) -> float:
 
 
 def _rewrite_text_paths(value: str, rewrites: Sequence[tuple[str, str]]) -> str:
+    """Réécrit les chemins d'une racine physique vers sa racine logique.
+
+    La réécriture est ancrée: seuls les préfixes de chemin `racine/…` et la
+    valeur exactement égale à la racine sont réécrits. Un littéral nu (ex.
+    `.proof.new` cité dans un extrait de code capturé par l'évidence) est
+    préservé tel quel — un remplacement naïf corromprait ces extraits.
+    """
+
     for physical, logical in rewrites:
-        value = value.replace(physical, logical)
+        if value == physical:
+            value = logical
+            continue
+        value = value.replace(f"{physical}/", f"{logical}/")
     return value
+
+
+def _read_json_or_fail(path: Path, label: str) -> Any:
+    """Lit un JSON en échouant fermé avec une erreur localisée.
+
+    Le fichier fautif et la cause sont nommés dans l'ArtifactError, plutôt
+    qu'une OSError/JSONDecodeError anonyme au milieu du pipeline de preuve.
+    """
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ArtifactError(f"{label}: {path}: {exc}") from exc
 
 
 def _rewrite_tree_paths(value: Any, rewrites: Sequence[tuple[str, str]]) -> Any:
@@ -255,6 +280,22 @@ def _rewrite_tree_paths(value: Any, rewrites: Sequence[tuple[str, str]]) -> Any:
     if isinstance(value, dict):
         return {key: _rewrite_tree_paths(item, rewrites) for key, item in value.items()}
     return value
+
+
+def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
+    """Tue le groupe de processus entier d'une commande de preuve.
+
+    ``proc.kill()`` seul ne toucherait que l'enfant direct: un Chrome ou un
+    serveur de fixtures lancé par pytest survivrait à la deadline, garderait
+    ses ports et pourrait écrire dans l'évidence après la purge.
+    """
+
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        # Groupe déjà disparu ou inaccessible: repli sur l'enfant direct.
+        proc.kill()
+    proc.wait()
 
 
 def _stream_to_private_file(
@@ -279,12 +320,15 @@ def _stream_to_private_file(
     fd = os.open(sink, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as stream:
         try:
+            # start_new_session isole la commande dans son propre groupe de
+            # processus: le kill de deadline atteint aussi ses descendants.
             proc = subprocess.Popen(
                 argv,
                 cwd=Path.cwd(),
                 env=env,
                 stdout=stream,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             stream.write((str(exc) + "\n").encode("utf-8"))
@@ -292,12 +336,45 @@ def _stream_to_private_file(
         try:
             exit_code = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Deadline dépassée: kill puis drain du statut. Ce qui a déjà été
-            # streamé dans le fichier reste disponible pour le log final.
-            proc.kill()
-            proc.wait()
+            # Deadline dépassée: kill du groupe puis drain du statut. Ce qui a
+            # déjà été streamé dans le fichier reste disponible pour le log.
+            _kill_process_group(proc)
             return 124, True
+        except BaseException:
+            # Exception inattendue (KeyboardInterrupt, MemoryError…): ne
+            # jamais rendre la main en laissant le groupe tourner.
+            _kill_process_group(proc)
+            raise
     return exit_code, False
+
+
+def _stream_and_collect(
+    argv: list[str],
+    log_path: Path,
+    *,
+    env: dict[str, str],
+    timeout: float | None,
+    timeout_label: str,
+) -> tuple[int, bool, str]:
+    """Streame ``argv`` dans un flux privé ``*.partial`` puis relit sa sortie.
+
+    Le flux brut (NON redacté) est supprimé en toutes circonstances — même si
+    la lecture, la redaction ou l'écriture finale échoue: un staging partiel
+    conservé pour diagnostic ne doit jamais contenir de sortie brute. La
+    mémoire n'est bornée que PENDANT l'exécution (streaming disque): la
+    relecture finale recharge tout le texte pour la redaction — choix assumé,
+    la deadline borne la durée du run, pas le volume de sa sortie.
+    """
+
+    partial = log_path.with_name(f"{log_path.name}.partial")
+    try:
+        exit_code, timed_out = _stream_to_private_file(argv, partial, env=env, timeout=timeout)
+        raw = partial.read_text(encoding="utf-8", errors="replace")
+    finally:
+        partial.unlink(missing_ok=True)
+    if timed_out:
+        raw += f"\ntimeout: {timeout_label} après {timeout}s (exit 124)\n"
+    return exit_code, timed_out, raw
 
 
 def run_evidence(
@@ -324,21 +401,19 @@ def run_evidence(
         "",
         "--- output ---",
     ]
-    # Flux brut streamé dans un fichier privé *.partial (progression observable,
-    # mémoire bornée), puis redaction du texte complet et écriture atomique du
-    # log final: un secret à cheval sur deux chunks ne peut pas y échapper.
-    partial = log_path.with_name(f"{log_path.name}.partial")
-    exit_code, timed_out = _stream_to_private_file(argv, partial, env=env, timeout=timeout)
-    raw = partial.read_text(encoding="utf-8", errors="replace")
-    if timed_out:
-        raw += f"\ntimeout: commande interrompue après {timeout}s (exit 124)\n"
+    # Flux brut streamé dans un fichier privé *.partial (progression
+    # observable, mémoire bornée pendant l'exécution), puis redaction du texte
+    # complet relu et écriture atomique du log final: un secret à cheval sur
+    # deux chunks ne peut pas y échapper.
+    exit_code, _timed_out, raw = _stream_and_collect(
+        argv, log_path, env=env, timeout=timeout, timeout_label="commande interrompue"
+    )
     output = redact_text(
         _rewrite_text_paths(raw, path_rewrites), context=context, path=f"$.commands.{id}.stdout"
     )
     duration = time.monotonic() - start
     footer = ["", "--- result ---", f"exit_code: {exit_code}", f"duration_s: {duration:.3f}", ""]
     _write_private_text(log_path, "\n".join(header) + "\n" + output + "\n".join(footer))
-    partial.unlink(missing_ok=True)
     return CommandEvidence(
         id=id,
         label=label,
@@ -410,14 +485,13 @@ def write_symfony_unavailable_evidence(
     reason: str,
     *,
     redaction_context: RedactionContext | None = None,
-    evidence_dir: Path | None = None,
-    log_path: Path | None = None,
+    proof_dir: Path | None = None,
 ) -> None:
     context = redaction_context or redaction_context_from_environment()
-    # Les défauts sont résolus à l'appel pour rester monkeypatchables et
-    # permettre au pipeline de cibler l'arbre de staging.
-    evidence_dir = EVIDENCE_DIR if evidence_dir is None else evidence_dir
-    log_path = SYMFONY_LOG if log_path is None else log_path
+    # Même règle de dérivation que run_symfony_evidence: sans proof_dir, les
+    # globals (monkeypatchables) font foi; le pipeline passe le staging.
+    log_path = SYMFONY_LOG if proof_dir is None else proof_dir / SYMFONY_LOG.name
+    evidence_dir = EVIDENCE_DIR if proof_dir is None else proof_dir / EVIDENCE_DIR.name
     _secure_dir(evidence_dir)
     safe_reason = redact_text(reason, context=context, path="$.symfony.reason")
     payload = {
@@ -512,9 +586,7 @@ def run_symfony_evidence(
             "status: unavailable\nexit_code: 1",
             redaction_context=context,
         )
-        write_symfony_unavailable_evidence(
-            reason, redaction_context=context, evidence_dir=evidence_dir, log_path=log_path
-        )
+        write_symfony_unavailable_evidence(reason, redaction_context=context, proof_dir=proof_dir)
         return CommandEvidence(
             id="symfony-e2e",
             label="Symfony E2E Docker",
@@ -542,7 +614,7 @@ def run_symfony_evidence(
                 redaction_context=context,
             )
             write_symfony_unavailable_evidence(
-                reason, redaction_context=context, evidence_dir=evidence_dir, log_path=log_path
+                reason, redaction_context=context, proof_dir=proof_dir
             )
             return CommandEvidence(
                 id="symfony-e2e",
@@ -563,20 +635,20 @@ def run_symfony_evidence(
         "--remove-orphans",
     ]
     pre_code, pre_output = _run_text(down_argv, timeout=60, env=compose_env)
-    up_partial = log_path.with_name(f"{log_path.name}.partial")
     try:
-        # Le `up` est streamé dans un fichier privé (progression observable,
-        # mémoire bornée) et borné par deadline: kill sur dépassement, exit 124.
-        up_code, up_timed_out = _stream_to_private_file(
-            argv, up_partial, env=compose_env, timeout=timeout
+        # Le `up` est streamé dans un fichier privé (progression observable)
+        # et borné par deadline: kill du groupe sur dépassement, exit 124.
+        up_code, _up_timed_out, up_output = _stream_and_collect(
+            argv,
+            log_path,
+            env=compose_env,
+            timeout=timeout,
+            timeout_label="docker compose up interrompu",
         )
     finally:
         # Même une interruption/exception/deadline pendant `up` doit rendre la
         # main avec les conteneurs et réseaux Compose supprimés.
         post_code, post_output = _run_text(down_argv, timeout=60, env=compose_env)
-    up_output = up_partial.read_text(encoding="utf-8", errors="replace")
-    if up_timed_out:
-        up_output += f"\ntimeout: docker compose up interrompu après {timeout}s (exit 124)\n"
     duration = time.monotonic() - start
     body = "\n\n".join(
         checks
@@ -595,7 +667,6 @@ def run_symfony_evidence(
         f"exit_code: {result_code}\nduration_s: {duration:.3f}",
         redaction_context=context,
     )
-    up_partial.unlink(missing_ok=True)
     return CommandEvidence(
         id="symfony-e2e",
         label="Symfony E2E Docker",
@@ -634,6 +705,14 @@ def collect_git_context(
         GIT_TIMEOUT_S,
     )
 
+    # Une sortie git en échec (timeout 124, dépôt cassé) n'est pas du
+    # porcelain: sortie partielle et annotation de timeout produiraient des
+    # entrées corrompues. On ne parse ni ne publie rien — le status_code et
+    # le diff_stat_code déjà exposés au summary suffisent au diagnostic.
+    if status_code != 0:
+        status = ""
+    if stat_code != 0:
+        stat = ""
     safe_status_lines = []
     for line in status.splitlines():
         path = line[3:].strip()
@@ -1061,10 +1140,7 @@ def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> ScenarioEvidence:
         # en KeyError/TypeError anonyme au calcul des totaux ou au rendu du
         # cockpit. Les payloads legacy v1 (sans clé `schema`) restent acceptés
         # tels quels: la tolérance des lecteurs évite tout migrateur.
-        try:
-            decoded = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ArtifactError(f"{path}: JSON de scénarios illisible: {exc}") from exc
+        decoded = _read_json_or_fail(path, "JSON de scénarios illisible")
         payload = validated_scenario_file(
             decoded, source=str(path), expected_schema=SCENARIOS_SCHEMA
         )
@@ -1794,10 +1870,7 @@ def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassific
     policy: dict[Path, tuple[ArtifactClassification, bool]] = {}
     redaction_policies: set[str] = set()
     for manifest_path in sorted((proof_dir / "evidence").glob("evidence-manifest*.json")):
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            raise ArtifactError(f"manifeste d'évidence illisible: {manifest_path}") from e
+        payload = _read_json_or_fail(manifest_path, "manifeste d'évidence illisible")
         if not isinstance(payload, dict) or payload.get("schema") != EVIDENCE_SCHEMA:
             raise ArtifactError(f"schéma de manifeste d'évidence inattendu: {manifest_path}")
         redaction_policies.add(str(payload.get("redaction_policy")))
@@ -1826,14 +1899,38 @@ def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassific
     return policy
 
 
-def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
-    """Purge les artefacts d'évidence orphelins d'un pytest tué par deadline.
+def _docker_chown_remedy(root: Path) -> str:
+    """Remède standard aux fichiers root laissés par un run Docker interrompu."""
 
-    Un pytest interrompu (exit 124) n'exécute pas ``pytest_sessionfinish``:
-    ses artefacts attach_* déjà écrits n'ont aucun manifeste, et le staging
-    partageable échouerait fermé avec un message trompeur. On retire ces
-    orphelins de l'arbre — la suite tuée est déjà un échec de commande visible
-    au verdict — plutôt que de masquer la cause réelle.
+    return (
+        f'réparer avec `docker run --rm -v "$PWD/{root.name}:/t" alpine '
+        'chown -R "$(id -u):$(id -g)" /t` puis relancer'
+    )
+
+
+def _raise_actionable_permission_error(root: Path, exc: PermissionError) -> NoReturn:
+    """Convertit une PermissionError du staging en erreur actionnable.
+
+    Un conteneur Symfony tué avant son chown final laisse des fichiers root
+    dans l'arbre: plutôt qu'une PermissionError brute au milieu du run, on
+    nomme le répertoire fautif et le remède.
+    """
+
+    raise ArtifactError(
+        f"staging résiduel non purgeable: {root} (fichiers appartenant "
+        f"probablement à root après un run Docker interrompu); {_docker_chown_remedy(root)}"
+    ) from exc
+
+
+def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
+    """Purge les artefacts d'évidence orphelins d'un pytest mort sans épilogue.
+
+    Un pytest interrompu (deadline exit 124, SIGKILL, OOM 137, segfault)
+    n'exécute pas ``pytest_sessionfinish``: ses artefacts attach_* déjà écrits
+    n'ont aucun manifeste, et le staging partageable échouerait fermé avec un
+    message trompeur. On retire ces orphelins de l'arbre — la suite tuée est
+    déjà un échec de commande visible au verdict — plutôt que de masquer la
+    cause réelle.
     """
 
     artifacts_root = proof_dir / "evidence" / "artifacts"
@@ -1953,28 +2050,31 @@ def _generate() -> dict:
     timeout_scale = proof_timeout_scale()
     staging = _staging_dir()
     previous = _previous_dir()
+    # Récupération d'un swap interrompu: un crash entre les deux os.replace de
+    # la bascule finale laisse la dernière bonne preuve dans `.proof.old` sans
+    # `.proof`. La restaurer AVANT la purge des restes, sinon le rmtree
+    # ci-dessous détruirait la seule preuve encore valide.
+    if previous.exists() and not PROOF_DIR.exists():
+        os.replace(previous, PROOF_DIR)
     # Restes d'un run précédent interrompu: le staging est jetable par contrat.
     for leftover in (staging, previous):
         if leftover.exists():
             try:
                 shutil.rmtree(leftover)
             except PermissionError as exc:
-                # Un run Docker interrompu avant son chown final laisse des
-                # fichiers root dans le staging: message actionnable plutôt
-                # qu'une PermissionError brute au milieu de la génération.
-                raise ArtifactError(
-                    f"staging résiduel non purgeable: {leftover} (fichiers appartenant "
-                    "probablement à root après un run Docker interrompu); réparer avec "
-                    f'`docker run --rm -v "$PWD/{leftover.name}:/t" alpine '
-                    'chown -R "$(id -u):$(id -g)" /t` puis relancer'
-                ) from exc
+                # Fichiers root laissés par un run Docker interrompu avant son
+                # chown final: erreur actionnable plutôt que PermissionError brute.
+                _raise_actionable_permission_error(leftover, exc)
     _secure_dir(staging)
     context = redaction_context_from_environment()
     env = _repo_env()
 
     # Séparation chemin physique (écrit dans le staging) / chemin logique
     # publié (.proof/...): tout ce qui entre au summary, au rapport HTML et
-    # aux logs est réécrit du premier vers le second avant publication.
+    # aux logs est réécrit du premier vers le second avant publication. Les
+    # racines sont passées SANS slash: _rewrite_text_paths les ancre lui-même
+    # (préfixe `racine/` ou valeur exactement égale), ce qui préserve les
+    # littéraux `.proof.new` cités dans les extraits de code capturés.
     publish_rewrites: tuple[tuple[str, str], ...] = (
         (str(staging.resolve()), str(PROOF_DIR.resolve())),
         (str(staging), str(PROOF_DIR)),
@@ -1982,7 +2082,7 @@ def _generate() -> dict:
     # Les preuves écrites DANS le conteneur Symfony parlent déjà en `.proof/…`
     # (montage /workspace/.proof): on les ramène au chemin physique du staging
     # pour pouvoir les lire pendant la génération, avant réécriture inverse.
-    ingest_rewrites: tuple[tuple[str, str], ...] = ((f"{PROOF_DIR}/", f"{staging}/"),)
+    ingest_rewrites: tuple[tuple[str, str], ...] = ((str(PROOF_DIR), str(staging)),)
 
     def scaled(seconds: float) -> float:
         return seconds * timeout_scale
@@ -2079,14 +2179,21 @@ def _generate() -> dict:
         ),
     ]
 
-    # Un pytest tué par deadline n'a pas écrit ses manifestes d'évidence: ses
-    # artefacts orphelins feraient échouer le staging fail-closed avec un
-    # message trompeur, alors que la cause réelle (exit 124) est déjà rouge.
+    # Un pytest mort sans exécuter pytest_sessionfinish n'a pas écrit ses
+    # manifestes d'évidence: ses artefacts orphelins feraient échouer le
+    # staging fail-closed avec un message trompeur, alors que la cause réelle
+    # est déjà rouge au verdict. Un run à échec normal (exit 1) a écrit ses
+    # manifestes — la purge y est alors un no-op; tout autre code non nul
+    # (124 deadline, 137 OOM, returncode négatif d'un signal, segfault) peut
+    # signifier une mort sans épilogue, donc on purge dès que l'exit ≠ 0.
     if any(
-        command.id in {"unit", "e2e", "symfony-e2e"} and command.exit_code == 124
+        command.id in {"unit", "e2e", "symfony-e2e"} and command.exit_code != 0
         for command in commands
     ):
-        _purge_unmanifested_evidence(staging)
+        try:
+            _purge_unmanifested_evidence(staging)
+        except PermissionError as exc:
+            _raise_actionable_permission_error(staging, exc)
 
     # Preuve secondaire native (pty, aucune dépendance): les .cast atterrissent
     # dans le staging et entrent au rapport via le catalogue (rglob). Le portail
@@ -2147,7 +2254,10 @@ def _generate() -> dict:
         staging / REPORT_HTML.name,
         render_html(summary),
     )
-    _harden_tree(staging)
+    try:
+        _harden_tree(staging)
+    except PermissionError as exc:
+        _raise_actionable_permission_error(staging, exc)
     build_shareable_proof(
         staging,
         canaries=environment_secret_values(),
@@ -2161,7 +2271,18 @@ def _generate() -> dict:
     if PROOF_DIR.exists():
         os.replace(PROOF_DIR, previous)
     os.replace(staging, PROOF_DIR)
-    shutil.rmtree(previous, ignore_errors=True)
+    if previous.exists():
+        try:
+            shutil.rmtree(previous)
+        except PermissionError as exc:
+            # La preuve est déjà publiée: un `.proof.old` non supprimable
+            # (fichiers root) ne doit pas rougir le run, mais l'erreur doit
+            # surfacer maintenant plutôt qu'au run suivant.
+            print(
+                f"avertissement: nettoyage impossible de {previous} ({exc}); "
+                f"{_docker_chown_remedy(previous)}",
+                file=sys.stderr,
+            )
     return summary
 
 

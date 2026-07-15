@@ -737,7 +737,9 @@ class EvidenceSession:
         # des manifestes distincts au lieu de s'écraser, et un re-run de la
         # même session remplace le sien (déterminisme, pas d'accumulation).
         suites = sorted({case.suite for case in self.cases.values()})
-        stem = slugify("-".join(suites)) if suites else secrets.token_hex(8)
+        # Repli déterministe "session": un manifeste sans cas garde un nom
+        # stable entre runs standalone au lieu d'accumuler des noms aléatoires.
+        stem = slugify("-".join(suites)) if suites else "session"
         _write_private_text(
             self.root / f"evidence-manifest-{stem}.json",
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",

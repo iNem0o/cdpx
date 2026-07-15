@@ -67,6 +67,13 @@ valeur invalide bloque la preuve avant de remplacer l'arbre existant. Ce TTL
 est une donnée de rétention purgeable, pas un daemon de suppression
 automatique.
 
+Chaque commande de preuve est bornée par une deadline : une commande tuée à
+sa deadline devient un exit 124, donc un verdict rouge, jamais un blocage
+indéfini. `CDPX_PROOF_TIMEOUT_SCALE` (flottant strictement positif) multiplie
+uniformément ces budgets ; une valeur invalide bloque la preuve avant toute
+destruction de l'arbre existant. `CDPX_PROOF_DIR` est le paramètre interne du
+montage Compose Symfony, défaut `./.proof`.
+
 Le HTML brut des sources Markdown est désactivé. Les liens internes sont
 résolus uniquement vers les documents publiés, et Mermaid fonctionne avec
 `securityLevel: strict`, une CSP sans connexion sortante et un bundle local

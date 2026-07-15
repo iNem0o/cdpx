@@ -69,7 +69,16 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # Un échec de `make proof` laisse le résumé (déjà redacté) dans le
+          # staging transactionnel .proof.new/: on le lit alors localement.
+          # .proof.new n'est JAMAIS uploadé comme artefact — il peut contenir
+          # de l'évidence non partageable; seul ce step le consulte.
+          summary_path=".proof/validation-summary.json"
+          if [ ! -f "${summary_path}" ] && [ -f ".proof.new/validation-summary.json" ]; then
+            summary_path=".proof.new/validation-summary.json"
+          fi
           python scripts/github_summary.py \
+            --summary "${summary_path}" \
             --artifact-name "${PROOF_ARTIFACT_NAME}" \
             --release-outcome "${RELEASE_OUTCOME}" \
             | tee -a "${GITHUB_STEP_SUMMARY}"

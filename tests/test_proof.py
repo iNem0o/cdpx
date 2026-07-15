@@ -1,4 +1,5 @@
 import json
+import os
 import stat
 import sys
 import threading
@@ -412,6 +413,32 @@ def test_generate_preserves_previous_proof_when_a_step_fails(tmp_path, monkeypat
     assert (tmp_path / ".proof.new").is_dir()
 
 
+def test_generate_recovers_interrupted_swap_before_purging_leftovers(tmp_path, monkeypatch):
+    """Un crash entre les deux os.replace de la bascule finale laisse la
+    dernière bonne preuve dans .proof.old sans .proof: le run suivant la
+    restaure à l'emplacement canonique AVANT la purge des restes, au lieu de
+    la détruire par rmtree."""
+    proof_dir = tmp_path / ".proof"
+    previous = tmp_path / ".proof.old"
+    previous.mkdir()
+    (previous / "keep.txt").write_text("preserve", encoding="utf-8")
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("étape de preuve cassée")
+
+    monkeypatch.setattr(proof, "run_evidence", explode)
+
+    #: l'échec injecté interrompt le run APRÈS la récupération du swap
+    with pytest.raises(RuntimeError, match="étape de preuve cassée"):
+        proof.generate()
+
+    #: la dernière bonne preuve est revenue dans .proof, pas détruite en .proof.old
+    assert (proof_dir / "keep.txt").read_text(encoding="utf-8") == "preserve"
+    #: le reste du swap interrompu a bien été purgé après récupération
+    assert not previous.exists()
+
+
 def test_generate_reports_unpurgeable_staging_with_actionable_error(tmp_path, monkeypatch):
     """Un staging résiduel non purgeable (fichiers root laissés par un run
     Docker interrompu) produit une erreur actionnable qui nomme le remède,
@@ -565,6 +592,65 @@ def test_generate_completes_with_red_verdict_when_a_command_fails(tmp_path, monk
     assert published["ok"] is False
 
 
+def test_generate_purges_orphans_when_pytest_dies_without_sessionfinish(tmp_path, monkeypatch):
+    """Un pytest mort sans épilogue (SIGKILL, returncode -9) laisse des
+    artefacts sans manifeste: la génération purge ces orphelins et aboutit à
+    un verdict rouge nommant la commande, au lieu d'échouer en ArtifactError
+    « non manifesté » trompeuse."""
+
+    def killed_run_evidence(id, label, argv, log_path, **kwargs):
+        evidence = _fake_run_evidence(id, label, argv, log_path, **kwargs)
+        if id == "unit":
+            orphan = log_path.parent / "evidence" / "artifacts" / "unit" / "scn" / "orphan.txt"
+            proof._write_private_text(orphan, "écrit avant le SIGKILL\n")
+            return replace(evidence, exit_code=-9, status="failed")
+        return evidence
+
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path, run_evidence=killed_run_evidence)
+
+    summary = proof.generate()
+
+    #: la mort anormale rougit le verdict au lieu de bloquer la génération
+    assert summary["ok"] is False
+    #: la cause visible reste l'échec de la commande, jamais un faux « non manifesté »
+    assert any(
+        failure.startswith("command failed: Pytest unitaires")
+        for failure in summary["proof_failures"]
+    )
+    #: l'orphelin sans manifeste a été purgé avant le staging partageable
+    assert not (proof_dir / "evidence" / "artifacts" / "unit" / "scn" / "orphan.txt").exists()
+    #: l'arbre complet est publié malgré la suite tuée
+    assert (proof_dir / "validation-summary.json").is_file()
+
+
+def test_generate_warns_without_failing_when_previous_cleanup_is_denied(
+    tmp_path, monkeypatch, capsys
+):
+    """Un .proof.old non supprimable après publication (fichiers root) ne
+    rougit pas le run — la preuve est déjà publiée — mais l'avertissement
+    actionnable (remède docker chown) part immédiatement sur stderr au lieu
+    d'être avalé en silence."""
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
+    (proof_dir / "stale.txt").write_text("ancien run", encoding="utf-8")
+    real_rmtree = proof.shutil.rmtree
+
+    def stubborn_rmtree(path, *args, **kwargs):
+        if Path(path) == tmp_path / ".proof.old":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(proof.shutil, "rmtree", stubborn_rmtree)
+
+    proof.generate()
+
+    #: la génération aboutit: la nouvelle preuve est bien publiée
+    assert (proof_dir / "validation-summary.json").is_file()
+    captured = capsys.readouterr()
+    #: l'avertissement nomme le dossier fautif et le remède chown sur stderr
+    assert ".proof.old" in captured.err
+    assert "chown" in captured.err
+
+
 def test_generate_reports_missing_junit_as_red_verdict(tmp_path, monkeypatch):
     """Toutes les commandes vertes mais aucun JUnit produit: le verdict est
     rouge avec une défaillance « required JUnit missing » par suite requise —
@@ -594,8 +680,7 @@ def test_generate_marks_symfony_unavailable_as_blocking(tmp_path, monkeypatch):
         proof.write_symfony_unavailable_evidence(
             "Docker daemon unavailable",
             redaction_context=redaction_context,
-            evidence_dir=proof_dir / "evidence",
-            log_path=log_path,
+            proof_dir=proof_dir,
         )
         return proof.CommandEvidence(
             id="symfony-e2e",
@@ -668,6 +753,30 @@ def test_generate_keeps_previous_proof_when_canary_reaches_staging(tmp_path, mon
     #: le staging raté reste hors .proof pour diagnostic, sans arbre partageable
     assert (tmp_path / ".proof.new").is_dir()
     assert not (tmp_path / ".proof.new" / "shareable").exists()
+
+
+def test_generate_converts_hardening_permission_error_into_actionable_error(tmp_path, monkeypatch):
+    """Une PermissionError pendant le durcissement du staging (fichiers root
+    laissés par un conteneur Symfony tué avant son chown) devient une
+    ArtifactError actionnable nommant le remède, et la preuve précédente
+    reste intacte."""
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
+    sentinel = proof_dir / "keep.txt"
+    sentinel.write_text("preserve", encoding="utf-8")
+
+    def deny(_root):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(proof, "_harden_tree", deny)
+
+    #: la PermissionError brute est convertie en erreur actionnable
+    with pytest.raises(ArtifactError, match="staging résiduel non purgeable") as excinfo:
+        proof.generate()
+    #: le remède (chown via conteneur jetable) est nommé dans le message
+    assert "chown" in str(excinfo.value)
+
+    #: la preuve précédente n'a pas été touchée par le run avorté
+    assert sentinel.read_text(encoding="utf-8") == "preserve"
 
 
 def test_run_evidence_times_out_with_redacted_final_log(tmp_path):
@@ -757,6 +866,83 @@ def test_run_evidence_streams_progress_into_partial_file(tmp_path):
     #: le log final agrège l'intégralité du flux et le .partial a disparu
     assert "premiere-ligne" in contents and "seconde-ligne" in contents
     assert not partial.exists()
+
+
+def test_rewrite_text_paths_only_rewrites_anchored_paths():
+    """La réécriture des chemins publiés est ancrée: seuls le préfixe
+    `racine/…` et la valeur exactement égale à la racine changent — un
+    littéral `.proof.new` cité dans un extrait de code capturé est préservé
+    tel quel au lieu d'être corrompu par un remplacement naïf."""
+    rewrites = ((".proof.new", ".proof"),)
+    excerpt = 'assert ".proof.new" not in summary_text\nlog: .proof.new/unit-junit.xml\n'
+
+    rewritten = proof._rewrite_text_paths(excerpt, rewrites)
+
+    #: le vrai chemin, ancré par un slash, est réécrit vers la racine logique
+    assert "log: .proof/unit-junit.xml" in rewritten
+    #: le littéral cité sans slash survit: les extraits de code restent fidèles
+    assert 'assert ".proof.new" not in summary_text' in rewritten
+    #: une valeur exactement égale à la racine physique est réécrite entière
+    assert proof._rewrite_text_paths(".proof.new", rewrites) == ".proof"
+
+
+def test_stream_deadline_kills_the_entire_process_group(tmp_path):
+    """La deadline tue tout le groupe de processus, pas seulement l'enfant
+    direct: un petit-fils (Chrome, serveur de fixtures lancé par pytest) ne
+    survit jamais au kill, ne garde aucun port et ne peut plus écrire dans
+    l'évidence après la purge."""
+    pids_path = tmp_path / "pids.txt"
+    wait_loop = "\nfor _ in range(400): time.sleep(0.025)\n"
+    grandchild = "import time" + wait_loop
+    child = (
+        "import os, subprocess, sys, time\n"
+        f"grand = subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+        f"with open({str(pids_path)!r}, 'w') as fh:\n"
+        "    fh.write(f'{os.getpid()} {grand.pid}')\n" + wait_loop
+    )
+    sink = tmp_path / "stream.log"
+
+    code, timed_out = proof._stream_to_private_file(
+        [sys.executable, "-u", "-c", child], sink, env={"PATH": "/usr/bin"}, timeout=2.0
+    )
+
+    #: la deadline est convertie en exit conventionnel 124
+    assert code == 124
+    assert timed_out is True
+    pids = [int(value) for value in pids_path.read_text(encoding="utf-8").split()]
+    assert len(pids) == 2
+    #: attente BORNÉE (≤ 10 s): l'enfant ET le petit-fils sont morts
+    deadline = time.monotonic() + 10
+    for pid in pids:
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            assert time.monotonic() < deadline, f"processus {pid} survit au kill du groupe"
+            time.sleep(0.05)
+
+
+def test_stream_and_collect_unlinks_raw_partial_on_unexpected_failure(tmp_path, monkeypatch):
+    """Le flux brut *.partial (non redacté) est supprimé même quand une
+    exception inattendue interrompt la collecte: un staging partiel conservé
+    pour diagnostic ne contient jamais de sortie brute."""
+    log = tmp_path / "cmd.log"
+
+    def exploding_stream(argv, sink, *, env, timeout):
+        sink.write_text("flux brut secret\n", encoding="utf-8")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(proof, "_stream_to_private_file", exploding_stream)
+
+    #: l'exception inattendue remonte à l'appelant, elle n'est pas avalée
+    with pytest.raises(KeyboardInterrupt):
+        proof._stream_and_collect(
+            ["cmd"], log, env={}, timeout=1.0, timeout_label="commande interrompue"
+        )
+
+    #: le flux brut n'a pas survécu à l'échec: aucun résidu non redacté
+    assert not log.with_name(f"{log.name}.partial").exists()
 
 
 def test_pytest_timeout_orphans_are_purged_before_shareable_staging(tmp_path):
@@ -2041,6 +2227,36 @@ def test_collect_git_context_filters_private_paths_and_splits_generated(tmp_path
     assert context["generated_count"] == 1
     #: le diff stat est écrit au chemin demandé pour le catalogue d'évidence
     assert "proof.py" in diff_stat_path.read_text(encoding="utf-8")
+
+
+def test_collect_git_context_never_parses_failed_git_output_as_porcelain(tmp_path, monkeypatch):
+    """Une sortie git en échec (timeout exit 124, porcelain partiel suivi de
+    l'annotation de timeout) n'est jamais parsée comme du porcelain: listes
+    vides, snapshots vides, seul le code d'erreur publié porte le
+    diagnostic — aucune entrée corrompue n'atteint le summary."""
+
+    def fake_run_text(argv, timeout=None, env=None):
+        if argv[:2] == ["git", "status"]:
+            return 124, "M  x\ntimeout after 30.0s\n"
+        if argv[:2] == ["git", "diff"]:
+            return 124, " partial | 1 +\ntimeout after 30.0s\n"
+        return 0, "main\n"
+
+    monkeypatch.setattr(proof, "_run_text", fake_run_text)
+    status_path = tmp_path / "git-status.txt"
+    diff_stat_path = tmp_path / "git-diff-stat.txt"
+
+    context = proof.collect_git_context(status_path=status_path, diff_stat_path=diff_stat_path)
+
+    #: aucune ligne du porcelain partiel ne devient une entrée de fichier
+    assert context["changed_files"] == []
+    assert context["generated_files"] == []
+    #: les codes d'échec sont publiés tels quels pour le diagnostic
+    assert context["status_code"] == 124
+    assert context["diff_stat_code"] == 124
+    #: les snapshots écrits sont vides: pas de porcelain corrompu publié
+    assert status_path.read_text(encoding="utf-8") == ""
+    assert diff_stat_path.read_text(encoding="utf-8") == ""
 
 
 def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_codes=None):

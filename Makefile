@@ -50,10 +50,13 @@ docker-check: docker-build ## make check-local dans l'image cdpx-ci
 docker-e2e: docker-build ## e2e Chrome réel dans l'image cdpx-ci
 	docker run --rm cdpx-ci make test-e2e
 
+# CDPX_PROOF_DIR est épinglé pour les deux commandes compose (down du cleanup
+# et up): un export utilisateur résiduel ne doit jamais rediriger le montage,
+# le conteneur y applique un chown -R récursif.
 docker-symfony-e2e: ## M2: e2e profiler contre une vraie app Symfony Dockerisée
 	@set -eu; \
 	mkdir -p .proof/evidence; \
-	export CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g); \
+	export CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) CDPX_PROOF_DIR=./.proof; \
 	cleanup() { docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans; }; \
 	trap cleanup EXIT INT TERM; \
 	cleanup; \

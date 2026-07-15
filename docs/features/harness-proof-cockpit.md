@@ -253,6 +253,14 @@ rétention que l'upload : `CDPX_PROOF_RETENTION_DAYS`, entier strict de 1 à
 fait échouer la preuve. Hors session supervisée, la purge locale n'est pas
 déclenchée par un daemon global.
 
+Chaque commande de preuve est bornée par une deadline : une commande tuée à
+sa deadline est convertie en exit 124 et produit un verdict rouge, jamais un
+blocage indéfini. `CDPX_PROOF_TIMEOUT_SCALE`, flottant strictement positif
+(ex. `2` sur machine lente), multiplie uniformément ces budgets ; une valeur
+invalide bloque la preuve avant toute destruction de l'arbre existant.
+`CDPX_PROOF_DIR` est le paramètre interne du montage Compose Symfony (défaut
+`./.proof`), que `make proof` pointe vers son staging transactionnel.
+
 Une fiche feature invalide (section manquante, entrypoint sans doc
 utilisateur, scénario orphelin) est une violation qui fait échouer la
 génération : la doc ne peut pas diverger silencieusement du produit.
