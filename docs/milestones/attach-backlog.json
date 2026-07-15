@@ -1,0 +1,307 @@
+[
+ {
+  "nodeid": "tests/test_artifacts.py::test_writer_redacts_text_json_and_registered_text_files",
+  "helper": "attach_text",
+  "what": "Attacher le contenu redacté de message.log/result.json comme preuve visuelle que le marqueur *** remplace la valeur secrète sur les trois voies d'entrée."
+ },
+ {
+  "nodeid": "tests/test_artifacts.py::test_shareable_staging_contains_only_manifested_allowed_files",
+  "helper": "attach_json",
+  "what": "Attacher le manifest.json du staging partagé comme preuve de la liste blanche (seul safe.json y figure)."
+ },
+ {
+  "nodeid": "tests/test_cast.py::test_record_cast_produces_valid_asciicast_v2",
+  "helper": "attach_cast",
+  "what": "Attacher le .cast généré, rejouable dans le player du cockpit, comme preuve du contrat asciicast v2."
+ },
+ {
+  "nodeid": "tests/test_markdown.py::test_render_markdown_disables_raw_html_and_unsafe_links",
+  "helper": "attach_text",
+  "what": "Attacher le HTML rendu montrant l'échappement du script et le lien javascript: désarmé."
+ },
+ {
+  "nodeid": "tests/test_session_cli.py::test_session_capture_is_confined_private_and_non_shareable",
+  "helper": "attach_file / EvidenceCase",
+  "what": "Joindre la capture produite (payload[\"path\"]) comme artefact de preuve du confinement (droits 0700/0600, classification opaque-restricted)."
+ },
+ {
+  "nodeid": "tests/test_session_cli.py::test_session_scenario_uses_private_session_evidence_and_secret_ref",
+  "helper": "attach_cli_run / EvidenceCase",
+  "what": "Joindre la sortie JSON du scenario run et le resultat de scan_canaries comme preuve d'absence de fuite du secret dans l'evidence."
+ },
+ {
+  "nodeid": "tests/test_session_cli.py::test_session_record_is_preflighted_confined_and_replayable_by_secret_ref",
+  "helper": "attach_file / attach_cli_run",
+  "what": "Joindre le journal ndjson confine (avec @env au lieu de la valeur secrete) et la sortie du replay comme preuve du cycle record→replay sans divulgation."
+ },
+ {
+  "nodeid": "tests/test_session_cli.py::test_session_observation_is_scoped_and_emits_untrusted_metadata",
+  "helper": "@pytest.mark.scenario + attach_cli_run",
+  "what": "Scenario candidat pour le catalogue de preuve: metadonnees _cdpx marquant le contenu de page untrusted face a une tentative d'injection de consigne."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_sessions.py::test_supervised_sessions_are_isolated_authorized_and_torn_down",
+  "helper": "attach_cli_run",
+  "what": "Joindre stdout/stderr des commandes refusées (denied_interaction, denied_privileged, contended) comme preuve brute des refus d'autorité et de bail, en plus du JSON de synthèse déjà attaché."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_sessions.py::test_supervisor_signal_still_tears_down_chrome_and_private_files",
+  "helper": "attach_cli_run",
+  "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
+ },
+ {
+  "nodeid": "tests/test_fixture_server.py::test_all_pages_served_with_markers",
+  "helper": "attach_json",
+  "what": "Joindre la carte PAGES_MARKERS (pages -> marqueurs vérifiés) comme preuve du contrat fixtures/e2e; nécessiterait d'exposer evidence_case aux tests unitaires."
+ },
+ {
+  "nodeid": "tests/test_discovery_and_client.py::test_send_and_result",
+  "helper": "attach_json",
+  "what": "Joindre la trace protocolaire du mock (commands_for) comme preuve du protocole émis; idem pour les autres tests client si evidence_case devient disponible côté unitaires."
+ },
+ {
+  "nodeid": "tests/test_docs.py::test_documented_cdpx_examples_parse",
+  "helper": "@pytest.mark.scenario",
+  "what": "Candidat naturel pour un marqueur scenario (feature docs, proves: tout exemple documente se parse); les autres tests des deux fichiers sont des garde-fous statiques sans execution CLI ni capture, donc aucun attach_cli_run/attach_cli_screenshot pertinent."
+ },
+ {
+  "nodeid": "tests/test_github_summary.py::test_github_summary_uses_real_proof_and_archives",
+  "helper": "attach_text",
+  "what": "Le markdown genere (rapport PR complet) comme piece relisible dans le cockpit, plutot que de ne prouver que des sous-chaines."
+ },
+ {
+  "nodeid": "tests/test_github_summary.py::test_github_summary_reports_early_failure",
+  "helper": "attach_text",
+  "what": "Le rapport FAIL genere, pour montrer visuellement a quoi ressemble un echec en amont cote PR."
+ },
+ {
+  "nodeid": "tests/test_journal.py::test_record_v2_executes_secret_but_never_persists_it",
+  "helper": "attach_file",
+  "what": "Le journal record.ndjson (deja sans la valeur secrete) comme preuve directe que seule la reference est persistee."
+ },
+ {
+  "nodeid": "tests/test_journal.py::test_replay_v2_resolves_all_refs_before_first_action",
+  "helper": "attach_json",
+  "what": "Le resultat du replay (played=0, divergence) pour documenter le comportement fail-fast du rejeu."
+ },
+ {
+  "nodeid": "tests/test_journal.py::test_record_eval_never_persists_result_or_error",
+  "helper": "attach_file",
+  "what": "Le journal eval.ndjson montrant les marqueurs masques dans les deux branches (succes/echec)."
+ },
+ {
+  "nodeid": "tests/test_security_integration.py::test_observation_outputs_redact_url_console_storage_and_errors",
+  "helper": "@pytest.mark.scenario + evidence_case/attach_cli_run",
+  "what": "Attacher la sortie JSON agrégée (console+storage+réseau) redactée comme preuve du scénario 'observation sans fuite' — le test est un flux flagship de sécurité."
+ },
+ {
+  "nodeid": "tests/test_security_integration.py::test_profiler_redacts_token_headers_and_urls_before_artifact",
+  "helper": "@pytest.mark.scenario + evidence_case (attach du profiler.json redacté)",
+  "what": "Attacher profiler.json de l'artefact partageable et le résultat scan_canaries comme preuve que la frontière redact_tree protège l'artefact profiler."
+ },
+ {
+  "nodeid": "tests/test_security_integration.py::test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free",
+  "helper": "@pytest.mark.scenario + evidence_case (attach du journal record.ndjson)",
+  "what": "Attacher le journal NDJSON (qui ne contient que secret_ref) et l'arborescence shareable comme preuve du contrat @env: sans fuite de valeur secrète."
+ },
+ {
+  "nodeid": "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect",
+  "helper": "@pytest.mark.scenario + evidence_case (attach du résultat replay avec divergence)",
+  "what": "Attacher le JSON de divergence du replay comme preuve du fail-closed avant tout effet CDP."
+ },
+ {
+  "nodeid": "tests/test_scenarios.py::test_run_scenario_happy_path_with_checkpoint_artifacts",
+  "helper": "@pytest.mark.scenario + attach_cli_screenshot-équivalent mock",
+  "what": "Scénario nominal complet du runner: candidat naturel à un scenario_id (ex: scenario-runner.happy-path) et à l'attachement des artefacts produits (screenshot/console/network) comme preuve."
+ },
+ {
+  "nodeid": "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence",
+  "helper": "@pytest.mark.scenario",
+  "what": "Preuve de non-fuite de la valeur secrète (résultat + évidence + frappe CDP intégrale): mériterait un scenario_id sécurité rattaché à la fiche correspondante."
+ },
+ {
+  "nodeid": "tests/test_scenarios.py::test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture",
+  "helper": "@pytest.mark.scenario",
+  "what": "Garde-fou d'origine (origin_refused) démontré de bout en bout: bon candidat à un scenario_id documenté côté sécurité/navigation."
+ },
+ {
+  "nodeid": "tests/test_scenarios.py::test_scenario_cli_run_passes_with_json",
+  "helper": "@pytest.mark.scenario + attach_cli_run",
+  "what": "Exécution CLI réelle (argv -> JSON stdout): l'attachement de la commande et de sa sortie ferait une preuve cockpit lisible."
+ },
+ {
+  "nodeid": "tests/test_documentation.py::test_real_documentation_catalog_publishes_references_and_all_features",
+  "helper": "@pytest.mark.scenario",
+  "what": "Test portant sur le catalogue réel livré: rattachable au scénario documenté de la rubrique Docs (harness-proof-cockpit)."
+ },
+ {
+  "nodeid": "tests/test_cli.py::test_cookies_masked_output",
+  "helper": "@pytest.mark.scenario + attach_cli_run",
+  "what": "Preuve sécurité: la sortie cookies masquée pourrait alimenter le cockpit sur un scénario de non-fuite de secrets (feature security/redaction)."
+ },
+ {
+  "nodeid": "tests/test_cli.py::test_origin_guard_blocks_cli_mutation",
+  "helper": "@pytest.mark.scenario",
+  "what": "Le refus d'origine sur mutation simple est un comportement flagship du garde: candidat naturel a un scenario_id origin-guard dedie."
+ },
+ {
+  "nodeid": "tests/test_cli.py::test_intercept_checks_destination_origin_not_initial_tab",
+  "helper": "@pytest.mark.scenario",
+  "what": "Le garde sur la destination (pas l'onglet initial) est une propriete de securite subtile qui meriterait une entree proves= dans la preuve."
+ },
+ {
+  "nodeid": "tests/test_cli.py::test_pdf_cli_writes_valid_signature",
+  "helper": "attach_cli_run / evidence_case",
+  "what": "Le PDF genere (signature %PDF, range dans les artefacts) est une piece jointe de preuve toute prete."
+ },
+ {
+  "nodeid": "tests/test_cli.py::test_replay_cli_divergence_exits_1_with_json",
+  "helper": "attach_cli_run",
+  "what": "Le JSON de divergence structure (event 0:) illustrerait bien le contrat record/replay dans le rapport de preuve."
+ },
+ {
+  "nodeid": "tests/test_cli.py::test_cli_dispatch_emits_protocol_and_json",
+  "helper": "@pytest.mark.scenario",
+  "what": "Le filet de dispatch couvre tout le catalogue de primitives: un scenario harness-proof-cockpit avec proves= sur le contrat protocole aurait de la valeur."
+ },
+ {
+  "nodeid": "tests/test_session.py::test_supervisor_builds_manifest_closes_extra_target_and_cleans_up",
+  "helper": "@pytest.mark.scenario",
+  "what": "Cycle de vie supervise complet (attestation, manifest, fermeture des targets surnumeraires, SIGTERM, cleanup) — bon candidat scenario feature=state-session, journey=supervised-lifecycle, meme sans Chrome reel."
+ },
+ {
+  "nodeid": "tests/test_session.py::test_start_session_timeout_reports_redacted_log_tails_before_cleanup",
+  "helper": "@pytest.mark.scenario + attach (extrait du message PolicyError redacte)",
+  "what": "Preuve que les diagnostics de demarrage sont exploitables et redactes de la valeur secrete avant nettoyage — le message d'erreur redacte ferait une piece de preuve parlante."
+ },
+ {
+  "nodeid": "tests/test_session.py::test_public_manifest_omits_capabilities_and_physical_profile",
+  "helper": "@pytest.mark.scenario + attach (public_dict serialise)",
+  "what": "Contrat de sortie publique (aucune capacite/PID/chemin ne fuit) — attacher le JSON public_dict documenterait le contrat de securite de l'invariant 5."
+ },
+ {
+  "nodeid": "tests/test_session.py::test_supervisor_error_preserves_redacted_readiness_tails",
+  "helper": "attach (contenu du fichier .error redacte)",
+  "what": "Le fichier .error redacte est le seul temoin post-mortem d'une session detruite; l'attacher illustrerait la chaine diagnostic + redaction."
+ },
+ {
+  "nodeid": "tests/test_proof.py::test_render_html_embeds_payload_verdict_and_routes",
+  "helper": "attach_text",
+  "what": "Le HTML complet rendu (ou un extrait du shell) pour inspection visuelle du rapport dans le cockpit."
+ },
+ {
+  "nodeid": "tests/test_proof.py::test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque",
+  "helper": "attach_json",
+  "what": "Les manifests public (manifest.json) et privé (artifact-manifest.json) générés, preuves des décisions d'allowlist/exclusion."
+ },
+ {
+  "nodeid": "tests/test_proof.py::test_run_evidence_redacts_command_and_output_and_uses_private_mode",
+  "helper": "attach_log_excerpt",
+  "what": "Un extrait du log redacté montrant le marqueur *** à la place de la valeur secrète."
+ },
+ {
+  "nodeid": "tests/test_proof.py::test_parse_junit_extracts_counts_and_cases",
+  "helper": "attach_json",
+  "what": "Le dict parsé retourné par parse_junit à côté du XML source, pour comparer entrée/sortie."
+ },
+ {
+  "nodeid": "tests/test_proof.py::test_catalog_casts_are_inlined_for_the_player",
+  "helper": "attach_cast",
+  "what": "Le .cast synthétique du catalogue, rejouable directement dans le player xterm du cockpit."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_console_follow_is_bounded_ndjson",
+  "helper": "attach_cli_run",
+  "what": "Joindre la sortie NDJSON bornée du `cdpx console --follow --max 4` comme preuve du flux."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr_and_exit_contract",
+  "helper": "attach_cli_run",
+  "what": "Joindre les trois exécutions (succès, erreur runtime, erreur d'usage) pour matérialiser le contrat exit 0/1/2."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking_and_session_storage_black_box",
+  "helper": "attach_cli_run",
+  "what": "Joindre les sorties masquée et --show-values (masked_proc/shown_proc) pour prouver visuellement la redaction."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_jpeg_and_pdf_artifacts_black_box",
+  "helper": "evidence_case.attach_file",
+  "what": "Joindre le JPEG pleine page et le PDF générés (jpeg_path/pdf_path) comme artefacts de preuve."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_origin_guard_cli_real",
+  "helper": "attach_cli_run",
+  "what": "Joindre la sortie du goto refusé (exit 1, 'origine refusée') comme preuve de la garde d'origines."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid",
+  "helper": "evidence_case.attach_json",
+  "what": "Le test ne demande pas evidence_case; joindre mermaid_state et les sondes d'hermétisme (script[src], resources) documenterait le rendu offline."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_record_replay_real",
+  "helper": "evidence_case.attach_json",
+  "what": "Joindre le journal NDJSON et le résultat de divergence (broken) en plus du screenshot replay-final."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_seo_audit_real",
+  "helper": "@pytest.mark.scenario",
+  "what": "Les tests d'audit SEO (seo_audit_real, seo_edge_real) n'ont pas de marqueur scenario alors qu'ils couvrent un usecase produit (audit SEO)."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_chrome.py::test_record_replay_real",
+  "helper": "@pytest.mark.scenario",
+  "what": "Record/replay est un parcours produit complet (orchestration-control.replay-flow) sans marqueur scenario."
+ },
+ {
+  "nodeid": "tests/test_primitives.py::test_click_dispatches_mouse_events_at_center",
+  "helper": "@pytest.mark.scenario + evidence_case",
+  "what": "Scénario flagship dom-interaction côté mock: attacher le journal des commandes Input émises (mock.commands) comme preuve de la séquence souris de confiance."
+ },
+ {
+  "nodeid": "tests/test_primitives.py::test_console_entries_redact_credentials_tokens_and_sensitive_urls",
+  "helper": "@pytest.mark.scenario + attach (sortie redactée)",
+  "what": "Preuve sécurité: attacher la sortie sérialisée redactée montrant que secret/Bearer/JWT/credentials n'y figurent pas, alignée sur les scenario_id de proofing."
+ },
+ {
+  "nodeid": "tests/test_primitives.py::test_network_capture_assembles_requests",
+  "helper": "@pytest.mark.scenario + attach (JSON résumé)",
+  "what": "Attacher le résumé réseau (total/failed/4xx-5xx/bytes) et les URLs masquées comme preuve du contrat net.capture."
+ },
+ {
+  "nodeid": "tests/test_primitives.py::test_profiler_reads_debug_token_link_and_parses_panels",
+  "helper": "@pytest.mark.scenario + attach (sortie profiler masquée)",
+  "what": "Scénario dev-loop Symfony: attacher la sortie profiler prouvant token masqué + métriques SQL parsées depuis la fixture db.html."
+ },
+ {
+  "nodeid": "tests/test_primitives.py::test_replay_stops_at_first_divergence",
+  "helper": "@pytest.mark.scenario + attach (journal NDJSON + divergence)",
+  "what": "Attacher le journal rejoué et l'objet divergence pour documenter le contrat record/replay et l'arrêt net."
+ },
+ {
+  "nodeid": "tests/test_primitives.py::test_origin_guard_classifies_commands_by_effective_mutation",
+  "helper": "@pytest.mark.scenario",
+  "what": "Contrat de sécurité CDPX_ORIGINS: candidat naturel à un scenario_id security.* pour le rapport de preuve."
+ },
+ {
+  "nodeid": "tests/test_profiler_panels.py::test_collect_assembles_contract",
+  "helper": "evidence_case.attach_json",
+  "what": "Joindre le rapport collect masqué (token/headers a ***) comme preuve directe du contrat de sortie de cdpx profiler."
+ },
+ {
+  "nodeid": "tests/test_profiler_panels.py::test_profiler_free_text_only_redacts_high_confidence_credentials",
+  "helper": "evidence_case.attach_json",
+  "what": "Joindre la serialisation JSON redactee des trois panels comme preuve de securite (aucune valeur secrete presente)."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants",
+  "helper": "screenshot / evidence_case.attach_screenshot",
+  "what": "Capturer les variantes cles (routing-404, routing-500, doctrine-n-plus-one) individuellement au lieu d'une seule capture finale apres la derniere navigation."
+ },
+ {
+  "nodeid": "tests/e2e/test_e2e_symfony.py::test_symfony_front_state_dom_diff",
+  "helper": "screenshot / evidence_case.attach_screenshot",
+  "what": "Capturer l'etat avant le clic en plus de l'etat apres, pour materialiser visuellement la transition idle -> submitted que le diff DOM prouve."
+ }
+]

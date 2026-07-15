@@ -74,8 +74,15 @@ Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
       casts inlinés et joués dans xterm.js vendoré (MIT, SHA-256 vérifié).
 - [x] Guider la lecture du pack : « À lire d'abord » quand le verdict est
       rouge, timeline des commandes, badges par type de preuve, compteurs.
-- [ ] Adopter progressivement docstrings + `#:` et `attach_cli_run` dans les
-      suites existantes (fait sur les témoins; généralisation au fil de l'eau).
+- [x] Généraliser docstrings + `#:` à toutes les suites : 430/430 tests ont
+      une intention, 428/428 tests à assertions ont un déroulé annoté
+      (`tests/test_intent.py` reste exclu — témoins à lignes figées). Diff
+      prouvé purement additif (AST identique hors docstrings).
+- [ ] Phase 2 preuves secondaires : dérouler le backlog
+      `docs/milestones/attach-backlog.json` (61 opportunités relevées pendant
+      l'annotation — `attach_cli_run`, `attach_json`, `attach_cast`,
+      marqueurs `scenario` candidats), par petits lots avec `make check-local`
+      systématique car ces ajouts changent le code exécuté.
 
 ## Dette technique continue
 
