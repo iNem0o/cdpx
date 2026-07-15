@@ -173,6 +173,9 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
     tmp_path,
     evidence_case,
 ):
+    """Trois runs supervisés simultanés vivent dans des Chrome réellement
+    étanches (profils, cibles, ports, cookies, storage), chaque autorité borne
+    ce que le CLI accepte, et l'arrêt ne laisse ni fichier ni port ouvert."""
     chrome_bin = find_chrome()
     runtime_dir = tmp_path / "runtime"
     origins = fixtures_http.base_url
@@ -204,6 +207,8 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
 
         observation, interaction, privileged = sessions
         manifests = [item[0] for item in sessions]
+        #: chaque run reçoit son identité, son profil disque, sa cible et son
+        #: port loopback propres: aucune ressource n'est partagée entre runs
         assert len({item.session_id for item in manifests}) == 3
         assert len({item.profile_id for item in manifests}) == 3
         assert len({item.profile_dir for item in manifests}) == 3
@@ -221,8 +226,11 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
             observation[0].target_id,
             env={"XDG_RUNTIME_DIR": str(runtime_dir)},
         )
+        #: la commande status répond proprement sur stdout seul
         assert status_proc.returncode == 0 and not status_proc.stderr
         status = json.loads(status_proc.stdout)
+        #: navigateur et superviseur sont déclarés vivants, mais le statut ne
+        #: divulgue ni l'endpoint WebSocket ni le chemin du profil privé
         assert status["browser_running"] is True
         assert status["supervisor_running"] is True
         assert "websocket_url" not in status and "profile_dir" not in status
@@ -231,6 +239,8 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         observation_url = f"{fixtures_http.base_url}/storage.html"
         interaction_url = f"{fixtures_http.base_url}/form.html"
         privileged_url = f"{fixtures_http.base_url}/index.html"
+        #: chaque session navigue vers sa propre page témoin via le CLI réel,
+        #: enveloppe _cdpx vérifiée par le helper au passage
         assert successful_session_json(*observation, "goto", observation_url)["ok"] is True
         assert successful_session_json(*interaction, "goto", interaction_url)["ok"] is True
         assert successful_session_json(*privileged, "goto", privileged_url)["ok"] is True
@@ -239,6 +249,8 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
             item.run_id: discovery.pick_page(item.host, item.port, item.target_id)["url"]
             for item in manifests
         }
+        #: interrogé endpoint par endpoint, chaque Chrome affiche l'URL de son
+        #: run et aucune autre: les navigations ne se sont pas croisées
         assert assigned_urls == {
             observation[0].run_id: observation_url,
             interaction[0].run_id: interaction_url,
@@ -255,6 +267,9 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         interaction_cookies, interaction_storage = browser_state(interaction[0])
         observation_cookie_names = {item["name"] for item in observation_cookies["cookies"]}
         interaction_cookie_names = {item["name"] for item in interaction_cookies["cookies"]}
+        #: le cookie et la clé localStorage créés par la page de la session
+        #: observation existent chez elle et n'ont jamais fui vers la session
+        #: interaction: l'état navigateur est cloisonné par profil
         assert "jsCookie" in observation_cookie_names
         assert observation_storage["entries"]["cdpx-key"] == "cdpx-value"
         assert "jsCookie" not in interaction_cookie_names
@@ -268,25 +283,34 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         }
 
         observed = successful_session_json(*observation, "text", "h1")
+        #: l'autorité observation suffit pour lire le DOM
         assert observed["text"] == "Storage"
         denied_interaction = run_browser_cli(*observation, "click", "h1")
+        #: le clic est refusé en exit 1 avec un diagnostic qui nomme
+        #: l'autorité manquante — le refus est explicable, pas muet
         assert denied_interaction.returncode == 1
         assert "requiert interaction" in denied_interaction.stderr
 
         clicked = successful_session_json(*interaction, "click", "#submit-btn")
+        #: l'autorité interaction permet un vrai clic et le DOM en atteste
+        #: par le résultat de soumission du formulaire
         assert clicked["clicked"] == "#submit-btn"
         assert successful_session_json(*interaction, "text", "#result")["text"] == "OK:"
         denied_privileged = run_browser_cli(*interaction, "eval", "document.title")
+        #: l'évaluation JS arbitraire reste hors de portée d'interaction:
+        #: refus explicite qui nomme le niveau privileged requis
         assert denied_privileged.returncode == 1
         assert "requiert privileged" in denied_privileged.stderr
 
         evaluated = successful_session_json(*privileged, "eval", "document.title")
+        #: l'autorité privileged débloque l'évaluation JS dans la vraie page
         assert evaluated["value"] == "cdpx fixtures — accueil"
         opened = successful_session_json(
             *privileged,
             "eval",
             "window.open('about:blank', '_blank'); true",
         )
+        #: la page a bien exécuté l'ouverture du popup — le danger est réel
         assert opened["value"] is True
         popup_deadline = time.monotonic() + 5
         pages = []
@@ -299,6 +323,8 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
             if [target.get("id") for target in pages] == [privileged[0].target_id]:
                 break
             time.sleep(0.05)
+        #: le superviseur a refermé le popup: seule la cible assignée au run
+        #: survit, aucune fenêtre parasite ne peut s'installer
         assert [target.get("id") for target in pages] == [privileged[0].target_id]
         proof["authority"] = {
             "observation_text": "allowed",
@@ -315,8 +341,12 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
             target_id=observation[0].target_id,
         ):
             contended = run_browser_cli(*observation, "text", "h1")
+        #: tant que le bail exclusif est détenu ailleurs, la commande est
+        #: refusée avec un diagnostic qui explique la contention
         assert contended.returncode == 1
         assert "session déjà utilisée" in contended.stderr
+        #: le bail relâché, la même commande repasse aussitôt: le refus
+        #: venait bien du verrou, pas d'un état cassé
         assert successful_session_json(*observation, "text", "h1")["text"] == "Storage"
         proof["lease"] = {"while_held": "denied", "after_release": "allowed"}
 
@@ -334,6 +364,8 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
                 timeout=45,
                 env={"XDG_RUNTIME_DIR": str(runtime_dir)},
             )
+            #: l'arrêt de chaque run répond proprement, même exécuté en série
+            #: pendant que d'autres sessions vivent encore
             assert stopped.returncode == 0 and not stopped.stderr, (
                 f"session stop en échec: exit={stopped.returncode}\n"
                 f"stdout={stopped.stdout}\nstderr={stopped.stderr}"
@@ -348,6 +380,8 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
                 "port_closed": closed,
             }
             proof["teardown"].append(teardown)
+            #: l'arrêt ne laisse aucune trace: manifest, profil et répertoire
+            #: privés supprimés, endpoint CDP loopback fermé
             assert all(
                 teardown[key]
                 for key in (
@@ -390,6 +424,9 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
     tmp_path,
     evidence_case,
 ):
+    """Un simple SIGTERM au superviseur suffit à tout démanteler — Chrome
+    fermé, fichiers privés supprimés, endpoint CDP clos — sans jamais passer
+    par la commande stop du CLI."""
     chrome_bin = find_chrome()
     runtime_dir = tmp_path / "runtime"
     manifest, path = start_managed_session(
@@ -403,6 +440,8 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
     profile_dir = Path(manifest.profile_dir)
     proof = {"session": manifest.public_dict()}
     try:
+        #: la session est vivante et pilotable avant l'envoi du signal: le
+        #: démantèlement observé ensuite ne peut pas être un faux positif
         assert (
             successful_session_json(
                 manifest,
@@ -418,6 +457,8 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
             tmp_path / "signal-teardown-session.png",
             "Session before supervisor teardown",
         )
+        #: le manifest expose le pid du superviseur, seul destinataire du
+        #: signal de terminaison
         assert manifest.supervisor_pid is not None
         os.kill(manifest.supervisor_pid, signal.SIGTERM)
         deadline = time.monotonic() + 10
@@ -429,6 +470,9 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
             "session_dir_removed": not session_dir.exists(),
             "port_closed": port_is_closed(manifest.port),
         }
+        #: après le signal, plus aucune trace: manifest, profil et répertoire
+        #: de session supprimés, port CDP fermé — le nettoyage est intrinsèque
+        #: au superviseur, pas à la commande stop
         assert all(proof["teardown"].values())
     finally:
         if path.exists():
