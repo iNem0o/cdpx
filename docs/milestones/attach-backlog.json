@@ -1,25 +1,5 @@
 [
  {
-  "nodeid": "tests/test_session_cli.py::test_session_capture_is_confined_private_and_non_shareable",
-  "helper": "attach_file / EvidenceCase",
-  "what": "Joindre la capture produite (payload[\"path\"]) comme artefact de preuve du confinement (droits 0700/0600, classification opaque-restricted)."
- },
- {
-  "nodeid": "tests/test_session_cli.py::test_session_scenario_uses_private_session_evidence_and_secret_ref",
-  "helper": "attach_cli_run / EvidenceCase",
-  "what": "Joindre la sortie JSON du scenario run et le resultat de scan_canaries comme preuve d'absence de fuite du secret dans l'evidence."
- },
- {
-  "nodeid": "tests/test_session_cli.py::test_session_record_is_preflighted_confined_and_replayable_by_secret_ref",
-  "helper": "attach_file / attach_cli_run",
-  "what": "Joindre le journal ndjson confine (avec @env au lieu de la valeur secrete) et la sortie du replay comme preuve du cycle record→replay sans divulgation."
- },
- {
-  "nodeid": "tests/test_session_cli.py::test_session_observation_is_scoped_and_emits_untrusted_metadata",
-  "helper": "@pytest.mark.scenario + attach_cli_run",
-  "what": "Scenario candidat pour le catalogue de preuve: metadonnees _cdpx marquant le contenu de page untrusted face a une tentative d'injection de consigne."
- },
- {
   "nodeid": "tests/e2e/test_e2e_sessions.py::test_supervised_sessions_are_isolated_authorized_and_torn_down",
   "helper": "attach_cli_run",
   "what": "Joindre stdout/stderr des commandes refusées (denied_interaction, denied_privileged, contended) comme preuve brute des refus d'autorité et de bail, en plus du JSON de synthèse déjà attaché."

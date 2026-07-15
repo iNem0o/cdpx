@@ -190,7 +190,18 @@ def test_session_start_uses_run_id_environment_and_emits_metadata(
     assert calls[0]["timeout"] == 75.0
 
 
-def test_session_observation_is_scoped_and_emits_untrusted_metadata(mock, capsys, tmp_path):
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.mark-page-content-untrusted",
+    proves=[
+        "Page content read under observation authority is labelled untrusted.",
+        "An in-page instruction injection is returned as data, never obeyed.",
+    ],
+)
+def test_session_observation_is_scoped_and_emits_untrusted_metadata(
+    mock, capsys, tmp_path, evidence_case
+):
     """Une lecture de page sous autorité observation aboutit sur l'origine
     autorisée, mais la sortie marque explicitement le contenu comme non
     fiable: le texte d'une page ne devient jamais une instruction."""
@@ -211,6 +222,16 @@ def test_session_observation_is_scoped_and_emits_untrusted_metadata(mock, capsys
         "authority": "observation",
         "content_trust": "untrusted",
     }
+    # Preuve cockpit: le transcript CLI montre le texte injecté restitué comme
+    # donnée untrusted, jamais exécuté (attach borné par l'absence d'evidence-dir).
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "Lecture observation d'une page tentant une injection de consigne",
+            ["cdpx", "text"],
+            out,
+            err,
+            code,
+        )
 
 
 def test_session_tabs_list_validates_real_origin_before_exposing_page_data(mock, capsys, tmp_path):
@@ -486,7 +507,7 @@ steps:
 
 
 def test_session_scenario_uses_private_session_evidence_and_secret_ref(
-    mock, capsys, tmp_path, monkeypatch
+    mock, capsys, tmp_path, monkeypatch, evidence_case
 ):
     """Un scénario avec secret_ref s'exécute en session sans fuite: la valeur
     secrète reste hors de la sortie ET hors des artefacts d'évidence, qui
@@ -542,10 +563,31 @@ steps:
     #: l'évidence est rangée sous les artefacts privés de la session et le
     #: scan canari confirme qu'aucun fichier produit ne contient le secret
     assert evidence_dir.is_relative_to(Path(manifest.artifacts_dir) / "scenarios")
-    assert scan_canaries(evidence_dir, [secret]) == []
+    canary_leaks = scan_canaries(evidence_dir, [secret])
+    assert canary_leaks == []
+    # Preuve cockpit: la sortie JSON du scénario (redactée) et le résultat vide
+    # du scan canari attestent qu'aucune surface d'évidence ne porte le secret.
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "Scénario secret_ref exécuté en session privée",
+            ["cdpx", "scenario", "run", path.name, "--settle", "0"],
+            out,
+            err,
+            code,
+        )
+        evidence_case.attach_json(
+            "Scan canari de l'évidence de scénario",
+            {
+                "evidence_dir": str(evidence_dir.relative_to(Path(manifest.artifacts_dir))),
+                "canary_leaks": canary_leaks,
+                "secret_absent_from_evidence": canary_leaks == [],
+            },
+        )
 
 
-def test_session_capture_is_confined_private_and_non_shareable(mock, capsys, tmp_path):
+def test_session_capture_is_confined_private_and_non_shareable(
+    mock, capsys, tmp_path, evidence_case
+):
     """En session, une capture demandée hors du répertoire d'artefacts est
     reconduite dedans, avec des permissions privées et une classification
     qui interdit tout partage."""
@@ -570,18 +612,37 @@ def test_session_capture_is_confined_private_and_non_shareable(mock, capsys, tmp
     #: la capture atterrit dans artifacts/captures avec des droits qui la
     #: réservent au seul propriétaire (répertoire 0700, fichier 0600)
     assert captured == Path(manifest.artifacts_dir) / "captures" / outside.name
-    assert stat.S_IMODE(captured.parent.stat().st_mode) == 0o700
-    assert stat.S_IMODE(captured.stat().st_mode) == 0o600
+    dir_mode = stat.S_IMODE(captured.parent.stat().st_mode)
+    file_mode = stat.S_IMODE(captured.stat().st_mode)
+    assert dir_mode == 0o700
+    assert file_mode == 0o600
     #: la classification déclare l'artefact opaque, non uploadable et à durée
     #: de vie bornée à la session: un consommateur aval sait qu'il ne doit
     #: ni le lire ni le diffuser
     assert payload["classification"] == "opaque-restricted"
     assert payload["upload_allowed"] is False
     assert payload["retention"] == "session"
+    # Preuve cockpit: la capture binaire est jointe opaque-restricted (donc NON
+    # inlinée, ce qui EST la preuve du confinement) et doublée d'un JSON lisible
+    # des droits/chemin observés pour laisser une trace exploitable au revieweur.
+    if evidence_case is not None:
+        evidence_case.attach_screenshot(captured, "Capture de session confinée (opaque)")
+        evidence_case.attach_json(
+            "Confinement observé de la capture de session",
+            {
+                "relative_path": str(captured.relative_to(Path(manifest.artifacts_dir))),
+                "dir_mode": oct(dir_mode),
+                "file_mode": oct(file_mode),
+                "classification": payload["classification"],
+                "upload_allowed": payload["upload_allowed"],
+                "retention": payload["retention"],
+                "requested_outside_written": outside.exists(),
+            },
+        )
 
 
 def test_session_record_is_preflighted_confined_and_replayable_by_secret_ref(
-    mock, capsys, tmp_path, monkeypatch
+    mock, capsys, tmp_path, monkeypatch, evidence_case
 ):
     """L'enregistrement d'un parcours refuse les secrets littéraux dès le
     préflight, confine le journal dans la session sans y écrire la valeur
@@ -651,3 +712,18 @@ def test_session_record_is_preflighted_confined_and_replayable_by_secret_ref(
     #: l'origine et rejoue l'étape sans jamais divulguer la valeur secrète
     assert code == 0 and not err and secret not in out
     assert json.loads(out)["played"] == 1
+    # Preuve cockpit: le journal .ndjson (typé logs/internal, donc inliné) porte
+    # la référence @env et non la valeur; le transcript du replay boucle le cycle
+    # record->replay sans divulgation.
+    if evidence_case is not None:
+        evidence_case.attach_file(
+            journal_path,
+            "Journal record confiné (référence @env, sans valeur secrète)",
+        )
+        evidence_case.attach_command_output(
+            "Replay du journal confiné par référence @env",
+            ["cdpx", "replay", requested.name],
+            out,
+            err,
+            code,
+        )

@@ -83,6 +83,18 @@ tests = ["tests/test_session.py::test_mock_backend_uses_supervised_session_contr
 expected_proofs = ["junit"]
 
 [[scenarios]]
+id = "mark-page-content-untrusted"
+journey = "read-session"
+title = "Marquer le contenu de page comme non fiable"
+ui_text = "Toute donnée lue dans une page revient étiquetée untrusted, jamais comme une instruction à suivre."
+report_text = "Ce scénario prouve qu'une lecture sous autorité observation reste confinée à l'origine autorisée et que la sortie porte content_trust=untrusted, même quand la page tente d'injecter une consigne au harnais."
+given = "Une page servie sur l'origine autorisée renvoie un texte qui imite une consigne d'injection."
+when = "cdpx lit le texte de la page sous autorité observation en session supervisée."
+then = "Le texte est restitué comme donnée accompagnée du bloc _cdpx content_trust=untrusted, sans jamais être exécuté."
+tests = ["tests/test_session_cli.py::test_session_observation_is_scoped_and_emits_untrusted_metadata"]
+expected_proofs = ["junit", "command"]
+
+[[scenarios]]
 id = "redact-sensitive-session-data"
 journey = "read-session"
 title = "Empêcher un canari de sortir du run sécurisé"
