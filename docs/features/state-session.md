@@ -103,7 +103,7 @@ report_text = "Ce scénario prouve que les canaris connus sont absents des sorti
 given = "Le mock CDP expose un secret canari dans plusieurs surfaces navigateur."
 when = "cdpx observe, journalise et construit un staging partageable."
 then = "Le protocole peut recevoir la valeur en mémoire mais stdout, stderr, journal et artefacts partageables n'en contiennent pas."
-tests = ["tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence"]
+tests = ["tests/test_cli.py::test_cookies_masked_output", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence"]
 expected_proofs = ["junit", "json"]
 
 [[scenarios]]

@@ -205,13 +205,28 @@ def test_seo_with_navigation(mock, capsys):
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/seo.html"}]
 
 
-def test_cookies_masked_output(mock, capsys):
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.redact-sensitive-session-data",
+    proves=["La valeur de cookie est masquée par défaut: aucun secret de session ne fuit."],
+)
+def test_cookies_masked_output(mock, capsys, evidence_case):
     """Les valeurs de cookies sont masquées par défaut dans la sortie:
     aucun secret de session ne fuit vers le transcript de l'agent."""
     code, out, _ = run(mock, capsys, "cookies", "get")
     data = json.loads(out)
     #: la valeur secrète n'apparaît que sous sa forme masquée
     assert code == 0 and data["cookies"][0]["value"] == "***"
+    # preuve secondaire: la sortie déjà masquée alimente le cockpit sans exposer le canari
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "cookies get (valeurs masquées)",
+            ["cdpx", "cookies", "get"],
+            out,
+            "",
+            code,
+        )
 
 
 @pytest.mark.parametrize(
@@ -266,6 +281,12 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
         assert code == 1 and "origine refusée" in err
 
 
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="intercept-network",
+    scenario_id="orchestration-control.intercept-network-request",
+    proves=["Le garde d'origine juge la destination du goto composé, pas l'onglet initial."],
+)
 def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monkeypatch):
     """Le garde d'origine d'intercept juge l'URL de destination du goto
     composé, pas l'onglet initial: un onglet permis ne blanchit pas une
@@ -289,6 +310,12 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
     assert mock.commands == []
 
 
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="run-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    proves=["A mutating click on a disallowed origin is refused before the input protocol."],
+)
 def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
     """Une mutation (click) visant une origine non autorisée est refusée
     avant d'atteindre le protocole d'entrée: la page reste intouchée."""
@@ -448,6 +475,12 @@ DISPATCH_CASES = [
 @pytest.mark.parametrize(
     "case_id,argv,rules,method,check", DISPATCH_CASES, ids=[c[0] for c in DISPATCH_CASES]
 )
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="run-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    proves=["Each catalog subcommand reaches its primitive and emits its signature CDP command."],
+)
 def test_cli_dispatch_emits_protocol_and_json(
     mock, capsys, monkeypatch, case_id, argv, rules, method, check
 ):
@@ -468,7 +501,7 @@ def test_cli_dispatch_emits_protocol_and_json(
         assert mock.commands_for(method), f"{case_id}: {method} jamais émis"
 
 
-def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path):
+def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path, evidence_case):
     """pdf produit un vrai document (signature %PDF) via la commande CDP
     d'impression, rangé dans les artefacts supervisés de la session."""
     dest = tmp_path / "page.pdf"
@@ -481,6 +514,17 @@ def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path):
     assert Path(data["path"]).read_bytes().startswith(b"%PDF") and not dest.exists()
     #: l'impression est passée par le protocole, pas par un raccourci
     assert mock.commands_for("Page.printToPDF")
+    # preuve secondaire: le PDF binaire (opaque, non inliné) + un résumé lisible dans le modal
+    if evidence_case is not None:
+        evidence_case.attach_file(data["path"], "PDF imprimé (signature %PDF)")
+        evidence_case.attach_json(
+            "Signature PDF observée",
+            {
+                "signature": "%PDF",
+                "bytes": data["bytes"],
+                "artifact_basename": Path(data["path"]).name,
+            },
+        )
 
 
 def test_dom_diff_accepts_action_with_or_without_separator(mock, capsys):
@@ -610,7 +654,7 @@ def test_record_cli_executes_and_journals(mock, capsys, tmp_path):
     assert event["action"] == ["goto", "http://a.test/"]  # le `--` ne fuit pas dans le journal
 
 
-def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path):
+def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path, evidence_case):
     """Un replay qui diverge (sélecteur disparu) sort en 1 tout en gardant
     un JSON structuré qui localise l'évènement fautif."""
     journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
@@ -624,6 +668,15 @@ def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path):
     assert code == 1  # divergence = erreur d'exécution, JSON structuré conservé
     #: le JSON survit à l'échec et pointe l'évènement divergent
     assert data["ok"] is False and data["divergence"].startswith("event 0:")
+    # preuve secondaire: le JSON de divergence structuré (event 0:) illustre le contrat replay
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "replay divergent (exit 1, event 0:)",
+            ["cdpx", "replay", journal.name],
+            out,
+            "",
+            code,
+        )
 
 
 def test_replay_cli_green_journal_exits_0(mock, capsys, tmp_path):

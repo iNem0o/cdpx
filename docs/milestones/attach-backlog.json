@@ -10,36 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/test_cli.py::test_cookies_masked_output",
-  "helper": "@pytest.mark.scenario + attach_cli_run",
-  "what": "Preuve sécurité: la sortie cookies masquée pourrait alimenter le cockpit sur un scénario de non-fuite de secrets (feature security/redaction)."
- },
- {
-  "nodeid": "tests/test_cli.py::test_origin_guard_blocks_cli_mutation",
-  "helper": "@pytest.mark.scenario",
-  "what": "Le refus d'origine sur mutation simple est un comportement flagship du garde: candidat naturel a un scenario_id origin-guard dedie."
- },
- {
-  "nodeid": "tests/test_cli.py::test_intercept_checks_destination_origin_not_initial_tab",
-  "helper": "@pytest.mark.scenario",
-  "what": "Le garde sur la destination (pas l'onglet initial) est une propriete de securite subtile qui meriterait une entree proves= dans la preuve."
- },
- {
-  "nodeid": "tests/test_cli.py::test_pdf_cli_writes_valid_signature",
-  "helper": "attach_cli_run / evidence_case",
-  "what": "Le PDF genere (signature %PDF, range dans les artefacts) est une piece jointe de preuve toute prete."
- },
- {
-  "nodeid": "tests/test_cli.py::test_replay_cli_divergence_exits_1_with_json",
-  "helper": "attach_cli_run",
-  "what": "Le JSON de divergence structure (event 0:) illustrerait bien le contrat record/replay dans le rapport de preuve."
- },
- {
-  "nodeid": "tests/test_cli.py::test_cli_dispatch_emits_protocol_and_json",
-  "helper": "@pytest.mark.scenario",
-  "what": "Le filet de dispatch couvre tout le catalogue de primitives: un scenario harness-proof-cockpit avec proves= sur le contrat protocole aurait de la valeur."
- },
- {
   "nodeid": "tests/test_session.py::test_supervisor_builds_manifest_closes_extra_target_and_cleans_up",
   "helper": "@pytest.mark.scenario",
   "what": "Cycle de vie supervise complet (attestation, manifest, fermeture des targets surnumeraires, SIGTERM, cleanup) — bon candidat scenario feature=state-session, journey=supervised-lifecycle, meme sans Chrome reel."
