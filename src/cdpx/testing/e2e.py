@@ -11,9 +11,39 @@ import time
 from pathlib import Path
 
 from cdpx.client import CDPClient
-from cdpx.primitives import capture
+from cdpx.primitives import capture, js
 from cdpx.session import SessionManifest
 from cdpx.testing.evidence import EvidenceCase, slugify
+
+PROOF_BANNER_ID = "cdpx-proof-banner"
+
+
+def banner_inject_script(text: str) -> str:
+    """JS d'injection du bandeau de preuve (fixed bottom: n'altère pas le layout)."""
+    return (
+        "(() => {"
+        f"const previous = document.getElementById({json.dumps(PROOF_BANNER_ID)});"
+        "if (previous) previous.remove();"
+        "const banner = document.createElement('div');"
+        f"banner.id = {json.dumps(PROOF_BANNER_ID)};"
+        f"banner.textContent = {json.dumps(text)};"
+        "banner.style.cssText = 'position:fixed;left:0;right:0;bottom:0;"
+        "z-index:2147483647;background:#17202a;color:#fff;"
+        "font:12px/1.5 system-ui, sans-serif;padding:6px 12px;opacity:0.94;';"
+        "document.body.appendChild(banner);"
+        "return true;"
+        "})()"
+    )
+
+
+def banner_cleanup_script() -> str:
+    return (
+        "(() => {"
+        f"const banner = document.getElementById({json.dumps(PROOF_BANNER_ID)});"
+        "if (banner) banner.remove();"
+        "return !document.getElementById(" + json.dumps(PROOF_BANNER_ID) + ");"
+        "})()"
+    )
 
 
 def free_loopback_port() -> int:
@@ -126,12 +156,25 @@ def attach_screenshot(
     label: str = "final",
     *,
     full_page: bool = False,
+    banner: str | None = None,
 ) -> dict | None:
+    """Capture d'écran de preuve, avec bandeau de wording éphémère opt-in.
+
+    Le bandeau est injecté juste avant la capture et retiré dans le finally:
+    la page n'est modifiée que pendant le screenshot. Ne pas combiner banner
+    et assertions DOM (comptage de nœuds) dans la même fenêtre de capture.
+    """
     if evidence_case is None:
         return None
     filename = f"{slugify(label)}.png"
     path = Path(evidence_case.artifact_dir) / filename
-    result = capture.screenshot(client, str(path), full_page=full_page)
+    if banner:
+        js.evaluate(client, banner_inject_script(banner))
+    try:
+        result = capture.screenshot(client, str(path), full_page=full_page)
+    finally:
+        if banner:
+            js.evaluate(client, banner_cleanup_script())
     artifact = evidence_case.attach_screenshot(result["path"], label)
     artifact["screenshot"] = result
     return artifact
