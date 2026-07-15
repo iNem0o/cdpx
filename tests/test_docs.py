@@ -165,7 +165,7 @@ def _all_documented_examples() -> list[tuple[str, str]]:
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="publish-proof",
-    scenario_id="publish-feature-proof",
+    scenario_id="harness-proof-cockpit.publish-feature-proof",
     proves=["Tout exemple `cdpx ...` documenté est accepté par le vrai parseur CLI."],
 )
 @pytest.mark.parametrize(
