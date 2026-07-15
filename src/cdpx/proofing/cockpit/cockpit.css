@@ -327,6 +327,55 @@ body.modal-open { overflow: hidden; }
   .modal-body { grid-template-columns: 1fr; }
   .modal-context { border-left: 0; border-top: 1px solid var(--line); }
 }
+.read-first { border-left: 4px solid var(--bad); margin-bottom: 16px; }
+.read-first h2 { margin-top: 0; color: var(--bad); }
+.reading-path {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+sup.sup, sup.sup-bad {
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--soft);
+  color: var(--muted);
+}
+sup.sup-bad { background: var(--bad); color: #fff; }
+.run-timeline {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.tl-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid rgba(255, 255, 255, 0.55);
+}
+.tl-bar span {
+  font-size: 10px;
+  font-weight: 750;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+.tl-ok { background: var(--ok); }
+.tl-bad { background: var(--bad); }
+.secondary-table { margin-top: 14px; }
+.secondary-table > summary { font-weight: 700; color: var(--muted); }
 .test-cards { display: grid; gap: 10px; margin: 10px 0; }
 .test-card {
   margin: 0;

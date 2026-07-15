@@ -679,6 +679,56 @@
     </div>`;
   }
 
+  /* === Ordre de lecture guidé: verdict -> échecs -> features -> run === */
+
+  const scenarioArtifacts = (runs) => (runs || []).flatMap((run) => run.artifacts || []);
+
+  function failedRuns() {
+    const out = [];
+    const suites = (data.scenario_evidence || {}).suites || {};
+    for (const scenarios of Object.values(suites)) {
+      for (const run of scenarios) {
+        if (['failed', 'error'].includes(run.status)) out.push(run);
+      }
+    }
+    return out;
+  }
+
+  function renderReadFirst() {
+    const failures = data.proof_failures || [];
+    const failed = failedRuns();
+    if (data.ok && !failures.length && !failed.length) return '';
+    const failureItems = failures.map((item) => `<li>${esc(item)}</li>`).join('');
+    const runItems = failed.map((run) => {
+      const href = run.feature && run.scenario_id
+        ? `#/features/${esc(run.feature)}/scenarios/${esc(run.scenario_id)}`
+        : '#/gaps';
+      return `<li>${statusPill(run.status)} <a href="${href}"><code>${esc(run.nodeid)}</code></a> ${esc(run.message || '')}</li>`;
+    }).join('');
+    return `<section class="panel read-first"><h2>À lire d'abord</h2>
+      <ul class="list">${failureItems}${runItems}</ul></section>`;
+  }
+
+  function renderReadingPath() {
+    return `<div class="reading-path">Parcours de lecture — <strong>1.</strong> Verdict
+      · <strong>2.</strong> <a href="#/gaps">Échecs &amp; gaps</a>
+      · <strong>3.</strong> Features ci-dessous
+      · <strong>4.</strong> <a href="#/run">Preuves du run</a></div>`;
+  }
+
+  function decorateTopbar() {
+    const inv = data.feature_inventory || {};
+    const gapCount = (inv.violations || []).length + (inv.warnings || []).length
+      + (data.proof_failures || []).length;
+    const gapsLink = document.querySelector('[data-route="/gaps"]');
+    if (gapsLink && gapCount) {
+      gapsLink.innerHTML = `Gaps <sup class="${(data.proof_failures || []).length ? 'sup-bad' : 'sup'}">${gapCount}</sup>`;
+    }
+    const failed = (data.totals || {}).failed || 0;
+    const runLink = document.querySelector('[data-route="/run"]');
+    if (runLink && failed) runLink.innerHTML = `Run <sup class="sup-bad">${failed}</sup>`;
+  }
+
   function renderFeatures() {
     const cards = features().map((feature) => {
       const status = featureStatus(feature);
@@ -692,12 +742,13 @@
           <span>${(feature.matched_tests || []).length} tests</span>
           <span>${(feature.proofs || []).length} preuves</span>
         </div>
+        <div class="badges">${typeBadges(scenarioArtifacts(feature.matched_scenarios))}</div>
       </article>`;
     }).join('');
     app.innerHTML = `${crumbs([{label: 'Features'}])}
       <h1>Features</h1>
       <p>Navigation produit par feature, journey et scénario. Les textes affichés viennent des docs feature.</p>
-      ${renderMetrics()}<div class="grid">${cards}</div>`;
+      ${renderReadFirst()}${renderMetrics()}${renderReadingPath()}<div class="grid">${cards}</div>`;
   }
 
   function renderDocs() {
@@ -728,6 +779,7 @@
         <h3><a href="#/features/${esc(feature.id)}/journeys/${esc(journey.id)}">${esc(journey.title || journey.id)}</a></h3>
         <p><code>${esc(journey.entrypoint || '')}</code></p>
         <div class="meta"><span>${(journey.scenarios || []).length} scénarios</span><span>${c.passed} passed</span><span>${c.failed} failed</span></div>
+        <div class="badges">${typeBadges(scenarioArtifacts(journey.matched_scenarios))}</div>
       </article>`;
     }).join('');
     app.innerHTML = `${crumbs([{label: 'Features', href: '#/features'}, {label: feature.title}])}
@@ -774,7 +826,7 @@
         <p>${esc(scenario.ui_text)}</p>
         <code>${esc(scenario.scenario_id)}</code>
       </div>
-      <div class="muted">${(scenario.matched_tests || []).length} tests<br>${(scenario.proofs || []).length} preuves</div>
+      <div class="muted">${(scenario.matched_tests || []).length} tests<br>${(scenario.proofs || []).length} preuves<div class="badges">${typeBadges(scenarioArtifacts(scenario.matched_scenarios))}</div></div>
     </article>`;
   }
 
@@ -930,11 +982,23 @@
     ).join('');
     const tails = commands.map((command) => `<details><summary>${esc(command.label)} — <code>${esc(command.log)}</code></summary><pre>${esc(command.log_tail || '(log vide)')}</pre></details>`).join('');
     app.innerHTML = `${crumbs([{label: 'Run'}])}<h1>Preuves du run</h1>${renderMetrics()}
+      <h2>Chronologie</h2>${renderCommandTimeline(commands)}
       <h2>Commandes</h2><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Preuve</th><th>Commande</th><th>Durée</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
       <h2>Suites JUnit</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Tests</th><th>Passés</th><th>Échecs</th><th>Skips</th><th>Durée</th><th>XML</th></tr></thead><tbody>${suiteRows}</tbody></table></div>
-      <h2>Focus (échecs ou plus lents)</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Statut</th><th>Test</th><th>Durée</th></tr></thead><tbody>${focusRows}</tbody></table></div>
-      <h2>Fins de logs</h2><section class="panel">${tails}</section>
-      <h2>Catalogue</h2>${renderEvidenceCatalog()}`;
+      <details class="panel secondary-table"><summary>Focus (échecs ou plus lents)</summary><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Statut</th><th>Test</th><th>Durée</th></tr></thead><tbody>${focusRows}</tbody></table></div></details>
+      <details class="panel secondary-table"><summary>Fins de logs</summary>${tails}</details>
+      <details class="panel secondary-table"><summary>Catalogue des preuves</summary>${renderEvidenceCatalog()}</details>`;
+  }
+
+  function renderCommandTimeline(commands) {
+    const total = commands.reduce((sum, command) => sum + (Number(command.duration_s) || 0), 0);
+    if (!total) return '<div class="empty">Aucune durée mesurée.</div>';
+    const bars = commands.map((command) => {
+      const share = Math.max(((Number(command.duration_s) || 0) / total) * 100, 1.5);
+      return `<div class="tl-bar ${command.status === 'ok' ? 'tl-ok' : 'tl-bad'}" style="width:${share.toFixed(1)}%" title="${esc(command.label)} — ${esc(command.duration_s)}s"><span>${esc(command.id)}</span></div>`;
+    }).join('');
+    return `<div class="run-timeline">${bars}</div>
+      <p class="muted">Où est passé le temps: largeur ∝ durée (total ${total.toFixed(1)}s), rouge = échec. Survoler pour le détail.</p>`;
   }
 
   function renderCli() {
@@ -1027,6 +1091,7 @@
   featureSearch.addEventListener('input', renderFeatureNav);
   docsSearch.addEventListener('input', renderDocsNav);
   window.addEventListener('hashchange', render);
+  decorateTopbar();
   if (!location.hash) location.hash = '#/features';
   render();
 })();

@@ -735,6 +735,23 @@ def test_modal_and_keyboard_wiring_are_present():
         assert marker in proof.SPA_JS, f"câblage modal manquant: {marker}"
 
 
+def test_reading_order_timeline_and_badges_guide_the_review():
+    # UX de lecture: le rouge remonte ("À lire d'abord"), le parcours est
+    # guidé, la chronologie du run est visuelle et les badges annoncent les
+    # preuves avant le clic.
+    for marker in (
+        "function renderReadFirst",
+        "À lire d'abord",
+        "function renderReadingPath",
+        "function renderCommandTimeline",
+        "tl-bad",
+        "function decorateTopbar",
+        "function failedRuns",
+        "typeBadges(scenarioArtifacts(feature.matched_scenarios))",
+    ):
+        assert marker in proof.SPA_JS, f"UX de lecture incomplète: {marker}"
+
+
 def test_scenario_view_renders_intent_and_assertion_hierarchy():
     # "Calculé => rendu" pour l'intention extraite du code: docstring,
     # assertions #: avec statut honnête, corrélation failed_line, chronologie.
