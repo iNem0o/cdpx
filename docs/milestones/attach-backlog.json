@@ -10,31 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/test_scenarios.py::test_run_scenario_happy_path_with_checkpoint_artifacts",
-  "helper": "@pytest.mark.scenario + attach_cli_screenshot-équivalent mock",
-  "what": "Scénario nominal complet du runner: candidat naturel à un scenario_id (ex: scenario-runner.happy-path) et à l'attachement des artefacts produits (screenshot/console/network) comme preuve."
- },
- {
-  "nodeid": "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence",
-  "helper": "@pytest.mark.scenario",
-  "what": "Preuve de non-fuite de la valeur secrète (résultat + évidence + frappe CDP intégrale): mériterait un scenario_id sécurité rattaché à la fiche correspondante."
- },
- {
-  "nodeid": "tests/test_scenarios.py::test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture",
-  "helper": "@pytest.mark.scenario",
-  "what": "Garde-fou d'origine (origin_refused) démontré de bout en bout: bon candidat à un scenario_id documenté côté sécurité/navigation."
- },
- {
-  "nodeid": "tests/test_scenarios.py::test_scenario_cli_run_passes_with_json",
-  "helper": "@pytest.mark.scenario + attach_cli_run",
-  "what": "Exécution CLI réelle (argv -> JSON stdout): l'attachement de la commande et de sa sortie ferait une preuve cockpit lisible."
- },
- {
-  "nodeid": "tests/test_documentation.py::test_real_documentation_catalog_publishes_references_and_all_features",
-  "helper": "@pytest.mark.scenario",
-  "what": "Test portant sur le catalogue réel livré: rattachable au scénario documenté de la rubrique Docs (harness-proof-cockpit)."
- },
- {
   "nodeid": "tests/test_cli.py::test_cookies_masked_output",
   "helper": "@pytest.mark.scenario + attach_cli_run",
   "what": "Preuve sécurité: la sortie cookies masquée pourrait alimenter le cockpit sur un scénario de non-fuite de secrets (feature security/redaction)."

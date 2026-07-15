@@ -2,9 +2,17 @@
 
 from pathlib import Path
 
+import pytest
+
 from cdpx.proofing.documentation import build_documentation_catalog
 
 
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.publish-feature-proof",
+    proves=["Le catalogue Docs livré publie références et fiches features sans violation."],
+)
 def test_real_documentation_catalog_publishes_references_and_all_features():
     """Le catalogue construit depuis le dépôt réel publie les références
     racines et toutes les fiches features en HTML, sans violation, avec des

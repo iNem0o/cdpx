@@ -61,7 +61,13 @@ def test_parse_rejects_unknown_field():
         )
 
 
-def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path):
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.run-declarative-business-scenario",
+    proves=["Un scénario nominal rend verdict pass et matérialise ses preuves ordonnées."],
+)
+def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path, evidence_case):
     """Un scénario nominal (goto, click, wait_text) passe sur le mock et
     matérialise sur disque les captures de checkpoint puis les artefacts
     finaux, dans l'ordre déclaré."""
@@ -109,6 +115,14 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path):
     ]
     #: chaque artefact annoncé dans le résultat existe réellement sur disque
     assert all(Path(artifact["path"]).exists() for artifact in result["artifacts"])
+
+    if evidence_case is not None:
+        for index, artifact in enumerate(result["artifacts"]):
+            label = f"{artifact['type']} #{index}"
+            if artifact["type"] == "screenshot":
+                evidence_case.attach_screenshot(artifact["path"], label=label)
+            else:
+                evidence_case.attach_file(artifact["path"], label)
 
 
 def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock, tmp_path):
@@ -396,6 +410,12 @@ def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
     }
 
 
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.run-declarative-business-scenario",
+    proves=["Une redirection hors allowlist stoppe le scénario avant capture ou mutation."],
+)
 def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mock, tmp_path):
     """Une redirection vers une origine non autorisée arrête le scénario
     avant toute capture ou mutation suivante: garde-fou contre l'envoi
@@ -432,6 +452,12 @@ def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mo
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.redact-sensitive-session-data",
+    proves=["Un secret_ref frappé côté CDP reste absent du résultat et de toute preuve."],
+)
 def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, monkeypatch):
     """Une frappe via secret_ref transmet la valeur secrète au navigateur
     tout en la tenant hors du résultat JSON et de chaque fichier de preuve,
@@ -606,7 +632,13 @@ def run_cli(mock, capsys, *argv):
     return code, out.out, out.err
 
 
-def test_scenario_cli_run_passes_with_json(mock, cli_manifest, capsys, tmp_path):
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.run-declarative-business-scenario",
+    proves=["La sous-commande scenario run rend exit 0 et un unique objet JSON sur stdout."],
+)
+def test_scenario_cli_run_passes_with_json(mock, cli_manifest, capsys, tmp_path, evidence_case):
     """La sous-commande scenario run lit un fichier YAML, exécute le scénario
     sur la session supervisée et respecte le contrat CLI: exit 0 et un objet
     JSON unique portant le verdict sur stdout."""
@@ -640,6 +672,15 @@ artifacts:
     data = json.loads(out)
     assert data["name"] == "cli_pass"
     assert data["verdict"] == "pass"
+
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "scenario run (in-process)",
+            ["cdpx", "scenario", "run", scenario.name, "--settle", "0.01"],
+            out,
+            err,
+            code,
+        )
 
 
 def test_scenario_cli_invalid_file_exits_2(mock, cli_manifest, capsys, tmp_path):
