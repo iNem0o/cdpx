@@ -764,7 +764,7 @@ def cmd_session(args) -> None:
             ttl=args.ttl,
             owner_pid=args.owner_pid,
             chrome_bin=args.chrome,
-            timeout=args.timeout,
+            timeout=args.startup_timeout,
         )
         args._session_manifest = manifest
         args._execution_context = manifest.execution_context()
@@ -1011,6 +1011,16 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--ttl", type=float, default=3600.0)
     start.add_argument("--owner-pid", type=int, default=None)
     start.add_argument("--chrome", default=None)
+    start.add_argument(
+        "--startup-timeout",
+        type=float,
+        default=session.DEFAULT_STARTUP_TIMEOUT,
+        help=(
+            "budget total du cold start Chrome en secondes "
+            f"(défaut: {session.DEFAULT_STARTUP_TIMEOUT:g}, "
+            f"maximum: {session.MAX_STARTUP_TIMEOUT:g})"
+        ),
+    )
     start.set_defaults(func=cmd_session)
     for action_name in ("status", "stop"):
         child = session_sub.add_parser(action_name, help=f"{action_name} une session gérée")

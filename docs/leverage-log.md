@@ -54,6 +54,19 @@ Git publique utilisée pour empêcher les doublons.
   - Verification (commande/CI): test E2E ciblé de session puis `make release`
     verts, cockpit à 551/551 tests sans violation ni avertissement.
 
+- Session-Key: agent/github-integration-hardening@7b7f4c0
+  - Symptom: sur GitHub, `make check` était vert puis le Chrome supervisé froid
+    relancé par `make proof` expirait après 30 secondes; le teardown supprimait
+    `supervisor.log` et `chrome-stderr.log` avant que le gate puisse les montrer.
+  - Root cause (missing capability): le parent et le superviseur partageaient le
+    même timeout sans marge ni deadline globale, et Chrome utilisait le `/dev/shm`
+    contraint du runner CI sans adaptation.
+  - Fix encoded (doc/script/lint): le bootstrap possède un budget dédié borné,
+    une deadline partagée avec marge parent, `--disable-dev-shm-usage` en CI et
+    des tails privés, bornés et expurgés capturés avant le teardown.
+  - Verification (commande/CI): tests unitaires ciblés, E2E lifecycle sur Chrome
+    réel, `make check-local` et `make release` locaux verts.
+
 ## Réponses CDP croisées pendant une interception
 
 - **Symptôme :** `Page.navigate` expirait dans Chrome Docker lorsque Fetch

@@ -27,6 +27,11 @@ Ce projet suit un versionnage sémantique.
 
 ### Modifié
 
+- `session start --startup-timeout` sépare désormais le budget de cold start
+  Chrome (60 secondes par défaut, 300 maximum) des timeouts CDP. Le superviseur
+  et son parent partagent ce budget sans course d'expiration; les runners CI
+  contournent leur `/dev/shm` borné et les erreurs conservent des tails de logs
+  bornés et redacted avant le teardown privé.
 - **Breaking** : la session supervisée devient l'unique contrat d'exécution.
   `--session`, `--run-id` et `--target` (ou leurs variables d'environnement)
   sont requis avant discovery ; la connexion directe par `--host`/`--port`, le

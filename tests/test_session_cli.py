@@ -138,7 +138,13 @@ def test_session_start_uses_run_id_environment_and_emits_metadata(
 ):
     manifest, path = session_manifest(mock, tmp_path)
     monkeypatch.setenv("CDPX_RUN_ID", manifest.run_id)
-    monkeypatch.setattr(session_mod, "start_session", lambda **_kwargs: (manifest, path))
+    calls = []
+
+    def fake_start_session(**kwargs):
+        calls.append(kwargs)
+        return manifest, path
+
+    monkeypatch.setattr(session_mod, "start_session", fake_start_session)
 
     code = main(
         [
@@ -148,6 +154,8 @@ def test_session_start_uses_run_id_environment_and_emits_metadata(
             "observation",
             "--origins",
             "http://*.test",
+            "--startup-timeout",
+            "75",
         ]
     )
     payload = json.loads(capsys.readouterr().out)
@@ -155,6 +163,7 @@ def test_session_start_uses_run_id_environment_and_emits_metadata(
     assert code == 0 and payload["started"] is True
     assert payload["manifest"] == str(path)
     assert payload["_cdpx"] == manifest.execution_context().metadata()
+    assert calls[0]["timeout"] == 75.0
 
 
 def test_session_observation_is_scoped_and_emits_untrusted_metadata(mock, capsys, tmp_path):

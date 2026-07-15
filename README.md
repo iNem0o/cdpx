@@ -121,7 +121,11 @@ navigateur attribuée. S'ils sont absents, cdpx lit respectivement
 une identité incomplète produit un exit 2 avant discovery. Host, port, profil
 et target viennent exclusivement du manifest et sont vérifiés sur loopback.
 Chaque invocation ouvre puis ferme sa connexion sous un lease exclusif.
-`--timeout` borne les attentes CDP et le lifecycle.
+`--timeout` borne les attentes CDP et l'arrêt du lifecycle.
+`session start --startup-timeout` possède un budget distinct de 60 secondes
+(300 maximum) pour absorber un cold start Chrome chargé. En cas d'échec, le
+diagnostic conserve uniquement les tails nettoyés et bornés du superviseur et
+de Chrome avant de supprimer le profil jetable.
 
 **Budget d'action.** `--max-actions` limite un replay. L'autorité accordée et
 l'allowlist obligatoire s'appliquent avant toute action : `observation` exclut

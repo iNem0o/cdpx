@@ -203,11 +203,13 @@ def test_chrome_sandbox_is_disabled_only_for_root_or_ci(tmp_path, monkeypatch):
     monkeypatch.setenv("CI", "true")
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
     assert "--no-sandbox" in command
+    assert "--disable-dev-shm-usage" in command
 
     monkeypatch.setenv("CI", "false")
     monkeypatch.setattr(session_mod.os, "geteuid", lambda: 0)
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
     assert "--no-sandbox" in command
+    assert "--disable-dev-shm-usage" not in command
 
 
 def test_cleanup_only_removes_the_manifest_session_tree(tmp_path):
@@ -349,6 +351,8 @@ def test_start_session_bootstraps_and_returns_supervised_manifest(tmp_path, monk
     assert path == tmp_path / SESSION_ID / "manifest.json"
     assert launched[0][0][:4] == [session_mod.sys.executable, "-m", "cdpx.session", "_supervise"]
     assert launched[0][1]["start_new_session"] is True
+    bootstrap = json.loads(Path(launched[0][0][4]).read_text(encoding="utf-8"))
+    assert bootstrap["startup_timeout"] == 1.0
 
 
 def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, monkeypatch):
@@ -403,6 +407,87 @@ def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, mon
         )
 
 
+def test_start_session_timeout_reports_redacted_log_tails_before_cleanup(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        session_mod.secrets,
+        "token_hex",
+        lambda size: SESSION_ID if size == 12 else PROFILE_ID,
+    )
+    monkeypatch.setattr(session_mod, "find_chrome", lambda _explicit=None: "/fake/chrome")
+    secret = "diagnostic-secret-value"
+    monkeypatch.setenv("CI_SECRET_TOKEN", secret)
+
+    class FakeSupervisor:
+        pid = 5151
+
+        def poll(self):
+            return None
+
+    def stalled_popen(argv, **_kwargs):
+        session_dir = Path(argv[4]).parent
+        (session_dir / "supervisor.log").write_text(
+            f"startup_stage=wait_devtools\nAuthorization: Bearer {secret}\n",
+            encoding="utf-8",
+        )
+        (session_dir / "chrome-stderr.log").write_text(
+            f"Chrome could not start with token={secret}\n",
+            encoding="utf-8",
+        )
+        (session_dir / "chrome-stderr.log").chmod(0o600)
+        return FakeSupervisor()
+
+    clock = iter((0.0, 0.0, 4.0))
+    monkeypatch.setattr(session_mod.subprocess, "Popen", stalled_popen)
+    monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(session_mod.time, "sleep", lambda _seconds: None)
+
+    cleanup_observation = {}
+
+    def abort(supervisor, session_dir):
+        cleanup_observation["pid"] = supervisor.pid
+        cleanup_observation["logs_present"] = (session_dir / "supervisor.log").exists() and (
+            session_dir / "chrome-stderr.log"
+        ).exists()
+        session_mod.shutil.rmtree(session_dir)
+
+    monkeypatch.setattr(session_mod, "_abort_supervisor", abort)
+
+    with pytest.raises(PolicyError) as caught:
+        start_session(
+            run_id="run-timeout",
+            authority="observation",
+            origins="http://demo.test",
+            chrome_bin="ignored",
+            root=tmp_path,
+            timeout=1,
+        )
+
+    message = str(caught.value)
+    assert "session navigateur non prête" in message
+    assert "supervisor.log" in message and "chrome-stderr.log" in message
+    assert "startup_stage=wait_devtools" in message
+    assert secret not in message
+    assert "***" in message
+    assert cleanup_observation == {"pid": 5151, "logs_present": True}
+    assert not (tmp_path / SESSION_ID).exists()
+
+
+def test_startup_diagnostics_refuse_symlinked_logs(tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(mode=0o700)
+    outside = tmp_path / "outside.log"
+    outside.write_text("must-not-be-read", encoding="utf-8")
+    (session_dir / "supervisor.log").symlink_to(outside)
+
+    diagnostics = session_mod._startup_diagnostic_tails(session_dir)
+
+    assert "must-not-be-read" not in diagnostics
+    assert "supervisor.log:\n<vide ou indisponible>" in diagnostics
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -423,6 +508,18 @@ def test_start_session_rejects_non_finite_limits_before_creating_files(
             origins="http://demo.test",
             root=tmp_path,
             **overrides,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_start_session_rejects_unbounded_startup_timeout(tmp_path):
+    with pytest.raises(PolicyError, match="timeout de démarrage hors plage"):
+        start_session(
+            run_id="run-invalid-timeout",
+            authority="observation",
+            origins="http://demo.test",
+            root=tmp_path,
+            timeout=session_mod.MAX_STARTUP_TIMEOUT + 1,
         )
     assert list(tmp_path.iterdir()) == []
 
@@ -472,6 +569,7 @@ def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, 
                 "owner_pid": None,
                 "owner_start_time": None,
                 "chrome_bin": "/fake/chrome",
+                "startup_timeout": 60.0,
                 "session_dir": str(session_dir),
                 "profile_dir": str(profile_dir),
                 "artifacts_dir": str(artifacts_dir),
@@ -611,6 +709,75 @@ def test_supervisor_rejects_invalid_bootstrap_without_writing_or_cleanup(tmp_pat
     assert not error.exists()
     assert session_dir.exists()
     assert bootstrap.read_text(encoding="utf-8") == "not-json"
+
+
+def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypatch):
+    session_dir = tmp_path / SESSION_ID
+    profile_dir = session_dir / "profile"
+    artifacts_dir = session_dir / "artifacts"
+    for path in (session_dir, profile_dir, artifacts_dir):
+        path.mkdir(parents=True, exist_ok=True)
+        path.chmod(0o700)
+    now = datetime.now(UTC)
+    bootstrap = session_dir / "bootstrap.json"
+    payload = {
+        "session_id": SESSION_ID,
+        "run_id": "run-readiness-error",
+        "profile_id": PROFILE_ID,
+        "browser_kind": "chrome",
+        "authority": "observation",
+        "origins": ["http://demo.test"],
+        "owner_pid": None,
+        "owner_start_time": None,
+        "chrome_bin": "/fake/chrome",
+        "startup_timeout": 60.0,
+        "session_dir": str(session_dir),
+        "profile_dir": str(profile_dir),
+        "artifacts_dir": str(artifacts_dir),
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=5)).isoformat(),
+    }
+    bootstrap.write_text(json.dumps(payload), encoding="utf-8")
+    bootstrap.chmod(0o600)
+    attestation = session_mod._policy_attestation(payload)
+    secret = "readiness-secret-value"
+    monkeypatch.setenv("CI_SECRET_TOKEN", secret)
+    monkeypatch.setattr(session_mod.signal, "signal", lambda *_args: None)
+
+    class FakeChrome:
+        pid = 6262
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(*_args, **_kwargs):
+        (session_dir / "chrome-stderr.log").write_text(
+            f"cold start blocked token={secret}\n",
+            encoding="utf-8",
+        )
+        return FakeChrome()
+
+    monkeypatch.setattr(session_mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        session_mod,
+        "_read_devtools_port",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(PolicyError("synthetic readiness timeout")),
+    )
+
+    assert session_mod._supervise(bootstrap, attestation) == 1
+
+    error = tmp_path / f"{SESSION_ID}.error"
+    message = error.read_text(encoding="utf-8")
+    assert "synthetic readiness timeout" in message
+    assert "supervisor.log" in message and "chrome-stderr.log" in message
+    assert secret not in message and "***" in message
+    assert not session_dir.exists()
 
 
 def test_supervisor_arbitrary_path_never_removes_or_chmods_its_parent(tmp_path):

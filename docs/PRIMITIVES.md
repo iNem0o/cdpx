@@ -80,7 +80,7 @@ cdpx screenshot -o etat.jpg --format jpeg
 
 | CLI | Usecase | Pourquoi |
 |---|---|---|
-| `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | profil, target, autorité, origines, TTL et teardown supervisés |
+| `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | profil, target, autorité, origines, TTL, budget de cold start et teardown supervisés; les erreurs gardent des tails nettoyés |
 | `cdpx cookies get [--show-values]` | inspecter la session (masqué par défaut) | sécurité: cf. HARNESS.md §2 |
 | `cdpx cookies set --name n --value-env NOM --url u` / `clear` | préparer un scénario sans exposer la valeur dans argv | reproductibilité; `clear` = Storage.clearCookies avec repli |
 | `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, valeurs masquées par défaut | panier invité, consentement, caches front |

@@ -122,7 +122,7 @@ Options globales et codes de sortie : voir la section Contrat CLI du README.
 ### `cdpx session`
 
 ```text
-usage: cdpx session start --run-id RUN --authority observation|interaction|privileged --origins ORIGINES [--ttl S] [--owner-pid PID] [--chrome BIN]
+usage: cdpx session start --run-id RUN --authority observation|interaction|privileged --origins ORIGINES [--ttl S] [--owner-pid PID] [--chrome BIN] [--startup-timeout S]
 usage: cdpx session status --session PATH --run-id RUN --target ID
 usage: cdpx session stop --session PATH --run-id RUN --target ID
 ```
@@ -131,6 +131,12 @@ usage: cdpx session stop --session PATH --run-id RUN --target ID
 jetable, target unique et superviseur. Le manifest privé associe ces ressources
 au run, à l'autorité et à l'allowlist. La sortie publique omet chemins internes,
 PID et URL WebSocket, mais fournit l'identité nécessaire aux commandes.
+Le cold start dispose par défaut de 60 secondes, dans une limite stricte de
+300 secondes. Le parent attend ce budget puis une courte marge de transmission,
+sans courir contre le timeout interne du superviseur. Sur un runner CI, Chrome
+évite le `/dev/shm` souvent borné. Si le démarrage échoue, les tails
+`supervisor.log` et `chrome-stderr.log` sont bornés, redacted puis remontés dans
+le diagnostic avant le teardown; les fichiers privés bruts restent supprimés.
 
 ```bash
 cdpx session start --run-id checkout-17 --authority interaction --origins "http://*.test,http://127.0.0.1:*" --ttl 1800

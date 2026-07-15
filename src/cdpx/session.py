@@ -39,6 +39,11 @@ from cdpx.policy import (
     is_loopback_host,
     validate_target,
 )
+from cdpx.security.redaction import (
+    RedactionContext,
+    redact_text,
+    secret_values_from_environment,
+)
 
 SCHEMA = "cdpx.session/v1"
 MANIFEST_NAME = "manifest.json"
@@ -56,6 +61,10 @@ _SESSION_ID_RE = re.compile(r"[0-9a-f]{24}\Z")
 _PROFILE_ID_RE = re.compile(r"[0-9a-f]{16}\Z")
 _TARGET_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,256}\Z")
 _MAX_PID = 2_147_483_647
+DEFAULT_STARTUP_TIMEOUT = 60.0
+MAX_STARTUP_TIMEOUT = 300.0
+_STARTUP_RESULT_GRACE = 2.0
+_DIAGNOSTIC_TAIL_BYTES = 2000
 _BOOTSTRAP_FIELDS = {
     "session_id",
     "run_id",
@@ -66,6 +75,7 @@ _BOOTSTRAP_FIELDS = {
     "owner_pid",
     "owner_start_time",
     "chrome_bin",
+    "startup_timeout",
     "session_dir",
     "profile_dir",
     "artifacts_dir",
@@ -513,6 +523,11 @@ def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
     ]
     if _sandbox_must_be_disabled():
         command.insert(-2, "--no-sandbox")
+    if _ci_environment():
+        # Les runners et conteneurs exposent souvent un /dev/shm très borné.
+        # Utiliser le profil privé sur disque évite qu'un cold start Chrome
+        # reste vivant sans jamais publier DevToolsActivePort.
+        command.insert(-2, "--disable-dev-shm-usage")
     return command
 
 
@@ -552,7 +567,7 @@ def start_session(
     chrome_bin: str | None = None,
     browser_kind: str = "chrome",
     root: str | Path | None = None,
-    timeout: float = 30,
+    timeout: float = DEFAULT_STARTUP_TIMEOUT,
 ) -> tuple[SessionManifest, Path]:
     if browser_kind not in BROWSER_KINDS:
         raise PolicyError(f"backend navigateur inconnu: {browser_kind}")
@@ -566,6 +581,8 @@ def start_session(
     )
     ttl = _positive_finite(ttl, "TTL de session")
     timeout = _positive_finite(timeout, "timeout de démarrage")
+    if timeout > MAX_STARTUP_TIMEOUT:
+        raise PolicyError(f"timeout de démarrage hors plage; maximum={MAX_STARTUP_TIMEOUT:g}s")
     owner = owner_pid
     owner_start_time: str | None = None
     if owner is not None:
@@ -602,6 +619,7 @@ def start_session(
             "owner_pid": owner,
             "owner_start_time": owner_start_time,
             "chrome_bin": chrome,
+            "startup_timeout": timeout,
             "session_dir": str(session_dir),
             "profile_dir": str(profile_dir),
             "artifacts_dir": str(artifacts_dir),
@@ -631,7 +649,10 @@ def start_session(
             )
         manifest_path = session_dir / MANIFEST_NAME
         error_path = parent / f"{session_id}.error"
-        deadline = time.monotonic() + timeout
+        # Le superviseur possède le budget `timeout`. Le parent garde une
+        # courte marge uniquement pour lire son manifest ou son erreur, afin
+        # d'éviter la course où les deux expirent à la même microseconde.
+        deadline = time.monotonic() + timeout + _STARTUP_RESULT_GRACE
         while time.monotonic() < deadline:
             if manifest_path.exists():
                 manifest = load_manifest(manifest_path, run_id=run_id)
@@ -641,10 +662,11 @@ def start_session(
                 error_path.unlink(missing_ok=True)
                 raise PolicyError(f"démarrage de session échoué: {message}")
             if supervisor.poll() is not None:
-                detail = supervisor_log.read_text(encoding="utf-8", errors="replace")[-2000:]
+                detail = _startup_diagnostic_tails(session_dir)
                 raise PolicyError(f"supervisor de session arrêté prématurément: {detail}")
             time.sleep(0.05)
-        raise PolicyError(f"session navigateur non prête après {timeout}s")
+        detail = _startup_diagnostic_tails(session_dir)
+        raise PolicyError(f"session navigateur non prête après {timeout}s\n{detail}")
     except Exception:
         if supervisor is not None:
             _abort_supervisor(supervisor, session_dir)
@@ -896,6 +918,56 @@ def _remove_tree(path: Path) -> None:
         pass
 
 
+def _startup_diagnostic_tails(session_dir: Path) -> str:
+    """Retourne des tails bornés et nettoyés avant le teardown privé."""
+
+    context = RedactionContext.from_secrets(secret_values_from_environment())
+    sections = []
+    for filename in ("supervisor.log", "chrome-stderr.log"):
+        path = session_dir / filename
+        raw = _read_private_diagnostic_tail(path)
+        tail = raw[-_DIAGNOSTIC_TAIL_BYTES:].strip() or "<vide ou indisponible>"
+        cleaned = redact_text(
+            tail,
+            context=context,
+            path=f"$.session_start.{filename}",
+        )
+        sections.append(f"{filename}:\n{cleaned}")
+    return "\n".join(sections)
+
+
+def _read_private_diagnostic_tail(path: Path) -> str:
+    """Lit au plus le tail autorisé sans suivre de lien ni course de chemin."""
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = -1
+    try:
+        fd = os.open(path, flags)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return ""
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            return ""
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            return ""
+        os.lseek(fd, max(0, info.st_size - _DIAGNOSTIC_TAIL_BYTES), os.SEEK_SET)
+        return os.read(fd, _DIAGNOSTIC_TAIL_BYTES).decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+def _remaining_startup_timeout(deadline: float, stage: str) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise PolicyError(f"timeout de démarrage pendant {stage}")
+    return remaining
+
+
 def _read_devtools_port(profile_dir: Path, proc: subprocess.Popen[Any], timeout: float = 30) -> int:
     active_port = profile_dir / "DevToolsActivePort"
     deadline = time.monotonic() + timeout
@@ -1096,6 +1168,12 @@ def _validate_bootstrap_payload(
     chrome_bin = payload["chrome_bin"]
     if not isinstance(chrome_bin, str) or not chrome_bin or "\x00" in chrome_bin:
         raise PolicyError("bootstrap de session: chrome_bin invalide")
+    startup_timeout = _positive_finite(
+        payload["startup_timeout"],
+        "bootstrap de session: startup_timeout",
+    )
+    if startup_timeout > MAX_STARTUP_TIMEOUT:
+        raise PolicyError("bootstrap de session: startup_timeout hors plage")
     created = _aware_timestamp(payload["created_at"], "created_at")
     expires = _aware_timestamp(payload["expires_at"], "expires_at")
     if expires <= created:
@@ -1137,6 +1215,8 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
     try:
         signal.signal(signal.SIGTERM, request_stop)
         signal.signal(signal.SIGINT, request_stop)
+        startup_deadline = time.monotonic() + float(data["startup_timeout"])
+        print("startup_stage=spawn_chrome", flush=True)
         profile_dir = Path(data["profile_dir"])
         log_path = session_dir / "chrome-stderr.log"
         log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -1153,8 +1233,19 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
             stderr=chrome_log,
             close_fds=True,
         )
-        port = _read_devtools_port(profile_dir, chrome)
-        _wait_discovery(port, chrome)
+        print("startup_stage=wait_devtools_port", flush=True)
+        port = _read_devtools_port(
+            profile_dir,
+            chrome,
+            timeout=_remaining_startup_timeout(startup_deadline, "DevToolsActivePort"),
+        )
+        print(f"startup_stage=wait_discovery port={port}", flush=True)
+        _wait_discovery(
+            port,
+            chrome,
+            timeout=_remaining_startup_timeout(startup_deadline, "discovery Chrome"),
+        )
+        print("startup_stage=create_target", flush=True)
         target = discovery.new_tab("127.0.0.1", port, "about:blank")
         target_id = str(target["id"])
         ws_url = str(target["webSocketDebuggerUrl"])
@@ -1200,8 +1291,16 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
             expires_at=data["expires_at"],
         )
         _validate_manifest_fields(manifest)
-        _enforce_single_page_target(manifest)
+        print("startup_stage=attest_target", flush=True)
+        _enforce_single_page_target(
+            manifest,
+            close_timeout=min(
+                2.0,
+                _remaining_startup_timeout(startup_deadline, "attestation target"),
+            ),
+        )
         write_manifest(manifest)
+        print("startup_stage=ready", flush=True)
         bootstrap_path.unlink(missing_ok=True)
         expires = _aware_timestamp(manifest.expires_at, "expires_at")
         while True:
@@ -1227,7 +1326,11 @@ def _supervise(bootstrap_path: Path, attestation: str) -> int:
             time.sleep(0.25)
         return 0
     except Exception as e:  # noqa: BLE001 - erreur transmise au processus appelant
-        _write_private(error_path, f"{type(e).__name__}: {e}\n")
+        diagnostics = _startup_diagnostic_tails(session_dir)
+        _write_private(
+            error_path,
+            f"{type(e).__name__}: {e}\n{diagnostics}\n",
+        )
         return 1
     finally:
         if manifest is not None:
