@@ -137,7 +137,9 @@ def test_secure_append_refuses_a_symbolic_journal(tmp_path):
     assert sensitive.read_text(encoding="utf-8") == "preserve"
 
 
-def test_record_v2_executes_secret_but_never_persists_it(mock, tmp_path, monkeypatch):
+def test_record_v2_executes_secret_but_never_persists_it(
+    mock, tmp_path, monkeypatch, evidence_case
+):
     """L'enregistrement v2 exécute l'action avec la vraie valeur secrète
     résolue depuis l'environnement, mais ne persiste que la référence: le
     journal reste rejouable sans jamais contenir la valeur."""
@@ -174,9 +176,19 @@ def test_record_v2_executes_secret_but_never_persists_it(mock, tmp_path, monkeyp
     #: grâce à la référence, l'enregistrement reste rejouable malgré tout
     assert result["replayable"] is True
 
+    if evidence_case is not None:
+        # Preuve directe: le journal persisté ne porte que la référence @env.
+        evidence_case.attach_file(
+            path,
+            "Journal record.ndjson (référence @env, sans valeur secrète)",
+            excerpt=raw,
+        )
+
 
 @pytest.mark.parametrize("fails", [False, True])
-def test_record_eval_never_persists_result_or_error(mock, tmp_path, monkeypatch, fails):
+def test_record_eval_never_persists_result_or_error(
+    mock, tmp_path, monkeypatch, fails, evidence_case
+):
     """Qu'un eval réussisse ou échoue, ni sa valeur de retour ni son message
     d'erreur n'atteignent le journal: seuls des marqueurs masqués et un
     drapeau explicite sont persistés."""
@@ -223,8 +235,20 @@ def test_record_eval_never_persists_result_or_error(mock, tmp_path, monkeypatch,
     else:
         assert event["result"] == {"value": "***", "value_masked": True}
 
+    if evidence_case is not None:
+        # Le même contrat de masquage dans les deux branches (succès/échec):
+        # le journal eval.ndjson ne montre que des marqueurs, jamais le canari.
+        branch = "echec" if fails else "succes"
+        evidence_case.attach_file(
+            path,
+            f"Journal eval.ndjson (résultat masqué, branche {branch})",
+            excerpt=raw,
+        )
 
-def test_replay_v2_resolves_all_refs_before_first_action(mock, tmp_path, monkeypatch):
+
+def test_replay_v2_resolves_all_refs_before_first_action(
+    mock, tmp_path, monkeypatch, evidence_case
+):
     """Le rejeu valide toutes les références de secret avant la première
     action: une référence manquante stoppe tout, sans le moindre effet de
     bord côté navigateur."""
@@ -248,3 +272,8 @@ def test_replay_v2_resolves_all_refs_before_first_action(mock, tmp_path, monkeyp
     assert "MISSING" in result["divergence"]
     #: aucun ordre CDP n'a été émis: l'échec précède tout effet de bord
     assert mock.commands == []
+
+    if evidence_case is not None:
+        # Documente le fail-fast du rejeu: played=0 et divergence nommant la
+        # référence manquante, sans le moindre effet de bord navigateur.
+        evidence_case.attach_json("Résultat du rejeu fail-fast (played=0)", result)

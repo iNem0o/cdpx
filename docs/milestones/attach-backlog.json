@@ -30,36 +30,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/test_fixture_server.py::test_all_pages_served_with_markers",
-  "helper": "attach_json",
-  "what": "Joindre la carte PAGES_MARKERS (pages -> marqueurs vérifiés) comme preuve du contrat fixtures/e2e; nécessiterait d'exposer evidence_case aux tests unitaires."
- },
- {
-  "nodeid": "tests/test_discovery_and_client.py::test_send_and_result",
-  "helper": "attach_json",
-  "what": "Joindre la trace protocolaire du mock (commands_for) comme preuve du protocole émis; idem pour les autres tests client si evidence_case devient disponible côté unitaires."
- },
- {
-  "nodeid": "tests/test_docs.py::test_documented_cdpx_examples_parse",
-  "helper": "@pytest.mark.scenario",
-  "what": "Candidat naturel pour un marqueur scenario (feature docs, proves: tout exemple documente se parse); les autres tests des deux fichiers sont des garde-fous statiques sans execution CLI ni capture, donc aucun attach_cli_run/attach_cli_screenshot pertinent."
- },
- {
-  "nodeid": "tests/test_journal.py::test_record_v2_executes_secret_but_never_persists_it",
-  "helper": "attach_file",
-  "what": "Le journal record.ndjson (deja sans la valeur secrete) comme preuve directe que seule la reference est persistee."
- },
- {
-  "nodeid": "tests/test_journal.py::test_replay_v2_resolves_all_refs_before_first_action",
-  "helper": "attach_json",
-  "what": "Le resultat du replay (played=0, divergence) pour documenter le comportement fail-fast du rejeu."
- },
- {
-  "nodeid": "tests/test_journal.py::test_record_eval_never_persists_result_or_error",
-  "helper": "attach_file",
-  "what": "Le journal eval.ndjson montrant les marqueurs masques dans les deux branches (succes/echec)."
- },
- {
   "nodeid": "tests/test_security_integration.py::test_observation_outputs_redact_url_console_storage_and_errors",
   "helper": "@pytest.mark.scenario + evidence_case/attach_cli_run",
   "what": "Attacher la sortie JSON agrégée (console+storage+réseau) redactée comme preuve du scénario 'observation sans fuite' — le test est un flux flagship de sécurité."

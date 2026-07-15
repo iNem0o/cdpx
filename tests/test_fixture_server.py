@@ -45,7 +45,7 @@ PAGES_MARKERS = {
 }
 
 
-def test_all_pages_served_with_markers(fixtures_http):
+def test_all_pages_served_with_markers(fixtures_http, evidence_case):
     """Chaque page du site témoin existe et porte les points d'ancrage dont
     dépendent les scénarios e2e: une fixture qui bouge casse ici, en clair,
     plutôt que silencieusement dans un test navigateur."""
@@ -60,6 +60,10 @@ def test_all_pages_served_with_markers(fixtures_http):
         #: no-store interdit tout cache: le contenu observé par le navigateur
         #: reste déterministe d'une navigation à l'autre
         assert headers.get("Cache-Control") == "no-store"
+
+    if evidence_case is not None:
+        # Preuve du contrat fixtures/e2e: la carte page -> marqueurs vérifiés.
+        evidence_case.attach_json("Carte PAGES_MARKERS (contrat fixtures/e2e)", PAGES_MARKERS)
 
 
 def test_root_serves_index(fixtures_http):

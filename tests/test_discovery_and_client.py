@@ -75,7 +75,7 @@ def test_pick_page_by_id_and_missing(mock):
 # -- client ---------------------------------------------------------------------
 
 
-def test_send_and_result(mock):
+def test_send_and_result(mock, evidence_case):
     """Un aller-retour commande/réponse aboutit et la trame émise sur le fil
     est exactement celle demandée: sortie ET protocole sont prouvés."""
     with _connect(mock) as c:
@@ -84,6 +84,13 @@ def test_send_and_result(mock):
     #: côté fil, le mock a reçu une unique commande sans paramètre — c'est
     #: le protocole réellement émis qui est jugé, pas seulement le retour
     assert mock.commands_for("Page.enable") == [{}]
+
+    if evidence_case is not None:
+        # Preuve du protocole émis: la trace mock des commandes Page.enable.
+        evidence_case.attach_json(
+            "Trace protocolaire du mock (Page.enable)",
+            {"Page.enable": mock.commands_for("Page.enable")},
+        )
 
 
 def test_send_nowait_allows_event_before_command_response(mock):
