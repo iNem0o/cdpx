@@ -265,6 +265,189 @@
     return `${head}${streams}`;
   }
 
+  /* === Mini-player asciinema (.cast v2) ===
+     Player maison volontairement minimal (pas de vendoring: asciinema-player
+     est GPL-3.0 depuis la v3). Sous-ensemble ANSI: SGR 16 couleurs + bold,
+     \r, effacement de ligne/écran. La vue brute et le GIF compagnon couvrent
+     les casts que ce sous-ensemble rendrait mal. */
+
+  const ANSI_RE = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g;
+
+  function parseCast(text) {
+    const lines = String(text || '').split('\n').filter((line) => line.trim());
+    if (!lines.length) return null;
+    let header;
+    try { header = JSON.parse(lines[0]); } catch (error) { return null; }
+    if (!header || header.version !== 2) return null;
+    const events = [];
+    for (const line of lines.slice(1)) {
+      try {
+        const event = JSON.parse(line);
+        if (Array.isArray(event) && event[1] === 'o') {
+          events.push({t: Number(event[0]) || 0, data: String(event[2] ?? '')});
+        }
+      } catch (error) { /* événement corrompu ignoré */ }
+    }
+    return {header, events};
+  }
+
+  function castTerminal() {
+    const state = {grid: [[]], row: 0, col: 0, cls: ''};
+    const put = (char) => {
+      const line = state.grid[state.row];
+      while (line.length < state.col) line.push({ch: ' ', cls: ''});
+      line[state.col] = {ch: char, cls: state.cls};
+      state.col += 1;
+    };
+    const applySgr = (params) => {
+      for (const raw of (params || '0').split(';')) {
+        const code = Number(raw || '0');
+        if (code === 0) state.cls = '';
+        else if (code === 1) state.cls = (state.cls + ' cast-b').trim();
+        else if (code >= 30 && code <= 37) state.cls = (state.cls.replace(/cast-f\d+/g, '') + ` cast-f${code - 30}`).trim();
+        else if (code >= 90 && code <= 97) state.cls = (state.cls.replace(/cast-f\d+/g, '') + ` cast-f${code - 90 + 8}`).trim();
+      }
+    };
+    const write = (data) => {
+      let index = 0;
+      while (index < data.length) {
+        const char = data[index];
+        if (char === '\x1b') {
+          const rest = data.slice(index);
+          const match = rest.match(/^\x1b\[([0-9;?]*)([ -\/]*)([@-~])/);
+          if (match) {
+            const [full, params, , final] = match;
+            if (final === 'm') applySgr(params);
+            else if (final === 'K') {
+              const line = state.grid[state.row];
+              if (params === '2') state.grid[state.row] = [];
+              else line.splice(state.col);
+            } else if (final === 'J') {
+              state.grid = [[]]; state.row = 0; state.col = 0;
+            } else if (final === 'H') {
+              state.row = 0; state.col = 0;
+              while (state.grid.length <= state.row) state.grid.push([]);
+            }
+            index += full.length;
+            continue;
+          }
+          index += 1;
+          continue;
+        }
+        if (char === '\n') { state.row += 1; state.col = 0; while (state.grid.length <= state.row) state.grid.push([]); }
+        else if (char === '\r') { state.col = 0; }
+        else if (char === '\t') { do { put(' '); } while (state.col % 8); }
+        else if (char >= ' ') { put(char); }
+        index += 1;
+      }
+    };
+    const toHtml = () => state.grid.map((line) => {
+      if (!line.length) return '';
+      const spans = [];
+      let current = null;
+      for (const cell of line) {
+        if (current && current.cls === cell.cls) current.text += cell.ch;
+        else { current = {cls: cell.cls, text: cell.ch}; spans.push(current); }
+      }
+      return spans.map((span) => span.cls ? `<span class="${esc(span.cls)}">${esc(span.text)}</span>` : esc(span.text)).join('');
+    }).join('\n');
+    return {write, toHtml};
+  }
+
+  function castViewer(artifact) {
+    const parsed = parseCast(artifact.inline_content);
+    if (!parsed) return basicTextViewer(artifact);
+    const rawText = parsed.events.map((event) => event.data).join('').replace(ANSI_RE, '').replace(/\r/g, '');
+    const duration = parsed.events.length ? parsed.events[parsed.events.length - 1].t : 0;
+    return `<div class="cast" data-cast>
+      <div class="cast-toolbar">
+        <button type="button" data-cast-play>▶ lecture</button>
+        <button type="button" data-cast-speed>×1</button>
+        <button type="button" data-cast-end>⏭ fin</button>
+        <input type="range" data-cast-scrub min="0" max="${Math.max(Math.ceil(duration * 1000), 1)}" value="0">
+        <span class="muted" data-cast-time></span>
+        <label class="muted cast-rawtoggle"><input type="checkbox" data-cast-rawtoggle> vue brute</label>
+      </div>
+      <pre class="cast-screen" data-cast-screen></pre>
+      <pre class="viewer-text" data-cast-raw hidden>${esc(rawText)}</pre>
+    </div>`;
+  }
+
+  let castPlayer = null;
+
+  function stopCastPlayer() {
+    if (!castPlayer) return;
+    castPlayer.playing = false;
+    if (castPlayer.raf) cancelAnimationFrame(castPlayer.raf);
+    castPlayer = null;
+  }
+
+  function initCastPlayer(container, artifact) {
+    stopCastPlayer();
+    const root = container.querySelector('[data-cast]');
+    const parsed = parseCast(artifact.inline_content);
+    if (!root || !parsed) return;
+    const screen = root.querySelector('[data-cast-screen]');
+    const raw = root.querySelector('[data-cast-raw]');
+    const scrub = root.querySelector('[data-cast-scrub]');
+    const timeLabel = root.querySelector('[data-cast-time]');
+    const playButton = root.querySelector('[data-cast-play]');
+    const speedButton = root.querySelector('[data-cast-speed]');
+    const duration = parsed.events.length ? parsed.events[parsed.events.length - 1].t : 0;
+    const player = {events: parsed.events, duration, clock: 0, playing: false, speed: 1, raf: 0, last: 0};
+
+    const renderAt = (clock) => {
+      player.clock = Math.min(Math.max(clock, 0), duration);
+      const terminal = castTerminal();
+      for (const event of player.events) {
+        if (event.t > player.clock) break;
+        terminal.write(event.data);
+      }
+      screen.innerHTML = terminal.toHtml();
+      scrub.value = String(Math.round(player.clock * 1000));
+      timeLabel.textContent = `${player.clock.toFixed(1)}s / ${duration.toFixed(1)}s`;
+      playButton.textContent = player.playing ? '⏸ pause' : '▶ lecture';
+    };
+    const tick = (now) => {
+      if (!player.playing || castPlayer !== player) return;
+      player.clock += ((now - player.last) / 1000) * player.speed;
+      player.last = now;
+      if (player.clock >= duration) { player.clock = duration; player.playing = false; }
+      renderAt(player.clock);
+      if (player.playing) player.raf = requestAnimationFrame(tick);
+    };
+    player.toggle = () => {
+      if (player.playing) { player.playing = false; renderAt(player.clock); return; }
+      if (player.clock >= duration) player.clock = 0;
+      player.playing = true;
+      player.last = performance.now();
+      player.raf = requestAnimationFrame(tick);
+    };
+
+    playButton.addEventListener('click', player.toggle);
+    speedButton.addEventListener('click', () => {
+      player.speed = player.speed >= 4 ? 1 : player.speed * 2;
+      speedButton.textContent = `×${player.speed}`;
+    });
+    root.querySelector('[data-cast-end]').addEventListener('click', () => {
+      player.playing = false;
+      renderAt(duration);
+    });
+    scrub.addEventListener('input', () => {
+      player.playing = false;
+      renderAt(Number(scrub.value) / 1000);
+    });
+    root.querySelector('[data-cast-rawtoggle]').addEventListener('change', (event) => {
+      const showRaw = event.target.checked;
+      raw.hidden = !showRaw;
+      screen.hidden = showRaw;
+      root.querySelector('.cast-toolbar').classList.toggle('cast-raw-mode', showRaw);
+    });
+
+    renderAt(duration);
+    castPlayer = player;
+  }
+
   const VIEWERS = {
     'screenshot': screenshotViewer,
     'gif': gifViewer,
@@ -276,7 +459,7 @@
     'logs': logViewer,
     'log-excerpt': logViewer,
     'command': commandViewer,
-    'asciinema': basicTextViewer,
+    'asciinema': castViewer,
     'file': downloadFallback
   };
 
@@ -327,6 +510,8 @@
       modalState.items.length > 1 ? `${modalState.index + 1}/${modalState.items.length}` : '';
     modal.querySelector('.modal-content').innerHTML = viewer(artifact);
     modal.querySelector('.modal-context-body').innerHTML = modalContext(artifact, modalState.context);
+    if (artifact.type === 'asciinema') initCastPlayer(modal.querySelector('.modal-content'), artifact);
+    else stopCastPlayer();
   }
 
   function openModal(items, index, context) {
@@ -341,6 +526,7 @@
   }
 
   function closeModal() {
+    stopCastPlayer();
     modal.hidden = true;
     document.body.classList.remove('modal-open');
     modal.querySelector('.modal-content').innerHTML = '';
@@ -365,6 +551,9 @@
     else if (event.key === 'z') {
       const zoomable = modal.querySelector('[data-zoomable]');
       if (zoomable) { event.preventDefault(); zoomable.classList.toggle('zoomed'); }
+    } else if (event.key === ' ' && castPlayer && event.target.tagName !== 'INPUT' && event.target.tagName !== 'BUTTON') {
+      event.preventDefault();
+      castPlayer.toggle();
     } else if (event.key === 'Tab') {
       const focusables = Array.from(modal.querySelectorAll('button, a[href], video'));
       if (!focusables.length) return;

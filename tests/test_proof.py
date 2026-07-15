@@ -706,6 +706,22 @@ def test_text_viewers_are_specialized_per_type():
         assert marker in proof.SPA_JS, f"visualiseur texte manquant: {marker}"
 
 
+def test_cast_viewer_parses_v2_and_keeps_a_raw_fallback():
+    # Player maison (pas de vendoring GPL): parse .cast v2 (JSONL), sous-
+    # ensemble ANSI, scrubber, et toujours une vue brute de repli.
+    for marker in (
+        "function parseCast",
+        "header.version !== 2",
+        "function castTerminal",
+        "function castViewer",
+        "data-cast-scrub",
+        "data-cast-rawtoggle",
+        "'asciinema': castViewer",
+        "requestAnimationFrame(tick)",
+    ):
+        assert marker in proof.SPA_JS, f"player asciinema incomplet: {marker}"
+
+
 def test_modal_and_keyboard_wiring_are_present():
     for marker in (
         "function openModal",

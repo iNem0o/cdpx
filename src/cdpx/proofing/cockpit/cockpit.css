@@ -291,6 +291,33 @@ body.modal-open { overflow: hidden; }
 .log-line.log-hit { background: #fff3c4; border-left: 3px solid var(--warn); }
 .log-num { flex: 0 0 34px; text-align: right; color: var(--muted); user-select: none; }
 .log-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cast-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; }
+.cast-toolbar button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.cast-toolbar button:hover { background: var(--soft); }
+.cast-toolbar input[type="range"] { flex: 1; min-width: 120px; }
+.cast-screen {
+  min-height: 200px;
+  background: #10151f;
+  color: #edf2f7;
+  white-space: pre;
+  overflow: auto;
+}
+.cast-b { font-weight: 800; }
+.cast-f0 { color: #4d5666; } .cast-f8 { color: #6b7689; }
+.cast-f1 { color: #ff7b72; } .cast-f9 { color: #ffa198; }
+.cast-f2 { color: #58d68d; } .cast-f10 { color: #7ee2a8; }
+.cast-f3 { color: #e3b341; } .cast-f11 { color: #f2cc60; }
+.cast-f4 { color: #79c0ff; } .cast-f12 { color: #a5d6ff; }
+.cast-f5 { color: #d2a8ff; } .cast-f13 { color: #e2c5ff; }
+.cast-f6 { color: #39c5cf; } .cast-f14 { color: #56d4dd; }
+.cast-f7 { color: #edf2f7; } .cast-f15 { color: #ffffff; }
 .command-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .command-head code { overflow-wrap: anywhere; }
 .stream h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); }
