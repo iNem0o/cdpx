@@ -327,6 +327,62 @@ body.modal-open { overflow: hidden; }
   .modal-body { grid-template-columns: 1fr; }
   .modal-context { border-left: 0; border-top: 1px solid var(--line); }
 }
+.test-cards { display: grid; gap: 10px; margin: 10px 0; }
+.test-card {
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.test-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-weight: 650;
+}
+.test-card > summary code { flex: 1; min-width: 200px; overflow-wrap: anywhere; font-weight: 500; }
+.badges { display: inline-flex; gap: 6px; }
+.badge {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  background: var(--soft);
+  white-space: nowrap;
+}
+.test-intent {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 4px solid var(--info);
+  background: var(--soft);
+  color: var(--ink);
+  font-style: italic;
+}
+.assertion-list h4, .artifact-timeline h4 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); }
+.assertion-row { display: flex; gap: 8px; padding: 3px 0; align-items: baseline; }
+.assertion-mark { flex: 0 0 18px; text-align: center; font-weight: 800; }
+.assertion-ok .assertion-mark { color: var(--ok); }
+.assertion-bad .assertion-mark { color: var(--bad); }
+.assertion-unreached { color: var(--muted); }
+.assertion-neutral .assertion-mark { color: var(--muted); }
+.assertion-line { flex: 0 0 44px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.assertion-text { overflow-wrap: anywhere; }
+.assertion-fail {
+  margin-top: 4px;
+  padding: 6px 10px;
+  border-left: 4px solid var(--bad);
+  background: #fdeceb;
+  color: var(--bad);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.timeline-row { display: flex; gap: 10px; align-items: center; padding: 2px 0; }
+.timeline-time { flex: 0 0 44px; text-align: right; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.declared-tests { margin-bottom: 10px; }
+.declared-tests summary { color: var(--muted); font-weight: 650; }
+.test-streams pre { max-height: 240px; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
 th, td { padding: 9px 11px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--muted); font-size: 12px; text-transform: uppercase; }

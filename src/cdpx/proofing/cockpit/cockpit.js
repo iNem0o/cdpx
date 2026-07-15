@@ -797,16 +797,87 @@
       <h2>Preuves</h2>${renderProofLinks(scenario.proofs || [])}`;
   }
 
+  /* === Cartes de test: intention -> assertions -> preuves ===
+     Statuts d'assertion honnêtes: on ne peint en vert que ce que la ligne
+     d'échec permet d'affirmer; sans corrélation, marqueur neutre. */
+
+  function assertionRows(run) {
+    const assertions = run.assertions || [];
+    if (!assertions.length) return '';
+    const failedLine = Number(run.failed_line) || 0;
+    const failed = ['failed', 'error'].includes(run.status);
+    const rows = assertions.map((assertion) => {
+      let mark = '·';
+      let cls = 'neutral';
+      const checkable = assertion.kind !== 'note';
+      if (run.status === 'passed' && checkable) { mark = '✔'; cls = 'ok'; }
+      else if (failed && checkable) {
+        if (assertion.status === 'failed') { mark = '✘'; cls = 'bad'; }
+        else if (failedLine && Number(assertion.end_line) < failedLine) { mark = '✔'; cls = 'ok'; }
+        else if (failedLine && Number(assertion.line) > failedLine) { mark = '—'; cls = 'unreached'; }
+      }
+      const hover = assertion.code_excerpt ? ` title="${esc(assertion.code_excerpt)}"` : '';
+      const failNote = assertion.status === 'failed' && run.message
+        ? `<div class="assertion-fail">${esc(run.message)}</div>`
+        : '';
+      const noteTag = assertion.kind === 'note' ? ' <em class="muted">(note)</em>' : '';
+      return `<div class="assertion-row assertion-${cls}"${hover}>
+        <span class="assertion-mark">${mark}</span>
+        <span class="assertion-line">l.${esc(assertion.line)}</span>
+        <span class="assertion-text">${esc(assertion.text)}${noteTag}${failNote}</span>
+      </div>`;
+    }).join('');
+    return `<div class="assertion-list"><h4>Déroulé annoté (#: dans le test)</h4>${rows}</div>`;
+  }
+
+  function typeBadges(artifacts) {
+    const countsByType = {};
+    (artifacts || []).forEach((artifact) => {
+      countsByType[artifact.type] = (countsByType[artifact.type] || 0) + 1;
+    });
+    return Object.entries(countsByType)
+      .map(([type, count]) => `<span class="badge" title="${esc(type)}">${VIEWER_ICONS[type] || VIEWER_ICONS.file} ${count}</span>`)
+      .join('');
+  }
+
+  function artifactTimeline(run, scenario) {
+    const artifacts = (run.artifacts || []).slice()
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    if (!artifacts.length) return '';
+    const group = artifactGroups.push({artifacts, ctx: {scenario, run}}) - 1;
+    const started = run.started_at ? new Date(run.started_at) : null;
+    const rows = artifacts.map((artifact, index) => {
+      let offset = '';
+      if (started && artifact.created_at) {
+        const seconds = (new Date(artifact.created_at) - started) / 1000;
+        if (isFinite(seconds)) offset = `+${Math.max(seconds, 0).toFixed(0)}s`;
+      }
+      return `<div class="timeline-row"><span class="timeline-time">${esc(offset)}</span>${artifactChip(artifact, group, index)}</div>`;
+    }).join('');
+    return `<div class="artifact-timeline"><h4>Preuves (chronologie)</h4>${rows}</div>`;
+  }
+
+  function renderTestCard(run, scenario) {
+    const failed = ['failed', 'error'].includes(run.status);
+    const intent = run.intent ? `<p class="test-intent">${esc(run.intent)}</p>` : '';
+    const orphanFailure = failed && run.message && !(run.assertions || []).some((assertion) => assertion.status === 'failed')
+      ? `<div class="assertion-fail">${esc(run.message)}</div>`
+      : '';
+    const streams = (run.stdout || run.stderr)
+      ? `<details class="test-streams"><summary>stdout / stderr</summary>${run.stdout ? `<pre>${esc(run.stdout)}</pre>` : ''}${run.stderr ? `<pre>${esc(run.stderr)}</pre>` : ''}</details>`
+      : '';
+    return `<details class="test-card"${failed ? ' open' : ''}>
+      <summary>${statusPill(run.status || 'unknown')} <code>${esc(run.nodeid)}</code><span class="muted">${esc(run.duration_s || 0)}s</span><span class="badges">${typeBadges(run.artifacts)}</span></summary>
+      ${intent}${orphanFailure}${assertionRows(run)}${artifactTimeline(run, scenario)}${streams}
+    </details>`;
+  }
+
   function renderScenarioRuns(runs, declaredTests, scenario) {
     const declared = list(declaredTests, (test) => `<li><code>${esc(test)}</code></li>`);
     if (!runs.length) return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="empty">Aucun test exécuté.</div></section></div>`;
-    const rows = runs.map((run) => `<tr>
-      <td>${statusPill(run.status || 'unknown')}</td>
-      <td><code>${esc(run.nodeid)}</code><p>${esc(run.message || '')}</p></td>
-      <td>${esc(run.duration_s || 0)}s</td>
-      <td>${renderArtifacts(run.artifacts || [], {scenario, run})}</td>
-    </tr>`).join('');
-    return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Test</th><th>Durée</th><th>Artefacts</th></tr></thead><tbody>${rows}</tbody></table></div></section></div>`;
+    const cards = runs.map((run) => renderTestCard(run, scenario)).join('');
+    return `<details class="panel declared-tests"><summary>Tests déclarés (${(declaredTests || []).length})</summary>${declared}</details>
+      <div class="test-cards">${cards}</div>`;
   }
 
   function artifactChip(artifact, group, index) {

@@ -730,9 +730,26 @@ def test_modal_and_keyboard_wiring_are_present():
         "'ArrowRight'",
         "'ArrowLeft'",
         "data-modal-group",
-        "renderArtifacts(run.artifacts || [], {scenario, run})",
+        "ctx: {scenario, run}",
     ):
         assert marker in proof.SPA_JS, f"câblage modal manquant: {marker}"
+
+
+def test_scenario_view_renders_intent_and_assertion_hierarchy():
+    # "Calculé => rendu" pour l'intention extraite du code: docstring,
+    # assertions #: avec statut honnête, corrélation failed_line, chronologie.
+    for marker in (
+        "run.intent",
+        "run.assertions",
+        "run.failed_line",
+        "assertion.status === 'failed'",
+        "function renderTestCard",
+        "function artifactTimeline",
+        "function typeBadges",
+        "run.stdout",
+        "run.stderr",
+    ):
+        assert marker in proof.SPA_JS, f"vue scénario incomplète: {marker}"
 
 
 def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
