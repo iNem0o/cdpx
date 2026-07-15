@@ -963,6 +963,93 @@ def enrich_scenario_evidence(scenario_evidence: dict, feature_inventory: dict) -
     }
 
 
+# L'inline ne concerne que le textuel: la CSP du rapport (connect-src 'none')
+# interdit tout fetch, donc ce que les visualiseurs affichent doit voyager
+# dans le JSON embarqué. Les binaires restent des liens locaux.
+_INLINE_TYPES = frozenset(
+    {"command", "log-excerpt", "logs", "json", "console", "network", "profiler", "asciinema"}
+)
+INLINE_MAX_BYTES = 16 * 1024
+INLINE_TOTAL_BUDGET = 2 * 1024 * 1024
+EXCERPT_HEAD_LINES = 10
+EXCERPT_TAIL_LINES = 30
+
+
+def _artifact_excerpt(text: str) -> str:
+    lines = text.splitlines()
+    limit = EXCERPT_HEAD_LINES + EXCERPT_TAIL_LINES
+    if len(lines) <= limit:
+        return text.rstrip("\n")
+    omitted = len(lines) - limit
+    return "\n".join(
+        [
+            *lines[:EXCERPT_HEAD_LINES],
+            f"… ({omitted} lignes tronquées) …",
+            *lines[-EXCERPT_TAIL_LINES:],
+        ]
+    )
+
+
+def _inline_artifact(entry: dict, remaining: int) -> int:
+    if entry.get("type") not in _INLINE_TYPES:
+        return remaining
+    raw_path = str(entry.get("path", ""))
+    path = Path(raw_path)
+    if not raw_path or path.is_symlink() or not path.is_file():
+        entry["inline_skipped"] = "illisible"
+        return remaining
+    size = path.stat().st_size
+    if size > INLINE_MAX_BYTES or size > remaining:
+        entry["inline_skipped"] = "taille" if size > INLINE_MAX_BYTES else "budget"
+        entry["truncated"] = True
+        if not entry.get("excerpt"):
+            entry["excerpt"] = _artifact_excerpt(path.read_text(encoding="utf-8", errors="replace"))
+        return remaining
+    entry["inline_content"] = path.read_text(encoding="utf-8", errors="replace")
+    entry["truncated"] = False
+    return remaining - size
+
+
+def inline_scenario_artifacts(
+    scenario_evidence: dict, *, budget: int = INLINE_TOTAL_BUDGET
+) -> dict:
+    """Inline le contenu des artefacts textuels dans le payload du cockpit.
+
+    Au-delà du cap unitaire ou du budget global, l'artefact est représenté
+    par un extrait tête+queue et marqué truncated: le rendu reste honnête.
+    """
+
+    remaining = budget
+    suites: dict[str, list[dict]] = {}
+    for suite, scenarios in scenario_evidence.get("suites", {}).items():
+        rebuilt = []
+        for scenario in scenarios:
+            artifacts = []
+            for artifact in scenario.get("artifacts", []):
+                entry = dict(artifact)
+                remaining = _inline_artifact(entry, remaining)
+                artifacts.append(entry)
+            rebuilt.append({**scenario, "artifacts": artifacts})
+        suites[suite] = rebuilt
+    return {**scenario_evidence, "suites": suites}
+
+
+def _strip_inline_content(scenario_evidence: dict) -> dict:
+    """Retire les contenus inlinés avant réécriture disque (déjà présents en fichiers)."""
+
+    suites: dict[str, list[dict]] = {}
+    for suite, scenarios in scenario_evidence.get("suites", {}).items():
+        rebuilt = []
+        for scenario in scenarios:
+            artifacts = [
+                {key: value for key, value in artifact.items() if key != "inline_content"}
+                for artifact in scenario.get("artifacts", [])
+            ]
+            rebuilt.append({**scenario, "artifacts": artifacts})
+        suites[suite] = rebuilt
+    return {**scenario_evidence, "suites": suites}
+
+
 def write_scenario_evidence(
     root: Path,
     scenario_evidence: dict,
@@ -1277,6 +1364,7 @@ def build_summary(
     feature_inventory = build_feature_inventory(help_commands, scenario_evidence, git_context)
     documentation = build_documentation_catalog()
     scenario_evidence = enrich_scenario_evidence(scenario_evidence, feature_inventory)
+    scenario_evidence = inline_scenario_artifacts(scenario_evidence)
     scenario_failures = proof_failures_from_scenarios(scenario_evidence)
     feature_inventory_failures = feature_failures(feature_inventory)
     documentation_catalog_failures = documentation_failures(documentation)
@@ -1585,14 +1673,18 @@ def _generate() -> dict:
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
     summary = redact_tree(summary, context=context, path="$.summary")
+    # Les contenus inlinés n'existent que dans le payload HTML: les JSON disque
+    # pointent vers les fichiers d'artefacts, sans duplication.
+    lean_evidence = _strip_inline_content(summary["scenario_evidence"])
     write_scenario_evidence(
         EVIDENCE_DIR,
-        summary["scenario_evidence"],
+        lean_evidence,
         redaction_context=context,
     )
     _write_private_text(
         SUMMARY_JSON,
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+        json.dumps({**summary, "scenario_evidence": lean_evidence}, ensure_ascii=False, indent=2)
+        + "\n",
     )
     _write_private_text(
         REPORT_HTML,

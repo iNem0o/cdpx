@@ -172,6 +172,107 @@ def empty_scenario_evidence():
     return {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
 
 
+def _evidence_with_artifacts(artifacts):
+    suites = {
+        "unit": [
+            {
+                "nodeid": "tests/test_demo.py::test_inline",
+                "suite": "unit",
+                "title": "inline",
+                "status": "passed",
+                "artifacts": artifacts,
+            }
+        ],
+        "integration": [],
+        "e2e": [],
+    }
+    return {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
+
+
+def test_inline_scenario_artifacts_inlines_small_text_and_excerpts_large(tmp_path):
+    small = tmp_path / "run.txt"
+    small.write_text("$ cdpx version\nok\n", encoding="utf-8")
+    large = tmp_path / "big.log"
+    large.write_text("\n".join(f"line-{index}" for index in range(2000)), encoding="utf-8")
+    shot = tmp_path / "final.png"
+    shot.write_bytes(b"\x89PNG\r\n")
+
+    evidence = _evidence_with_artifacts(
+        [
+            {"type": "command", "label": "run", "path": str(small), "excerpt": ""},
+            {"type": "logs", "label": "big", "path": str(large)},
+            {"type": "screenshot", "label": "final", "path": str(shot)},
+            {"type": "json", "label": "gone", "path": str(tmp_path / "missing.json")},
+        ]
+    )
+
+    inlined = proof.inline_scenario_artifacts(evidence)
+    command, logs, screenshot, missing = inlined["suites"]["unit"][0]["artifacts"]
+
+    #: le petit texte voyage entier dans le payload
+    assert command["inline_content"].startswith("$ cdpx version")
+    assert command["truncated"] is False
+
+    #: le gros log devient un extrait tête+queue honnêtement tronqué
+    assert "inline_content" not in logs
+    assert logs["inline_skipped"] == "taille"
+    assert logs["truncated"] is True
+    assert logs["excerpt"].startswith("line-0")
+    assert "lignes tronquées" in logs["excerpt"]
+
+    #: le binaire n'est jamais inliné (il resterait dans le HTML partageable)
+    assert "inline_content" not in screenshot and "inline_skipped" not in screenshot
+
+    #: un chemin illisible est signalé, pas fatal
+    assert missing["inline_skipped"] == "illisible"
+
+    #: les artefacts d'entrée ne sont pas mutés
+    assert "inline_content" not in evidence["suites"]["unit"][0]["artifacts"][0]
+
+
+def test_inline_scenario_artifacts_respects_global_budget(tmp_path):
+    files = []
+    for index in range(3):
+        path = tmp_path / f"part-{index}.txt"
+        path.write_text("x" * 1000, encoding="utf-8")
+        files.append({"type": "command", "label": f"part-{index}", "path": str(path)})
+
+    inlined = proof.inline_scenario_artifacts(_evidence_with_artifacts(files), budget=2500)
+    first, second, third = inlined["suites"]["unit"][0]["artifacts"]
+
+    assert "inline_content" in first and "inline_content" in second
+    #: budget épuisé => extrait marqué, jamais de contenu silencieusement absent
+    assert third["inline_skipped"] == "budget"
+    assert third["truncated"] is True and third["excerpt"]
+
+
+def test_strip_inline_content_keeps_excerpts_but_drops_bodies(tmp_path):
+    path = tmp_path / "run.txt"
+    path.write_text("payload\n", encoding="utf-8")
+    inlined = proof.inline_scenario_artifacts(
+        _evidence_with_artifacts([{"type": "command", "label": "run", "path": str(path)}])
+    )
+
+    lean = proof._strip_inline_content(inlined)
+
+    artifact = lean["suites"]["unit"][0]["artifacts"][0]
+    assert "inline_content" not in artifact
+    assert artifact["truncated"] is False
+    #: la version inlinée reste intacte pour le rendu HTML
+    assert inlined["suites"]["unit"][0]["artifacts"][0]["inline_content"] == "payload\n"
+
+
+def test_render_html_size_stays_bounded():
+    summary = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+    # Mermaid vendorisé ~3,5 Mo; le shell/CSS/JS du cockpit doit rester marginal.
+    assert len(proof.render_html(summary)) < 4_500_000
+
+
 def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
     # Un *-scenarios.json v1 (sans clé schema, sans intent/assertions) doit
     # rester lisible: les lecteurs sont tolérants, aucun migrateur requis.
