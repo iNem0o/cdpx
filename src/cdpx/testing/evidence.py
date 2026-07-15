@@ -22,6 +22,12 @@ from cdpx.security.redaction import (
     redact_tree,
     secret_values_from_environment,
 )
+from cdpx.testing.intent import (
+    TestIntent,
+    extract_intent,
+    failure_location,
+    mark_failed_assertion,
+)
 
 E2E_PREFIX = "tests/e2e/"
 INTEGRATION_MODULES = {
@@ -251,6 +257,10 @@ class EvidenceCase:
     journey: str = ""
     scenario_id: str = ""
     proves: list[str] = field(default_factory=list)
+    intent: str = ""
+    intent_line: int = 0
+    assertions: list[dict[str, Any]] = field(default_factory=list)
+    failed_line: int = 0
     started_at: str = field(default_factory=utc_now)
     duration_s: float = 0.0
     status: str = "running"
@@ -412,6 +422,11 @@ class EvidenceCase:
                 context=self.redaction_context,
                 path="$.message",
             )
+        if self.status == "failed":
+            located = failure_location(report, self.nodeid.split("::", 1)[0])
+            if located:
+                self.failed_line = located
+                mark_failed_assertion(self.assertions, located)
         self.stdout = redact_text(
             getattr(report, "capstdout", "") or "",
             context=self.redaction_context,
@@ -436,6 +451,10 @@ class EvidenceCase:
             "journey": self.journey,
             "scenario_id": self.scenario_id,
             "proves": self.proves,
+            "intent": self.intent,
+            "intent_line": self.intent_line,
+            "assertions": self.assertions,
+            "failed_line": self.failed_line,
             "started_at": self.started_at,
             "duration_s": self.duration_s,
             "status": self.status,
@@ -463,6 +482,7 @@ class EvidenceSession:
         self.root = Path(root)
         self.suite_override = suite_override
         self.cases: dict[str, EvidenceCase] = {}
+        self._intent_cache: dict[str, TestIntent | None] = {}
         self.redaction_context = redaction_context or redaction_context_from_environment()
         self.created_at = datetime.now(UTC)
         self.expires_at = self.created_at + timedelta(seconds=selected_ttl)
@@ -474,6 +494,7 @@ class EvidenceSession:
             return self.cases[nodeid]
         metadata = marker_metadata(item)
         suite = self.suite_override or classify_nodeid(nodeid)
+        intent = self._intent_for_item(item)
         case = EvidenceCase(
             nodeid=nodeid,
             root=self.root,
@@ -484,10 +505,24 @@ class EvidenceSession:
             journey=metadata.get("journey", ""),
             scenario_id=metadata.get("scenario_id", ""),
             proves=list(metadata.get("proves", [])),
+            intent=intent.docstring if intent else "",
+            intent_line=intent.line if intent else 0,
+            assertions=[assertion.as_dict() for assertion in intent.assertions] if intent else [],
             redaction_context=self.redaction_context,
         )
         self.cases[nodeid] = case
         return case
+
+    def _intent_for_item(self, item: Any) -> TestIntent | None:
+        # Les tests paramétrés partagent la même fonction: extraction unique,
+        # chaque case reçoit ses propres dicts (as_dict) pour la corrélation.
+        func = getattr(item, "function", None)
+        if func is None:
+            return None
+        key = f"{getattr(func, '__module__', '')}.{getattr(func, '__qualname__', '')}"
+        if key not in self._intent_cache:
+            self._intent_cache[key] = extract_intent(func)
+        return self._intent_cache[key]
 
     def write(self) -> list[str]:
         paths = []
