@@ -6,13 +6,47 @@ from pathlib import Path
 import pytest
 
 from cdpx import proof
-from cdpx.artifacts import ArtifactError
+from cdpx.artifacts import ArtifactClassification, ArtifactError
 from cdpx.cli import build_parser
 from cdpx.security.redaction import RedactionContext
 
 
 def mode(path):
     return stat.S_IMODE(path.stat().st_mode)
+
+
+def _manifest_entry(path, classification, upload_allowed):
+    return {
+        "path": path,
+        "bytes": 1,
+        "sha256": "0" * 64,
+        "mime": "text/plain",
+        "classification": classification,
+        "upload_allowed": upload_allowed,
+        "redaction_policy": "1",
+        "created_at": "2026-07-15T00:00:00+00:00",
+    }
+
+
+def _write_evidence_manifest(
+    proof_dir,
+    entries,
+    *,
+    name="evidence-manifest-unit.json",
+    schema="cdpx.evidence/v2",
+    redaction_policy="1",
+):
+    payload = {
+        "schema": schema,
+        "created_at": "2026-07-15T00:00:00+00:00",
+        "expires_at": "2026-07-29T00:00:00+00:00",
+        "redaction_policy": redaction_policy,
+        "artifacts": entries,
+        "redaction": {},
+    }
+    proof._write_private_text(
+        proof_dir / "evidence" / name, json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    )
 
 
 def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
@@ -96,6 +130,7 @@ def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(
     proof._write_private_text(proof_dir / "proof-report.html", report)
     proof._write_private_text(proof_dir / "validation-summary.json", '{"ok": true}\n')
     proof._write_private_bytes(proof_dir / "evidence" / "shot.png", b"\x89PNG\r\n")
+    _write_evidence_manifest(proof_dir, [_manifest_entry("shot.png", "opaque-restricted", False)])
 
     staging = proof.build_shareable_proof(
         proof_dir,
@@ -147,7 +182,8 @@ def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
     """La détection d'un canari dans un artefact fait échouer la construction
     fermée: aucun staging partiel ne survit à l'échec."""
     proof_dir = tmp_path / ".proof"
-    proof._write_private_text(proof_dir / "unsafe.log", "leaked-canary")
+    # Un log du pipeline (allowlisté, donc uploadable) qui charrie le canari.
+    proof._write_private_text(proof_dir / "ruff-check.log", "leaked-canary")
 
     #: le canari présent dans un artefact bloque la construction et est nommé dans l'erreur
     with pytest.raises(ArtifactError, match="canary"):
@@ -172,6 +208,116 @@ def test_pre_redacted_report_still_fails_closed_on_canary(tmp_path):
         )
 
     #: l'échec fermé n'a laissé aucun staging résiduel
+    assert not (proof_dir / "shareable").exists()
+
+
+def test_secret_text_artifact_never_staged_even_if_not_canary(tmp_path):
+    """Un artefact texte déclaré secret et non uploadable au manifeste
+    d'évidence n'atteint jamais le staging partageable, même quand sa valeur
+    est inconnue des canaris: la classification déclarée par le test prime
+    sur la politique MIME qui l'aurait reclassé internal/uploadable."""
+    proof_dir = tmp_path / ".proof"
+    secret_value = "session-token-9f8e7d6c"
+    secret_rel = "artifacts/unit/tests-test_demo-py-test_token/token.txt"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+    proof._write_private_text(proof_dir / "evidence" / secret_rel, secret_value + "\n")
+    _write_evidence_manifest(proof_dir, [_manifest_entry(secret_rel, "secret", False)])
+
+    staging = proof.build_shareable_proof(proof_dir, canaries=["other-value"], ttl=3600)
+
+    #: le fichier secret, pourtant .txt, n'est pas copié dans le staging
+    assert not (staging / ".proof" / "evidence" / secret_rel).exists()
+    #: la valeur secrète est absente de tout l'arbre partageable
+    shared_files = [path for path in staging.rglob("*") if path.is_file()]
+    assert shared_files
+    assert all(secret_value.encode() not in path.read_bytes() for path in shared_files)
+    public_manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
+    #: le manifest public n'annonce jamais l'artefact secret
+    assert not any(item["path"].endswith("token.txt") for item in public_manifest["artifacts"])
+    private_manifest = json.loads(
+        (proof_dir / "artifact-manifest.json").read_text(encoding="utf-8")
+    )
+    secret_entry = next(
+        item for item in private_manifest["artifacts"] if item["path"].endswith("token.txt")
+    )
+    #: le manifest privé trace la classification secret et l'interdiction d'upload
+    assert secret_entry["classification"] == "secret"
+    assert secret_entry["upload_allowed"] is False
+
+
+def test_unmanifested_evidence_file_fails_closed(tmp_path):
+    """Un fichier d'évidence hors allowlist du pipeline et absent des
+    manifestes bloque le staging: aucun artefact inconnu ne peut se glisser
+    dans l'arbre partageable via la politique MIME."""
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+    proof._write_private_text(proof_dir / "evidence" / "artifacts" / "rogue.txt", "dump\n")
+
+    #: le fichier non manifesté est nommé dans l'erreur fail-closed
+    with pytest.raises(ArtifactError, match="non manifesté"):
+        proof.build_shareable_proof(proof_dir, ttl=3600)
+
+    #: échec fermé: aucun staging résiduel n'a été produit
+    assert not (proof_dir / "shareable").exists()
+
+
+def test_evidence_policy_merges_duplicates_to_most_restrictive(tmp_path):
+    """Quand deux manifestes déclarent le même chemin avec des classifications
+    divergentes, l'agrégation retient la plus restrictive et n'autorise
+    l'upload que si tous les manifestes l'autorisent."""
+    proof_dir = tmp_path / ".proof"
+    shared_rel = "artifacts/shared/output.txt"
+    proof._write_private_text(proof_dir / "evidence" / shared_rel, "data\n")
+    _write_evidence_manifest(
+        proof_dir,
+        [_manifest_entry(shared_rel, "internal", True)],
+        name="evidence-manifest-unit.json",
+    )
+    _write_evidence_manifest(
+        proof_dir,
+        [_manifest_entry(shared_rel, "secret", False)],
+        name="evidence-manifest-e2e.json",
+    )
+
+    policy = proof._load_evidence_policy(proof_dir)
+
+    classification, upload_allowed = policy[(proof_dir / "evidence" / shared_rel).resolve()]
+    #: la classification la plus restrictive gagne, quel que soit l'ordre des manifestes
+    assert classification is ArtifactClassification.SECRET
+    #: l'upload exige l'unanimité des manifestes: un seul refus suffit à l'interdire
+    assert upload_allowed is False
+
+
+def test_evidence_manifest_with_unexpected_schema_fails_closed(tmp_path):
+    """Un manifeste d'évidence au schéma inconnu invalide tout le staging:
+    plutôt que d'interpréter des classifications d'un format non prévu, la
+    construction échoue fermée."""
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+    _write_evidence_manifest(proof_dir, [], schema="cdpx.evidence/v1")
+
+    #: le schéma inattendu est refusé avant toute décision de staging
+    with pytest.raises(ArtifactError, match="schéma de manifeste d'évidence inattendu"):
+        proof.build_shareable_proof(proof_dir, ttl=3600)
+
+    #: échec fermé: aucun staging résiduel n'a été produit
+    assert not (proof_dir / "shareable").exists()
+
+
+def test_evidence_manifests_with_mixed_redaction_policies_fail_closed(tmp_path):
+    """Des manifestes issus de politiques de redaction différentes ne sont
+    pas fusionnables: leurs garanties ne sont pas comparables, le staging
+    échoue fermé."""
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+    _write_evidence_manifest(proof_dir, [], name="evidence-manifest-unit.json")
+    _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="2")
+
+    #: l'hétérogénéité des politiques de redaction est une erreur nommée, pas un merge silencieux
+    with pytest.raises(ArtifactError, match="redaction hétérogènes"):
+        proof.build_shareable_proof(proof_dir, ttl=3600)
+
+    #: échec fermé: aucun staging résiduel n'a été produit
     assert not (proof_dir / "shareable").exists()
 
 

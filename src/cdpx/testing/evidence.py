@@ -732,8 +732,14 @@ class EvidenceSession:
             "artifacts": entries,
             "redaction": self.redaction_context.report.as_dict(),
         }
+        # Nom dérivé du jeu de suites: les sessions pytest successives d'une
+        # même génération de preuve (unit/integration, e2e, symfony) écrivent
+        # des manifestes distincts au lieu de s'écraser, et un re-run de la
+        # même session remplace le sien (déterminisme, pas d'accumulation).
+        suites = sorted({case.suite for case in self.cases.values()})
+        stem = slugify("-".join(suites)) if suites else secrets.token_hex(8)
         _write_private_text(
-            self.root / "evidence-manifest.json",
+            self.root / f"evidence-manifest-{stem}.json",
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         )
 

@@ -176,7 +176,7 @@ def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
 
     session.write()
 
-    manifest_path = tmp_path / "evidence-manifest.json"
+    manifest_path = tmp_path / "evidence-manifest-integration.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     #: le contrat v2 est complet: TTL dans le futur, politique de redaction
     #: versionnée et artefacts classifiés
@@ -189,6 +189,30 @@ def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
     assert mode(manifest_path) == 0o600
 
 
+def test_two_sessions_in_same_root_write_distinct_manifests(tmp_path):
+    """Deux sessions pytest écrivant dans le même dossier d'évidence (comme
+    les runs unit, e2e et symfony d'une même génération de preuve) produisent
+    des manifestes distincts nommés par leurs suites: la dernière session
+    n'écrase plus la classification déclarée par les précédentes."""
+    first = EvidenceSession(tmp_path, ttl=3600)
+    first.case_for_item(FakeItem("tests/test_cli.py::test_first")).status = "passed"
+    first.write()
+    second = EvidenceSession(tmp_path, suite_override="symfony", ttl=3600)
+    second.case_for_item(FakeItem("tests/e2e/test_e2e_symfony.py::test_second")).status = "passed"
+    second.write()
+
+    manifests = sorted(path.name for path in tmp_path.glob("evidence-manifest*.json"))
+    #: chaque session possède son propre manifeste, nommé d'après sa suite
+    assert manifests == [
+        "evidence-manifest-integration.json",
+        "evidence-manifest-symfony.json",
+    ]
+    #: les deux manifestes restent lisibles indépendamment et portent le schéma v2
+    for name in manifests:
+        payload = json.loads((tmp_path / name).read_text(encoding="utf-8"))
+        assert payload["schema"] == "cdpx.evidence/v2"
+
+
 def test_evidence_session_uses_validated_proof_retention_environment(tmp_path, monkeypatch):
     """La rétention déclarée dans l'environnement pilote réellement la
     fenêtre created_at -> expires_at du manifeste écrit."""
@@ -198,7 +222,9 @@ def test_evidence_session_uses_validated_proof_retention_environment(tmp_path, m
 
     session.write()
 
-    manifest = json.loads((tmp_path / "evidence-manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (tmp_path / "evidence-manifest-integration.json").read_text(encoding="utf-8")
+    )
     created = datetime.fromisoformat(manifest["created_at"])
     expires = datetime.fromisoformat(manifest["expires_at"])
     #: la fenêtre d'expiration reflète exactement les jours demandés,

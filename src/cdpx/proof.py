@@ -43,6 +43,7 @@ from cdpx.proofing.documentation import (
 from cdpx.proofing.features import build_feature_inventory, feature_failures
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
 from cdpx.testing.evidence import (
+    EVIDENCE_SCHEMA,
     PROOF_RETENTION_ENV,
     SCENARIOS_SCHEMA,
     environment_secret_values,
@@ -1554,6 +1555,98 @@ def _proof_artifact_policy(path: Path) -> tuple[ArtifactClassification, bool]:
     return ArtifactClassification.OPAQUE_RESTRICTED, False
 
 
+# Allowlist explicite et bornée des fichiers produits par le pipeline de
+# preuve lui-même (hors sessions pytest): eux seuls peuvent être classés par
+# la politique MIME. Tout autre fichier doit être couvert par un manifeste
+# d'évidence, sinon le staging échoue fermé.
+_PIPELINE_TOP_LEVEL_FILES = frozenset(
+    {
+        REPORT_HTML.name,
+        SUMMARY_JSON.name,
+        UNIT_LOG.name,
+        E2E_LOG.name,
+        SYMFONY_LOG.name,
+        CLI_HELP.name,
+        GIT_STATUS.name,
+        GIT_DIFF_STAT.name,
+        SYMFONY_JUNIT.name,
+        "unit-junit.xml",
+        "e2e-junit.xml",
+        "ruff-check.log",
+        "ruff-format.log",
+        "mypy.log",
+        "artifact-manifest.json",
+    }
+)
+# Ordre de restriction croissant pour la fusion multi-manifestes.
+_CLASSIFICATION_SEVERITY: dict[ArtifactClassification, int] = {
+    ArtifactClassification.PUBLIC: 0,
+    ArtifactClassification.INTERNAL: 1,
+    ArtifactClassification.OPAQUE_RESTRICTED: 2,
+    ArtifactClassification.SECRET: 3,
+}
+
+
+def _is_pipeline_proof_artifact(relative: str) -> bool:
+    parts = Path(relative).parts
+    if len(parts) == 1:
+        return parts[0] in _PIPELINE_TOP_LEVEL_FILES or parts[0].endswith(".cast")
+    if len(parts) == 2 and parts[0] == "evidence":
+        # Les *-scenarios.json sont réécrits par _generate() après les runs
+        # (symfony-scenarios.json peut même exister sans manifeste); les
+        # manifestes eux-mêmes sont des métadonnées produites par les sessions.
+        name = parts[1]
+        return name.endswith("-scenarios.json") or (
+            name.startswith("evidence-manifest") and name.endswith(".json")
+        )
+    return False
+
+
+def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassification, bool]]:
+    """Agrège les manifestes d'évidence en une politique par chemin résolu.
+
+    Les manifestes écrits par les sessions pytest sont la seule autorité de
+    classification des artefacts d'évidence: en cas de doublon entre
+    manifestes, la classification la plus restrictive gagne et l'upload n'est
+    permis que si tous l'autorisent.
+    """
+
+    evidence_root = (proof_dir / "evidence").resolve()
+    policy: dict[Path, tuple[ArtifactClassification, bool]] = {}
+    redaction_policies: set[str] = set()
+    for manifest_path in sorted((proof_dir / "evidence").glob("evidence-manifest*.json")):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            raise ArtifactError(f"manifeste d'évidence illisible: {manifest_path}") from e
+        if not isinstance(payload, dict) or payload.get("schema") != EVIDENCE_SCHEMA:
+            raise ArtifactError(f"schéma de manifeste d'évidence inattendu: {manifest_path}")
+        redaction_policies.add(str(payload.get("redaction_policy")))
+        for entry in payload.get("artifacts", []):
+            try:
+                resolved = (evidence_root / str(entry["path"])).resolve()
+                classification = ArtifactClassification(str(entry["classification"]))
+                upload_allowed = bool(entry["upload_allowed"])
+            except (KeyError, TypeError, ValueError) as e:
+                raise ArtifactError(
+                    f"entrée de manifeste d'évidence invalide dans {manifest_path}: {e}"
+                ) from e
+            if resolved != evidence_root and evidence_root not in resolved.parents:
+                raise ArtifactError(f"chemin manifesté hors de l'évidence: {entry['path']}")
+            previous = policy.get(resolved)
+            if previous is not None:
+                if _CLASSIFICATION_SEVERITY[previous[0]] > _CLASSIFICATION_SEVERITY[classification]:
+                    classification = previous[0]
+                upload_allowed = upload_allowed and previous[1]
+            policy[resolved] = (classification, upload_allowed)
+    if len(redaction_policies) > 1:
+        raise ArtifactError(
+            "politiques de redaction hétérogènes entre manifestes d'évidence: "
+            + ", ".join(sorted(redaction_policies))
+        )
+    return policy
+
+
 def build_shareable_proof(
     proof_dir: Path = PROOF_DIR,
     *,
@@ -1565,9 +1658,12 @@ def build_shareable_proof(
 
     Textual proof material is already redacted when it reaches this function.
     Opaque/binary attachments remain in the private local proof and are never
-    copied to staging. ``pre_redacted_paths`` is reserved for text assembled
-    exclusively from redacted structures plus trusted static code. A final
-    exact-value canary scan fails closed, including for these preserved files.
+    copied to staging. Evidence artifacts inherit the classification declared
+    in the aggregated evidence manifests — the MIME fallback only applies to
+    files the proof pipeline generates itself; anything else fails closed.
+    ``pre_redacted_paths`` is reserved for text assembled exclusively from
+    redacted structures plus trusted static code. A final exact-value canary
+    scan fails closed, including for these preserved files.
     """
 
     selected_ttl = proof_retention_seconds() if ttl is None else ttl
@@ -1589,12 +1685,21 @@ def build_shareable_proof(
         if path.is_file():
             source_paths.append(path)
 
+    evidence_policy = _load_evidence_policy(proof_dir)
     if store_root.exists():
         shutil.rmtree(store_root)
     writer = SecureArtifactWriter(store_root, "proof", ttl=selected_ttl)
     for source in source_paths:
         relative = source.relative_to(proof_dir).as_posix()
-        classification, upload_allowed = _proof_artifact_policy(source)
+        manifested = evidence_policy.get(source.resolve())
+        if manifested is not None:
+            # Le manifeste d'évidence est la seule autorité: la politique MIME
+            # ne peut jamais abaisser une classification déclarée par un test.
+            classification, upload_allowed = manifested
+        elif _is_pipeline_proof_artifact(relative):
+            classification, upload_allowed = _proof_artifact_policy(source)
+        else:
+            raise ArtifactError(f"artefact de preuve non manifesté: {relative}")
         artifact_name = f".proof/{relative}"
         if relative in preserved:
             # Ces fichiers ont déjà été construits exclusivement depuis des
