@@ -35,6 +35,7 @@ from cdpx.artifacts import (
     SecureArtifactWriter,
     scan_canaries,
 )
+from cdpx.proofing.cast import collect_cast_evidence
 from cdpx.proofing.documentation import (
     build_documentation_catalog,
     documentation_failures,
@@ -787,6 +788,7 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) 
         ("*.webm", "video"),
         ("*.mp4", "video"),
         ("*.cast", "asciinema"),
+        ("*.gif", "gif"),
     ):
         for path in sorted(PROOF_DIR.rglob(pattern)):
             catalog.append(
@@ -815,7 +817,10 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) 
                 "name": "Terminal record",
                 "path": "",
                 "status": "optional",
-                "roi": "Optionnel; les logs texte couvrent déjà la reproduction du run.",
+                "roi": (
+                    "Optionnel; activer avec CDPX_PROOF_CAST=1 (asciinema requis, "
+                    "GIF via agg). Les logs texte couvrent déjà la reproduction du run."
+                ),
             }
         )
     return catalog
@@ -1112,7 +1117,11 @@ def build_project_risks_and_unknowns() -> dict:
         {
             "item": "Asciinema du run complet",
             "why": "`asciinema` est optionnel et ne doit pas bloquer le portail.",
-            "how_to_verify": "Option: `asciinema rec .proof/make-proof.cast -c 'make proof'`.",
+            "how_to_verify": (
+                "Opt-in intégré: `CDPX_PROOF_CAST=1 make proof` enregistre les commandes "
+                "de démonstration (GIF via `agg` si présent). Manuel: "
+                "`asciinema rec .proof/make-proof.cast -c 'make proof'`."
+            ),
         },
     ]
     return {"risks": risks, "unknowns": unknowns}
@@ -1654,6 +1663,11 @@ def _generate() -> dict:
             redaction_context=context,
         ),
     ]
+
+    # Preuve secondaire opt-in (CDPX_PROOF_CAST=1): les .cast/.gif atterrissent
+    # dans .proof/ et entrent au rapport via le catalogue (rglob), le verdict
+    # ne dépend jamais de leur présence.
+    collect_cast_evidence(PROOF_DIR, env=env, redaction_context=context)
 
     for path in (unit_xml, e2e_xml, symfony_xml):
         _sanitize_text_file(path, context)
