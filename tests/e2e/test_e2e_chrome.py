@@ -229,6 +229,27 @@ def test_cli_jpeg_and_pdf_artifacts_black_box(cli_page, tmp_path, evidence_case)
     #: même contrat pour le PDF: fichier non trivial, signature %PDF-, confinement session
     assert printed["bytes"] == pdf_path.stat().st_size > 1000 and not pdf.exists()
     assert pdf_path.read_bytes().startswith(b"%PDF-")
+    if evidence_case is not None:
+        # Binaires: JPEG relogé en type screenshot, PDF en type file — tous deux
+        # opaque-restricted (non inlinés). Le JSON dérivé rend lisibles taille,
+        # format et signatures observées sans exposer le contenu binaire.
+        evidence_case.attach_file(jpeg_path, "jpeg-full-page", "screenshot")
+        evidence_case.attach_file(pdf_path, "pdf-print")
+        evidence_case.attach_json(
+            "artefacts-binaires-observes",
+            {
+                "jpeg": {
+                    "format": shot["format"],
+                    "full_page": shot["full_page"],
+                    "bytes": jpeg_path.stat().st_size,
+                    "signature": jpeg_path.read_bytes()[:3].hex(),
+                },
+                "pdf": {
+                    "bytes": pdf_path.stat().st_size,
+                    "signature": pdf_path.read_bytes()[:5].decode("ascii"),
+                },
+            },
+        )
     attach_cli_screenshot(evidence_case, session)
 
 
@@ -246,6 +267,7 @@ def test_cli_console_follow_is_bounded_ndjson(cli_page, evidence_case):
     session = (manifest, path)
     cli_json(session, "goto", f"{base}/console.html")
     proc = run_cli(manifest, path, "console", "--follow", "--max", "4")
+    attach_cli_run(evidence_case, "console-follow-max-4", proc)
     #: le suivi borné se termine proprement, sans diagnostic parasite
     assert proc.returncode == 0 and proc.stderr == ""
     entries = [json.loads(line) for line in proc.stdout.splitlines()]
@@ -303,6 +325,30 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
         for cookie in shown["cookies"]
     )
     assert secret not in shown_proc.stdout
+    if evidence_case is not None:
+        # Le run masqué est sûr (toutes valeurs "***"): transcript joint intégral.
+        # Le run --show-values, lui, révèle des valeurs de cookies en clair
+        # (valeurs de fixture, non des secrets d'environnement) — on n'attache
+        # donc PAS son transcript brut. Le JSON dérivé prouve le contraste
+        # masquage-par-défaut vs --show-values sans exposer aucune valeur.
+        attach_cli_run(evidence_case, "cookies-get-masque", masked_proc)
+        evidence_case.attach_json(
+            "cookies-masquage-contraste",
+            {
+                "masked_run": {
+                    "values_masked": masked["values_masked"],
+                    "distinct_values": sorted({cookie["value"] for cookie in masked["cookies"]}),
+                },
+                "shown_run": {
+                    "values_masked": shown["values_masked"],
+                    "env_cookie_stays_masked": any(
+                        cookie["name"] == "blackBoxCookie" and cookie["value"] == "***"
+                        for cookie in shown["cookies"]
+                    ),
+                    "secret_absent_from_stdout": secret not in shown_proc.stdout,
+                },
+            },
+        )
     session_storage = cli_json(session_context, "storage", "--kind", "session")
     #: le sessionStorage applique la même politique de masquage par défaut
     assert session_storage["entries"] == {"cdpx-session": "***"}
@@ -359,16 +405,19 @@ def test_cli_stdout_stderr_and_exit_contract(cli_page, evidence_case):
     manifest, path, base = cli_page
     session = (manifest, path)
     success = run_cli(manifest, path, "goto", f"{base}/form.html")
+    attach_cli_run(evidence_case, "exit-0-success", success)
     #: la réussite n'emprunte que stdout, avec un unique objet JSON parsable
     assert success.returncode == 0 and success.stderr == ""
     assert json.loads(success.stdout)["ok"] is True
 
     runtime_error = run_cli(manifest, path, "click", "#missing")
+    attach_cli_run(evidence_case, "exit-1-runtime-error", runtime_error)
     #: un sélecteur introuvable est une erreur d'exécution: code 1, diagnostic hors de stdout
     assert runtime_error.returncode == 1 and runtime_error.stdout == ""
     assert "sélecteur introuvable" in runtime_error.stderr
 
     usage_error = run_cli(manifest, path, "goto")
+    attach_cli_run(evidence_case, "exit-2-usage-error", usage_error)
     #: une invocation malformée se distingue par le code 2 réservé aux erreurs d'usage
     assert usage_error.returncode == 2 and usage_error.stdout == ""
     assert "the following arguments are required: url" in usage_error.stderr
@@ -696,6 +745,7 @@ def test_origin_guard_cli_real(managed_cli_session, fixtures_http, evidence_case
     manifest, path = managed_cli_session
     cli_json(managed_cli_session, "goto", f"{fixtures_http.base_url}/index.html")
     proc = run_cli(manifest, path, "goto", "https://blocked.example/")
+    attach_cli_run(evidence_case, "goto-origine-refusee", proc)
     with CDPClient(manifest.websocket_url, timeout=10) as client:
         attach_screenshot(evidence_case, client, "origin-guard-final")
     #: la sortie vers une origine interdite échoue en erreur runtime avec un refus explicite

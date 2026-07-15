@@ -10,31 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_console_follow_is_bounded_ndjson",
-  "helper": "attach_cli_run",
-  "what": "Joindre la sortie NDJSON bornée du `cdpx console --follow --max 4` comme preuve du flux."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr_and_exit_contract",
-  "helper": "attach_cli_run",
-  "what": "Joindre les trois exécutions (succès, erreur runtime, erreur d'usage) pour matérialiser le contrat exit 0/1/2."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking_and_session_storage_black_box",
-  "helper": "attach_cli_run",
-  "what": "Joindre les sorties masquée et --show-values (masked_proc/shown_proc) pour prouver visuellement la redaction."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_jpeg_and_pdf_artifacts_black_box",
-  "helper": "evidence_case.attach_file",
-  "what": "Joindre le JPEG pleine page et le PDF générés (jpeg_path/pdf_path) comme artefacts de preuve."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_origin_guard_cli_real",
-  "helper": "attach_cli_run",
-  "what": "Joindre la sortie du goto refusé (exit 1, 'origine refusée') comme preuve de la garde d'origines."
- },
- {
   "nodeid": "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid",
   "helper": "evidence_case.attach_json",
   "what": "Le test ne demande pas evidence_case; joindre mermaid_state et les sondes d'hermétisme (script[src], resources) documenterait le rendu offline."
