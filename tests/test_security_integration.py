@@ -48,6 +48,9 @@ def test_observation_outputs_redact_url_console_storage_and_errors(
     client,
     capsys,
 ):
+    """Toutes les sorties d'observation (console, storage, réseau, erreurs)
+    sont purgées du canari avant sérialisation et jusqu'aux flux
+    stdout/stderr réels, sans appauvrir les diagnostics anodins."""
     context = RedactionContext.from_secrets([CANARY])
     mock.on_eval(
         "Object.entries(localStorage)",
@@ -106,19 +109,28 @@ def test_observation_outputs_redact_url_console_storage_and_errors(
     }
     serialized = json.dumps(output, ensure_ascii=False)
 
+    #: le canari n'apparaît nulle part dans la sortie agrégée sérialisée
     assert CANARY not in serialized
+    #: les diagnostics anodins survivent partout: la redaction n'appauvrit
+    #: pas la valeur d'observation des sorties
     assert ORDINARY_TEXT in console_result["entries"][0]["text"]
     assert ORDINARY_TEXT in network_result["requests"][0]["failed"]
     assert ORDINARY_TEXT in safe_error["error"]
+    #: le storage est masqué clé par clé: c'est un réservoir de sessions
     assert storage_result["entries"] == {"session": MASK, "diagnostic": MASK}
+    #: les URLs réseau perdent credentials et tokens mais restent corrélables
     assert network_result["url"] == "http://app.test/report?token=***"
     assert network_result["requests"][0]["url"] == ("http://app.test/api/orders?access_token=***")
+    #: le navigateur a reçu l'URL intacte: la redaction n'altère que la
+    #: sortie, jamais l'action demandée
     assert mock.commands_for("Page.navigate")[-1] == {"url": navigation_url}
     assert redact_text(ORDINARY_TEXT, context=context) == ORDINARY_TEXT
 
     print(serialized)
     print(safe_error["error"], file=sys.stderr)
     emitted = capsys.readouterr()
+    #: à la frontière réelle stdout/stderr, le canari est absent et le
+    #: diagnostic anodin toujours présent
     assert CANARY not in emitted.out
     assert CANARY not in emitted.err
     assert ORDINARY_TEXT in emitted.out and ORDINARY_TEXT in emitted.err
@@ -129,6 +141,9 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
     client,
     tmp_path,
 ):
+    """Le token du profiler Symfony, découvert en cours de route, rejoint le
+    contexte partagé: URLs, headers et panneaux SQL sortent nettoyés, et
+    l'artefact écrit reste privé et exempt de canari."""
     # Le token n'est pas pré-enregistré: la primitive profiler doit l'ajouter
     # au contexte partagé avant le nettoyage transversal de la sortie.
     context = RedactionContext()
@@ -185,15 +200,24 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
     result = redact_tree(primitive_result, context=context)
     serialized = json.dumps(result, ensure_ascii=False)
 
+    #: la sortie brute de la primitive contient encore le token: c'est bien
+    #: la frontière redact_tree qui protège, pas un hasard amont
     assert CANARY in json.dumps(primitive_result["panels"], ensure_ascii=False)
+    #: après la frontière, plus aucun canari dans la sortie sérialisée
     assert CANARY not in serialized
+    #: URLs de navigation et de profiler perdent le token découvert en route
     assert result["url"] == "http://app.test/report?session=***"
     assert result["profiler_url"] == "http://app.test/_profiler/***?transport=***"
+    #: les headers d'auth sont masqués, le diagnostic anodin survit dans le
+    #: header libre comme dans le SQL du panneau
     assert result["response_headers"]["authorization"] == MASK
     assert result["response_headers"]["set-cookie"] == MASK
     assert ORDINARY_TEXT in result["response_headers"]["x-diagnostic"]
     assert ORDINARY_TEXT in result["panels"]["db"]["list"][0]["sql"]
+    #: le token n'est jamais retourné, seule sa présence est attestée
     assert "token" not in result and result["token_present"] is True
+    #: côté protocole le vrai token a circulé: la redaction n'a pas dégradé
+    #: l'interrogation effective du profiler
     assert CANARY in mock.commands_for("Runtime.evaluate")[-1]["expression"]
     assert mock.commands_for("Page.navigate")[-1] == {"url": navigation_url}
 
@@ -205,6 +229,8 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
         upload_allowed=True,
     )
     shareable = writer.build_shareable(tmp_path / "shareable")
+    #: ni l'artefact ni sa copie partageable ne contiennent le canari, et
+    #: leurs arborescences restent privées (0700/0600)
     assert scan_canaries(writer.run_dir, [CANARY]) == []
     assert scan_canaries(shareable, [CANARY]) == []
     _assert_private_tree(writer.root)
@@ -218,6 +244,9 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     monkeypatch,
     capsys,
 ):
+    """Un secret injecté via @env: atteint le navigateur mais n'apparaît
+    jamais ailleurs: le journal ne stocke que la référence, et artefacts,
+    stdout et stderr restent exempts de la valeur secrète."""
     monkeypatch.setenv("CHECKOUT_PASSWORD", CANARY)
     mock.on_eval(
         "__cdpx_actionability focus",
@@ -250,14 +279,19 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
         context=context,
     )
 
+    #: la valeur secrète a bien été tapée dans la page: la protection ne
+    #: sacrifie pas la fonctionnalité de saisie
     assert mock.commands_for("Input.insertText") == [{"text": CANARY}]
     journal_text = record_path.read_text(encoding="utf-8")
+    #: le journal rejouable ne contient que la référence d'environnement,
+    #: jamais la valeur secrète elle-même
     assert CANARY not in journal_text
     event = json.loads(journal_text)
     assert event["action"]["input"] == {
         "secret_ref": "CHECKOUT_PASSWORD",
         "source": "env",
     }
+    #: le journal est créé privé dès l'écriture, sans resserrage a posteriori
     assert _mode(record_path.parent) == 0o700
     assert _mode(record_path) == 0o600
 
@@ -276,15 +310,20 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     )
     shareable = writer.build_shareable(tmp_path / "staging")
 
+    #: aucun canari dans les artefacts ni la copie partageable, arborescences
+    #: privées de bout en bout
     assert scan_canaries(writer.run_dir, [CANARY]) == []
     assert scan_canaries(shareable, [CANARY]) == []
     _assert_private_tree(writer.root)
     _assert_private_tree(shareable)
+    #: le journal interne non uploadable est exclu de la copie partageable
     assert not (shareable / "journal" / "record.ndjson").exists()
 
     print(json.dumps(result, ensure_ascii=False))
     print(safe_error["error"], file=sys.stderr)
     emitted = capsys.readouterr()
+    #: aux frontières stdout/stderr, le canari est absent mais le diagnostic
+    #: anodin passe encore
     assert CANARY not in emitted.out and CANARY not in emitted.err
     assert ORDINARY_TEXT in emitted.err
 
@@ -295,6 +334,9 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
     tmp_path,
     monkeypatch,
 ):
+    """Un rejeu dont la référence de secret n'existe plus dans
+    l'environnement s'arrête net avant la première action: divergence
+    explicite et zéro effet CDP."""
     monkeypatch.delenv("MISSING_CHECKOUT_PASSWORD", raising=False)
     record_path = tmp_path / "journal" / "record.ndjson"
     journal.append_event(
@@ -326,7 +368,10 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
 
     result = advanced.replay(client, str(record_path), origins="http://*.test")
 
+    #: le rejeu échoue sans jouer aucune action et la divergence nomme la
+    #: référence manquante pour un correctif immédiat
     assert result["ok"] is False
     assert result["played"] == 0
     assert "MISSING_CHECKOUT_PASSWORD" in result["divergence"]
+    #: aucune commande n'a atteint le navigateur: le refus précède tout effet
     assert mock.commands == []
