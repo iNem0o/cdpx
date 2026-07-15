@@ -7,6 +7,10 @@ Ce projet suit un versionnage sémantique.
 
 ### Ajouté
 
+- Portail **Docs** dans le cockpit de preuve : catalogue curaté et hiérarchique,
+  rendu CommonMark sûr, huit spécifications features et diagrammes Mermaid
+  hors ligne. Une référence dédiée décrit le cycle complet des sessions et des
+  processus Chrome.
 - Nouvelle commande `cdpx session start|status|stop` : profil navigateur
   jetable loopback, port dynamique, target unique, manifest privé, lease
   exclusif, TTL/owner et teardown supervisé. La surface publique passe de 30 à

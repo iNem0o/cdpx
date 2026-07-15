@@ -6,7 +6,7 @@ summary = "Attribuer une session navigateur supervisée et inspecter cookies/loc
 entrypoints = ["cdpx cookies", "cdpx storage", "cdpx session"]
 path_globs = ["src/cdpx/session.py", "src/cdpx/policy.py", "src/cdpx/artifacts.py", "src/cdpx/security/*.py", "src/cdpx/primitives/state.py", "src/cdpx/testing/mock_session.py", "tests/test_session.py", "tests/test_policy.py", "tests/test_session_cli.py", "tests/test_artifacts.py", "tests/test_redaction.py", "tests/test_security_integration.py", "tests/e2e/test_e2e_sessions.py", "tests/fixtures/storage.html"]
 test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*", "tests/e2e/test_e2e_sessions.py::*"]
-docs = ["docs/PRIMITIVES.md", "HARNESS.md"]
+docs = ["docs/PRIMITIVES.md", "docs/SESSION-LIFECYCLE.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
@@ -129,8 +129,13 @@ usage: cdpx session stop --session PATH --run-id RUN --target ID
 
 `start` lance un Chrome headless sur loopback avec port dynamique, profil
 jetable, target unique et superviseur. Le manifest privé associe ces ressources
-au run, à l'autorité et à l'allowlist. La sortie publique omet chemins internes,
-PID et URL WebSocket, mais fournit l'identité nécessaire aux commandes.
+au run, à l'autorité et à l'allowlist. La sortie publique omet les PID, les
+chemins profil/artefacts et l'URL WebSocket ; elle fournit le chemin du manifest
+et l'identité nécessaire aux commandes.
+
+La sélection du binaire, la ligne de commande exacte, l'arbre des processus,
+les fichiers privés, les surfaces exposées et tous les chemins de teardown sont
+documentés dans [Sessions supervisées et processus Chrome](../SESSION-LIFECYCLE.md).
 Le cold start dispose par défaut de 60 secondes, dans une limite stricte de
 300 secondes. Le parent attend ce budget puis une courte marge de transmission,
 sans courir contre le timeout interne du superviseur. Sur un runner CI, Chrome

@@ -42,6 +42,8 @@ def verify_wheel(path: Path) -> dict[str, object]:
 
         assert top_levels <= {"cdpx", dist_info}, f"module inattendu dans le wheel: {top_levels}"
         assert "cdpx/__init__.py" in names
+        assert "cdpx/proofing/vendor/mermaid-11.16.0.min.js" in names
+        assert "cdpx/proofing/vendor/LICENSE.mermaid" in names
         assert metadata["Name"] == "cdpx"
         assert metadata["Version"] == __version__
         assert metadata["License-Expression"] == "MIT"
@@ -68,12 +70,15 @@ def verify_sdist(path: Path) -> dict[str, object]:
             "SECURITY.md",
             "CODE_OF_CONDUCT.md",
             "SUPPORT.md",
+            "THIRD_PARTY_NOTICES.md",
             "pyproject.toml",
             "MANIFEST.in",
             "scripts/verify_dist.py",
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
             "src/cdpx/__init__.py",
+            "src/cdpx/proofing/vendor/mermaid-11.16.0.min.js",
+            "src/cdpx/proofing/vendor/LICENSE.mermaid",
             "tests/fixtures/profiler/LICENSE.SYMFONY",
         }
         missing = {name for name in required if f"{root}/{name}" not in names}

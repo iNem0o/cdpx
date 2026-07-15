@@ -447,8 +447,48 @@ def test_render_html_embeds_payload_verdict_and_routes():
     html = proof.render_html(summary)
     assert 'id="report-data"' in html and '"ok": true'.replace(" ", "") in html.replace(" ", "")
     assert ">OK<" in html
-    for route in ("#/features", "#/cli", "#/validation", "#/gaps", "#/run", "#/project"):
+    for route in (
+        "#/features",
+        "#/docs",
+        "#/cli",
+        "#/validation",
+        "#/gaps",
+        "#/run",
+        "#/project",
+    ):
         assert route in html
+    assert "securityLevel: 'strict'" in html
+    assert "connect-src 'none'" in html
+    assert "<script src=" not in html
+
+
+def test_build_summary_exposes_curated_documentation_catalog():
+    summary = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+
+    documentation = summary["documentation"]
+    assert documentation["schema"] == "cdpx.docs/v1"
+    assert documentation["violations"] == []
+    assert any(
+        document["path"] == "docs/SESSION-LIFECYCLE.md" for document in documentation["documents"]
+    )
+    assert not any(failure.startswith("documentation:") for failure in summary["proof_failures"])
+
+
+def test_mermaid_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
+    bundle = proof._mermaid_bundle()
+    assert len(bundle) > 3_000_000
+    assert "mermaid" in bundle.lower()
+
+    proof._mermaid_bundle.cache_clear()
+    monkeypatch.setattr(proof, "MERMAID_SHA256", "0" * 64)
+    with pytest.raises(ValueError, match="bundle Mermaid"):
+        proof._mermaid_bundle()
+    proof._mermaid_bundle.cache_clear()
 
 
 def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):

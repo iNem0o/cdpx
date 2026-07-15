@@ -43,6 +43,8 @@ comme la documentation humaine du produit:
 - **Features**: doc utilisateur complète de chaque feature (générée depuis
   `docs/features/*.md`), parcours, scénarios given/when/then, tests exécutés,
   preuves (screenshots Chrome réels).
+- **Docs**: catalogue curaté par `docs/cockpit.toml`, navigation conforme à la
+  hiérarchie du dépôt, CommonMark sûr et diagrammes Mermaid rendus hors ligne.
 - **CLI**: surface complète des commandes et rattachement entrypoint →
   feature. Un entrypoint public non rattaché est une violation bloquante.
 - **Validation**: matrice milestone → preuve (tableau ci-dessous), tests par
@@ -64,6 +66,11 @@ défaut et en PR, 30 jours sur un tag. La variable
 valeur invalide bloque la preuve avant de remplacer l'arbre existant. Ce TTL
 est une donnée de rétention purgeable, pas un daemon de suppression
 automatique.
+
+Le HTML brut des sources Markdown est désactivé. Les liens internes sont
+résolus uniquement vers les documents publiés, et Mermaid fonctionne avec
+`securityLevel: strict`, une CSP sans connexion sortante et un bundle local
+dont l'empreinte est vérifiée avant génération du rapport.
 
 Politique Symfony: Docker, Compose et la suite Symfony réelle sont obligatoires
 pour toute preuve de release. Une preuve `unavailable` ou un test Symfony

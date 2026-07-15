@@ -70,7 +70,7 @@ def test_parse_feature_doc_requires_structured_markdown(tmp_path):
     assert spec.journeys[0]["id"] == "demo"
     assert spec.scenarios[0].id == "demo-happy-path"
     assert "Usage" in spec.sections
-    assert "<h3><code>cdpx demo</code></h3>" in spec.as_dict()["doc_html"]
+    assert '<h3 id="cdpx-demo"><code>cdpx demo</code></h3>' in spec.as_dict()["doc_html"]
 
 
 def test_parse_feature_doc_requires_usage_section(tmp_path):

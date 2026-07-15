@@ -1,104 +1,172 @@
-"""Convertisseur Markdown -> HTML minimal pour la doc utilisateur des features.
+"""Rendu CommonMark sûr pour la documentation du cockpit.
 
-Subset volontairement strict (ce que les fiches docs/features/*.md utilisent):
-titres h2-h4, paragraphes, listes à puces, tableaux, blocs de code, code
-inline, gras, liens. Tout le HTML source est échappé AVANT transformation:
-une fiche ne peut pas injecter de balise dans le rapport de preuve. Zéro
-dépendance externe (la seule dépendance runtime du projet reste websockets).
+Le HTML source reste désactivé. Les seules balises injectées par cdpx sont
+produites par des règles de rendu contrôlées, notamment pour Mermaid. Les liens
+internes sont résolus contre le catalogue documentaire afin qu'un rapport
+ouvert hors ligne ne pointe jamais vers un faux chemin sous ``.proof/``.
 """
 
 from __future__ import annotations
 
 import html
+import posixpath
 import re
+import unicodedata
+import urllib.parse
+from collections.abc import Collection, MutableMapping, Sequence
+from pathlib import PurePosixPath
+from typing import Any
+
+from markdown_it import MarkdownIt
+from markdown_it.common.utils import escapeHtml
+from markdown_it.token import Token
 
 
-def render_markdown(text: str) -> str:
-    lines = text.splitlines()
-    out: list[str] = []
-    para: list[str] = []
-    in_list = False
+def _slug(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_text = "".join(char for char in normalized if not unicodedata.combining(char))
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
+    return slug or "section"
 
-    def flush_para() -> None:
-        if para:
-            out.append(f"<p>{_inline(' '.join(para))}</p>")
-            para.clear()
 
-    def close_list() -> None:
-        nonlocal in_list
-        if in_list:
-            out.append("</ul>")
-            in_list = False
+def _document_route(path: str, fragment: str = "") -> str:
+    route = f"#/docs/view/{urllib.parse.quote(path, safe='/-._~')}"
+    if fragment:
+        route += f"?section={urllib.parse.quote(_slug(fragment), safe='-._~')}"
+    return route
 
-    i = 0
-    while i < len(lines):
-        stripped = lines[i].strip()
-        if stripped.startswith("```"):
-            flush_para()
-            close_list()
-            lang = stripped[3:].strip()
-            code: list[str] = []
-            i += 1
-            while i < len(lines) and not lines[i].strip().startswith("```"):
-                code.append(lines[i])
-                i += 1
-            i += 1  # fence fermante
-            cls = f' class="lang-{html.escape(lang)}"' if lang else ""
-            out.append(f"<pre><code{cls}>{html.escape(chr(10).join(code))}</code></pre>")
+
+def _resolve_repo_path(source_path: str, target: str) -> str | None:
+    if not source_path or not target:
+        return None
+    parent = str(PurePosixPath(source_path).parent)
+    candidate = posixpath.normpath(posixpath.join(parent, urllib.parse.unquote(target)))
+    if candidate == ".." or candidate.startswith("../") or candidate.startswith("/"):
+        return None
+    return candidate.removeprefix("./")
+
+
+def _render_fence(
+    default_rule: Any,
+    tokens: Sequence[Token],
+    idx: int,
+    options: MutableMapping[str, Any],
+    env: MutableMapping[str, Any],
+) -> str:
+    token = tokens[idx]
+    language = token.info.strip().split(maxsplit=1)[0].lower() if token.info.strip() else ""
+    if language == "mermaid":
+        return f'<pre class="mermaid">{html.escape(token.content)}</pre>\n'
+    return default_rule(tokens, idx, options, env)
+
+
+def _render_link_open(
+    renderer: Any,
+    tokens: Sequence[Token],
+    idx: int,
+    options: MutableMapping[str, Any],
+    env: MutableMapping[str, Any],
+) -> str:
+    token = tokens[idx]
+    href = str(token.attrGet("href") or "")
+    parsed = urllib.parse.urlsplit(href)
+    catalog_paths = {str(item) for item in env.get("catalog_paths", ())}
+    source_path = str(env.get("source_path", ""))
+
+    if parsed.scheme in {"http", "https"}:
+        token.attrSet("target", "_blank")
+        token.attrSet("rel", "noopener noreferrer")
+    elif parsed.scheme == "mailto":
+        token.attrSet("rel", "noopener noreferrer")
+    elif parsed.scheme:
+        token.attrs.pop("href", None)
+        token.attrSet("class", "doc-link-unavailable")
+        token.attrSet("aria-disabled", "true")
+    elif href.startswith("#") and source_path in catalog_paths:
+        token.attrSet("href", _document_route(source_path, parsed.fragment))
+    elif catalog_paths:
+        resolved = _resolve_repo_path(source_path, parsed.path)
+        if resolved in catalog_paths:
+            token.attrSet("href", _document_route(resolved, parsed.fragment))
+        else:
+            token.attrs.pop("href", None)
+            token.attrSet("class", "doc-link-unavailable")
+            token.attrSet("aria-disabled", "true")
+            token.attrSet("title", "Document non publié dans le cockpit")
+    return renderer.renderToken(tokens, idx, options, env)
+
+
+def _add_heading_anchors(state: Any) -> None:
+    counts: dict[str, int] = {}
+    tokens = state.tokens
+    for index, token in enumerate(tokens[:-1]):
+        if token.type != "heading_open" or tokens[index + 1].type != "inline":
             continue
-        if not stripped:
-            flush_para()
-            close_list()
-            i += 1
-            continue
-        heading = re.match(r"^(#{2,4})\s+(.*)$", stripped)
-        if heading:
-            flush_para()
-            close_list()
-            level = len(heading.group(1))
-            out.append(f"<h{level}>{_inline(heading.group(2))}</h{level}>")
-            i += 1
-            continue
-        if stripped.startswith("- "):
-            flush_para()
-            if not in_list:
-                out.append("<ul>")
-                in_list = True
-            out.append(f"<li>{_inline(stripped[2:])}</li>")
-            i += 1
-            continue
-        if (
-            stripped.startswith("|")
-            and i + 1 < len(lines)
-            and re.match(r"^\|[\s\-|:]+\|$", lines[i + 1].strip())
-        ):
-            flush_para()
-            close_list()
-            head = "".join(f"<th>{_inline(cell)}</th>" for cell in _cells(stripped))
-            i += 2
-            rows = []
-            while i < len(lines) and lines[i].strip().startswith("|"):
-                cells = "".join(f"<td>{_inline(cell)}</td>" for cell in _cells(lines[i].strip()))
-                rows.append(f"<tr>{cells}</tr>")
-                i += 1
-            out.append(
-                f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
-            )
-            continue
-        para.append(stripped)
-        i += 1
-    flush_para()
-    close_list()
-    return "\n".join(out)
+        base = _slug(tokens[index + 1].content)
+        counts[base] = counts.get(base, 0) + 1
+        suffix = f"-{counts[base]}" if counts[base] > 1 else ""
+        token.attrSet("id", f"{base}{suffix}")
 
 
-def _cells(line: str) -> list[str]:
-    return [cell.strip() for cell in line.strip("|").split("|")]
+def _renderer() -> MarkdownIt:
+    md = MarkdownIt(
+        "commonmark",
+        {
+            "html": False,
+            "linkify": False,
+            "typographer": False,
+            "langPrefix": "lang-",
+        },
+    ).enable("table")
+    renderer: Any = md.renderer
+    default_fence = renderer.rules["fence"]
+
+    def fence_rule(
+        _renderer: Any,
+        tokens: Sequence[Token],
+        idx: int,
+        options: MutableMapping[str, Any],
+        env: MutableMapping[str, Any],
+    ) -> str:
+        return _render_fence(default_fence, tokens, idx, options, env)
+
+    md.add_render_rule("fence", fence_rule)
+    md.add_render_rule("link_open", _render_link_open)
+    md.core.ruler.after("inline", "cdpx_heading_anchors", _add_heading_anchors)
+    return md
 
 
-def _inline(text: str) -> str:
-    escaped = html.escape(text)
-    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
-    escaped = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2">\1</a>', escaped)
-    return escaped
+_MARKDOWN = _renderer()
+
+
+def render_markdown(
+    text: str,
+    *,
+    source_path: str = "",
+    catalog_paths: Collection[str] = (),
+) -> str:
+    """Rend un document Markdown avec un contexte de navigation optionnel."""
+
+    env = {
+        "source_path": source_path,
+        "catalog_paths": tuple(catalog_paths),
+    }
+    return _MARKDOWN.render(text, env)
+
+
+def markdown_title(text: str) -> str | None:
+    """Retourne le texte du premier H1 sans accepter de HTML source."""
+
+    tokens = _MARKDOWN.parse(text)
+    for index, token in enumerate(tokens[:-1]):
+        if token.type == "heading_open" and token.tag == "h1":
+            inline = tokens[index + 1]
+            if inline.type == "inline":
+                return inline.content.strip() or None
+    return None
+
+
+def escape_mermaid_source(value: str) -> str:
+    """Helper public testé pour rappeler que Mermaid reçoit du texte échappé."""
+
+    return escapeHtml(value)

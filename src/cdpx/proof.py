@@ -8,6 +8,7 @@ captured during the same run.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import mimetypes
@@ -23,6 +24,8 @@ import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
+from importlib import resources
 from pathlib import Path
 
 from cdpx.artifacts import (
@@ -30,6 +33,10 @@ from cdpx.artifacts import (
     ArtifactError,
     SecureArtifactWriter,
     scan_canaries,
+)
+from cdpx.proofing.documentation import (
+    build_documentation_catalog,
+    documentation_failures,
 )
 from cdpx.proofing.features import build_feature_inventory, feature_failures
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
@@ -56,6 +63,9 @@ SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfon
 GENERATED_PREFIXES = (".proof/", ".idea/")
 PRIVATE_WORKTREE_PREFIXES = ("AGENTS.md", "article/", "presentation/")
 VALIDATION_DOC = Path("docs/VALIDATION.md")
+MERMAID_VERSION = "11.16.0"
+MERMAID_RESOURCE = f"vendor/mermaid-{MERMAID_VERSION}.min.js"
+MERMAID_SHA256 = "74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b"
 
 _ALLOWED_ENV_NAMES = {
     "CI",
@@ -1243,6 +1253,10 @@ a:hover { text-decoration: underline; }
 }
 .side a { display: block; margin-bottom: 5px; overflow-wrap: anywhere; }
 .side small { display: block; color: var(--muted); font-weight: 500; }
+.side [hidden] { display: none; }
+.doc-tree { margin: 0 0 10px; }
+.doc-tree summary { color: var(--muted); font-weight: 750; padding: 5px 0; }
+.doc-tree .doc-tree { margin-left: 10px; }
 main { padding: 22px 28px 40px; max-width: 1180px; width: 100%; }
 .crumbs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; color: var(--muted); }
 h1 { margin: 0 0 8px; font-size: 27px; line-height: 1.15; }
@@ -1276,9 +1290,30 @@ pre {
 .panel.doc h2 { margin-top: 18px; }
 .panel.doc h3 { margin: 16px 0 6px; }
 .panel.doc h4 { margin: 12px 0 4px; }
+.panel.doc h1 { margin-top: 0; }
+.panel.doc ol, .panel.doc ul { padding-left: 24px; }
+.panel.doc blockquote {
+  margin: 12px 0;
+  padding: 8px 14px;
+  border-left: 4px solid var(--info);
+  background: var(--soft);
+}
+.panel.doc blockquote p { margin: 0; }
 .panel.doc table { width: 100%; border-collapse: collapse; margin: 8px 0; }
 .panel.doc th, .panel.doc td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; }
 .panel.doc pre { overflow-x: auto; }
+.panel.doc .mermaid {
+  min-height: 80px;
+  padding: 14px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  text-align: center;
+  white-space: pre;
+}
+.panel.doc .mermaid svg { display: block; width: 100%; max-width: 100%; height: auto; margin: auto; }
+.mermaid-error { margin: 6px 0 16px; color: var(--bad); font-weight: 700; }
+.doc-link-unavailable { color: var(--muted); text-decoration: line-through; cursor: not-allowed; }
 details { margin: 6px 0; }
 details summary { cursor: pointer; }
 details pre { max-height: 320px; overflow: auto; }
@@ -1347,13 +1382,28 @@ SPA_JS = """\
   const app = document.getElementById('app');
   const featureNav = document.getElementById('featureNav');
   const featureSearch = document.getElementById('featureSearch');
+  const featureSide = document.getElementById('featureSide');
+  const docsNav = document.getElementById('docsNav');
+  const docsSearch = document.getElementById('docsSearch');
+  const docsSide = document.getElementById('docsSide');
   const topLinks = Array.from(document.querySelectorAll('[data-route]'));
 
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[char]));
-  const route = () => location.hash.slice(1) || '/features';
+  const routeInfo = () => {
+    const raw = location.hash.slice(1) || '/features';
+    const [path, query = ''] = raw.split('?', 2);
+    return {path, params: new URLSearchParams(query)};
+  };
+  const route = () => routeInfo().path;
   const features = () => data.feature_inventory.features || [];
+  const documents = () => data.documentation?.documents || [];
+  const findDocument = (path) => documents().find((document) => document.path === path);
+  const docHref = (path, section = '') => {
+    const base = '#/docs/view/' + String(path).split('/').map(encodeURIComponent).join('/');
+    return section ? base + '?section=' + encodeURIComponent(section) : base;
+  };
   const featureStatus = (feature) => {
     if ((feature.matched_scenarios || []).some((s) => ['failed', 'error'].includes(s.status))) {
       return 'failed';
@@ -1396,6 +1446,35 @@ SPA_JS = """\
   }).join('') + '</div>';
   const statusPill = (status) => `<span class="pill ${esc(status)}">${esc(status)}</span>`;
 
+  if (window.mermaid) {
+    window.mermaid.parseError = () => {};
+    window.mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      suppressErrorRendering: true,
+      htmlLabels: false,
+      flowchart: {htmlLabels: false},
+      theme: 'default'
+    });
+  }
+
+  async function renderMermaid() {
+    if (!window.mermaid) return;
+    const nodes = Array.from(app.querySelectorAll('pre.mermaid'));
+    for (const node of nodes) {
+      const source = node.textContent;
+      await window.mermaid.run({nodes: [node], suppressErrors: true});
+      if (!node.querySelector('svg')) {
+        node.textContent = source;
+        node.removeAttribute('data-processed');
+        const error = document.createElement('p');
+        error.className = 'mermaid-error';
+        error.textContent = 'Diagramme Mermaid invalide — source conservée.';
+        node.insertAdjacentElement('afterend', error);
+      }
+    }
+  }
+
   function renderFeatureNav() {
     const q = (featureSearch.value || '').trim().toLowerCase();
     featureNav.innerHTML = features()
@@ -1408,6 +1487,22 @@ SPA_JS = """\
       }).join('');
   }
 
+  function renderDocTree(node, query, root = false) {
+    const ownDocuments = (node.documents || []).map(findDocument).filter(Boolean)
+      .filter((document) => !query || [document.title, document.path, document.summary].join(' ').toLowerCase().includes(query));
+    const children = (node.children || []).map((child) => renderDocTree(child, query)).filter(Boolean);
+    if (!ownDocuments.length && !children.length) return '';
+    const links = ownDocuments.map((document) => `<a href="${docHref(document.path)}" data-doc-path="${esc(document.path)}">${esc(document.title)}<small>${esc(document.path)}</small></a>`).join('');
+    const body = links + children.join('');
+    if (root) return body;
+    return `<details class="doc-tree" open><summary>${esc(node.label || node.name)}</summary>${body}</details>`;
+  }
+
+  function renderDocsNav() {
+    const q = (docsSearch.value || '').trim().toLowerCase();
+    docsNav.innerHTML = renderDocTree(data.documentation?.tree || {}, q, true);
+  }
+
   function setActiveNav() {
     const current = route();
     topLinks.forEach((link) => {
@@ -1416,6 +1511,12 @@ SPA_JS = """\
     Array.from(featureNav.querySelectorAll('a')).forEach((link) => {
       link.classList.toggle('active', current.includes('/features/' + link.dataset.featureId));
     });
+    Array.from(docsNav.querySelectorAll('a')).forEach((link) => {
+      link.classList.toggle('active', current.startsWith('/docs/view/') && decodeURIComponent(current.slice(11)) === link.dataset.docPath);
+    });
+    const inDocs = current === '/docs' || current.startsWith('/docs/');
+    featureSide.hidden = inDocs;
+    docsSide.hidden = !inDocs;
   }
 
   function renderMetrics() {
@@ -1457,6 +1558,27 @@ SPA_JS = """\
       ${renderMetrics()}<div class="grid">${cards}</div>`;
   }
 
+  function renderDocs() {
+    const cards = documents().map((document) => `<article class="card">
+      <div class="meta"><span class="pill ${document.kind === 'feature' ? 'ok' : 'warning'}">${esc(document.kind)}</span><code>${esc(document.path)}</code></div>
+      <h2><a href="${docHref(document.path)}">${esc(document.title)}</a></h2>
+      <p>${esc(document.summary || (document.kind === 'feature' ? 'Spécification fonctionnelle liée au harness.' : 'Référence produit rendue depuis le dépôt.'))}</p>
+    </article>`).join('');
+    app.innerHTML = `${crumbs([{label: 'Documentation'}])}
+      <h1>Documentation produit</h1>
+      <p>Guides, références et spécifications fonctionnelles rendus depuis les sources Markdown du dépôt. Les fiches features restent également reliées aux tests et preuves.</p>
+      <div class="grid">${cards || '<div class="empty">Aucun document publié.</div>'}</div>`;
+  }
+
+  function renderDocument(document) {
+    const featureLink = document.feature_id
+      ? `<a class="button" href="#/features/${esc(document.feature_id)}">Voir le harness et les preuves</a>`
+      : '';
+    app.innerHTML = `${crumbs([{label: 'Documentation', href: '#/docs'}, {label: document.title}])}
+      <div class="meta"><code>${esc(document.path)}</code>${featureLink}</div>
+      <section class="panel doc">${document.html || '<div class="empty">Document vide.</div>'}</section>`;
+  }
+
   function renderFeature(feature) {
     const journeys = (feature.journeys || []).map((journey) => {
       const c = counts(journey.matched_scenarios || []);
@@ -1471,7 +1593,10 @@ SPA_JS = """\
       <p>${esc(feature.summary)}</p>
       <div class="meta">${statusPill(featureStatus(feature))}<code>${esc(feature.source)}</code></div>
       <div class="two">
-        <section class="panel"><h2>Documentation</h2>${list(feature.docs || [], (doc) => `<li><code>${esc(doc)}</code></li>`)}</section>
+        <section class="panel"><h2>Documentation</h2>${list(feature.docs || [], (doc) => {
+          const published = findDocument(doc);
+          return published ? `<li><a href="${docHref(doc)}"><code>${esc(doc)}</code></a></li>` : `<li><code>${esc(doc)}</code></li>`;
+        })}</section>
         <section class="panel"><h2>Gaps</h2>${list(feature.gaps || [], (gap) => `<li>${esc(gap)}</li>`)}</section>
       </div>
       <section class="panel doc"><h2>Documentation utilisateur</h2>${feature.doc_html || '<div class="empty">Aucune documentation.</div>'}</section>
@@ -1639,6 +1764,7 @@ SPA_JS = """\
 
   function render() {
     renderFeatureNav();
+    renderDocsNav();
     const parts = route().split('/').filter(Boolean);
     if (parts.length === 0 || parts[0] === 'features' && parts.length === 1) renderFeatures();
     else if (parts[0] === 'features' && parts.length === 2) {
@@ -1652,6 +1778,11 @@ SPA_JS = """\
       const feature = findFeature(parts[1]);
       const found = findScenario(feature, parts[3]);
       feature && found.scenario ? renderScenario(feature, found.journey, found.scenario) : renderNotFound();
+    } else if (parts[0] === 'docs' && parts.length === 1) renderDocs();
+    else if (parts[0] === 'docs' && parts[1] === 'view' && parts.length >= 3) {
+      const path = decodeURIComponent(parts.slice(2).join('/'));
+      const document = findDocument(path);
+      document ? renderDocument(document) : renderNotFound();
     } else if (parts[0] === 'gaps') renderGaps();
     else if (parts[0] === 'run') renderRun();
     else if (parts[0] === 'cli') renderCli();
@@ -1659,9 +1790,19 @@ SPA_JS = """\
     else if (parts[0] === 'project') renderProject();
     else renderNotFound();
     setActiveNav();
+    renderMermaid().then(() => {
+      const section = routeInfo().params.get('section');
+      if (section) document.getElementById(section)?.scrollIntoView();
+    }).catch((error) => {
+      const message = document.createElement('p');
+      message.className = 'mermaid-error';
+      message.textContent = 'Rendu Mermaid indisponible: ' + String(error);
+      app.prepend(message);
+    });
   }
 
   featureSearch.addEventListener('input', renderFeatureNav);
+  docsSearch.addEventListener('input', renderDocsNav);
   window.addEventListener('hashchange', render);
   if (!location.hash) location.hash = '#/features';
   render();
@@ -1673,10 +1814,25 @@ def _json_for_html_script(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
 
+@lru_cache(maxsize=1)
+def _mermaid_bundle() -> str:
+    bundle = resources.files("cdpx.proofing").joinpath(MERMAID_RESOURCE).read_bytes()
+    digest = hashlib.sha256(bundle).hexdigest()
+    if digest != MERMAID_SHA256:
+        raise ValueError(
+            f"bundle Mermaid {MERMAID_VERSION} invalide: attendu={MERMAID_SHA256}, reçu={digest}"
+        )
+    source = bundle.decode("utf-8")
+    if "</script" in source.lower():
+        raise ValueError(f"bundle Mermaid {MERMAID_VERSION} impropre à une inclusion inline")
+    return source
+
+
 def render_html(summary: dict) -> str:
     verdict = "OK" if summary["ok"] else "ECHEC"
     generated = html.escape(summary["generated_at"])
     payload = _json_for_html_script(summary)
+    mermaid_bundle = _mermaid_bundle()
     pill = "ok" if summary["ok"] else "failed"
     git_context = summary["git"]
     context = (
@@ -1687,6 +1843,7 @@ def render_html(summary: dict) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
   <title>Rapport de preuve cdpx - {verdict}</title>
   <style>
 {SPA_CSS}
@@ -1699,6 +1856,7 @@ def render_html(summary: dict) -> str:
     <span class="muted">{context}</span>
     <nav>
       <a href="#/features" data-route="/features">Features</a>
+      <a href="#/docs" data-route="/docs">Docs</a>
       <a href="#/cli" data-route="/cli">CLI</a>
       <a href="#/validation" data-route="/validation">Validation</a>
       <a href="#/gaps" data-route="/gaps">Gaps</a>
@@ -1708,13 +1866,23 @@ def render_html(summary: dict) -> str:
   </div>
   <div class="shell">
     <aside class="side">
-      <h2>Features</h2>
-      <input id="featureSearch" type="search" placeholder="Filtrer les features">
-      <nav id="featureNav"></nav>
+      <section id="featureSide">
+        <h2>Features</h2>
+        <input id="featureSearch" type="search" placeholder="Filtrer les features">
+        <nav id="featureNav"></nav>
+      </section>
+      <section id="docsSide" hidden>
+        <h2>Documentation</h2>
+        <input id="docsSearch" type="search" placeholder="Filtrer les documents">
+        <nav id="docsNav"></nav>
+      </section>
     </aside>
     <main id="app" aria-live="polite"></main>
   </div>
   <script id="report-data" type="application/json">{payload}</script>
+  <script>
+{mermaid_bundle}
+  </script>
   <script>
 {SPA_JS}
   </script>
@@ -1750,9 +1918,11 @@ def build_summary(
     coverage_groups = group_cases_by_module(unit, e2e, symfony)
     scenario_evidence = scenario_evidence or load_scenario_evidence()
     feature_inventory = build_feature_inventory(help_commands, scenario_evidence, git_context)
+    documentation = build_documentation_catalog()
     scenario_evidence = enrich_scenario_evidence(scenario_evidence, feature_inventory)
     scenario_failures = proof_failures_from_scenarios(scenario_evidence)
     feature_inventory_failures = feature_failures(feature_inventory)
+    documentation_catalog_failures = documentation_failures(documentation)
     risk_packet = build_project_risks_and_unknowns()
     failed_tests = (
         unit["failures"]
@@ -1804,6 +1974,7 @@ def build_summary(
         and failed_tests == 0
         and not scenario_failures
         and not feature_inventory_failures
+        and not documentation_catalog_failures
         and not symfony_failures
         and not suite_failures
     )
@@ -1848,8 +2019,10 @@ def build_summary(
         "scenario_evidence": scenario_evidence,
         "scenario_totals": scenario_evidence["totals"],
         "feature_inventory": feature_inventory,
+        "documentation": documentation,
         "proof_failures": scenario_failures
         + feature_inventory_failures
+        + documentation_catalog_failures
         + command_failures
         + symfony_failures
         + suite_failures,

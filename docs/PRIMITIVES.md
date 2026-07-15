@@ -78,6 +78,9 @@ cdpx screenshot -o etat.jpg --format jpeg
 
 ## État et session — [fiche](features/state-session.md)
 
+Architecture, processus Chrome, profil, surfaces exposées et teardown sont
+détaillés dans la [référence des sessions supervisées](SESSION-LIFECYCLE.md).
+
 | CLI | Usecase | Pourquoi |
 |---|---|---|
 | `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | profil, target, autorité, origines, TTL, budget de cold start et teardown supervisés; les erreurs gardent des tails nettoyés |

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from cdpx import discovery
+from cdpx import discovery, proof
 from cdpx.client import CDPClient
 from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
 from cdpx.session import SessionManifest, start_session, stop_session
@@ -327,6 +327,61 @@ def test_cli_stdout_stderr_and_exit_contract(cli_page, evidence_case):
     assert usage_error.returncode == 2 and usage_error.stdout == ""
     assert "the following arguments are required: url" in usage_error.stderr
     attach_cli_screenshot(evidence_case, session)
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.publish-feature-proof",
+    proves=["The offline Docs route renders the real session Mermaid diagrams."],
+)
+def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path):
+    client, _base = page
+    summary = {
+        "ok": True,
+        "generated_at": "2026-07-15T00:00:00+00:00",
+        "git": {"branch": "e2e", "sha": "test"},
+        "feature_inventory": {"features": [], "totals": {}},
+        "documentation": proof.build_documentation_catalog(),
+        "totals": {},
+        "scenario_totals": {},
+    }
+    report = tmp_path / "proof-report.html"
+    report.write_text(proof.render_html(summary), encoding="utf-8")
+
+    target = report.as_uri() + "#/docs/view/docs/SESSION-LIFECYCLE.md"
+    assert nav.navigate(client, target)["ok"] is True
+    nav.wait_for(client, ".panel.doc", timeout=20)
+    runtime_state = js.evaluate(
+        client,
+        "({runtime: typeof window.mermaid, "
+        "sources: document.querySelectorAll('pre.mermaid').length, title: document.title, "
+        "app: document.querySelector('#app')?.textContent.slice(0, 80)})",
+    )
+    assert runtime_state["runtime"] == "object", runtime_state
+    nav.wait_for(client, ".panel.doc .mermaid svg, .mermaid-error", timeout=20)
+    mermaid_state = js.evaluate(
+        client,
+        "({"
+        "svg: document.querySelectorAll('.panel.doc .mermaid svg').length,"
+        "sources: document.querySelectorAll('.panel.doc pre.mermaid').length,"
+        "errors: Array.from(document.querySelectorAll('.mermaid-error'), node => node.textContent),"
+        "runtime: typeof window.mermaid"
+        "})",
+    )
+    assert mermaid_state == {"svg": 4, "sources": 4, "errors": [], "runtime": "object"}
+    assert js.evaluate(client, "document.querySelectorAll('script[src]').length") == 0
+    assert js.evaluate(client, "performance.getEntriesByType('resource').length") == 0
+
+    js.evaluate(
+        client,
+        "location.hash = '#/docs/view/docs/features/state-session.md'",
+    )
+    nav.wait_for(client, ".panel.doc #intention")
+    assert "État et contrôles de session" in js.evaluate(
+        client,
+        "document.querySelector('#docsNav').innerText",
+    )
 
 
 def test_navigate_and_read_title(page):

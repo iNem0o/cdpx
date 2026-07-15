@@ -225,11 +225,17 @@ Consultez [CONTRIBUTING.md](CONTRIBUTING.md) avant une pull request et
 - [HARNESS.md](HARNESS.md) — sécurité, déterminisme et supervision humaine ;
 - [docs/CONTEXT.md](docs/CONTEXT.md) — motivations et décisions techniques ;
 - [docs/PRIMITIVES.md](docs/PRIMITIVES.md) — catalogue complet ;
+- [docs/SESSION-LIFECYCLE.md](docs/SESSION-LIFECYCLE.md) — lancement de Chrome,
+  profils, processus, cycle de vie, teardown et diagnostic des sessions ;
 - [docs/VALIDATION.md](docs/VALIDATION.md) — portails et matrice de preuve ;
 - [docs/GITHUB.md](docs/GITHUB.md) — cycle PR, checks, artefacts et gouvernance ;
 - [docs/ROADMAP.md](docs/ROADMAP.md) et [docs/TODO.md](docs/TODO.md) — trajectoire
   et travail restant ;
 - [docs/RELEASE-PLAN.md](docs/RELEASE-PLAN.md) — préparation de publication.
+
+Le cockpit généré par `make proof` expose aussi un onglet **Docs** : il rend
+hors ligne ce catalogue curaté et les huit spécifications fonctionnelles de
+`docs/features/`, diagrammes Mermaid compris.
 
 ## Aide, contribution et sécurité
 

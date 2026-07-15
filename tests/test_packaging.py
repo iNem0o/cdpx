@@ -4,6 +4,7 @@ Version, licence MIT, métadonnées publiques et GitHub Actions restent alignés
 avec le portail local. Ces tests tournent dans ``make check``.
 """
 
+import hashlib
 import json
 import re
 import tomllib
@@ -34,6 +35,19 @@ def test_license_is_declared_and_present():
     assert "Private :: Do Not Upload" not in project["classifiers"]
     assert not any(item.startswith("License ::") for item in project["classifiers"])
     assert project["license-files"] == ["LICENSE"]
+
+
+def test_markdown_dependency_and_vendored_mermaid_notice_are_pinned():
+    assert "markdown-it-py>=4.2,<5" in PYPROJECT["project"]["dependencies"]
+    bundle = Path("src/cdpx/proofing/vendor/mermaid-11.16.0.min.js")
+    license_path = Path("src/cdpx/proofing/vendor/LICENSE.mermaid")
+    notice = Path("THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert bundle.is_file() and license_path.is_file()
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == (
+        "74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b"
+    )
+    assert "mermaid@11.16.0" in notice and "LICENSE.mermaid" in notice
+    assert "MIT License" in license_path.read_text(encoding="utf-8")
 
 
 def test_public_project_metadata_points_to_github():
@@ -67,7 +81,7 @@ def test_dev_extra_pins_the_toolchain():
 
 def test_release_image_contains_metadata_and_full_dev_toolchain():
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    assert "COPY LICENSE CHANGELOG.md" in dockerfile
+    assert "COPY LICENSE THIRD_PARTY_NOTICES.md CHANGELOG.md" in dockerfile
     assert 'pip install -e ".[dev]"' in dockerfile
     assert ".gitlab-ci.yml" not in dockerfile
     for path in (Path("Dockerfile"), Path("tests/symfony-app/Dockerfile")):

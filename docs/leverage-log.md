@@ -67,6 +67,18 @@ Git publique utilisée pour empêcher les doublons.
   - Verification (commande/CI): tests unitaires ciblés, E2E lifecycle sur Chrome
     réel, `make check-local` et `make release` locaux verts.
 
+- Session-Key: agent/github-integration-hardening@336e519
+  - Symptom: le cockpit affichait les sources Mermaid sans SVG dans Chrome réel;
+    puis `docker-check` échouait en lisant une notice tierce absente de l'image.
+  - Root cause (missing capability): un échappement global de `</` corrompait
+    des expressions régulières du bundle minifié, et le contexte Docker ne
+    reproduisait pas encore toutes les entrées du test de packaging.
+  - Fix encoded (doc/script/lint): l'inclusion vérifie le SHA-256 et refuse
+    uniquement une fermeture `</script`; l'E2E exige quatre SVG hors ligne, et
+    le Dockerfile ainsi que le test de packaging verrouillent la notice tierce.
+  - Verification (commande/CI): E2E cockpit ciblé, `make check`, `make proof`
+    et `make dist` verts.
+
 ## Réponses CDP croisées pendant une interception
 
 - **Symptôme :** `Page.navigate` expirait dans Chrome Docker lorsque Fetch

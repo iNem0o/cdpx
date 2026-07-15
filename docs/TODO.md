@@ -25,6 +25,9 @@ le portail intégré et le paquet installé :
       manifeste de classification/rétention et l'exclusion des binaires opaques.
 - [x] Valider dans le wheel installé la surface publique de 31 commandes après
       ajout de `cdpx session` (`make dist` au sein du portail intégré).
+- [x] Documenter intégralement le lancement et le lifecycle Chrome, puis exposer
+      un portail CommonMark/Mermaid hors ligne dans le cockpit sans dissocier
+      les fiches features de leur rôle de spécification du harness.
 
 `SecureArtifactWriter` redige automatiquement texte, JSON et fichiers textuels
 enregistrés; le scanner de canaris reste le dernier verrou de publication pour

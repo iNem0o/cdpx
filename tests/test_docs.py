@@ -16,6 +16,7 @@ from cdpx.proofing.features import load_feature_specs
 
 README = Path("README.md").read_text(encoding="utf-8")
 PRIMITIVES = Path("docs/PRIMITIVES.md").read_text(encoding="utf-8")
+SESSION_LIFECYCLE = Path("docs/SESSION-LIFECYCLE.md").read_text(encoding="utf-8")
 
 GLOBAL_CONTRACT_TOKENS = [
     "--pretty",
@@ -56,6 +57,14 @@ def test_primitives_references_every_feature_doc():
     specs, _ = load_feature_specs()
     for spec in specs:
         assert f"features/{spec.id}.md" in PRIMITIVES, f"fiche non liée dans PRIMITIVES: {spec.id}"
+
+
+def test_session_lifecycle_reference_is_routed_and_diagrammed():
+    assert "docs/SESSION-LIFECYCLE.md" in README
+    assert "SESSION-LIFECYCLE.md" in PRIMITIVES
+    assert SESSION_LIFECYCLE.count("```mermaid") == 4
+    assert SESSION_LIFECYCLE.count("accTitle:") == 4
+    assert SESSION_LIFECYCLE.count("accDescr:") == 4
 
 
 def test_readme_documents_cli_contract():
