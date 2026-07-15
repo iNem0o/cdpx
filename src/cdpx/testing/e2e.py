@@ -103,6 +103,23 @@ def successful_json(proc: subprocess.CompletedProcess[str]) -> dict | list:
     return json.loads(proc.stdout)
 
 
+def attach_cli_run(
+    evidence_case: EvidenceCase | None,
+    label: str,
+    proc: subprocess.CompletedProcess[str],
+) -> dict | None:
+    """Attach a CLI invocation as a command proof (argv, streams, exit code)."""
+    if evidence_case is None:
+        return None
+    return evidence_case.attach_command_output(
+        label,
+        [str(part) for part in proc.args],
+        proc.stdout or "",
+        proc.stderr or "",
+        proc.returncode,
+    )
+
+
 def attach_screenshot(
     evidence_case: EvidenceCase | None,
     client: CDPClient,

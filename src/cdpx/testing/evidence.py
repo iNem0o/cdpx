@@ -403,6 +403,157 @@ class EvidenceCase:
             upload_allowed=False,
         )
 
+    def attach_command_output(
+        self,
+        label: str,
+        argv: list[str],
+        stdout: str,
+        stderr: str,
+        exit_code: int,
+        *,
+        duration_s: float | None = None,
+        excerpt_lines: int = 40,
+        filename: str | None = None,
+    ) -> dict[str, Any]:
+        """Preuve secondaire: transcript complet d'une commande + extrait lisible."""
+
+        name = _attachment_name(filename or f"{slugify(label)}.txt")
+        _secure_dir(self.artifact_dir)
+        dest = self.artifact_dir / name
+        transcript = "\n".join(
+            [
+                "$ " + " ".join(argv),
+                "--- stdout ---",
+                stdout.rstrip("\n"),
+                "--- stderr ---",
+                stderr.rstrip("\n"),
+                f"--- exit_code: {exit_code} ---",
+                "",
+            ]
+        )
+        _write_private_text(
+            dest,
+            redact_text(transcript, context=self.redaction_context, path=f"$.artifacts.{name}"),
+        )
+        meta: dict[str, Any] = {"argv": list(argv), "exit_code": exit_code}
+        if duration_s is not None:
+            meta["duration_s"] = round(float(duration_s), 3)
+        return self.attach_file(
+            dest,
+            label,
+            "command",
+            classification=ArtifactClassification.INTERNAL,
+            upload_allowed=True,
+            excerpt=head_tail_excerpt(stdout, excerpt_lines),
+            meta=meta,
+        )
+
+    def attach_log_excerpt(
+        self,
+        path: str | Path,
+        label: str,
+        *,
+        pattern: str | None = None,
+        line_range: tuple[int, int] | None = None,
+        context: int = 3,
+        max_lines: int = 120,
+    ) -> dict[str, Any]:
+        """Preuve secondaire: extrait ciblé d'un log (motif ou plage de lignes).
+
+        Sans correspondance, l'artefact est quand même produit ("aucune
+        correspondance"): l'absence d'un motif est une preuve en soi.
+        """
+
+        if pattern is not None and line_range is not None:
+            raise ValueError("pattern et line_range sont mutuellement exclusifs")
+        src = Path(path)
+        if src.is_symlink() or not src.is_file():
+            raise ValueError(f"fichier de preuve invalide: {src}")
+        lines = src.read_text(encoding="utf-8", errors="replace").splitlines()
+        matched: list[int] = []
+        if pattern is not None:
+            regex = re.compile(pattern)
+            matched = [index + 1 for index, line in enumerate(lines) if regex.search(line)]
+            keep: set[int] = set()
+            for lineno in matched:
+                keep.update(range(max(1, lineno - context), min(len(lines), lineno + context) + 1))
+            selected = sorted(keep)
+        elif line_range is not None:
+            first, last = line_range
+            selected = list(range(max(1, first), min(len(lines), last) + 1))
+        else:
+            selected = list(range(1, len(lines) + 1))
+
+        omitted = max(len(selected) - max_lines, 0)
+        selected = selected[:max_lines]
+        rendered: list[str] = []
+        previous = 0
+        for lineno in selected:
+            if previous and lineno > previous + 1:
+                rendered.append("…")
+            rendered.append(f"{src.name}:{lineno}: {lines[lineno - 1]}")
+            previous = lineno
+        if omitted:
+            rendered.append(f"… ({omitted} lignes omises) …")
+        if not rendered:
+            rendered = [f"aucune correspondance pour {pattern!r} dans {src.name}"]
+        content = "\n".join(rendered)
+
+        name = _attachment_name(f"{slugify(label)}.txt")
+        _secure_dir(self.artifact_dir)
+        dest = self.artifact_dir / name
+        _write_private_text(
+            dest,
+            redact_text(content, context=self.redaction_context, path=f"$.artifacts.{name}"),
+        )
+        meta: dict[str, Any] = {
+            "source": str(src),
+            "pattern": pattern or "",
+            "matched_lines": matched[:50],
+            "total_lines": len(lines),
+        }
+        return self.attach_file(
+            dest,
+            label,
+            "log-excerpt",
+            classification=ArtifactClassification.INTERNAL,
+            upload_allowed=True,
+            excerpt=content,
+            meta=meta,
+        )
+
+    def attach_cast(
+        self,
+        path: str | Path,
+        label: str = "Terminal record",
+        *,
+        gif: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Preuve secondaire: enregistrement asciinema (.cast), GIF compagnon optionnel.
+
+        Le .cast est textuel donc redacté, mais jamais uploadable: un secret
+        peut être fragmenté entre événements ndjson et échapper au scan.
+        """
+
+        entry = self.attach_file(
+            path,
+            label,
+            "asciinema",
+            classification=ArtifactClassification.INTERNAL,
+            upload_allowed=False,
+        )
+        if gif is not None:
+            gif_path = Path(gif)
+            if gif_path.is_file() and not gif_path.is_symlink():
+                self.attach_file(
+                    gif_path,
+                    f"{label} (gif)",
+                    "gif",
+                    classification=ArtifactClassification.OPAQUE_RESTRICTED,
+                    upload_allowed=False,
+                )
+        return entry
+
     def set_report(self, report: Any) -> None:
         self.duration_s = round(float(getattr(report, "duration", 0.0) or 0.0), 3)
         self.phase = getattr(report, "when", "")
@@ -598,6 +749,17 @@ class EvidenceSession:
             self.root / "evidence-manifest.json",
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         )
+
+
+def head_tail_excerpt(text: str, max_lines: int, head: int = 10) -> str:
+    """Extrait tête+queue d'un texte long, avec marqueur d'omission honnête."""
+
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text.rstrip("\n")
+    tail = max(max_lines - head, 1)
+    omitted = len(lines) - head - tail
+    return "\n".join([*lines[:head], f"… ({omitted} lignes omises) …", *lines[-tail:]])
 
 
 def start_timer() -> float:

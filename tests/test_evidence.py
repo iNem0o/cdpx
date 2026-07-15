@@ -277,6 +277,114 @@ def test_attach_file_carries_redacted_excerpt_and_meta(tmp_path):
     assert entry["meta"]["exit_code"] == 0
 
 
+def test_attach_command_output_builds_redacted_transcript_with_excerpt(tmp_path):
+    context = RedactionContext.from_secrets(["canary-value"])
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_command",
+        root=tmp_path,
+        suite="unit",
+        title="command",
+        redaction_context=context,
+    )
+    stdout = "\n".join([f"line-{index}" for index in range(120)] + ["token canary-value"])
+
+    entry = case.attach_command_output(
+        "cdpx version",
+        ["cdpx", "--token", "canary-value", "version"],
+        stdout,
+        "warning canary-value",
+        3,
+        duration_s=1.2345,
+        excerpt_lines=20,
+    )
+
+    assert entry["type"] == "command"
+    assert entry["classification"] == "internal"
+    assert entry["upload_allowed"] is True
+    assert entry["meta"]["exit_code"] == 3
+    assert entry["meta"]["duration_s"] == 1.234
+
+    transcript = (tmp_path / entry["path"]).read_text(encoding="utf-8")
+    #: le transcript porte argv, stdout, stderr et exit code, redactés
+    assert transcript.startswith("$ cdpx --token *** version")
+    assert "--- stdout ---" in transcript and "--- stderr ---" in transcript
+    assert "--- exit_code: 3 ---" in transcript
+    assert "canary-value" not in transcript
+
+    #: l'extrait tête+queue annonce honnêtement l'omission
+    assert "lignes omises" in entry["excerpt"]
+    assert entry["excerpt"].startswith("line-0")
+    assert "canary-value" not in json.dumps(entry, ensure_ascii=False)
+
+
+def test_attach_log_excerpt_selects_pattern_range_and_absence(tmp_path):
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_log_excerpt",
+        root=tmp_path,
+        suite="unit",
+        title="log excerpt",
+    )
+    log = tmp_path / "app.log"
+    log.write_text(
+        "\n".join(f"entry {index}" + (" ERROR boom" if index == 30 else "") for index in range(60)),
+        encoding="utf-8",
+    )
+
+    by_pattern = case.attach_log_excerpt(log, "erreurs", pattern="ERROR", context=1)
+    assert by_pattern["type"] == "log-excerpt"
+    #: chaque ligne est préfixée source:numéro pour rester traçable
+    assert "app.log:31: entry 30 ERROR boom" in by_pattern["excerpt"]
+    assert by_pattern["meta"]["matched_lines"] == [31]
+    assert len(by_pattern["excerpt"].splitlines()) == 3
+
+    by_range = case.attach_log_excerpt(log, "plage", line_range=(1, 2))
+    assert by_range["excerpt"].splitlines() == ["app.log:1: entry 0", "app.log:2: entry 1"]
+
+    #: l'absence de correspondance est une preuve, pas une erreur
+    absent = case.attach_log_excerpt(log, "absent", pattern="FATAL")
+    assert "aucune correspondance" in absent["excerpt"]
+
+    truncated = case.attach_log_excerpt(log, "tronque", max_lines=5)
+    assert "(55 lignes omises)" in truncated["excerpt"]
+
+    with pytest.raises(ValueError, match="mutuellement exclusifs"):
+        case.attach_log_excerpt(log, "conflit", pattern="x", line_range=(1, 2))
+
+
+def test_attach_cast_keeps_cast_local_and_attaches_companion_gif(tmp_path):
+    context = RedactionContext.from_secrets(["canary-value"])
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_cast",
+        root=tmp_path,
+        suite="unit",
+        title="cast",
+        redaction_context=context,
+    )
+    cast = tmp_path / "session.cast"
+    cast.write_text(
+        '{"version": 2, "width": 80}\n[0.1, "o", "hello canary-value"]\n',
+        encoding="utf-8",
+    )
+    gif = tmp_path / "session.gif"
+    gif.write_bytes(b"GIF89a\x00")
+
+    entry = case.attach_cast(cast, "make proof", gif=gif)
+
+    assert entry["type"] == "asciinema"
+    #: textuel donc redacté, mais jamais uploadable (secret fragmentable en ndjson)
+    assert entry["classification"] == "internal"
+    assert entry["upload_allowed"] is False
+    assert "canary-value" not in (tmp_path / entry["path"]).read_text(encoding="utf-8")
+
+    gif_artifact = next(artifact for artifact in case.artifacts if artifact.type == "gif")
+    assert gif_artifact.classification == ArtifactClassification.OPAQUE_RESTRICTED.value
+    assert gif_artifact.upload_allowed is False
+
+    #: le gif compagnon est optionnel: absent => dégradation silencieuse
+    solo = case.attach_cast(cast, "sans gif", gif=tmp_path / "missing.gif")
+    assert solo["type"] == "asciinema"
+
+
 def test_evidence_session_writes_grouped_scenarios(tmp_path):
     session = EvidenceSession(tmp_path)
     case = session.case_for_item(

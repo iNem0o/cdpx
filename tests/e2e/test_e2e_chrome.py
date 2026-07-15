@@ -25,6 +25,7 @@ from cdpx.client import CDPClient
 from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
 from cdpx.session import SessionManifest, start_session, stop_session
 from cdpx.testing.e2e import (
+    attach_cli_run,
     attach_screenshot,
     free_loopback_port,
     run_cli,
@@ -141,6 +142,7 @@ def attach_cli_screenshot(
 def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evidence_case):
     manifest, path = managed_cli_session
     version_proc = run_cli(manifest, path, "version")
+    attach_cli_run(evidence_case, "cdpx version", version_proc)
     version = successful_json(version_proc)
     assert version["Browser"].startswith(("Chrome/", "HeadlessChrome/", "Chromium/"))
     assert version["Protocol-Version"]
