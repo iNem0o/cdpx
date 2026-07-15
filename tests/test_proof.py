@@ -864,6 +864,26 @@ def test_text_viewers_are_specialized_per_type():
         assert marker in proof.SPA_JS, f"visualiseur texte manquant: {marker}"
 
 
+def test_modal_resolves_inline_content_by_path():
+    """Les copies d'artefacts de feature_inventory (jamais inlinées côté
+    Python) récupèrent dans le modal le contenu embarqué de la source unique
+    scenario_evidence, résolu par path — plus de repli « Contenu non
+    embarqué » quand le contenu existe dans le payload."""
+    # feature_inventory duplique chaque artefact à plusieurs niveaux (proofs,
+    # matched_scenarios): inliner ces copies côté Python multiplierait le
+    # poids du rapport. La SPA résout donc l'inline par path au moment du
+    # rendu, depuis la copie unique de scenario_evidence.suites.
+    #: l'index est construit depuis scenario_evidence, la source unique inlinée
+    for marker in (
+        "const inlineByPath",
+        "(data.scenario_evidence || {}).suites",
+        "function resolveInline",
+    ):
+        assert marker in proof.SPA_JS, f"résolution inline par path manquante: {marker}"
+    #: le modal enrichit l'artefact avant de choisir son visualiseur
+    assert "resolveInline(modalState.items[modalState.index])" in proof.SPA_JS
+
+
 def test_cast_viewer_replays_v2_in_xterm_and_keeps_a_raw_fallback():
     """Le player de casts rejoue l'asciicast v2 dans xterm.js avec une
     toolbar maison (scrubber, vitesses) et conserve une vue brute de repli."""

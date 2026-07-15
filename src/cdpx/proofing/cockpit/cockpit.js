@@ -73,6 +73,39 @@
      Contrat payload: inline_content / excerpt / truncated / inline_skipped
      sont optionnels — tout viewer dégrade en lien de téléchargement. */
 
+  /* feature_inventory porte des copies d'artefacts jamais inlinées (l'inliner
+     Python ne visite que scenario_evidence.suites, la source unique — inliner
+     chaque copie multiplierait le poids du rapport). Le modal résout donc le
+     contenu embarqué par path avant de choisir le visualiseur. */
+  const inlineByPath = (() => {
+    const index = {};
+    const suites = (data.scenario_evidence || {}).suites || {};
+    for (const scenarios of Object.values(suites)) {
+      for (const scenario of scenarios || []) {
+        for (const artifact of scenario.artifacts || []) {
+          if (artifact.path && (artifact.inline_content || artifact.excerpt || artifact.inline_skipped)) {
+            index[artifact.path] = artifact;
+          }
+        }
+      }
+    }
+    return index;
+  })();
+
+  function resolveInline(artifact) {
+    if (!artifact || artifact.inline_content || artifact.excerpt || artifact.inline_skipped) return artifact;
+    const source = inlineByPath[artifact.path];
+    if (!source) return artifact;
+    return {
+      ...artifact,
+      inline_content: source.inline_content,
+      excerpt: source.excerpt,
+      truncated: source.truncated,
+      inline_skipped: source.inline_skipped,
+      meta: artifact.meta || source.meta
+    };
+  }
+
   const VIEWER_ICONS = {
     'screenshot': '🖼', 'video': '🎬', 'console': '≡', 'network': '⇄',
     'json': '{}', 'profiler': '⏱', 'logs': '¶', 'log-excerpt': '¶', 'command': '$',
@@ -442,7 +475,7 @@
   }
 
   function renderModalCurrent() {
-    const artifact = modalState.items[modalState.index];
+    const artifact = resolveInline(modalState.items[modalState.index]);
     if (!artifact) return;
     const viewer = VIEWERS[artifact.type] || downloadFallback;
     modal.querySelector('.modal-type').textContent = artifact.type || 'artefact';
