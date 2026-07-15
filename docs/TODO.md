@@ -54,6 +54,27 @@ reste à décider.
 - [x] Préparer la version de publication `0.2.0`, cohérente avec les changements
       de contrat pré-1.0 ; aucun tag n'est autorisé à ce stade.
 
+## Cockpit de preuve v2 — livré
+
+Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
+
+- [x] Extraire la présentation du cockpit vers `src/cdpx/proofing/cockpit/`
+      (shell.html, cockpit.css, cockpit.js — lintables, livrés dans le wheel).
+- [x] Relier chaque test à son intention écrite dans le code : docstring =
+      intention de la méthode, commentaires `#:` = déroulé annoté par
+      assertion, corrélé à la ligne d'échec et rendu hiérarchiquement.
+- [x] Fermer la taxonomie des artefacts et donner à chaque type un visualiseur
+      dédié dans une modal contextuelle (screenshot zoomable, console filtrée
+      par niveau, table réseau, arbre JSON, logs surlignés, transcript de
+      commande, mini-player asciinema maison).
+- [x] Ajouter les preuves secondaires : `attach_command_output`,
+      `attach_log_excerpt`, `attach_cast` (+ GIF compagnon), et
+      l'enregistrement opt-in `CDPX_PROOF_CAST=1` pendant `make proof`.
+- [x] Guider la lecture du pack : « À lire d'abord » quand le verdict est
+      rouge, timeline des commandes, badges par type de preuve, compteurs.
+- [ ] Adopter progressivement docstrings + `#:` et `attach_cli_run` dans les
+      suites existantes (fait sur les témoins; généralisation au fil de l'eau).
+
 ## Dette technique continue
 
 - [ ] Étendre `KEY_MAP` au-delà du jeu désormais testé (édition/navigation,

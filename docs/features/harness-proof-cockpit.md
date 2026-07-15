@@ -4,8 +4,8 @@ title = "Harness et cockpit de preuve"
 status = "validated"
 summary = "Exécuter des portails qualité déterministes et publier un cockpit de validation central, orienté features."
 entrypoints = ["make help", "make setup", "make check-local", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make release", "make clean", "make dist", "make smoke-dist", "python -m cdpx.proof"]
-path_globs = ["Makefile", "pyproject.toml", "MANIFEST.in", "scripts/*.py", "Dockerfile", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/features/*.md", "docs/milestones/*.md"]
-test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid"]
+path_globs = ["Makefile", "pyproject.toml", "MANIFEST.in", "scripts/*.py", "Dockerfile", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/proofing/cockpit/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_intent.py", "tests/test_cast.py", "tests/test_e2e_helpers.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/features/*.md", "docs/milestones/*.md"]
+test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid"]
 docs = ["README.md", "HARNESS.md", "CLAUDE.md", "docs/VALIDATION.md", "docs/ROADMAP.md", "docs/TODO.md"]
 expected_proofs = ["junit"]
 
@@ -40,7 +40,7 @@ report_text = "Ce scénario prouve que le rapport se lit comme un cockpit orient
 given = "Les fiches features, les preuves pytest, le XML JUnit et les journaux de commandes existent pour le run."
 when = "python -m cdpx.proof construit le résumé de validation et le rapport HTML, en rendant la doc Markdown des fiches features."
 then = "Le rapport local relie dossiers de features, scénarios, tests, captures privées et manques; le staging CI ne contient que les fichiers textuels manifestés et nettoyés."
-tests = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid"]
+tests = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid"]
 expected_proofs = ["junit", "screenshot"]
 +++
 
@@ -211,6 +211,30 @@ spécifications fonctionnelles tout en restant attachées aux journeys, tests et
 preuves. Les fences `mermaid` sont rendues hors ligne par un bundle local
 épinglé et vérifié ; aucun CDN n'est contacté à l'ouverture du rapport.
 
+La présentation du cockpit vit dans `src/cdpx/proofing/cockpit/` (`shell.html`,
+`cockpit.css`, `cockpit.js`), chargée via `importlib.resources` et livrée dans
+le wheel. Chaque type d'artefact de la taxonomie fermée (`screenshot`, `gif`,
+`video`, `console`, `network`, `json`, `profiler`, `logs`, `log-excerpt`,
+`command`, `asciinema`, `file`) possède un visualiseur dédié ouvert dans une
+modal contextuelle (wording du scénario, étape, test, horodatage relatif,
+navigation clavier). Le contenu textuel est inliné dans le payload du rapport
+au moment du build (cap 16 Ko par artefact, budget global 2 Mo, extraits
+tronqués honnêtement au-delà) car la CSP interdit tout chargement réseau.
+
+L'intention de chaque test remonte du code lui-même : la docstring devient
+l'intention de la méthode, et les commentaires `#: <texte>` placés au-dessus
+des assertions deviennent un déroulé annoté, hiérarchique et corrélé à la
+ligne d'échec (extraction statique ast/tokenize, aucun impact runtime). Les
+preuves secondaires — transcript de commande (`attach_command_output`),
+extrait de log ciblé (`attach_log_excerpt`), enregistrement terminal
+(`attach_cast`) — complètent screenshots et JSON.
+
+`CDPX_PROOF_CAST=1` (opt-in strict) enregistre pendant `make proof` des
+commandes de démonstration en `.cast` via `asciinema`, avec export GIF si
+`agg` est présent ; le cockpit embarque un mini-player (.cast v2, sous-
+ensemble ANSI, vue brute de repli). Binaires absents ou échec d'export :
+statut dégradé, jamais d'échec du portail.
+
 Les dossiers sont forcés en `0700` et les fichiers en `0600`. Un manifest
 `cdpx.artifacts/v1` classe chaque fichier (`public`, `internal`, `secret`,
 `opaque-restricted`), enregistre SHA-256, version de redaction, TTL et droit
@@ -248,7 +272,13 @@ Les tests unitaires valident le parsing strict des fiches features (front
 matter, sections, doc par entrypoint), le rendu Markdown du cockpit, la
 compatibilité du résumé de validation, les règles d'échec de preuve, le
 serveur de fixtures et le contrat CLI (sorties, erreurs d'usage, garde
-d'origine, filet de dispatch des sous-commandes).
+d'origine, filet de dispatch des sous-commandes). S'y ajoutent : l'extraction
+d'intention (docstrings, commentaires `#:`, corrélation de ligne d'échec,
+redaction), la taxonomie fermée des artefacts et les helpers de preuve
+secondaire, l'inlining borné du payload, l'intégrité des assets du cockpit,
+le garde-fou « chaque type d'artefact a un visualiseur », le producteur
+asciinema opt-in (dégradation propre) et le bandeau screenshot éphémère
+(injection puis suppression garantie).
 
 ## Preuves
 
@@ -266,3 +296,11 @@ captures), plus `.proof/shareable/` et son manifest pour la CI.
 - `SecureArtifactWriter` redige automatiquement texte, JSON et fichiers
   textuels enregistrés, mais ne peut inspecter sûrement un binaire opaque ni
   deviner toute PII. Le scan de canaris reste le dernier verrou de staging.
+- Les `.cast` sont redactés mais jamais uploadés dans le staging partageable :
+  un secret peut être fragmenté entre événements ndjson et échapper au scan.
+- Le mini-player asciinema couvre un sous-ensemble ANSI (SGR 16 couleurs,
+  `\r`, effacements) suffisant pour des sorties CLI linéaires ; un cast TUI
+  plein écran se lit via la vue brute ou le GIF compagnon.
+- La corrélation assertion/échec est muette (marqueurs neutres) quand
+  l'assertion échoue dans un helper hors du fichier de test : mieux vaut
+  aucune corrélation qu'une assertion faussement incriminée.
