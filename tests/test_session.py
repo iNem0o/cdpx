@@ -214,7 +214,16 @@ def test_session_lease_reattests_fresh_manifest_by_default(tmp_path, monkeypatch
     assert checked == [manifest]
 
 
-def test_public_manifest_omits_capabilities_and_physical_profile(tmp_path):
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="isolate-session-runs",
+    scenario_id="state-session.public-manifest-hides-control-levers",
+    proves=[
+        "The public manifest view keeps run/target identity readable.",
+        "The websocket endpoint, profile path and browser PID never leak by default.",
+    ],
+)
+def test_public_manifest_omits_capabilities_and_physical_profile(tmp_path, evidence_case):
     """La vue publique du manifest expose l'identité logique (run, target,
     profil éphémère) mais jamais les leviers de prise de contrôle: endpoint
     websocket, chemin physique du profil, PID du navigateur."""
@@ -227,6 +236,15 @@ def test_public_manifest_omits_capabilities_and_physical_profile(tmp_path):
     assert "websocket_url" not in public
     assert "profile_dir" not in public
     assert "browser_pid" not in public
+
+    # Preuve secondaire: le contrat de sortie publique sérialisé, pièce du
+    # rapport documentant l'invariant 5 (aucune capacité/PID/chemin ne fuit).
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Vue publique du manifest de session",
+            public,
+            filename="public-manifest.json",
+        )
 
 
 def test_chrome_command_forces_ephemeral_loopback_profile(tmp_path):
@@ -504,9 +522,19 @@ def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, mon
         )
 
 
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="exercise-session-without-chrome",
+    scenario_id="state-session.report-redacted-startup-diagnostics",
+    proves=[
+        "A stalled startup names both log tails and the readiness stage reached.",
+        "The environment secret is redacted before it can reach the diagnostic.",
+    ],
+)
 def test_start_session_timeout_reports_redacted_log_tails_before_cleanup(
     tmp_path,
     monkeypatch,
+    evidence_case,
 ):
     """Quand la session n'est pas prête à temps, le diagnostic remonte la fin
     des logs superviseur et Chrome — la valeur secrète y est masquée — et le
@@ -578,6 +606,15 @@ def test_start_session_timeout_reports_redacted_log_tails_before_cleanup(
     #: le nettoyage a bien eu lieu après lecture des logs, puis a tout retiré
     assert cleanup_observation == {"pid": 5151, "logs_present": True}
     assert not (tmp_path / SESSION_ID).exists()
+
+    # Preuve secondaire: le message d'erreur déjà redacté par la session, seul
+    # diagnostic exploitable une fois le runtime privé supprimé.
+    if evidence_case is not None:
+        evidence_case.attach_text(
+            "Diagnostic de démarrage redacté (PolicyError)",
+            message,
+            filename="startup-timeout-diagnostic.txt",
+        )
 
 
 def test_startup_diagnostics_refuse_symlinked_logs(tmp_path):
@@ -670,6 +707,15 @@ def test_start_session_cleans_private_tree_when_supervisor_spawn_fails(tmp_path,
     assert not (tmp_path / SESSION_ID).exists()
 
 
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="exercise-session-without-chrome",
+    scenario_id="state-session.supervise-lifecycle-without-chrome",
+    proves=[
+        "An invalid attestation fails the supervisor without touching the session.",
+        "The supervisor writes a reloadable manifest, closes extra targets and tears down on stop.",
+    ],
+)
 def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, monkeypatch):
     """Le superviseur exige une attestation valide puis déroule le cycle
     complet: manifest écrit et rechargeable, targets surnuméraires fermés,
@@ -851,7 +897,7 @@ def test_supervisor_rejects_invalid_bootstrap_without_writing_or_cleanup(tmp_pat
     assert bootstrap.read_text(encoding="utf-8") == "not-json"
 
 
-def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypatch):
+def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypatch, evidence_case):
     """Quand la readiness échoue côté superviseur, le fichier d'erreur publié
     conserve la cause et les fins de logs — la valeur secrète y est masquée —
     puis la session est intégralement détruite."""
@@ -926,6 +972,15 @@ def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypat
     assert secret not in message and "***" in message
     #: le dossier de session, lui, est bien nettoyé malgré l'échec
     assert not session_dir.exists()
+
+    # Preuve secondaire: le contenu redacté du fichier .error, seul témoin
+    # post-mortem une fois la session détruite.
+    if evidence_case is not None:
+        evidence_case.attach_text(
+            "Fichier d'erreur superviseur redacté",
+            message,
+            filename="supervisor-readiness-error.txt",
+        )
 
 
 def test_supervisor_arbitrary_path_never_removes_or_chmods_its_parent(tmp_path):

@@ -117,6 +117,42 @@ when = "Le processus superviseur reçoit SIGTERM."
 then = "Manifest, profil et dossier disparaissent, et le port loopback n'accepte plus de connexion."
 tests = ["tests/e2e/test_e2e_sessions.py::test_supervisor_signal_still_tears_down_chrome_and_private_files"]
 expected_proofs = ["junit", "json", "screenshot"]
+
+[[scenarios]]
+id = "supervise-lifecycle-without-chrome"
+journey = "exercise-session-without-chrome"
+title = "Dérouler le cycle supervisé complet sans Chrome réel"
+ui_text = "Le superviseur atteste le bootstrap, publie le manifest, ferme les targets surnuméraires puis détruit la session à l'arrêt, même avec un navigateur simulé."
+report_text = "Ce scénario prouve, sans Chrome réel, que le superviseur refuse une attestation invalide sans effet, écrit un manifest rechargeable pointant le target assigné et le port découvert, ferme l'onglet initial puis la cible au teardown sans toucher au worker, termine puis tue le navigateur récalcitrant et supprime la session exactement une fois au SIGTERM."
+given = "Un bootstrap attesté décrit une session dont le Chrome et la discovery HTTP sont simulés."
+when = "Le superviseur reçoit d'abord une attestation invalide, puis l'attestation correcte, et va jusqu'au SIGTERM."
+then = "L'attestation invalide échoue sans toucher aux fichiers, le manifest publié est rechargeable, les targets surnuméraires sont fermés et la session est détruite une seule fois."
+tests = ["tests/test_session.py::test_supervisor_builds_manifest_closes_extra_target_and_cleans_up"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "report-redacted-startup-diagnostics"
+journey = "exercise-session-without-chrome"
+title = "Remonter des diagnostics de démarrage redactés avant nettoyage"
+ui_text = "Quand la session n'est pas prête à temps, la fin des logs superviseur et Chrome revient dans l'erreur, valeurs secrètes masquées, avant que le runtime privé ne disparaisse."
+report_text = "Ce scénario prouve qu'un démarrage qui expire nomme les deux logs et l'étape de readiness atteinte, masque la valeur secrète issue de l'environnement (*** à la place du token) et n'effectue le nettoyage qu'après lecture des tails."
+given = "Un superviseur simulé stagne au stade wait_devtools en écrivant un secret dans ses logs."
+when = "start_session dépasse son budget de démarrage."
+then = "Le PolicyError cite supervisor.log et chrome-stderr.log, le secret est remplacé par ***, puis la session privée est supprimée."
+tests = ["tests/test_session.py::test_start_session_timeout_reports_redacted_log_tails_before_cleanup"]
+expected_proofs = ["junit", "logs"]
+
+[[scenarios]]
+id = "public-manifest-hides-control-levers"
+journey = "isolate-session-runs"
+title = "Restreindre la vue publique du manifest à l'identité logique"
+ui_text = "La sortie publique de session start livre l'identité du run et du target mais jamais l'endpoint websocket, le chemin du profil ni le PID du navigateur."
+report_text = "Ce scénario prouve que public_dict expose run_id, target_id et le profil éphémère tout en omettant websocket_url, profile_dir et browser_pid — les leviers de prise de contrôle du navigateur restent privés (invariant 5)."
+given = "Un manifest de session supervisée complet est construit."
+when = "L'appelant lit la vue publique du manifest."
+then = "L'identité logique est présente et aucune capacité d'attaque du navigateur ou de son profil ne fuit dans la sortie par défaut."
+tests = ["tests/test_session.py::test_public_manifest_omits_capabilities_and_physical_profile"]
+expected_proofs = ["junit", "json"]
 +++
 
 ## Intention

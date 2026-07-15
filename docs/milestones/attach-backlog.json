@@ -10,26 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/test_session.py::test_supervisor_builds_manifest_closes_extra_target_and_cleans_up",
-  "helper": "@pytest.mark.scenario",
-  "what": "Cycle de vie supervise complet (attestation, manifest, fermeture des targets surnumeraires, SIGTERM, cleanup) — bon candidat scenario feature=state-session, journey=supervised-lifecycle, meme sans Chrome reel."
- },
- {
-  "nodeid": "tests/test_session.py::test_start_session_timeout_reports_redacted_log_tails_before_cleanup",
-  "helper": "@pytest.mark.scenario + attach (extrait du message PolicyError redacte)",
-  "what": "Preuve que les diagnostics de demarrage sont exploitables et redactes de la valeur secrete avant nettoyage — le message d'erreur redacte ferait une piece de preuve parlante."
- },
- {
-  "nodeid": "tests/test_session.py::test_public_manifest_omits_capabilities_and_physical_profile",
-  "helper": "@pytest.mark.scenario + attach (public_dict serialise)",
-  "what": "Contrat de sortie publique (aucune capacite/PID/chemin ne fuit) — attacher le JSON public_dict documenterait le contrat de securite de l'invariant 5."
- },
- {
-  "nodeid": "tests/test_session.py::test_supervisor_error_preserves_redacted_readiness_tails",
-  "helper": "attach (contenu du fichier .error redacte)",
-  "what": "Le fichier .error redacte est le seul temoin post-mortem d'une session detruite; l'attacher illustrerait la chaine diagnostic + redaction."
- },
- {
   "nodeid": "tests/test_proof.py::test_render_html_embeds_payload_verdict_and_routes",
   "helper": "attach_text",
   "what": "Le HTML complet rendu (ou un extrait du shell) pour inspection visuelle du rapport dans le cockpit."
