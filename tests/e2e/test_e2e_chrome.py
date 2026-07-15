@@ -140,10 +140,14 @@ def attach_cli_screenshot(
     proves=["The installed CLI manages a real Chrome target lifecycle."],
 )
 def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evidence_case):
+    """Le CLI installé pilote un vrai cycle de vie Chrome de bout en bout:
+    identité du navigateur, navigation, puis inventaire des onglets sur la
+    cible supervisée — sans jamais toucher un endpoint brut."""
     manifest, path = managed_cli_session
     version_proc = run_cli(manifest, path, "version")
     attach_cli_run(evidence_case, "cdpx version", version_proc)
     version = successful_json(version_proc)
+    #: le navigateur répond avec une identité Chrome/Chromium réelle
     assert version["Browser"].startswith(("Chrome/", "HeadlessChrome/", "Chromium/"))
     assert version["Protocol-Version"]
 
@@ -152,8 +156,10 @@ def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evi
         "goto",
         f"{fixtures_http.base_url}/index.html",
     )
+    #: la navigation aboutit sur le site témoin loopback
     assert navigated["ok"] is True
     listed = cli_json(managed_cli_session, "tabs", "list")
+    #: la session supervisée ne voit que sa propre cible
     assert listed["count"] == 1
     assert listed["tabs"][0]["id"] == manifest.target_id
     attach_cli_screenshot(evidence_case, managed_cli_session, "assigned-target")
@@ -166,16 +172,22 @@ def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evi
     proves=["The installed CLI submits a real form through trusted keyboard input."],
 )
 def test_cli_dom_and_keyboard_black_box(cli_page, evidence_case, monkeypatch):
+    """Un formulaire réel est soumis par une frappe clavier de confiance
+    (trusted input), la valeur secrète passant par l'environnement sans
+    jamais apparaître dans argv."""
     manifest, path, base = cli_page
     session = (manifest, path)
     navigated = cli_json(session, "goto", f"{base}/form.html")
+    #: la page formulaire est chargée jusqu'à l'évènement load
     assert navigated["ok"] is True and navigated["waited"] == "load"
     assert cli_json(session, "count", "input,button")["count"] == 3
 
     monkeypatch.setenv("E2E_FORM_TEXT", "Keyboard E2E")
     cli_json(session, "type", "#name", "--secret-env", "E2E_FORM_TEXT", "--clear")
+    #: la touche Entrée déclenche la soumission comme le ferait un humain
     assert cli_json(session, "key", "Enter")["pressed"] == "Enter"
     html = cli_json(session, "html", "#result")
+    #: le DOM final prouve la soumission avec la valeur tapée au clavier
     assert 'data-state="submitted"' in html["html"]
     assert "OK:Keyboard E2E" in html["html"]
     attach_cli_screenshot(evidence_case, session)
