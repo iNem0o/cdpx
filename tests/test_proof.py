@@ -686,6 +686,26 @@ def test_every_artifact_type_has_a_dedicated_viewer():
         )
 
 
+def test_text_viewers_are_specialized_per_type():
+    # Chaque type textuel a un vrai visualiseur, pas un simple lien: console
+    # (niveaux + filtres), network (table statuts), json/profiler (arbre),
+    # logs (lignes numérotées + surlignage), command (argv + exit code).
+    for marker in (
+        "function consoleViewer",
+        "data-console-level",
+        "function networkViewer",
+        "net-status",
+        "function jsonViewer",
+        "JSON_NODE_BUDGET",
+        "function profilerViewer",
+        "function logViewer",
+        "log-hit",
+        "function commandViewer",
+        "transcriptSection(body, 'stderr')",
+    ):
+        assert marker in proof.SPA_JS, f"visualiseur texte manquant: {marker}"
+
+
 def test_modal_and_keyboard_wiring_are_present():
     for marker in (
         "function openModal",

@@ -261,6 +261,41 @@ body.modal-open { overflow: hidden; }
 .viewer-text { max-height: none; }
 .viewer-note { color: var(--warn); font-weight: 650; }
 .viewer-fallback { padding: 24px; color: var(--muted); }
+.viewer-summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); }
+.console-toolbar { display: flex; gap: 14px; margin-bottom: 10px; font-size: 12px; }
+.console-filter { cursor: pointer; user-select: none; }
+.console-view { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.console-line { display: flex; gap: 8px; padding: 3px 6px; border-bottom: 1px solid var(--soft); }
+.console-line[hidden] { display: none; }
+.console-level { flex: 0 0 44px; font-weight: 800; text-transform: uppercase; font-size: 10px; padding-top: 2px; }
+.console-level.level-error { color: var(--bad); }
+.console-level.level-warn { color: var(--warn); }
+.console-level.level-log { color: var(--muted); }
+.console-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.net-url { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-status { font-weight: 800; font-size: 12px; }
+.net-status.net-ok { color: var(--ok); }
+.net-status.net-warn { color: var(--warn); }
+.net-status.net-bad { color: var(--bad); }
+.net-status.net-muted { color: var(--muted); }
+.json-view { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.json-node { margin: 0; }
+.json-node > summary { color: var(--muted); font-weight: 700; }
+.json-entry { margin-left: 18px; overflow-wrap: anywhere; }
+.json-key { color: var(--info); font-weight: 650; }
+.json-value.json-string { color: var(--ok); }
+.json-value.json-number { color: var(--warn); }
+.json-value.json-boolean, .json-value.json-null { color: var(--bad); }
+.log-view { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.log-line { display: flex; gap: 10px; padding: 1px 6px; }
+.log-line.log-hit { background: #fff3c4; border-left: 3px solid var(--warn); }
+.log-num { flex: 0 0 34px; text-align: right; color: var(--muted); user-select: none; }
+.log-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.command-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.command-head code { overflow-wrap: anywhere; }
+.stream h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); }
+.stream-out pre { border-left: 4px solid var(--info); }
+.stream-err pre { border-left: 4px solid var(--bad); }
 @media (max-width: 900px) {
   .modal-body { grid-template-columns: 1fr; }
   .modal-context { border-left: 0; border-top: 1px solid var(--line); }
