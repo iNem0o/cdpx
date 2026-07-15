@@ -1,33 +1,38 @@
-"""Enregistrements asciinema opt-in pour la preuve (dégradation propre).
+"""Enregistrements de terminal natifs pour la preuve (asciicast v2).
 
-Activés par ``CDPX_PROOF_CAST=1`` quand ``asciinema`` est dans le PATH; export
-GIF si ``agg`` est présent. Les commandes enregistrées sont des preuves
-secondaires bon marché ré-exécutées pour la démonstration — jamais les
-commandes de verdict (pytest/ruff/mypy): leur exit code sous ``asciinema rec``
-n'est pas contractuel et doubler leur exécution serait prohibitif. Tout échec
-retourne un statut dégradé, jamais une exception: l'absence d'un cast ne doit
-pas bloquer le portail de preuve.
+Producteur stdlib (pty + select): aucune dépendance asciinema/agg. Les
+commandes enregistrées sont des preuves secondaires de démonstration bon
+marché — jamais les commandes de verdict (pytest/ruff/mypy), dont doubler
+l'exécution serait prohibitif. L'enregistrement est systématique et fait
+partie du portail: un cast manquant ou dégradé fait échouer ``make proof``
+(voir ``cast_failures`` dans ``cdpx.proof``).
 """
 
 from __future__ import annotations
 
+import codecs
+import fcntl
+import json
 import os
+import pty
 import secrets
-import shlex
-import shutil
+import select
+import struct
 import subprocess
 import sys
-from collections.abc import Mapping
+import termios
+import time
 from pathlib import Path
 from typing import Any
 
 from cdpx.security.redaction import RedactionContext, redact_text
 
-CAST_ENV = "CDPX_PROOF_CAST"
 MAX_CAST_BYTES = 2 * 1024 * 1024
-MAX_GIF_BYTES = 5 * 1024 * 1024
+CAST_WIDTH = 100
+CAST_HEIGHT = 30
 CAST_COMMANDS: tuple[tuple[str, list[str]], ...] = (
     ("cli-help", [sys.executable, "-m", "cdpx.cli", "--help"]),
+    ("mock-session-demo", [sys.executable, "-m", "cdpx.proofing.demo"]),
 )
 
 
@@ -43,9 +48,26 @@ def _write_private_text(path: Path, value: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def cast_enabled(environ: Mapping[str, str] | None = None) -> bool:
-    values = os.environ if environ is None else environ
-    return values.get(CAST_ENV) == "1" and shutil.which("asciinema") is not None
+def _spawn_on_pty(argv: list[str], env: dict[str, str]) -> tuple[subprocess.Popen[bytes], int]:
+    """Démarre ``argv`` attaché à un pseudo-terminal dimensionné pour le player."""
+
+    master, slave = pty.openpty()
+    try:
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", CAST_HEIGHT, CAST_WIDTH, 0, 0))
+        proc = subprocess.Popen(
+            argv,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            env={**env, "TERM": "xterm-256color", "COLUMNS": str(CAST_WIDTH)},
+            close_fds=True,
+        )
+    except OSError:
+        os.close(master)
+        raise
+    finally:
+        os.close(slave)
+    return proc, master
 
 
 def record_cast(
@@ -56,87 +78,76 @@ def record_cast(
     env: dict[str, str],
     timeout: float = 120.0,
     redaction_context: RedactionContext | None = None,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     """Enregistre ``argv`` en .cast redacté, ou un statut dégradé sans lever."""
 
-    if shutil.which("asciinema") is None:
-        return None
     context = redaction_context or RedactionContext()
     cast_path.unlink(missing_ok=True)
     try:
-        proc = subprocess.run(
-            [
-                "asciinema",
-                "rec",
-                "--quiet",
-                "--overwrite",
-                "--command",
-                shlex.join(argv),
-                str(cast_path),
-            ],
-            env=env,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=timeout,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        cast_path.unlink(missing_ok=True)
+        proc, master = _spawn_on_pty(argv, env)
+    except OSError:
         return {"id": id, "path": "", "status": "unavailable"}
-    if proc.returncode != 0 or cast_path.is_symlink() or not cast_path.is_file():
+    events: list[tuple[float, str]] = []
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    started = time.monotonic()
+    deadline = started + timeout
+    total_bytes = 0
+    status = ""
+    try:
+        while True:
+            if time.monotonic() > deadline:
+                status = "unavailable"
+                break
+            ready, _, _ = select.select([master], [], [], 0.25)
+            if ready:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    break  # esclave fermé et tampon vidé: fin de l'enregistrement
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_CAST_BYTES:
+                    status = "too-large"
+                    break
+                text = decoder.decode(chunk)
+                if text:
+                    events.append((time.monotonic() - started, text))
+            elif proc.poll() is not None:
+                break
+    finally:
+        os.close(master)
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+    if not status and proc.returncode != 0:
+        status = "unavailable"
+    if status:
         cast_path.unlink(missing_ok=True)
-        return {"id": id, "path": "", "status": "unavailable"}
-    if cast_path.stat().st_size > MAX_CAST_BYTES:
-        cast_path.unlink(missing_ok=True)
+        return {"id": id, "path": "", "status": status}
+    header = {
+        "version": 2,
+        "width": CAST_WIDTH,
+        "height": CAST_HEIGHT,
+        "env": {"TERM": "xterm-256color"},
+    }
+    lines = [json.dumps(header, ensure_ascii=False)]
+    for offset, text in events:
+        # Redaction par évènement (avant l'encodage JSON) puis sur le contenu
+        # final: un secret fragmenté entre évènements reste la limite connue —
+        # d'où upload_allowed=False sur tout artefact cast.
+        clean = redact_text(text, context=context, path=f"$.casts.{id}")
+        lines.append(json.dumps([round(offset, 6), "o", clean], ensure_ascii=False))
+    content = redact_text("\n".join(lines) + "\n", context=context, path=f"$.casts.{id}")
+    if len(content.encode("utf-8")) > MAX_CAST_BYTES:
         return {"id": id, "path": "", "status": "too-large"}
-    cleaned = redact_text(
-        cast_path.read_text(encoding="utf-8", errors="replace"),
-        context=context,
-        path=f"$.casts.{id}",
-    )
-    _write_private_text(cast_path, cleaned)
+    _write_private_text(cast_path, content)
     return {
         "id": id,
         "path": str(cast_path),
-        "bytes": len(cleaned.encode("utf-8")),
+        "bytes": len(content.encode("utf-8")),
         "status": "generated",
     }
-
-
-def export_gif(
-    cast_path: Path,
-    gif_path: Path,
-    *,
-    env: dict[str, str],
-    timeout: float = 180.0,
-) -> dict[str, Any] | None:
-    """Exporte un GIF compagnon via ``agg``, ou un statut dégradé sans lever."""
-
-    if shutil.which("agg") is None:
-        return None
-    gif_path.unlink(missing_ok=True)
-    try:
-        proc = subprocess.run(
-            ["agg", str(cast_path), str(gif_path)],
-            env=env,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=timeout,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        gif_path.unlink(missing_ok=True)
-        return {"path": "", "status": "unavailable"}
-    if proc.returncode != 0 or gif_path.is_symlink() or not gif_path.is_file():
-        gif_path.unlink(missing_ok=True)
-        return {"path": "", "status": "unavailable"}
-    if gif_path.stat().st_size > MAX_GIF_BYTES:
-        gif_path.unlink(missing_ok=True)
-        return {"path": "", "status": "too-large"}
-    gif_path.chmod(0o600)
-    return {"path": str(gif_path), "status": "generated"}
 
 
 def collect_cast_evidence(
@@ -144,25 +155,16 @@ def collect_cast_evidence(
     *,
     env: dict[str, str],
     redaction_context: RedactionContext | None = None,
-    environ: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Boucle opt-in: un .cast (+ GIF si possible) par commande de démonstration."""
+    """Enregistre chaque commande de démonstration; le portail juge les statuts."""
 
-    if not cast_enabled(environ):
-        return []
-    entries: list[dict[str, Any]] = []
-    for cast_id, argv in CAST_COMMANDS:
-        entry = record_cast(
+    return [
+        record_cast(
             cast_id,
             argv,
             root / f"{cast_id}.cast",
             env=env,
             redaction_context=redaction_context,
         )
-        if entry is None:
-            continue
-        if entry["status"] == "generated":
-            gif = export_gif(Path(entry["path"]), root / f"{cast_id}.gif", env=env)
-            entry["gif"] = gif or {"path": "", "status": "agg-missing"}
-        entries.append(entry)
-    return entries
+        for cast_id, argv in CAST_COMMANDS
+    ]
