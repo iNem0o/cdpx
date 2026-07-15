@@ -213,13 +213,14 @@ preuves. Les fences `mermaid` sont rendues hors ligne par un bundle local
 
 La présentation du cockpit vit dans `src/cdpx/proofing/cockpit/` (`shell.html`,
 `cockpit.css`, `cockpit.js`), chargée via `importlib.resources` et livrée dans
-le wheel. Chaque type d'artefact de la taxonomie fermée (`screenshot`, `gif`,
+le wheel. Chaque type d'artefact de la taxonomie fermée (`screenshot`,
 `video`, `console`, `network`, `json`, `profiler`, `logs`, `log-excerpt`,
 `command`, `asciinema`, `file`) possède un visualiseur dédié ouvert dans une
 modal contextuelle (wording du scénario, étape, test, horodatage relatif,
 navigation clavier). Le contenu textuel est inliné dans le payload du rapport
-au moment du build (cap 16 Ko par artefact, budget global 2 Mo, extraits
-tronqués honnêtement au-delà) car la CSP interdit tout chargement réseau.
+au moment du build (cap 16 Ko par artefact, 256 Ko pour les `.cast`, budgets
+globaux 2 Mo scénarios + 1 Mo casts, extraits tronqués honnêtement au-delà)
+car la CSP interdit tout chargement réseau.
 
 L'intention de chaque test remonte du code lui-même : la docstring devient
 l'intention de la méthode, et les commentaires `#: <texte>` placés au-dessus
@@ -229,11 +230,13 @@ preuves secondaires — transcript de commande (`attach_command_output`),
 extrait de log ciblé (`attach_log_excerpt`), enregistrement terminal
 (`attach_cast`) — complètent screenshots et JSON.
 
-`CDPX_PROOF_CAST=1` (opt-in strict) enregistre pendant `make proof` des
-commandes de démonstration en `.cast` via `asciinema`, avec export GIF si
-`agg` est présent ; le cockpit embarque un mini-player (.cast v2, sous-
-ensemble ANSI, vue brute de repli). Binaires absents ou échec d'export :
-statut dégradé, jamais d'échec du portail.
+`make proof` enregistre systématiquement des commandes de démonstration en
+`.cast` (asciicast v2) via un enregistreur natif stdlib (pty), sans dépendance
+`asciinema` ni `agg`. Ce portail est bloquant : un cast manquant, dégradé ou
+trop gros fait échouer la preuve (`cast missing:`/`cast unavailable:` dans
+`proof_failures`). Les casts du catalogue sont inlinés et joués dans un vrai
+terminal xterm.js vendoré (MIT, SHA-256 vérifié comme Mermaid), piloté par la
+toolbar maison (lecture, scrubber, vitesses, vue brute de repli).
 
 Les dossiers sont forcés en `0700` et les fichiers en `0600`. Un manifest
 `cdpx.artifacts/v1` classe chaque fichier (`public`, `internal`, `secret`,
@@ -276,8 +279,8 @@ d'origine, filet de dispatch des sous-commandes). S'y ajoutent : l'extraction
 d'intention (docstrings, commentaires `#:`, corrélation de ligne d'échec,
 redaction), la taxonomie fermée des artefacts et les helpers de preuve
 secondaire, l'inlining borné du payload, l'intégrité des assets du cockpit,
-le garde-fou « chaque type d'artefact a un visualiseur », le producteur
-asciinema opt-in (dégradation propre) et le bandeau screenshot éphémère
+le garde-fou « chaque type d'artefact a un visualiseur », l'enregistreur cast
+natif (pty → asciicast v2, portail bloquant) et le bandeau screenshot éphémère
 (injection puis suppression garantie).
 
 ## Preuves
@@ -298,9 +301,9 @@ captures), plus `.proof/shareable/` et son manifest pour la CI.
   deviner toute PII. Le scan de canaris reste le dernier verrou de staging.
 - Les `.cast` sont redactés mais jamais uploadés dans le staging partageable :
   un secret peut être fragmenté entre événements ndjson et échapper au scan.
-- Le mini-player asciinema couvre un sous-ensemble ANSI (SGR 16 couleurs,
-  `\r`, effacements) suffisant pour des sorties CLI linéaires ; un cast TUI
-  plein écran se lit via la vue brute ou le GIF compagnon.
+- Le player cast (xterm.js vendoré) offre une émulation terminal complète ;
+  le rembobinage du scrubber rejoue le cast depuis le début (xterm n'a pas
+  d'état réversible), imperceptible sur des casts de démonstration courts.
 - La corrélation assertion/échec est muette (marqueurs neutres) quand
   l'assertion échoue dans un helper hors du fichier de test : mieux vaut
   aucune corrélation qu'une assertion faussement incriminée.

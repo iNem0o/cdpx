@@ -66,10 +66,12 @@ Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
 - [x] Fermer la taxonomie des artefacts et donner à chaque type un visualiseur
       dédié dans une modal contextuelle (screenshot zoomable, console filtrée
       par niveau, table réseau, arbre JSON, logs surlignés, transcript de
-      commande, mini-player asciinema maison).
+      commande, player cast xterm.js).
 - [x] Ajouter les preuves secondaires : `attach_command_output`,
-      `attach_log_excerpt`, `attach_cast` (+ GIF compagnon), et
-      l'enregistrement opt-in `CDPX_PROOF_CAST=1` pendant `make proof`.
+      `attach_log_excerpt`, `attach_cast`.
+- [x] Rendre la preuve cast obligatoire : enregistreur natif stdlib (pty →
+      asciicast v2, ni asciinema ni agg), portail bloquant dans `make proof`,
+      casts inlinés et joués dans xterm.js vendoré (MIT, SHA-256 vérifié).
 - [x] Guider la lecture du pack : « À lire d'abord » quand le verdict est
       rouge, timeline des commandes, badges par type de preuve, compteurs.
 - [ ] Adopter progressivement docstrings + `#:` et `attach_cli_run` dans les
