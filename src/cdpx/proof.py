@@ -43,6 +43,7 @@ from cdpx.proofing.features import build_feature_inventory, feature_failures
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
 from cdpx.testing.evidence import (
     PROOF_RETENTION_ENV,
+    SCENARIOS_SCHEMA,
     environment_secret_values,
     proof_retention_seconds,
     redaction_context_from_environment,
@@ -299,6 +300,7 @@ def write_symfony_unavailable_evidence(
     _secure_dir(EVIDENCE_DIR)
     safe_reason = redact_text(reason, context=context, path="$.symfony.reason")
     payload = {
+        "schema": SCENARIOS_SCHEMA,
         "suite": "symfony",
         "generated_at": _now(),
         "count": 1,
@@ -970,6 +972,7 @@ def write_scenario_evidence(
             continue
         path = root / f"{suite}-scenarios.json"
         payload = {
+            "schema": SCENARIOS_SCHEMA,
             "suite": suite,
             "generated_at": _now(),
             "count": len(scenarios),

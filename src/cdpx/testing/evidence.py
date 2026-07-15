@@ -29,7 +29,39 @@ INTEGRATION_MODULES = {
     "tests/test_discovery_and_client.py",
     "tests/test_fixture_server.py",
 }
-EVIDENCE_SCHEMA = "cdpx.evidence/v1"
+EVIDENCE_SCHEMA = "cdpx.evidence/v2"
+SCENARIOS_SCHEMA = "cdpx.scenarios/v2"
+# Taxonomie fermée: chaque type connu a une politique de classification et un
+# visualiseur dédié dans le cockpit; une chaîne libre laisserait dériver les deux.
+ARTIFACT_TYPES = frozenset(
+    {
+        "screenshot",
+        "video",
+        "gif",
+        "asciinema",
+        "console",
+        "network",
+        "profiler",
+        "json",
+        "logs",
+        "command",
+        "log-excerpt",
+        "file",
+    }
+)
+_TYPE_BY_SUFFIX = {
+    ".png": "screenshot",
+    ".jpg": "screenshot",
+    ".jpeg": "screenshot",
+    ".webp": "screenshot",
+    ".gif": "gif",
+    ".webm": "video",
+    ".mp4": "video",
+    ".cast": "asciinema",
+    ".json": "json",
+    ".log": "logs",
+    ".txt": "logs",
+}
 PROOF_RETENTION_ENV = "CDPX_PROOF_RETENTION_DAYS"
 DEFAULT_PROOF_RETENTION_DAYS = 14
 MIN_PROOF_RETENTION_DAYS = 1
@@ -125,6 +157,7 @@ def _is_textual(mime: str, path: Path) -> bool:
         or mime in _TEXT_MIMES
         or path.suffix.lower()
         in {
+            ".cast",
             ".json",
             ".log",
             ".md",
@@ -187,6 +220,8 @@ class EvidenceArtifact:
     upload_allowed: bool
     redaction_policy: str = REDACTION_POLICY_VERSION
     created_at: str = field(default_factory=utc_now)
+    excerpt: str = ""
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -200,6 +235,8 @@ class EvidenceArtifact:
             "upload_allowed": self.upload_allowed,
             "redaction_policy": self.redaction_policy,
             "created_at": self.created_at,
+            "excerpt": self.excerpt,
+            "meta": self.meta,
         }
 
 
@@ -240,6 +277,8 @@ class EvidenceCase:
         *,
         classification: ArtifactClassification | None = None,
         upload_allowed: bool | None = None,
+        excerpt: str = "",
+        meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         src = Path(path)
         if src.is_symlink() or not src.is_file():
@@ -247,7 +286,9 @@ class EvidenceCase:
         _secure_dir(self.artifact_dir)
         safe_stem = slugify(redact_text(src.stem, context=self.redaction_context, path="$.name"))
         dest = self.artifact_dir / f"{safe_stem}{src.suffix.lower()}"
-        artifact_type = type or src.suffix.lstrip(".") or "file"
+        artifact_type = type or _TYPE_BY_SUFFIX.get(src.suffix.lower(), "file")
+        if artifact_type not in ARTIFACT_TYPES:
+            raise ValueError(f"type d'artefact de preuve inconnu: {artifact_type}")
         mime = mimetypes.guess_type(dest.name)[0] or "application/octet-stream"
         textual = _is_textual(mime, src)
         selected_classification = classification or (
@@ -301,6 +342,14 @@ class EvidenceCase:
             sha256=hashlib.sha256(data).hexdigest(),
             classification=selected_classification.value,
             upload_allowed=selected_upload,
+            excerpt=redact_text(
+                excerpt, context=self.redaction_context, path=f"$.artifacts.{dest.name}.excerpt"
+            ),
+            meta=redact_tree(
+                dict(meta or {}),
+                context=self.redaction_context,
+                path=f"$.artifacts.{dest.name}.meta",
+            ),
         )
         self.artifacts.append(artifact)
         return artifact.as_dict()
@@ -448,6 +497,7 @@ class EvidenceSession:
         for suite, cases in by_suite.items():
             path = self.root / f"{suite}-scenarios.json"
             payload = {
+                "schema": SCENARIOS_SCHEMA,
                 "suite": suite,
                 "generated_at": utc_now(),
                 "count": len(cases),

@@ -132,7 +132,7 @@ def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
 
     manifest_path = tmp_path / "evidence-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema"] == "cdpx.evidence/v1"
+    assert manifest["schema"] == "cdpx.evidence/v2"
     assert manifest["expires_at"] > manifest["created_at"]
     assert manifest["redaction_policy"] == "1"
     assert any(item["classification"] == "internal" for item in manifest["artifacts"])
@@ -207,6 +207,76 @@ def test_marker_metadata_captures_feature_and_journey():
     assert data["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"
 
 
+def test_attach_file_enforces_closed_artifact_taxonomy(tmp_path):
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_taxonomy",
+        root=tmp_path,
+        suite="unit",
+        title="taxonomy",
+    )
+    source = tmp_path / "trace.bin"
+    source.write_bytes(b"\x00\x01")
+
+    with pytest.raises(ValueError, match="type d'artefact de preuve inconnu"):
+        case.attach_file(source, "libre", "banane")
+
+    #: un suffixe inconnu retombe sur le type générique "file"
+    assert case.attach_file(source, "brut")["type"] == "file"
+
+
+def test_attach_file_maps_known_suffixes_to_artifact_types(tmp_path):
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_suffixes",
+        root=tmp_path,
+        suite="unit",
+        title="suffixes",
+    )
+    expectations = {
+        "shot.png": "screenshot",
+        "record.cast": "asciinema",
+        "demo.gif": "gif",
+        "clip.webm": "video",
+        "trace.log": "logs",
+        "payload.json": "json",
+    }
+    for name, expected in expectations.items():
+        source = tmp_path / name
+        if expected in {"screenshot", "gif", "video"}:
+            source.write_bytes(b"\x89BIN\x00")
+        else:
+            source.write_text("{}\n" if expected == "json" else "line\n", encoding="utf-8")
+        assert case.attach_file(source, name)["type"] == expected, name
+
+    #: le .cast est textuel (ndjson) donc redactable, mais jamais uploadable tel quel
+    cast = next(artifact for artifact in case.artifacts if artifact.type == "asciinema")
+    assert cast.classification == ArtifactClassification.INTERNAL.value
+
+
+def test_attach_file_carries_redacted_excerpt_and_meta(tmp_path):
+    context = RedactionContext.from_secrets(["canary-value"])
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_meta",
+        root=tmp_path,
+        suite="unit",
+        title="meta",
+    )
+    case.redaction_context = context
+    source = tmp_path / "out.log"
+    source.write_text("full output\n", encoding="utf-8")
+
+    entry = case.attach_file(
+        source,
+        "commande",
+        "logs",
+        excerpt="tail canary-value tail",
+        meta={"argv": ["cdpx", "--token", "canary-value"], "exit_code": 0},
+    )
+
+    assert "canary-value" not in json.dumps(entry, ensure_ascii=False)
+    assert entry["excerpt"].startswith("tail")
+    assert entry["meta"]["exit_code"] == 0
+
+
 def test_evidence_session_writes_grouped_scenarios(tmp_path):
     session = EvidenceSession(tmp_path)
     case = session.case_for_item(
@@ -228,5 +298,8 @@ def test_evidence_session_writes_grouped_scenarios(tmp_path):
         "e2e-scenarios.json",
         "integration-scenarios.json",
     ]
+    for path in paths:
+        payload = json.loads((tmp_path / path.rsplit("/", 1)[-1]).read_text(encoding="utf-8"))
+        assert payload["schema"] == "cdpx.scenarios/v2"
     assert case.as_dict()["feature"] == "harness-proof-cockpit"
     assert case.as_dict()["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"

@@ -172,6 +172,33 @@ def empty_scenario_evidence():
     return {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
 
 
+def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
+    # Un *-scenarios.json v1 (sans clé schema, sans intent/assertions) doit
+    # rester lisible: les lecteurs sont tolérants, aucun migrateur requis.
+    legacy = {
+        "suite": "unit",
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "count": 1,
+        "scenarios": [
+            {
+                "nodeid": "tests/test_demo.py::test_legacy",
+                "suite": "unit",
+                "title": "legacy",
+                "status": "passed",
+                "artifacts": [],
+            }
+        ],
+    }
+    (tmp_path / "unit-scenarios.json").write_text(
+        json.dumps(legacy, ensure_ascii=False), encoding="utf-8"
+    )
+
+    evidence = proof.load_scenario_evidence(tmp_path)
+
+    assert evidence["totals"]["unit"] == 1
+    assert evidence["suites"]["unit"][0]["nodeid"] == "tests/test_demo.py::test_legacy"
+
+
 def test_parse_junit_extracts_counts_and_cases(tmp_path):
     junit = tmp_path / "junit.xml"
     junit.write_text(
