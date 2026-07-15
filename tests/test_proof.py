@@ -3,6 +3,7 @@ import stat
 import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -456,59 +457,63 @@ def _fake_run_evidence(
     )
 
 
+def _fake_symfony_evidence(*, proof_dir, **_kwargs):
+    # Faux portail Symfony vert: log écrit dans l'arbre cible (staging), ok.
+    log_path = proof_dir / "symfony-e2e.log"
+    proof._write_private_text(log_path, "docker compose ok\n")
+    return proof.CommandEvidence(
+        id="symfony-e2e",
+        label="Symfony E2E Docker",
+        argv=["docker", "compose", "up"],
+        log=str(log_path),
+        exit_code=0,
+        duration_s=0.01,
+        status="ok",
+    )
+
+
+def _fake_cast_entries(root, **_kwargs):
+    return [
+        {"id": cast_id, "path": str(root / f"{cast_id}.cast"), "bytes": 1, "status": "generated"}
+        for cast_id, _argv in proof.CAST_COMMANDS
+    ]
+
+
+def _fake_git_context(**_kwargs):
+    return {
+        "branch": "test",
+        "sha": "abc1234",
+        "status_code": 0,
+        "diff_stat_code": 0,
+        "changed_files": [],
+        "generated_files": [],
+        "changed_count": 0,
+        "generated_count": 0,
+        "status_path": ".proof/git-status.txt",
+        "diff_stat_path": ".proof/git-diff-stat.txt",
+    }
+
+
+def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony=None, casts=None):
+    # Câble le pipeline _generate() sur des faux déterministes (aucun process
+    # externe) et retourne le .proof cible; chaque test remplace la brique
+    # dont il veut injecter la panne.
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "run_evidence", run_evidence or _fake_run_evidence)
+    monkeypatch.setattr(proof, "run_symfony_evidence", symfony or _fake_symfony_evidence)
+    monkeypatch.setattr(proof, "collect_cast_evidence", casts or _fake_cast_entries)
+    monkeypatch.setattr(proof, "collect_git_context", _fake_git_context)
+    return proof_dir
+
+
 def test_generate_publishes_staging_atomically_on_success(tmp_path, monkeypatch):
     """Un run complet écrit tout dans .proof.new puis publie l'arbre final
     dans .proof par bascule atomique: chemins publiés en .proof/…, aucun
     résidu de staging, ancienne preuve remplacée."""
-    proof_dir = tmp_path / ".proof"
-    proof_dir.mkdir()
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
     (proof_dir / "stale.txt").write_text("ancien run", encoding="utf-8")
-    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
-    monkeypatch.setattr(proof, "run_evidence", _fake_run_evidence)
-
-    def fake_symfony(*, proof_dir, **_kwargs):
-        log_path = proof_dir / "symfony-e2e.log"
-        proof._write_private_text(log_path, "docker compose ok\n")
-        return proof.CommandEvidence(
-            id="symfony-e2e",
-            label="Symfony E2E Docker",
-            argv=["docker", "compose", "up"],
-            log=str(log_path),
-            exit_code=0,
-            duration_s=0.01,
-            status="ok",
-        )
-
-    monkeypatch.setattr(proof, "run_symfony_evidence", fake_symfony)
-    monkeypatch.setattr(
-        proof,
-        "collect_cast_evidence",
-        lambda root, **_kwargs: [
-            {
-                "id": cast_id,
-                "path": str(root / f"{cast_id}.cast"),
-                "bytes": 1,
-                "status": "generated",
-            }
-            for cast_id, _argv in proof.CAST_COMMANDS
-        ],
-    )
-    monkeypatch.setattr(
-        proof,
-        "collect_git_context",
-        lambda **_kwargs: {
-            "branch": "test",
-            "sha": "abc1234",
-            "status_code": 0,
-            "diff_stat_code": 0,
-            "changed_files": [],
-            "generated_files": [],
-            "changed_count": 0,
-            "generated_count": 0,
-            "status_path": ".proof/git-status.txt",
-            "diff_stat_path": ".proof/git-diff-stat.txt",
-        },
-    )
 
     summary = proof.generate()
 
@@ -527,6 +532,142 @@ def test_generate_publishes_staging_atomically_on_success(tmp_path, monkeypatch)
     summary_text = summary_path.read_text(encoding="utf-8")
     assert ".proof.new" not in summary_text
     assert ".proof.new" not in (proof_dir / "make-check-pytest.log").read_text(encoding="utf-8")
+
+
+def test_generate_completes_with_red_verdict_when_a_command_fails(tmp_path, monkeypatch):
+    """Une commande de preuve qui échoue (ici tuée par deadline, exit 124)
+    rougit le verdict mais n'interrompt pas la génération: l'arbre complet est
+    publié avec la cause nommée dans proof_failures."""
+
+    def failing_run_evidence(id, label, argv, log_path, **kwargs):
+        evidence = _fake_run_evidence(id, label, argv, log_path, **kwargs)
+        if id == "unit":
+            return replace(evidence, exit_code=124, status="failed")
+        return evidence
+
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path, run_evidence=failing_run_evidence)
+
+    summary = proof.generate()
+
+    #: l'échec de commande rougit le verdict au lieu de le maquiller
+    assert summary["ok"] is False
+    #: la cause est nommée: la commande fautive et son log sont dans proof_failures
+    assert any(
+        failure.startswith("command failed: Pytest unitaires")
+        for failure in summary["proof_failures"]
+    )
+    #: la génération ABOUTIT malgré le rouge: l'arbre complet est publié dans .proof
+    assert (proof_dir / "validation-summary.json").is_file()
+    assert (proof_dir / "proof-report.html").is_file()
+    assert not (tmp_path / ".proof.new").exists()
+    #: le verdict écrit sur disque est cohérent avec le summary retourné
+    published = json.loads((proof_dir / "validation-summary.json").read_text(encoding="utf-8"))
+    assert published["ok"] is False
+
+
+def test_generate_reports_missing_junit_as_red_verdict(tmp_path, monkeypatch):
+    """Toutes les commandes vertes mais aucun JUnit produit: le verdict est
+    rouge avec une défaillance « required JUnit missing » par suite requise —
+    un zéro test silencieux ne peut pas passer pour une preuve."""
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
+
+    summary = proof.generate()
+
+    #: sans XML JUnit, le verdict est rouge malgré les exits 0
+    assert summary["ok"] is False
+    #: chaque suite requise (unit, e2e) est nommée comme JUnit manquant
+    missing = [f for f in summary["proof_failures"] if f.startswith("required JUnit missing")]
+    assert any("unit-junit.xml" in failure for failure in missing)
+    assert any("e2e-junit.xml" in failure for failure in missing)
+    #: le rapport est quand même publié pour diagnostic
+    assert (proof_dir / "proof-report.html").is_file()
+
+
+def test_generate_marks_symfony_unavailable_as_blocking(tmp_path, monkeypatch):
+    """Un portail Symfony indisponible (Docker absent) traverse _generate()
+    jusqu'au verdict: scénario unavailable compté, verdict rouge, causes
+    nommées — jamais un skip silencieux."""
+
+    def unavailable_symfony(*, proof_dir, redaction_context=None, **_kwargs):
+        log_path = proof_dir / "symfony-e2e.log"
+        proof._write_private_text(log_path, "docker unavailable\n")
+        proof.write_symfony_unavailable_evidence(
+            "Docker daemon unavailable",
+            redaction_context=redaction_context,
+            evidence_dir=proof_dir / "evidence",
+            log_path=log_path,
+        )
+        return proof.CommandEvidence(
+            id="symfony-e2e",
+            label="Symfony E2E Docker",
+            argv=["docker", "compose", "up"],
+            log=str(log_path),
+            exit_code=1,
+            duration_s=0.01,
+            status="unavailable",
+        )
+
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path, symfony=unavailable_symfony)
+
+    summary = proof.generate()
+
+    #: l'indisponibilité Symfony rougit le verdict et remonte dans les totaux
+    assert summary["ok"] is False
+    assert summary["totals"]["unavailable"] == 1
+    #: la défaillance nomme l'évidence indisponible ET l'échec de la commande
+    assert any("symfony evidence unavailable" in failure for failure in summary["proof_failures"])
+    assert any(
+        failure.startswith("command failed: Symfony E2E Docker")
+        for failure in summary["proof_failures"]
+    )
+    #: l'évidence explicite d'indisponibilité est publiée avec l'arbre
+    assert (proof_dir / "evidence" / "symfony-scenarios.json").is_file()
+
+
+def test_generate_flags_degraded_cast_at_the_gate(tmp_path, monkeypatch):
+    """Un cast de démonstration dégradé pendant la collecte fait échouer le
+    portail cast au verdict final de _generate(), en nommant la démo fautive."""
+
+    def degraded_casts(root, **_kwargs):
+        entries = _fake_cast_entries(root)
+        entries[0]["status"] = "unavailable"
+        return entries
+
+    _install_generate_fakes(monkeypatch, tmp_path, casts=degraded_casts)
+
+    summary = proof.generate()
+
+    #: le portail cast est bloquant au niveau du pipeline complet, pas
+    #: seulement dans build_summary
+    assert summary["ok"] is False
+    assert any(failure.startswith("cast unavailable:") for failure in summary["proof_failures"])
+
+
+def test_generate_keeps_previous_proof_when_canary_reaches_staging(tmp_path, monkeypatch):
+    """Un canari qui atteint le staging partageable interrompt la génération
+    en ArtifactError: la bascule n'a pas lieu et la preuve précédente reste
+    intacte — la transaction protège contre la publication d'une fuite."""
+
+    def leaking_run_evidence(id, label, argv, log_path, **kwargs):
+        evidence = _fake_run_evidence(id, label, argv, log_path, **kwargs)
+        proof._write_private_text(log_path, "token=canary-123\n")
+        return evidence
+
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path, run_evidence=leaking_run_evidence)
+    sentinel = proof_dir / "keep.txt"
+    sentinel.write_text("preserve", encoding="utf-8")
+    monkeypatch.setattr(proof, "environment_secret_values", lambda: ["canary-123"])
+
+    #: le canari détecté dans le staging fait échouer la génération fermée
+    with pytest.raises(ArtifactError, match="canary"):
+        proof.generate()
+
+    #: la preuve précédente n'a été ni remplacée ni altérée (transaction)
+    assert sentinel.read_text(encoding="utf-8") == "preserve"
+    assert not (tmp_path / ".proof.old").exists()
+    #: le staging raté reste hors .proof pour diagnostic, sans arbre partageable
+    assert (tmp_path / ".proof.new").is_dir()
+    assert not (tmp_path / ".proof.new" / "shareable").exists()
 
 
 def test_run_evidence_times_out_with_redacted_final_log(tmp_path):
@@ -826,6 +967,104 @@ def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
     #: le payload legacy est compté et restitué comme un scénario moderne
     assert evidence["totals"]["unit"] == 1
     assert evidence["suites"]["unit"][0]["nodeid"] == "tests/test_demo.py::test_legacy"
+
+
+def test_load_scenario_evidence_rejects_invalid_json(tmp_path):
+    """Un *-scenarios.json corrompu est rejeté avec une erreur nommant le
+    fichier fautif, au lieu d'une JSONDecodeError anonyme au milieu de la
+    génération de preuve."""
+    path = tmp_path / "unit-scenarios.json"
+    path.write_text('{"suite": "unit", scenarios', encoding="utf-8")
+
+    #: l'erreur localise le fichier illisible et qualifie le problème
+    with pytest.raises(ArtifactError, match="JSON de scénarios illisible") as excinfo:
+        proof.load_scenario_evidence(tmp_path)
+    assert str(path) in str(excinfo.value)
+
+
+def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
+    """Une clé schema présente mais différente de cdpx.scenarios/v2 est
+    refusée en nommant fichier, version attendue et version trouvée — seule
+    l'absence de schema (legacy v1) reste tolérée."""
+    path = tmp_path / "unit-scenarios.json"
+    path.write_text(
+        json.dumps({"schema": "cdpx.scenarios/v3", "suite": "unit", "scenarios": []}),
+        encoding="utf-8",
+    )
+
+    #: le message d'erreur porte le fichier, la version attendue et la version reçue
+    with pytest.raises(ArtifactError, match="schéma de scénarios inattendu") as excinfo:
+        proof.load_scenario_evidence(tmp_path)
+    message = str(excinfo.value)
+    assert str(path) in message
+    assert "cdpx.scenarios/v2" in message
+    assert "cdpx.scenarios/v3" in message
+
+
+def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
+    """Un JSON valide mais structurellement faux (racine non-objet, scenarios
+    non-liste, scénario sans nodeid, artifacts non-liste) échoue avec une
+    erreur localisée `{fichier}: …`, jamais une KeyError différée."""
+    path = tmp_path / "unit-scenarios.json"
+
+    #: une racine non-objet est nommée comme telle
+    path.write_text(json.dumps(["pas", "un", "objet"]), encoding="utf-8")
+    with pytest.raises(ArtifactError, match="racine attendue comme objet JSON"):
+        proof.load_scenario_evidence(tmp_path)
+
+    #: un champ scenarios non-liste est refusé avant tout parcours
+    path.write_text(json.dumps({"suite": "unit", "scenarios": {"oops": 1}}), encoding="utf-8")
+    with pytest.raises(ArtifactError, match="`scenarios` doit être une liste"):
+        proof.load_scenario_evidence(tmp_path)
+
+    #: un scénario sans nodeid textuel est localisé par son index et le fichier
+    path.write_text(
+        json.dumps({"suite": "unit", "scenarios": [{"status": "passed"}]}), encoding="utf-8"
+    )
+    with pytest.raises(ArtifactError, match=r"scenarios\[0\] sans `nodeid`") as excinfo:
+        proof.load_scenario_evidence(tmp_path)
+    assert str(path) in str(excinfo.value)
+
+    #: des artifacts non-liste sont refusés en nommant le scénario porteur
+    path.write_text(
+        json.dumps(
+            {"suite": "unit", "scenarios": [{"nodeid": "tests/x.py::t", "artifacts": "nope"}]}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArtifactError, match="`artifacts` doit être une liste"):
+        proof.load_scenario_evidence(tmp_path)
+
+
+def test_write_scenario_evidence_round_trips_versioned_suites(tmp_path):
+    """L'écrivain publie chaque suite non vide sous le schéma versionné v2,
+    scénarios triés par nodeid, et le lecteur relit le tout à l'identique."""
+    suites = {
+        "unit": [
+            {"nodeid": "tests/test_b.py::test_b", "suite": "unit", "status": "passed"},
+            {"nodeid": "tests/test_a.py::test_a", "suite": "unit", "status": "passed"},
+        ],
+        "e2e": [],
+    }
+    evidence = {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
+
+    proof.write_scenario_evidence(tmp_path, evidence)
+
+    payload = json.loads((tmp_path / "unit-scenarios.json").read_text(encoding="utf-8"))
+    #: la racine écrite est versionnée et cohérente (schema v2, suite, count)
+    assert payload["schema"] == "cdpx.scenarios/v2"
+    assert payload["suite"] == "unit"
+    assert payload["count"] == 2
+    #: les scénarios sont triés par nodeid pour un diff stable entre runs
+    assert [item["nodeid"] for item in payload["scenarios"]] == [
+        "tests/test_a.py::test_a",
+        "tests/test_b.py::test_b",
+    ]
+    #: une suite vide n'écrit aucun fichier
+    assert not (tmp_path / "e2e-scenarios.json").exists()
+    #: le lecteur validant relit ce que l'écrivain vient de produire
+    reloaded = proof.load_scenario_evidence(tmp_path)
+    assert reloaded["totals"]["unit"] == 2
 
 
 def test_parse_junit_extracts_counts_and_cases(tmp_path, evidence_case):
@@ -1674,3 +1913,325 @@ def test_build_summary_fails_when_e2e_screenshot_missing():
         "feature inventory: scenario unmapped: tests/e2e/test_demo.py::test_without_shot"
         in summary["proof_failures"]
     )
+
+
+def test_classify_change_categorizes_repository_paths():
+    """La classification des chemins modifiés route chaque famille de fichier
+    vers sa catégorie de relecture (code, tests, docs, harness, autre)."""
+    #: chaque famille de chemin part vers la catégorie attendue par la carte d'impact
+    assert proof.classify_change("src/cdpx/proof.py") == "Code produit"
+    assert proof.classify_change("tests/test_proof.py") == "Tests"
+    assert proof.classify_change("docs/TODO.md") == "Documentation"
+    assert proof.classify_change("README.md") == "Documentation"
+    assert proof.classify_change("Makefile") == "Harness / CI"
+    assert proof.classify_change(".github/workflows/ci.yml") == "Harness / CI"
+    #: un chemin hors des familles connues reste honnêtement « Autre »
+    assert proof.classify_change("article/post.md") == "Autre"
+
+
+def _impact_git_context(paths):
+    return {
+        "changed_files": [{"status": "M", "path": path} for path in paths],
+        "generated_files": [],
+        "changed_count": len(paths),
+        "generated_count": 0,
+    }
+
+
+def test_build_impact_map_derives_entrypoints_and_change_types():
+    """La carte d'impact dérive catégories, points d'entrée et types de
+    changement des fichiers modifiés, et marque la surface CLI vérifiée quand
+    l'aide a été capturée."""
+    git_context = _impact_git_context(
+        ["Makefile", "src/cdpx/proof.py", "tests/test_proof.py", "docs/TODO.md"]
+    )
+
+    impact = proof.build_impact_map(git_context, [{"name": "goto", "help": "ouvre une page"}])
+
+    #: chaque fichier modifié alimente sa catégorie de relecture
+    assert set(impact["categories"]) == {"Harness / CI", "Code produit", "Tests", "Documentation"}
+    #: les points d'entrée connus (make proof, module, tests) sont tous déclarés
+    assert [entry["name"] for entry in impact["entrypoints"]] == [
+        "make proof",
+        "python -m cdpx.proof",
+        "tests/test_proof.py",
+    ]
+    #: les types de changement incluent le marqueur de surface CLI vérifiée
+    assert impact["change_types"] == ["code", "tests", "harness", "docs", "surface-cli-verifiee"]
+
+    empty = proof.build_impact_map(_impact_git_context([]), [])
+    #: sans changement ni aide capturée, le type est explicitement unknown
+    assert empty["change_types"] == ["unknown"]
+    assert empty["entrypoints"] == []
+
+
+def test_build_review_guide_orders_reading_by_category():
+    """Le guide de relecture ordonne le parcours selon les catégories
+    touchées (harness d'abord) et fournit un repli quand rien n'est classé."""
+    impact = proof.build_impact_map(
+        _impact_git_context(["Makefile", "src/cdpx/proof.py", "tests/test_proof.py", "README.md"]),
+        [],
+    )
+
+    guide = proof.build_review_guide(impact)
+
+    #: le parcours commence par le contrat utilisateur (Makefile) puis suit les couches
+    assert guide["order"][0].startswith("Commencer par Makefile")
+    assert len(guide["order"]) == 4
+    #: les points de vigilance du reviewer sont toujours fournis
+    assert guide["watch_outs"]
+
+    fallback = proof.build_review_guide({"categories": {}})
+    #: sans catégorie connue, un ordre de repli unique guide quand même la lecture
+    assert len(fallback["order"]) == 1
+
+
+def test_build_risks_and_unknowns_flags_versioned_generated_artifacts():
+    """Le packet risques/inconnues du changement garde son socle stable et
+    ajoute une inconnue dédiée quand git suit des artefacts générés."""
+    base = proof.build_risks_and_unknowns({"generated_count": 0})
+
+    #: le socle risques/inconnues est constant quand aucun artefact généré n'est suivi
+    assert len(base["risks"]) == 2
+    assert len(base["unknowns"]) == 3
+
+    tracked = proof.build_risks_and_unknowns({"generated_count": 2})
+    #: des artefacts générés versionnés déclenchent une inconnue supplémentaire nommée
+    assert any(item["item"] == "Artefacts générés versionnés" for item in tracked["unknowns"])
+
+
+def test_collect_git_context_filters_private_paths_and_splits_generated(tmp_path, monkeypatch):
+    """La collecte git filtre les chemins privés du worktree (AGENTS.md,
+    article/, presentation/), sépare les fichiers générés des vrais
+    changements et écrit les snapshots aux chemins demandés."""
+
+    def fake_run_text(argv, timeout=None, env=None):
+        if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+            return 0, "feature/proof\n"
+        if argv[:3] == ["git", "rev-parse", "--short"]:
+            return 0, "abc1234\n"
+        if argv[:2] == ["git", "status"]:
+            return 0, (
+                " M src/cdpx/proof.py\n"
+                "?? .proof/report.html\n"
+                " M AGENTS.md\n"
+                "A  article/draft.md\n"
+                "R  old.md -> presentation/deck.md\n"
+            )
+        return 0, " src/cdpx/proof.py | 2 +-\n"
+
+    monkeypatch.setattr(proof, "_run_text", fake_run_text)
+    status_path = tmp_path / "git-status.txt"
+    diff_stat_path = tmp_path / "git-diff-stat.txt"
+
+    context = proof.collect_git_context(status_path=status_path, diff_stat_path=diff_stat_path)
+
+    #: branche et sha proviennent des sorties git, pas d'un défaut statique
+    assert context["branch"] == "feature/proof"
+    assert context["sha"] == "abc1234"
+    written = status_path.read_text(encoding="utf-8")
+    #: les chemins privés du worktree (y compris cible d'un rename) ne fuient jamais
+    assert "AGENTS.md" not in written
+    assert "article/" not in written
+    assert "presentation/" not in written
+    #: les artefacts générés (.proof/) sont séparés des changements à relire
+    assert [item["path"] for item in context["changed_files"]] == ["src/cdpx/proof.py"]
+    assert [item["path"] for item in context["generated_files"]] == [".proof/report.html"]
+    assert context["changed_count"] == 1
+    assert context["generated_count"] == 1
+    #: le diff stat est écrit au chemin demandé pour le catalogue d'évidence
+    assert "proof.py" in diff_stat_path.read_text(encoding="utf-8")
+
+
+def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_codes=None):
+    # Docker entièrement simulé: which présent, checks/downs via _run_text,
+    # up streamé via _stream_to_private_file. Aucun conteneur réel.
+    calls = {"down": 0, "argv": []}
+    checks = check_codes or {}
+
+    def fake_run_text(argv, timeout=None, env=None):
+        calls["argv"].append(list(argv))
+        if argv[:3] == ["docker", "compose", "version"]:
+            return checks.get("version", 0), "compose v2\n"
+        if argv[:2] == ["docker", "info"]:
+            return checks.get("info", 0), "daemon ok\n"
+        if "down" in argv:
+            calls["down"] += 1
+            return (post_down_code if calls["down"] == 2 else 0), "down ok\n"
+        raise AssertionError(f"commande docker inattendue: {argv}")
+
+    def fake_stream(argv, sink, *, env, timeout):
+        sink.parent.mkdir(parents=True, exist_ok=True)
+        sink.write_text("compose up transcript\n", encoding="utf-8")
+        return up
+
+    monkeypatch.setattr(proof.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(proof, "_run_text", fake_run_text)
+    monkeypatch.setattr(proof, "_stream_to_private_file", fake_stream)
+    return calls
+
+
+def test_run_symfony_evidence_composes_and_tears_down(tmp_path, monkeypatch):
+    """Docker présent et sain: la collecte Symfony enchaîne checks, down
+    préventif, up streamé puis down final, et publie un log vert exit 0."""
+    calls = _mock_symfony_docker(monkeypatch)
+
+    command = proof.run_symfony_evidence(proof_dir=tmp_path)
+
+    #: le run sain est un ok exit 0 jugé comme tel par le verdict
+    assert command.exit_code == 0
+    assert command.status == "ok"
+    #: le teardown est systématique: down avant ET après le up
+    assert calls["down"] == 2
+    log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
+    #: le log agrège le transcript streamé du up et le verdict de sortie
+    assert "compose up transcript" in log
+    assert "exit_code: 0" in log
+
+
+def test_run_symfony_evidence_fails_when_final_teardown_fails(tmp_path, monkeypatch):
+    """Un down final qui échoue rougit le run Symfony même si le up est vert:
+    laisser des conteneurs derrière soi est un échec de preuve."""
+    _mock_symfony_docker(monkeypatch, post_down_code=1)
+
+    command = proof.run_symfony_evidence(proof_dir=tmp_path)
+
+    #: l'échec du teardown final devient l'exit code du run
+    assert command.exit_code == 1
+    assert command.status == "failed"
+
+
+def test_run_symfony_evidence_converts_deadline_into_exit_124(tmp_path, monkeypatch):
+    """Un compose up qui dépasse sa deadline est converti en exit 124 avec la
+    mention du timeout dans le log, et le teardown a quand même lieu."""
+    calls = _mock_symfony_docker(monkeypatch, up=(124, True))
+
+    command = proof.run_symfony_evidence(proof_dir=tmp_path, timeout=5)
+
+    #: la deadline devient un échec conventionnel exit 124
+    assert command.exit_code == 124
+    assert command.status == "failed"
+    #: même tué par deadline, le run rend la main conteneurs supprimés
+    assert calls["down"] == 2
+    log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
+    #: le log nomme l'interruption et sa deadline
+    assert "interrompu après 5s" in log
+
+
+def test_run_symfony_evidence_reports_unavailable_docker_daemon(tmp_path, monkeypatch):
+    """Docker installé mais daemon injoignable: la collecte s'arrête aux
+    checks, déclare le portail unavailable et écrit l'évidence explicite —
+    sans jamais tenter le up."""
+    calls = _mock_symfony_docker(monkeypatch, check_codes={"info": 1})
+
+    command = proof.run_symfony_evidence(proof_dir=tmp_path)
+
+    #: le daemon injoignable est un échec unavailable, pas un skip silencieux
+    assert command.exit_code == 1
+    assert command.status == "unavailable"
+    #: ni down ni up n'ont été tentés après le check raté
+    assert calls["down"] == 0
+    payload = (tmp_path / "evidence" / "symfony-scenarios.json").read_text(encoding="utf-8")
+    #: l'évidence d'indisponibilité est écrite pour le cockpit et le verdict
+    assert '"status": "unavailable"' in payload
+
+
+def test_run_text_reports_exit_missing_binary_and_timeout():
+    """_run_text capture la sortie et l'exit des commandes, convertit un
+    binaire introuvable en 127 et une deadline dépassée en 124 annoté."""
+    code, output = proof._run_text([sys.executable, "-c", "print('sortie-ok')"])
+    #: une commande saine restitue sortie et exit 0
+    assert code == 0
+    assert "sortie-ok" in output
+
+    code, output = proof._run_text(["cdpx-binaire-inexistant-xyz"])
+    #: un binaire introuvable devient l'exit conventionnel 127 avec l'erreur en texte
+    assert code == 127
+    assert output
+
+    code, output = proof._run_text([sys.executable, "-c", "import time; time.sleep(60)"], 0.5)
+    #: la deadline tue la commande et l'annote en exit 124
+    assert code == 124
+    assert "timeout after" in output
+
+
+def test_main_prints_compact_verdict_and_maps_exit_code(monkeypatch, capsys):
+    """L'entrée CLI du module imprime un JSON compact à trois clés (ok,
+    artifact_dir, report_html) et mappe le verdict sur l'exit code 0/1."""
+    monkeypatch.setattr(
+        proof,
+        "generate",
+        lambda: {
+            "ok": True,
+            "artifact_dir": ".proof",
+            "report_html": ".proof/proof-report.html",
+            "commands": [],
+        },
+    )
+
+    exit_code = proof.main()
+
+    printed = json.loads(capsys.readouterr().out)
+    #: verdict vert => exit 0 et JSON compact limité aux trois clés du contrat
+    assert exit_code == 0
+    assert printed == {
+        "ok": True,
+        "artifact_dir": ".proof",
+        "report_html": ".proof/proof-report.html",
+    }
+
+    monkeypatch.setattr(
+        proof,
+        "generate",
+        lambda: {"ok": False, "artifact_dir": ".proof", "report_html": ".proof/x.html"},
+    )
+    #: verdict rouge => exit 1, le portail Make voit l'échec
+    assert proof.main() == 1
+
+
+def test_sanitize_text_file_redacts_and_rewrites_in_place(tmp_path):
+    """La sanitisation in situ d'un fichier texte redacte les secrets et
+    réécrit les chemins physiques vers les chemins publiés; un chemin absent
+    est un no-op sans création de fichier."""
+    context = RedactionContext.from_secrets(["sanitize-secret-1"])
+    target = tmp_path / "junit.xml"
+    target.write_text(
+        "<testsuite>token=sanitize-secret-1 log=/staging/run.log</testsuite>",
+        encoding="utf-8",
+    )
+
+    proof._sanitize_text_file(target, context, path_rewrites=(("/staging", ".proof"),))
+
+    content = target.read_text(encoding="utf-8")
+    #: le secret est masqué avant que le fichier ne rejoigne l'arbre publiable
+    assert "sanitize-secret-1" not in content
+    assert "***" in content
+    #: le chemin physique du staging est réécrit vers le chemin logique publié
+    assert ".proof/run.log" in content
+    #: la réécriture privée protège le fichier en 0600
+    assert mode(target) == 0o600
+
+    missing = tmp_path / "absent.xml"
+    proof._sanitize_text_file(missing, context)
+    #: un chemin absent reste absent: aucun fichier fantôme n'est créé
+    assert not missing.exists()
+
+
+def test_build_shareable_proof_guards_reject_bad_ttl_root_and_symlinks(tmp_path):
+    """Les gardes d'entrée du staging partageable refusent un TTL non positif,
+    une racine de preuve invalide et tout lien symbolique dans l'arbre."""
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>ok</p>")
+
+    #: un TTL nul est refusé avant toute écriture
+    with pytest.raises(ArtifactError, match="TTL"):
+        proof.build_shareable_proof(proof_dir, ttl=0)
+
+    #: une racine inexistante est un répertoire de preuve invalide
+    with pytest.raises(ArtifactError, match="répertoire de preuve invalide"):
+        proof.build_shareable_proof(tmp_path / "absent", ttl=3600)
+
+    (proof_dir / "evil.log").symlink_to(proof_dir / "proof-report.html")
+    #: un lien symbolique dans les preuves bloque le staging fermé
+    with pytest.raises(ArtifactError, match="lien symbolique interdit"):
+        proof.build_shareable_proof(proof_dir, ttl=3600)

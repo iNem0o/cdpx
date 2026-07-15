@@ -10,12 +10,14 @@ from __future__ import annotations
 import fnmatch
 import re
 import tomllib
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from cdpx.proofing.markdown import render_markdown
+from cdpx.proofing.scenario_models import ScenarioEvidence
 
 FEATURES_DIR = Path("docs/features")
 IGNORED_PATH_PARTS = {
@@ -138,7 +140,7 @@ class FeatureSpec:
 
 def build_feature_inventory(
     help_commands: list[dict[str, str]],
-    scenario_evidence: dict,
+    scenario_evidence: ScenarioEvidence,
     git_context: dict,
 ) -> dict[str, Any]:
     specs, doc_errors = load_feature_specs()
@@ -491,7 +493,7 @@ def _append_unique(items: list[str], value: str) -> None:
 
 
 def _resolve_scenario_owner(
-    scenario: dict[str, Any],
+    scenario: Mapping[str, Any],
     specs: list[FeatureSpec],
     scenario_specs: dict[str, tuple[FeatureSpec, ScenarioSpec]],
 ) -> dict[str, Any]:
@@ -583,7 +585,7 @@ def _match_scenario_spec(
 
 
 def _enrich_scenario(
-    scenario: dict[str, Any],
+    scenario: Mapping[str, Any],
     feature: FeatureSpec,
     scenario_spec: ScenarioSpec | None,
 ) -> dict[str, Any]:

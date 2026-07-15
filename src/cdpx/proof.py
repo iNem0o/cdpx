@@ -29,7 +29,7 @@ from functools import cache, lru_cache
 from importlib import resources
 from pathlib import Path
 from string import Template
-from typing import Any
+from typing import Any, cast
 
 from cdpx.artifacts import (
     ArtifactClassification,
@@ -43,6 +43,12 @@ from cdpx.proofing.documentation import (
     documentation_failures,
 )
 from cdpx.proofing.features import build_feature_inventory, feature_failures
+from cdpx.proofing.scenario_models import (
+    Scenario,
+    ScenarioEvidence,
+    ScenarioTotals,
+    validated_scenario_file,
+)
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
 from cdpx.testing.evidence import (
     EVIDENCE_SCHEMA,
@@ -1044,21 +1050,31 @@ def group_cases_by_module(unit: dict, e2e: dict, symfony: dict | None = None) ->
     return sorted(groups.values(), key=lambda item: (item["suite"], item["module"]))
 
 
-def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> dict:
-    suites: dict[str, list[dict]] = {"unit": [], "integration": [], "e2e": [], "symfony": []}
+def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> ScenarioEvidence:
+    suites: dict[str, list[Scenario]] = {"unit": [], "integration": [], "e2e": [], "symfony": []}
     files: list[str] = []
     if not root.exists():
         return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
     for path in sorted(root.glob("*-scenarios.json")):
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        suite = payload.get("suite", path.stem.removesuffix("-scenarios"))
-        scenarios = payload.get("scenarios", [])
-        suites.setdefault(suite, []).extend(scenarios)
+        # Validation localisée fail-closed: un fichier corrompu, d'un schéma
+        # inconnu ou structurellement faux est nommé ici, plutôt que d'exploser
+        # en KeyError/TypeError anonyme au calcul des totaux ou au rendu du
+        # cockpit. Les payloads legacy v1 (sans clé `schema`) restent acceptés
+        # tels quels: la tolérance des lecteurs évite tout migrateur.
+        try:
+            decoded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ArtifactError(f"{path}: JSON de scénarios illisible: {exc}") from exc
+        payload = validated_scenario_file(
+            decoded, source=str(path), expected_schema=SCENARIOS_SCHEMA
+        )
+        suite = str(payload.get("suite", path.stem.removesuffix("-scenarios")))
+        suites.setdefault(suite, []).extend(payload.get("scenarios", []))
         files.append(str(path))
     return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
 
 
-def scenario_totals(suites: dict[str, list[dict]]) -> dict:
+def scenario_totals(suites: dict[str, list[Scenario]]) -> ScenarioTotals:
     scenarios = [scenario for items in suites.values() for scenario in items]
     e2e = suites.get("e2e", [])
     symfony = suites.get("symfony", [])
@@ -1087,21 +1103,23 @@ def scenario_totals(suites: dict[str, list[dict]]) -> dict:
     }
 
 
-def proof_failures_from_scenarios(scenario_evidence: dict) -> list[str]:
+def proof_failures_from_scenarios(scenario_evidence: ScenarioEvidence) -> list[str]:
     failures = []
     for nodeid in scenario_evidence["totals"]["missing_e2e_screenshots"]:
         failures.append(f"missing e2e screenshot: {nodeid}")
     return failures
 
 
-def enrich_scenario_evidence(scenario_evidence: dict, feature_inventory: dict) -> dict:
-    by_suite_and_nodeid = {}
+def enrich_scenario_evidence(
+    scenario_evidence: ScenarioEvidence, feature_inventory: dict[str, Any]
+) -> ScenarioEvidence:
+    by_suite_and_nodeid: dict[tuple[str, str], Scenario] = {}
     for feature in feature_inventory.get("features", []):
         for scenario in feature.get("matched_scenarios", []):
             key = (scenario.get("suite", ""), scenario.get("nodeid", ""))
             by_suite_and_nodeid[key] = scenario
 
-    suites = {}
+    suites: dict[str, list[Scenario]] = {}
     for suite, scenarios in scenario_evidence.get("suites", {}).items():
         suites[suite] = [
             by_suite_and_nodeid.get((suite, scenario.get("nodeid", "")), scenario)
@@ -1181,8 +1199,8 @@ def inline_catalog_casts(catalog: list[dict], *, budget: int = INLINE_CAST_BUDGE
 
 
 def inline_scenario_artifacts(
-    scenario_evidence: dict, *, budget: int = INLINE_TOTAL_BUDGET
-) -> dict:
+    scenario_evidence: ScenarioEvidence, *, budget: int = INLINE_TOTAL_BUDGET
+) -> ScenarioEvidence:
     """Inline le contenu des artefacts textuels dans le payload du cockpit.
 
     Au-delà du cap unitaire ou du budget global, l'artefact est représenté
@@ -1190,39 +1208,39 @@ def inline_scenario_artifacts(
     """
 
     remaining = budget
-    suites: dict[str, list[dict]] = {}
+    suites: dict[str, list[Scenario]] = {}
     for suite, scenarios in scenario_evidence.get("suites", {}).items():
-        rebuilt = []
+        rebuilt: list[Scenario] = []
         for scenario in scenarios:
-            artifacts = []
+            artifacts: list[dict[str, Any]] = []
             for artifact in scenario.get("artifacts", []):
                 entry = dict(artifact)
                 remaining = _inline_artifact(entry, remaining)
                 artifacts.append(entry)
-            rebuilt.append({**scenario, "artifacts": artifacts})
+            rebuilt.append(cast(Scenario, {**scenario, "artifacts": artifacts}))
         suites[suite] = rebuilt
     return {**scenario_evidence, "suites": suites}
 
 
-def _strip_inline_content(scenario_evidence: dict) -> dict:
+def _strip_inline_content(scenario_evidence: ScenarioEvidence) -> ScenarioEvidence:
     """Retire les contenus inlinés avant réécriture disque (déjà présents en fichiers)."""
 
-    suites: dict[str, list[dict]] = {}
+    suites: dict[str, list[Scenario]] = {}
     for suite, scenarios in scenario_evidence.get("suites", {}).items():
-        rebuilt = []
+        rebuilt: list[Scenario] = []
         for scenario in scenarios:
             artifacts = [
                 {key: value for key, value in artifact.items() if key != "inline_content"}
                 for artifact in scenario.get("artifacts", [])
             ]
-            rebuilt.append({**scenario, "artifacts": artifacts})
+            rebuilt.append(cast(Scenario, {**scenario, "artifacts": artifacts}))
         suites[suite] = rebuilt
     return {**scenario_evidence, "suites": suites}
 
 
 def write_scenario_evidence(
     root: Path,
-    scenario_evidence: dict,
+    scenario_evidence: ScenarioEvidence,
     *,
     redaction_context: RedactionContext | None = None,
 ) -> None:
@@ -1550,7 +1568,7 @@ def build_summary(
     *,
     git_context: dict | None = None,
     help_commands: list[dict[str, str]] | None = None,
-    scenario_evidence: dict | None = None,
+    scenario_evidence: ScenarioEvidence | None = None,
     cast_entries: list[dict] | None = None,
     proof_dir: Path | None = None,
 ) -> dict:
