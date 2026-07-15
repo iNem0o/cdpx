@@ -44,6 +44,9 @@ def verify_wheel(path: Path) -> dict[str, object]:
         assert "cdpx/__init__.py" in names
         assert "cdpx/proofing/vendor/mermaid-11.16.0.min.js" in names
         assert "cdpx/proofing/vendor/LICENSE.mermaid" in names
+        assert "cdpx/proofing/cockpit/shell.html" in names
+        assert "cdpx/proofing/cockpit/cockpit.css" in names
+        assert "cdpx/proofing/cockpit/cockpit.js" in names
         assert metadata["Name"] == "cdpx"
         assert metadata["Version"] == __version__
         assert metadata["License-Expression"] == "MIT"
@@ -79,6 +82,9 @@ def verify_sdist(path: Path) -> dict[str, object]:
             "src/cdpx/__init__.py",
             "src/cdpx/proofing/vendor/mermaid-11.16.0.min.js",
             "src/cdpx/proofing/vendor/LICENSE.mermaid",
+            "src/cdpx/proofing/cockpit/shell.html",
+            "src/cdpx/proofing/cockpit/cockpit.css",
+            "src/cdpx/proofing/cockpit/cockpit.js",
             "tests/fixtures/profiler/LICENSE.SYMFONY",
         }
         missing = {name for name in required if f"{root}/{name}" not in names}

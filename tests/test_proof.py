@@ -512,6 +512,35 @@ def test_mermaid_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
     proof._mermaid_bundle.cache_clear()
 
 
+def test_cockpit_assets_are_packaged_and_sane():
+    # La présentation vit dans des ressources dédiées (cockpit/) chargées via
+    # importlib.resources: chaque asset doit exister, être non vide, et les
+    # scripts/styles doivent rester inlinables (pas de </script> prématuré).
+    from string import Template
+
+    for name in proof.COCKPIT_RESOURCES:
+        asset = proof._cockpit_asset(name)
+        assert asset.strip(), f"asset cockpit vide: {name}"
+        if name != proof.COCKPIT_SHELL_RESOURCE:
+            assert "</script" not in asset.lower(), f"asset non inlinable: {name}"
+
+    shell = proof._cockpit_asset(proof.COCKPIT_SHELL_RESOURCE)
+    # Le shell doit se substituer sans placeholder manquant ni $ littéral orphelin.
+    rendered = Template(shell).substitute(
+        verdict="OK",
+        pill="ok",
+        context="ctx",
+        spa_css="",
+        payload="{}",
+        mermaid_bundle="",
+        spa_js="",
+    )
+    assert rendered.startswith("<!doctype html>")
+
+    with pytest.raises(FileNotFoundError):
+        proof._cockpit_asset("cockpit/does-not-exist.js")
+
+
 def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
     cases = [
         {"classname": "tests.test_a", "name": "test_x", "time_s": 0.5, "status": "passed"},
