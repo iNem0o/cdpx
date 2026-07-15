@@ -1,6 +1,7 @@
 import json
 import stat
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -39,7 +40,9 @@ def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
     assert env["CDPX_PROOF_RETENTION_DAYS"] == "30"
 
 
-def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path, monkeypatch):
+def test_run_evidence_redacts_command_and_output_and_uses_private_mode(
+    tmp_path, monkeypatch, evidence_case
+):
     """Une exécution d'évidence redacte sa sortie avant l'écriture disque et
     protège le log en mode privé: la valeur secrète n'atteint jamais un
     fichier lisible par d'autres."""
@@ -70,8 +73,21 @@ def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path,
     assert mode(log.parent) == 0o700
     assert mode(log) == 0o600
 
+    if evidence_case is not None:
+        # Extrait ciblé sur le marqueur *** du log DÉJÀ redacté sur disque: la
+        # preuve visuelle montre la censure sans jamais transporter le secret.
+        excerpt = evidence_case.attach_log_excerpt(
+            log,
+            "Log d'évidence redacté — marqueur *** en place du secret",
+            pattern=r"\*\*\*",
+        )
+        #: l'artefact de preuve produit ne contient jamais la valeur secrète, seulement ***
+        assert secret not in Path(excerpt["path"]).read_text(encoding="utf-8")
 
-def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(tmp_path):
+
+def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(
+    tmp_path, evidence_case
+):
     """Le staging partageable n'embarque que les textes sanitisés allowlistés;
     les binaires opaques restent hors staging et sont classés non uploadables
     dans le manifest privé."""
@@ -111,6 +127,20 @@ def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(tmp
     #: le manifest privé trace la décision d'exclusion du binaire, auditable après coup
     assert screenshot["classification"] == "opaque-restricted"
     assert screenshot["upload_allowed"] is False
+
+    if evidence_case is not None:
+        # Les deux manifests matérialisent la décision d'allowlist: le public
+        # ne liste que l'uploadable, le privé garde la trace de l'exclusion.
+        evidence_case.attach_json(
+            "Manifest public partageable (allowlist)",
+            public_manifest,
+            filename="public-manifest.json",
+        )
+        evidence_case.attach_json(
+            "Manifest privé (exclusion du binaire opaque)",
+            private_manifest,
+            filename="private-manifest.json",
+        )
 
 
 def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
@@ -367,7 +397,7 @@ def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
     assert evidence["suites"]["unit"][0]["nodeid"] == "tests/test_demo.py::test_legacy"
 
 
-def test_parse_junit_extracts_counts_and_cases(tmp_path):
+def test_parse_junit_extracts_counts_and_cases(tmp_path, evidence_case):
     """Le parseur JUnit restitue les compteurs agrégés et le détail par cas
     (statut, message d'échec) depuis le XML produit par pytest."""
     junit = tmp_path / "junit.xml"
@@ -398,6 +428,20 @@ def test_parse_junit_extracts_counts_and_cases(tmp_path):
     #: chaque cas conserve statut et message d'échec pour le rendu du cockpit
     assert parsed["cases"][1]["status"] == "failed"
     assert parsed["cases"][1]["message"] == "assertion failed"
+
+    if evidence_case is not None:
+        # Entrée/sortie côte à côte: le XML source brut et le dict dérivé, pour
+        # vérifier à l'œil que compteurs et cas correspondent.
+        evidence_case.attach_text(
+            "XML JUnit source (entrée du parseur)",
+            junit.read_text(encoding="utf-8"),
+            filename="junit-source.xml",
+        )
+        evidence_case.attach_json(
+            "Dict parsé par parse_junit (sortie)",
+            parsed,
+            filename="parsed-junit.json",
+        )
 
 
 def test_parse_junit_reports_malformed_xml(tmp_path):
@@ -691,7 +735,7 @@ def test_spa_renders_every_summary_key():
         raise AssertionError(f"clé du summary calculée mais jamais rendue par la SPA: {key}")
 
 
-def test_render_html_embeds_payload_verdict_and_routes():
+def test_render_html_embeds_payload_verdict_and_routes(evidence_case):
     """Le HTML rendu embarque le payload JSON et le verdict, câble toutes les
     routes de la SPA et verrouille le rapport par CSP, sans script externe."""
     summary = proof.build_summary(
@@ -725,6 +769,25 @@ def test_render_html_embeds_payload_verdict_and_routes():
     assert 'role="dialog"' in html
     #: aucun script externe: l'autonomie hors ligne est structurelle
     assert "<script src=" not in html
+
+    if evidence_case is not None:
+        # Le HTML complet embarque Mermaid (~3,5 Mo): on n'attache qu'un extrait
+        # significatif (tête du shell/CSP + zone du payload embarqué), sous le
+        # cap d'inline de 16 KiB du cockpit.
+        marker = html.index('id="report-data"')
+        shell_excerpt = "\n".join(
+            [
+                "=== <head> / shell (extrait) ===",
+                html[:1200],
+                "=== zone du payload embarqué (report-data) ===",
+                html[max(0, marker - 200) : marker + 3500],
+            ]
+        )
+        evidence_case.attach_text(
+            "Extrait du rapport HTML — shell + payload embarqué",
+            shell_excerpt,
+            filename="report-shell.html",
+        )
 
 
 def test_build_summary_exposes_curated_documentation_catalog():
@@ -937,7 +1000,7 @@ def test_cast_gate_blocks_the_verdict():
     assert degraded["casts"] == degraded_casts
 
 
-def test_catalog_casts_are_inlined_for_the_player(tmp_path, monkeypatch):
+def test_catalog_casts_are_inlined_for_the_player(tmp_path, monkeypatch, evidence_case):
     """Les .cast du catalogue sont inlinés dans le payload HTML: sous la CSP
     du rapport, un simple lien serait injouable."""
     # Les .cast du catalogue (produits hors scénario pytest) doivent être
@@ -953,6 +1016,14 @@ def test_catalog_casts_are_inlined_for_the_player(tmp_path, monkeypatch):
     assert entry["inline_content"].startswith('{"version": 2}')
     #: plus aucune entrée placeholder "optional": le cast est obligatoire
     assert not any(item.get("status") == "optional" for item in catalog)
+
+    if evidence_case is not None:
+        # Le .cast synthétique du catalogue, rejouable tel quel dans le player
+        # xterm du cockpit (classé non uploadable par attach_cast).
+        evidence_case.attach_cast(
+            cast_file,
+            "Cast synthétique du catalogue — rejouable dans le player xterm",
+        )
 
 
 def test_modal_and_keyboard_wiring_are_present():

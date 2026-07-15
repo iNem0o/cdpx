@@ -10,31 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/test_proof.py::test_render_html_embeds_payload_verdict_and_routes",
-  "helper": "attach_text",
-  "what": "Le HTML complet rendu (ou un extrait du shell) pour inspection visuelle du rapport dans le cockpit."
- },
- {
-  "nodeid": "tests/test_proof.py::test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque",
-  "helper": "attach_json",
-  "what": "Les manifests public (manifest.json) et privé (artifact-manifest.json) générés, preuves des décisions d'allowlist/exclusion."
- },
- {
-  "nodeid": "tests/test_proof.py::test_run_evidence_redacts_command_and_output_and_uses_private_mode",
-  "helper": "attach_log_excerpt",
-  "what": "Un extrait du log redacté montrant le marqueur *** à la place de la valeur secrète."
- },
- {
-  "nodeid": "tests/test_proof.py::test_parse_junit_extracts_counts_and_cases",
-  "helper": "attach_json",
-  "what": "Le dict parsé retourné par parse_junit à côté du XML source, pour comparer entrée/sortie."
- },
- {
-  "nodeid": "tests/test_proof.py::test_catalog_casts_are_inlined_for_the_player",
-  "helper": "attach_cast",
-  "what": "Le .cast synthétique du catalogue, rejouable directement dans le player xterm du cockpit."
- },
- {
   "nodeid": "tests/e2e/test_e2e_chrome.py::test_cli_console_follow_is_bounded_ndjson",
   "helper": "attach_cli_run",
   "what": "Joindre la sortie NDJSON bornée du `cdpx console --follow --max 4` comme preuve du flux."
