@@ -43,10 +43,17 @@ def _assert_private_tree(root: Path) -> None:
             assert _mode(path) == 0o600, path
 
 
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.redact-sensitive-session-data",
+    proves=["Aggregated console, storage, network and error outputs ship canary-free."],
+)
 def test_observation_outputs_redact_url_console_storage_and_errors(
     mock,
     client,
     capsys,
+    evidence_case,
 ):
     """Toutes les sorties d'observation (console, storage, réseau, erreurs)
     sont purgées du canari avant sérialisation et jusqu'aux flux
@@ -135,11 +142,24 @@ def test_observation_outputs_redact_url_console_storage_and_errors(
     assert CANARY not in emitted.err
     assert ORDINARY_TEXT in emitted.out and ORDINARY_TEXT in emitted.err
 
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Sortie d'observation agrégée redactée",
+            output,
+        )
 
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.redact-sensitive-session-data",
+    proves=["The redact_tree boundary keeps the shareable profiler artifact canary-free."],
+)
 def test_profiler_redacts_token_headers_and_urls_before_artifact(
     mock,
     client,
     tmp_path,
+    evidence_case,
 ):
     """Le token du profiler Symfony, découvert en cours de route, rejoint le
     contexte partagé: URLs, headers et panneaux SQL sortent nettoyés, et
@@ -231,18 +251,38 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
     shareable = writer.build_shareable(tmp_path / "shareable")
     #: ni l'artefact ni sa copie partageable ne contiennent le canari, et
     #: leurs arborescences restent privées (0700/0600)
-    assert scan_canaries(writer.run_dir, [CANARY]) == []
-    assert scan_canaries(shareable, [CANARY]) == []
+    run_dir_scan = scan_canaries(writer.run_dir, [CANARY])
+    shareable_scan = scan_canaries(shareable, [CANARY])
+    assert run_dir_scan == []
+    assert shareable_scan == []
     _assert_private_tree(writer.root)
     _assert_private_tree(shareable)
 
+    if evidence_case is not None:
+        evidence_case.attach_file(
+            shareable / "profiler.json",
+            "Artefact profiler partageable redacté",
+            "profiler",
+        )
+        evidence_case.attach_json(
+            "Scan canari des artefacts profiler",
+            {"run_dir": run_dir_scan, "shareable": shareable_scan},
+        )
 
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.redact-sensitive-session-data",
+    proves=["The replayable journal stores only the secret_ref, never the secret value."],
+)
 def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     mock,
     client,
     tmp_path,
     monkeypatch,
     capsys,
+    evidence_case,
 ):
     """Un secret injecté via @env: atteint le navigateur mais n'apparaît
     jamais ailleurs: le journal ne stocke que la référence, et artefacts,
@@ -319,6 +359,22 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     #: le journal interne non uploadable est exclu de la copie partageable
     assert not (shareable / "journal" / "record.ndjson").exists()
 
+    if evidence_case is not None:
+        evidence_case.attach_file(
+            record_path,
+            "Journal record NDJSON (secret_ref uniquement)",
+        )
+        evidence_case.attach_json(
+            "Arborescence partageable (journal interne exclu)",
+            {
+                "files": sorted(
+                    path.relative_to(shareable).as_posix()
+                    for path in shareable.rglob("*")
+                    if path.is_file()
+                )
+            },
+        )
+
     print(json.dumps(result, ensure_ascii=False))
     print(safe_error["error"], file=sys.stderr)
     emitted = capsys.readouterr()
@@ -328,11 +384,18 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     assert ORDINARY_TEXT in emitted.err
 
 
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="replay-flow",
+    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    proves=["A missing secret_ref fails the replay closed before any CDP command is emitted."],
+)
 def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
     mock,
     client,
     tmp_path,
     monkeypatch,
+    evidence_case,
 ):
     """Un rejeu dont la référence de secret n'existe plus dans
     l'environnement s'arrête net avant la première action: divergence
@@ -375,3 +438,9 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
     assert "MISSING_CHECKOUT_PASSWORD" in result["divergence"]
     #: aucune commande n'a atteint le navigateur: le refus précède tout effet
     assert mock.commands == []
+
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Divergence du rejeu fail-closed",
+            {"replay": result, "cdp_commands": mock.commands},
+        )

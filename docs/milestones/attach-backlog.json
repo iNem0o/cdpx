@@ -10,26 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/test_security_integration.py::test_observation_outputs_redact_url_console_storage_and_errors",
-  "helper": "@pytest.mark.scenario + evidence_case/attach_cli_run",
-  "what": "Attacher la sortie JSON agrégée (console+storage+réseau) redactée comme preuve du scénario 'observation sans fuite' — le test est un flux flagship de sécurité."
- },
- {
-  "nodeid": "tests/test_security_integration.py::test_profiler_redacts_token_headers_and_urls_before_artifact",
-  "helper": "@pytest.mark.scenario + evidence_case (attach du profiler.json redacté)",
-  "what": "Attacher profiler.json de l'artefact partageable et le résultat scan_canaries comme preuve que la frontière redact_tree protège l'artefact profiler."
- },
- {
-  "nodeid": "tests/test_security_integration.py::test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free",
-  "helper": "@pytest.mark.scenario + evidence_case (attach du journal record.ndjson)",
-  "what": "Attacher le journal NDJSON (qui ne contient que secret_ref) et l'arborescence shareable comme preuve du contrat @env: sans fuite de valeur secrète."
- },
- {
-  "nodeid": "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect",
-  "helper": "@pytest.mark.scenario + evidence_case (attach du résultat replay avec divergence)",
-  "what": "Attacher le JSON de divergence du replay comme preuve du fail-closed avant tout effet CDP."
- },
- {
   "nodeid": "tests/test_scenarios.py::test_run_scenario_happy_path_with_checkpoint_artifacts",
   "helper": "@pytest.mark.scenario + attach_cli_screenshot-équivalent mock",
   "what": "Scénario nominal complet du runner: candidat naturel à un scenario_id (ex: scenario-runner.happy-path) et à l'attachement des artefacts produits (screenshot/console/network) comme preuve."
