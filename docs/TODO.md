@@ -78,11 +78,14 @@ Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
       une intention, 428/428 tests à assertions ont un déroulé annoté
       (`tests/test_intent.py` reste exclu — témoins à lignes figées). Diff
       prouvé purement additif (AST identique hors docstrings).
-- [ ] Phase 2 preuves secondaires : dérouler le backlog
+- [x] Phase 2 preuves secondaires : dérouler le backlog
       `docs/milestones/attach-backlog.json` (61 opportunités relevées pendant
       l'annotation — `attach_cli_run`, `attach_json`, `attach_cast`,
       marqueurs `scenario` candidats), par petits lots avec `make check-local`
-      systématique car ces ajouts changent le code exécuté.
+      systématique car ces ajouts changent le code exécuté. Livré en 12 lots :
+      69 attachs, 27 marqueurs `scenario` (4 scénarios de fiche nouveaux),
+      `.ndjson` inlinable, backlog vidé — voir
+      `docs/milestones/M9-preuves-secondaires.md`.
 
 ## Dette technique continue
 
