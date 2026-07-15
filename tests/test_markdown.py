@@ -65,7 +65,7 @@ cdpx session status
     assert '<pre><code class="lang-bash">cdpx session status\n</code></pre>' in rendered
 
 
-def test_render_markdown_disables_raw_html_and_unsafe_links():
+def test_render_markdown_disables_raw_html_and_unsafe_links(evidence_case):
     """Un document markdown hostile ne peut pas exécuter de script dans le
     cockpit: le HTML brut est neutralisé par échappement et un lien au schéma
     dangereux perd son href."""
@@ -77,6 +77,13 @@ def test_render_markdown_disables_raw_html_and_unsafe_links():
     #: le libellé du lien survit mais le schéma dangereux ne devient jamais cliquable
     assert "javascript:" in rendered
     assert 'href="javascript:' not in rendered
+
+    if evidence_case is not None:
+        evidence_case.attach_text(
+            "HTML rendu — script échappé, lien javascript désarmé",
+            rendered,
+            filename="rendered.html",
+        )
 
 
 def test_render_markdown_rewrites_catalog_links_and_disables_excluded_paths():

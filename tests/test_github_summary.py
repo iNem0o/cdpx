@@ -5,7 +5,7 @@ from pathlib import Path
 from scripts.github_summary import build_report, write_private_outputs
 
 
-def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch):
+def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch, evidence_case):
     """Le résumé GitHub est construit depuis la preuve mesurée, pas depuis
     des constantes: verdict PASS, compteurs réels, politique de rétention
     affichée au lecteur et empreintes des archives du dist."""
@@ -53,8 +53,13 @@ def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch
     assert len(packaging["archives"]) == 2
     assert all(len(item["sha256"]) == 64 for item in packaging["archives"])
 
+    if evidence_case is not None:
+        evidence_case.attach_text(
+            "Rapport PR GitHub (PASS)", markdown, filename="github-summary.md"
+        )
 
-def test_github_summary_reports_early_failure(tmp_path: Path):
+
+def test_github_summary_reports_early_failure(tmp_path: Path, evidence_case):
     """Un échec en amont (résumé de validation absent) produit un rapport
     FAIL honnête qui cite la cause et l'absence des archives."""
     markdown, packaging = build_report(
@@ -71,6 +76,11 @@ def test_github_summary_reports_early_failure(tmp_path: Path):
     assert "validation summary is absent" in markdown
     assert "wheel=no" in markdown and "sdist=no" in markdown
     assert packaging["ok"] is False
+
+    if evidence_case is not None:
+        evidence_case.attach_text(
+            "Rapport PR GitHub (FAIL en amont)", markdown, filename="github-summary-fail.md"
+        )
 
 
 def test_packaging_summary_is_json_serializable(tmp_path: Path):

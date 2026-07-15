@@ -13,7 +13,7 @@ def _events(cast_path):
     return header, [json.loads(line) for line in lines[1:]]
 
 
-def test_record_cast_produces_valid_asciicast_v2(tmp_path):
+def test_record_cast_produces_valid_asciicast_v2(tmp_path, evidence_case):
     """L'enregistreur natif produit un .cast v2 lisible par le player, sans
     binaire externe: header conforme, évènements 'o' horodatés croissants."""
     cast_path = tmp_path / "demo.cast"
@@ -37,6 +37,9 @@ def test_record_cast_produces_valid_asciicast_v2(tmp_path):
     times = [event[0] for event in events]
     assert times == sorted(times)
     assert "ligne un" in "".join(event[2] for event in events)
+
+    if evidence_case is not None:
+        evidence_case.attach_cast(cast_path, "Enregistrement asciicast v2 (demo)")
 
 
 def test_record_cast_runs_on_a_real_pty(tmp_path):

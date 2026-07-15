@@ -1,25 +1,5 @@
 [
  {
-  "nodeid": "tests/test_artifacts.py::test_writer_redacts_text_json_and_registered_text_files",
-  "helper": "attach_text",
-  "what": "Attacher le contenu redacté de message.log/result.json comme preuve visuelle que le marqueur *** remplace la valeur secrète sur les trois voies d'entrée."
- },
- {
-  "nodeid": "tests/test_artifacts.py::test_shareable_staging_contains_only_manifested_allowed_files",
-  "helper": "attach_json",
-  "what": "Attacher le manifest.json du staging partagé comme preuve de la liste blanche (seul safe.json y figure)."
- },
- {
-  "nodeid": "tests/test_cast.py::test_record_cast_produces_valid_asciicast_v2",
-  "helper": "attach_cast",
-  "what": "Attacher le .cast généré, rejouable dans le player du cockpit, comme preuve du contrat asciicast v2."
- },
- {
-  "nodeid": "tests/test_markdown.py::test_render_markdown_disables_raw_html_and_unsafe_links",
-  "helper": "attach_text",
-  "what": "Attacher le HTML rendu montrant l'échappement du script et le lien javascript: désarmé."
- },
- {
   "nodeid": "tests/test_session_cli.py::test_session_capture_is_confined_private_and_non_shareable",
   "helper": "attach_file / EvidenceCase",
   "what": "Joindre la capture produite (payload[\"path\"]) comme artefact de preuve du confinement (droits 0700/0600, classification opaque-restricted)."
@@ -63,16 +43,6 @@
   "nodeid": "tests/test_docs.py::test_documented_cdpx_examples_parse",
   "helper": "@pytest.mark.scenario",
   "what": "Candidat naturel pour un marqueur scenario (feature docs, proves: tout exemple documente se parse); les autres tests des deux fichiers sont des garde-fous statiques sans execution CLI ni capture, donc aucun attach_cli_run/attach_cli_screenshot pertinent."
- },
- {
-  "nodeid": "tests/test_github_summary.py::test_github_summary_uses_real_proof_and_archives",
-  "helper": "attach_text",
-  "what": "Le markdown genere (rapport PR complet) comme piece relisible dans le cockpit, plutot que de ne prouver que des sous-chaines."
- },
- {
-  "nodeid": "tests/test_github_summary.py::test_github_summary_reports_early_failure",
-  "helper": "attach_text",
-  "what": "Le rapport FAIL genere, pour montrer visuellement a quoi ressemble un echec en amont cote PR."
  },
  {
   "nodeid": "tests/test_journal.py::test_record_v2_executes_secret_but_never_persists_it",

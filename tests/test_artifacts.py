@@ -94,7 +94,7 @@ def test_writer_refuses_a_symbolic_artifact_root(tmp_path):
         SecureArtifactWriter(root, "run-1")
 
 
-def test_writer_redacts_text_json_and_registered_text_files(tmp_path):
+def test_writer_redacts_text_json_and_registered_text_files(tmp_path, evidence_case):
     """La redaction couvre les trois voies d'entrée (texte, JSON, fichier
     enregistré): la valeur secrète n'atteint jamais le disque du run, quelle
     que soit la façon dont l'artefact arrive."""
@@ -116,12 +116,28 @@ def test_writer_redacts_text_json_and_registered_text_files(tmp_path):
     #: le scanner canari ne retrouve le secret nulle part, et chaque fichier
     #: porte le marqueur de redaction là où la valeur aurait dû apparaître
     assert scan_canaries(writer.run_dir, [secret]) == []
-    assert "***" in (writer.run_dir / "message.log").read_text(encoding="utf-8")
-    assert "***" in (writer.run_dir / "result.json").read_text(encoding="utf-8")
+    message_redacted = (writer.run_dir / "message.log").read_text(encoding="utf-8")
+    result_redacted = (writer.run_dir / "result.json").read_text(encoding="utf-8")
+    assert "***" in message_redacted
+    assert "***" in result_redacted
     assert "***" in (writer.run_dir / "copy.ndjson").read_text(encoding="utf-8")
 
+    if evidence_case is not None:
+        # On n'attache que la sortie DÉJÀ assainie par le writer, jamais la
+        # valeur brute: la preuve visuelle montre le marqueur *** en place.
+        message_proof = evidence_case.attach_text(
+            "Journal redacté (message.log)", message_redacted, filename="message.log"
+        )
+        result_proof = evidence_case.attach_text(
+            "Résultat redacté (result.json)", result_redacted, filename="result.json"
+        )
+        #: l'artefact de preuve produit ne contient jamais le canari, seulement
+        #: la version déjà marquée par *** que voit le lecteur du cockpit
+        assert secret not in Path(message_proof["path"]).read_text(encoding="utf-8")
+        assert secret not in Path(result_proof["path"]).read_text(encoding="utf-8")
 
-def test_shareable_staging_contains_only_manifested_allowed_files(tmp_path):
+
+def test_shareable_staging_contains_only_manifested_allowed_files(tmp_path, evidence_case):
     """Le staging partageable fonctionne en liste blanche: seuls les fichiers
     manifestés ET autorisés à l'upload sont copiés, et le manifeste exporté
     ne trahit même pas l'existence du reste."""
@@ -145,6 +161,13 @@ def test_shareable_staging_contains_only_manifested_allowed_files(tmp_path):
     shared_manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
     #: le manifeste partagé ne liste que ce qui a réellement été exporté
     assert [item["path"] for item in shared_manifest["artifacts"]] == ["safe.json"]
+
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Manifeste du staging partagé (liste blanche)",
+            shared_manifest,
+            filename="shared-manifest.json",
+        )
 
 
 def test_unmanifested_private_file_blocks_staging(tmp_path):
