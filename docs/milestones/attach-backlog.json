@@ -55,46 +55,6 @@
   "what": "Record/replay est un parcours produit complet (orchestration-control.replay-flow) sans marqueur scenario."
  },
  {
-  "nodeid": "tests/test_primitives.py::test_click_dispatches_mouse_events_at_center",
-  "helper": "@pytest.mark.scenario + evidence_case",
-  "what": "Scénario flagship dom-interaction côté mock: attacher le journal des commandes Input émises (mock.commands) comme preuve de la séquence souris de confiance."
- },
- {
-  "nodeid": "tests/test_primitives.py::test_console_entries_redact_credentials_tokens_and_sensitive_urls",
-  "helper": "@pytest.mark.scenario + attach (sortie redactée)",
-  "what": "Preuve sécurité: attacher la sortie sérialisée redactée montrant que secret/Bearer/JWT/credentials n'y figurent pas, alignée sur les scenario_id de proofing."
- },
- {
-  "nodeid": "tests/test_primitives.py::test_network_capture_assembles_requests",
-  "helper": "@pytest.mark.scenario + attach (JSON résumé)",
-  "what": "Attacher le résumé réseau (total/failed/4xx-5xx/bytes) et les URLs masquées comme preuve du contrat net.capture."
- },
- {
-  "nodeid": "tests/test_primitives.py::test_profiler_reads_debug_token_link_and_parses_panels",
-  "helper": "@pytest.mark.scenario + attach (sortie profiler masquée)",
-  "what": "Scénario dev-loop Symfony: attacher la sortie profiler prouvant token masqué + métriques SQL parsées depuis la fixture db.html."
- },
- {
-  "nodeid": "tests/test_primitives.py::test_replay_stops_at_first_divergence",
-  "helper": "@pytest.mark.scenario + attach (journal NDJSON + divergence)",
-  "what": "Attacher le journal rejoué et l'objet divergence pour documenter le contrat record/replay et l'arrêt net."
- },
- {
-  "nodeid": "tests/test_primitives.py::test_origin_guard_classifies_commands_by_effective_mutation",
-  "helper": "@pytest.mark.scenario",
-  "what": "Contrat de sécurité CDPX_ORIGINS: candidat naturel à un scenario_id security.* pour le rapport de preuve."
- },
- {
-  "nodeid": "tests/test_profiler_panels.py::test_collect_assembles_contract",
-  "helper": "evidence_case.attach_json",
-  "what": "Joindre le rapport collect masqué (token/headers a ***) comme preuve directe du contrat de sortie de cdpx profiler."
- },
- {
-  "nodeid": "tests/test_profiler_panels.py::test_profiler_free_text_only_redacts_high_confidence_credentials",
-  "helper": "evidence_case.attach_json",
-  "what": "Joindre la serialisation JSON redactee des trois panels comme preuve de securite (aucune valeur secrete presente)."
- },
- {
   "nodeid": "tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants",
   "helper": "screenshot / evidence_case.attach_screenshot",
   "what": "Capturer les variantes cles (routing-404, routing-500, doctrine-n-plus-one) individuellement au lieu d'une seule capture finale apres la derniere navigation."

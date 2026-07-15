@@ -132,7 +132,13 @@ ACTIONABLE = {
 }
 
 
-def test_click_dispatches_mouse_events_at_center(mock, client):
+@pytest.mark.scenario(
+    feature="dom-interaction",
+    journey="submit-form",
+    scenario_id="dom-interaction.submit-form-like-user",
+    proves=["Le clic émet la séquence souris moved/pressed/released au centre de l'élément."],
+)
+def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
     """Un clic sonde d'abord l'actionnabilité puis émet la séquence souris de
     confiance moved/pressed/released, visée au centre géométrique de
     l'élément."""
@@ -181,6 +187,17 @@ def test_click_dispatches_mouse_events_at_center(mock, client):
     assert "pointerEvents" in expression
     assert "document.elementFromPoint" in expression
     assert "element.contains(hit)" in expression
+
+    # Preuve secondaire: le journal des évènements Input émis atteste la séquence
+    # souris de confiance visée au centre géométrique de l'élément.
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Séquence Input.dispatchMouseEvent du clic (centre 60,35)",
+            {
+                "point": {"x": res["x"], "y": res["y"]},
+                "mouse_events": mock.commands_for("Input.dispatchMouseEvent"),
+            },
+        )
 
 
 def test_click_element_not_found(mock, client):
@@ -430,7 +447,13 @@ def test_console_follow_yields_ndjson_ready_entries(mock, client):
     assert entries == [{"kind": "console", "type": "warn", "text": "fixture-warn", "ts": 12.0}]
 
 
-def test_console_entries_redact_credentials_tokens_and_sensitive_urls():
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="read-session",
+    scenario_id="state-session.redact-sensitive-session-data",
+    proves=["Secret, Bearer, JWT et credentials d'URL sont absents de la sortie console."],
+)
+def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_case):
     """Aucun secret ne survit dans la sortie console: secret enregistré, jeton
     Bearer, JWT et credentials/query d'URL sont tous redactés, et la
     redaction se déclare dans le rapport."""
@@ -476,11 +499,21 @@ def test_console_entries_redact_credentials_tokens_and_sensitive_urls():
     #: la redaction s'auto-déclare dans le rapport, preuve qu'elle a bien agi
     assert context.report.redacted is True
 
+    # Preuve secondaire: la sortie console déjà redactée, où aucun canari ne figure.
+    if evidence_case is not None:
+        evidence_case.attach_json("Entrées console redactées (aucun secret)", entries)
+
 
 # -- net --------------------------------------------------------------------------
 
 
-def test_network_capture_assembles_requests(mock, client):
+@pytest.mark.scenario(
+    feature="browser-capture-observability",
+    journey="inspect-runtime",
+    scenario_id="browser-capture-observability.inspect-runtime-failures",
+    proves=["La capture réseau résume total/échecs/erreurs/octets avec URLs masquées."],
+)
+def test_network_capture_assembles_requests(mock, client, evidence_case):
     """La capture réseau corrèle requête/réponse/fin par requestId, résume
     échecs, erreurs HTTP et octets, et masque credentials et tokens dans
     toutes les URLs de sortie."""
@@ -548,6 +581,21 @@ def test_network_capture_assembles_requests(mock, client):
     #: sortie, pas une altération du comportement du navigateur
     assert mock.commands_for("Page.navigate") == [{"url": navigation_url}]
 
+    # Preuve secondaire: le résumé réseau et les URLs déjà masquées du contrat
+    # net.capture, sans credential ni valeur de token.
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Résumé net.capture (URLs masquées)",
+            {
+                "url": res["url"],
+                "summary": res["summary"],
+                "requests": [
+                    {"requestId": r["requestId"], "url": r.get("url"), "status": r.get("status")}
+                    for r in res["requests"]
+                ],
+            },
+        )
+
 
 def test_network_capture_masks_registered_secret_in_url_path(mock, client):
     """Un secret enregistré est masqué même logé dans le chemin d'URL, y
@@ -604,7 +652,15 @@ def _profiler_network_script(base_url: str, headers: dict) -> list[dict]:
     ]
 
 
-def test_profiler_reads_debug_token_link_and_parses_panels(mock, client, fixtures_http):
+@pytest.mark.scenario(
+    feature="dev-profiler-diff",
+    journey="read-profiler",
+    scenario_id="dev-profiler-diff.read-symfony-profiler",
+    proves=["Le profiler expose token masqué et métriques SQL parsées depuis le panel db."],
+)
+def test_profiler_reads_debug_token_link_and_parses_panels(
+    mock, client, fixtures_http, evidence_case
+):
     """Le profiler suit X-Debug-Token-Link, récupère le panel db en contexte
     page et en extrait les métriques SQL, sans jamais laisser le token
     apparaître dans la sortie."""
@@ -642,6 +698,10 @@ def test_profiler_reads_debug_token_link_and_parses_panels(mock, client, fixture
     #: le fetch du panel est une promesse attendue, ciblant l'URL du token + panel
     assert call["awaitPromise"] is True
     assert f'"{link}?panel=db"' in call["expression"]
+
+    # Preuve secondaire: la sortie profiler (token masqué, métriques SQL parsées).
+    if evidence_case is not None:
+        evidence_case.attach_json("Sortie profiler (token masqué, panel db)", res)
 
 
 def test_profiler_prefers_redirect_response_token(mock, client, fixtures_http):
@@ -1318,7 +1378,13 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
     assert "legacy-secret" not in json.dumps(result)
 
 
-def test_replay_stops_at_first_divergence(mock, client, tmp_path):
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="replay-flow",
+    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    proves=["Le rejeu s'arrête net à la première divergence, sans rejouer la suite."],
+)
+def test_replay_stops_at_first_divergence(mock, client, tmp_path, evidence_case):
     """Le rejeu s'arrête net à la première divergence: l'évènement fautif est
     identifié et les évènements suivants ne sont jamais exécutés."""
     path = tmp_path / "record.ndjson"
@@ -1336,6 +1402,15 @@ def test_replay_stops_at_first_divergence(mock, client, tmp_path):
     # arrêt net: l'action suivante du journal n'a pas été rejouée
     #: la navigation qui suivait le clic fautif n'a jamais été ré-émise
     assert [p.get("url") for p in mock.commands_for("Page.navigate")] == ["http://site.test/"]
+
+    # Preuve secondaire: le journal NDJSON rejoué (typé logs) et l'objet
+    # divergence qui documente l'arrêt net au premier écart.
+    if evidence_case is not None:
+        evidence_case.attach_file(path, "Journal record.ndjson rejoué")
+        evidence_case.attach_json(
+            "Divergence du rejeu (arrêt net)",
+            {"ok": res["ok"], "played": res["played"], "divergence": res["divergence"]},
+        )
 
 
 def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
@@ -1565,6 +1640,12 @@ def test_origin_guard_blocks_mutations_only_when_configured():
     advanced.assert_origin_allowed("click", "http://shop.test/page", "http://*.test")
 
 
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="replay-flow",
+    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    proves=["La garde CDPX_ORIGINS classe chaque commande selon sa mutation effective."],
+)
 def test_origin_guard_classifies_commands_by_effective_mutation():
     """La classification mutation/lecture suit l'effet réel: verbes simples
     classés en dur, commandes composées jugées sur le verbe de l'action

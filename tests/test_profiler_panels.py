@@ -119,7 +119,7 @@ def test_parse_exception_global_class_without_namespace():
     assert res["message"] == "cdpx scenario 500"
 
 
-def test_profiler_free_text_only_redacts_high_confidence_credentials():
+def test_profiler_free_text_only_redacts_high_confidence_credentials(evidence_case):
     """La redaction du texte libre des panels ne masque que les credentials à
     haute confiance (Bearer, JWT, credentials et query d'URL): les identifiants
     métier anodins survivent, sinon le rapport devient inexploitable."""
@@ -163,6 +163,14 @@ def test_profiler_free_text_only_redacts_high_confidence_credentials():
     #: l'URL sortante est nettoyée finement: credentials et fragment retirés,
     #: paramètre sensible masqué, mais l'endpoint reste identifiable
     assert http["list"][0]["url"] == "https://example.test/api?token=***"
+
+    # Preuve secondaire: la sérialisation des trois panels, où aucun credential
+    # à haute confiance ne survit.
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Panels profiler redactés (exception/db/http)",
+            {"exception": exception, "db": db, "http": http},
+        )
 
 
 def test_parse_http_client_requests_and_statuses():
@@ -338,7 +346,7 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
     assert "AbortSignal.timeout(7000)" in call["expression"]
 
 
-def test_collect_assembles_contract(mock, client):
+def test_collect_assembles_contract(mock, client, evidence_case):
     """Le rapport assemblé par collect est le contrat de sortie de `cdpx
     profiler`: panels parsés, token et headers sensibles masqués, aucune
     valeur secrète ni champ interne dans le JSON final."""
@@ -372,6 +380,10 @@ def test_collect_assembles_contract(mock, client):
     #: les panels demandés arrivent parsés en métriques, pas en HTML brut
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["exception"]["raised"] is False
+
+    # Preuve secondaire: le rapport collect masqué (token/headers à ***).
+    if evidence_case is not None:
+        evidence_case.attach_json("Rapport collect profiler (token/headers masqués)", res)
 
 
 def test_collect_without_panels_probes_token_only(mock, client):
