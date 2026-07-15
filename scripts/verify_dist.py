@@ -23,7 +23,15 @@ def _single(pattern: str) -> Path:
 
 
 def _assert_no_private_paths(paths: set[str]) -> None:
-    forbidden = (".proof/", ".gitlab-ci.yml", "AGENTS.md", "article/", "presentation/")
+    forbidden = (
+        ".proof/",
+        ".proof.new/",
+        ".proof.old/",
+        ".gitlab-ci.yml",
+        "AGENTS.md",
+        "article/",
+        "presentation/",
+    )
     for path in paths:
         relative = path.split("/", 1)[1] if "/" in path and path.startswith("cdpx-") else path
         assert not relative.startswith(forbidden), (

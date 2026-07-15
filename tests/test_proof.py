@@ -1,5 +1,8 @@
 import json
 import stat
+import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -74,38 +77,35 @@ def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
     assert env["CDPX_PROOF_RETENTION_DAYS"] == "30"
 
 
-def test_run_evidence_redacts_command_and_output_and_uses_private_mode(
-    tmp_path, monkeypatch, evidence_case
-):
+def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path, evidence_case):
     """Une exécution d'évidence redacte sa sortie avant l'écriture disque et
     protège le log en mode privé: la valeur secrète n'atteint jamais un
     fichier lisible par d'autres."""
     secret = "proof-secret-123"
     context = RedactionContext.from_secrets([secret])
-
-    class Completed:
-        returncode = 0
-        stdout = f"token={secret}\nBearer abcdefghijk"
-
-    monkeypatch.setattr(proof.subprocess, "run", lambda *args, **kwargs: Completed())
     log = tmp_path / "logs" / "command.log"
 
-    proof.run_evidence(
+    evidence = proof.run_evidence(
         "secret",
         "Secret",
-        ["tool", secret],
+        [sys.executable, "-c", f"print('token={secret}'); print('Bearer abcdefghijk')"],
         log,
         env={"PATH": "/usr/bin"},
         redaction_context=context,
     )
 
     contents = log.read_text(encoding="utf-8")
-    #: la valeur secrète est remplacée par le marqueur de redaction avant d'atteindre le disque
+    #: la commande réelle a tourné et son verdict est capturé dans l'évidence
+    assert evidence.exit_code == 0
+    #: la valeur secrète (aussi présente dans l'argv) est remplacée par le
+    #: marqueur de redaction avant d'atteindre le log final
     assert secret not in contents
     assert "***" in contents
     #: répertoire 0700 et log 0600: l'évidence brute reste privée au propriétaire
     assert mode(log.parent) == 0o700
     assert mode(log) == 0o600
+    #: le flux brut intermédiaire *.partial est supprimé après la redaction
+    assert not log.with_name(f"{log.name}.partial").exists()
 
     if evidence_case is not None:
         # Extrait ciblé sur le marqueur *** du log DÉJÀ redacté sur disque: la
@@ -368,6 +368,291 @@ def test_generate_rejects_invalid_retention_before_replacing_existing_proof(tmp_
 
     #: la preuve précédente est intacte: aucune purge avant validation réussie
     assert marker.read_text(encoding="utf-8") == "preserve"
+
+
+def test_proof_timeout_scale_is_validated_fail_closed():
+    """Le facteur d'échelle des deadlines est validé comme la rétention: seul
+    un flottant strictement positif est accepté, sinon l'erreur nomme la
+    variable fautive au lieu de retomber en silence sur le défaut."""
+    #: sans variable, le facteur neutre 1.0 s'applique
+    assert proof.proof_timeout_scale({}) == 1.0
+    #: un facteur valide multiplie uniformément les budgets de deadline
+    assert proof.proof_timeout_scale({"CDPX_PROOF_TIMEOUT_SCALE": "2.5"}) == 2.5
+    #: une valeur non numérique, nulle ou négative est refusée en nommant la variable
+    for invalid in ("abc", "0", "-1", "1s"):
+        with pytest.raises(ValueError, match="CDPX_PROOF_TIMEOUT_SCALE"):
+            proof.proof_timeout_scale({"CDPX_PROOF_TIMEOUT_SCALE": invalid})
+
+
+def test_generate_preserves_previous_proof_when_a_step_fails(tmp_path, monkeypatch):
+    """Une exception au milieu de la génération laisse la preuve précédente
+    intacte: tout s'écrit dans un staging jetable et la bascule atomique n'a
+    jamais lieu sur un run raté."""
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir()
+    sentinel = proof_dir / "keep.txt"
+    sentinel.write_text("preserve", encoding="utf-8")
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("étape de preuve cassée")
+
+    monkeypatch.setattr(proof, "run_evidence", explode)
+
+    #: l'échec d'une étape remonte au lieu d'être maquillé en preuve partielle
+    with pytest.raises(RuntimeError, match="étape de preuve cassée"):
+        proof.generate()
+
+    #: la preuve précédente n'a été ni détruite ni altérée par le run raté
+    assert sentinel.read_text(encoding="utf-8") == "preserve"
+    #: aucune bascule partielle: pas de .proof.old, et le staging raté reste
+    #: hors de .proof, disponible pour diagnostic
+    assert not (tmp_path / ".proof.old").exists()
+    assert (tmp_path / ".proof.new").is_dir()
+
+
+def test_generate_reports_unpurgeable_staging_with_actionable_error(tmp_path, monkeypatch):
+    """Un staging résiduel non purgeable (fichiers root laissés par un run
+    Docker interrompu) produit une erreur actionnable qui nomme le remède,
+    au lieu d'une PermissionError brute, et ne touche pas à la preuve en
+    place."""
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir()
+    sentinel = proof_dir / "keep.txt"
+    sentinel.write_text("preserve", encoding="utf-8")
+    staging = tmp_path / ".proof.new"
+    staging.mkdir()
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+
+    def deny(path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(proof.shutil, "rmtree", deny)
+
+    #: la purge impossible échoue fermé avec le remède (chown via conteneur jetable)
+    with pytest.raises(ArtifactError, match="staging résiduel non purgeable"):
+        proof.generate()
+
+    #: la preuve précédente reste intacte malgré le run avorté
+    assert sentinel.read_text(encoding="utf-8") == "preserve"
+
+
+def _fake_run_evidence(
+    id, label, argv, log_path, *, env, timeout=None, path_rewrites=(), **_kwargs
+):
+    # Le faux honore le contrat de réécriture des chemins publiés: le log
+    # atteste que _generate() transmet bien les rewrites staging -> .proof.
+    proof._write_private_text(
+        log_path, proof._rewrite_text_paths(f"$ {' '.join(argv)}\nok\n", path_rewrites)
+    )
+    return proof.CommandEvidence(
+        id=id,
+        label=label,
+        argv=list(argv),
+        log=str(log_path),
+        exit_code=0,
+        duration_s=0.01,
+        status="ok",
+    )
+
+
+def test_generate_publishes_staging_atomically_on_success(tmp_path, monkeypatch):
+    """Un run complet écrit tout dans .proof.new puis publie l'arbre final
+    dans .proof par bascule atomique: chemins publiés en .proof/…, aucun
+    résidu de staging, ancienne preuve remplacée."""
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir()
+    (proof_dir / "stale.txt").write_text("ancien run", encoding="utf-8")
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "run_evidence", _fake_run_evidence)
+
+    def fake_symfony(*, proof_dir, **_kwargs):
+        log_path = proof_dir / "symfony-e2e.log"
+        proof._write_private_text(log_path, "docker compose ok\n")
+        return proof.CommandEvidence(
+            id="symfony-e2e",
+            label="Symfony E2E Docker",
+            argv=["docker", "compose", "up"],
+            log=str(log_path),
+            exit_code=0,
+            duration_s=0.01,
+            status="ok",
+        )
+
+    monkeypatch.setattr(proof, "run_symfony_evidence", fake_symfony)
+    monkeypatch.setattr(
+        proof,
+        "collect_cast_evidence",
+        lambda root, **_kwargs: [
+            {
+                "id": cast_id,
+                "path": str(root / f"{cast_id}.cast"),
+                "bytes": 1,
+                "status": "generated",
+            }
+            for cast_id, _argv in proof.CAST_COMMANDS
+        ],
+    )
+    monkeypatch.setattr(
+        proof,
+        "collect_git_context",
+        lambda **_kwargs: {
+            "branch": "test",
+            "sha": "abc1234",
+            "status_code": 0,
+            "diff_stat_code": 0,
+            "changed_files": [],
+            "generated_files": [],
+            "changed_count": 0,
+            "generated_count": 0,
+            "status_path": ".proof/git-status.txt",
+            "diff_stat_path": ".proof/git-diff-stat.txt",
+        },
+    )
+
+    summary = proof.generate()
+
+    #: l'arbre final est publié à l'emplacement canonique, staging partageable inclus
+    summary_path = proof_dir / "validation-summary.json"
+    assert summary_path.is_file()
+    assert (proof_dir / "proof-report.html").is_file()
+    assert (proof_dir / "shareable" / "manifest.json").is_file()
+    #: la bascule est complète: ni staging ni ancienne preuve résiduels
+    assert not (tmp_path / ".proof.new").exists()
+    assert not (tmp_path / ".proof.old").exists()
+    #: l'ancienne preuve a bien été remplacée par le nouveau run
+    assert not (proof_dir / "stale.txt").exists()
+    #: le contrat des chemins publiés tient: .proof/… partout, jamais le staging
+    assert summary["report_html"] == ".proof/proof-report.html"
+    summary_text = summary_path.read_text(encoding="utf-8")
+    assert ".proof.new" not in summary_text
+    assert ".proof.new" not in (proof_dir / "make-check-pytest.log").read_text(encoding="utf-8")
+
+
+def test_run_evidence_times_out_with_redacted_final_log(tmp_path):
+    """Une commande qui dépasse sa deadline est tuée: exit 124 et statut
+    failed comme un échec conventionnel, log final redacté écrit, aucun flux
+    brut résiduel sur disque."""
+    secret = "deadline-secret-42"
+    context = RedactionContext.from_secrets([secret])
+    log = tmp_path / "slow.log"
+    argv = [
+        sys.executable,
+        "-u",
+        "-c",
+        f"import time; print('token={secret}', flush=True); time.sleep(60)",
+    ]
+
+    evidence = proof.run_evidence(
+        "slow",
+        "Slow",
+        argv,
+        log,
+        env={"PATH": "/usr/bin"},
+        timeout=0.5,
+        redaction_context=context,
+    )
+
+    #: la deadline convertit le blocage en échec conventionnel exit 124
+    assert evidence.exit_code == 124
+    assert evidence.status == "failed"
+    contents = log.read_text(encoding="utf-8")
+    #: le log final est écrit malgré le kill, nomme le timeout et reste redacté
+    assert "timeout" in contents
+    assert "exit_code: 124" in contents
+    assert secret not in contents
+    assert "***" in contents
+    #: le flux brut *.partial ne survit pas au run, même tué par deadline
+    assert not log.with_name(f"{log.name}.partial").exists()
+
+
+def test_run_evidence_streams_progress_into_partial_file(tmp_path):
+    """Pendant l'exécution, la sortie brute est observable dans le flux privé
+    *.partial (tail -f): la progression n'est plus bufferisée en mémoire, et
+    le log final redacté remplace le flux en fin de run."""
+    log = tmp_path / "stream.log"
+    partial = log.with_name(f"{log.name}.partial")
+    sync = tmp_path / "sync"
+    script = (
+        "import pathlib, time\n"
+        "print('premiere-ligne', flush=True)\n"
+        f"sync = pathlib.Path({str(sync)!r})\n"
+        "for _ in range(400):\n"
+        "    if sync.exists():\n"
+        "        break\n"
+        "    time.sleep(0.025)\n"
+        "print('seconde-ligne', flush=True)\n"
+    )
+    result = {}
+
+    def run():
+        result["evidence"] = proof.run_evidence(
+            "stream",
+            "Stream",
+            [sys.executable, "-u", "-c", script],
+            log,
+            env={"PATH": "/usr/bin"},
+            timeout=30,
+        )
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        for _ in range(400):
+            if partial.exists() and "premiere-ligne" in partial.read_text(encoding="utf-8"):
+                break
+            time.sleep(0.025)
+        #: la première ligne est visible dans le .partial pendant que la commande tourne encore
+        assert "premiere-ligne" in partial.read_text(encoding="utf-8")
+        #: le flux brut, non encore redacté, reste privé au propriétaire (0600)
+        assert mode(partial) == 0o600
+    finally:
+        sync.write_text("go", encoding="utf-8")
+        worker.join(timeout=30)
+    assert not worker.is_alive()
+    #: après déblocage, la commande aboutit proprement
+    assert result["evidence"].exit_code == 0
+    contents = log.read_text(encoding="utf-8")
+    #: le log final agrège l'intégralité du flux et le .partial a disparu
+    assert "premiere-ligne" in contents and "seconde-ligne" in contents
+    assert not partial.exists()
+
+
+def test_pytest_timeout_orphans_are_purged_before_shareable_staging(tmp_path):
+    """Les artefacts d'un pytest tué par deadline (session sans manifeste)
+    sont purgés de l'arbre d'évidence: le staging partageable aboutit au lieu
+    d'échouer fermé avec un message trompeur, sans toucher aux artefacts
+    manifestés."""
+    proof_dir = tmp_path / ".proof"
+    kept = proof_dir / "evidence" / "artifacts" / "unit" / "scn" / "kept.txt"
+    proof._write_private_text(kept, "manifested\n")
+    orphan = proof_dir / "evidence" / "artifacts" / "e2e" / "scn" / "orphan.txt"
+    proof._write_private_text(orphan, "écrit avant le kill\n")
+    _write_evidence_manifest(
+        proof_dir, [_manifest_entry("artifacts/unit/scn/kept.txt", "internal", True)]
+    )
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+
+    #: sans purge, l'orphelin fait toujours échouer le staging fermé (fail-closed conservé)
+    with pytest.raises(ArtifactError, match="non manifesté"):
+        proof.build_shareable_proof(proof_dir)
+
+    removed = proof._purge_unmanifested_evidence(proof_dir)
+
+    #: seul l'orphelin sans manifeste est purgé; l'artefact manifesté survit
+    assert removed == ["evidence/artifacts/e2e/scn/orphan.txt"]
+    assert kept.is_file() and not orphan.exists()
+    #: les dossiers vidés disparaissent aussi: aucun résidu de la suite tuée
+    assert not orphan.parent.exists()
+
+    staging = proof.build_shareable_proof(proof_dir)
+
+    #: après purge, le staging partageable aboutit et embarque l'artefact manifesté
+    manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
+    assert any(
+        entry["path"] == ".proof/evidence/artifacts/unit/scn/kept.txt"
+        for entry in manifest["artifacts"]
+    )
 
 
 def test_project_unknowns_describe_private_screenshot_scope():

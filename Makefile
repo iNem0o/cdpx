@@ -72,7 +72,7 @@ mock: ## lancer un faux Chrome scriptable (debug du CLI sans navigateur)
 	$(PY) -m cdpx.testing.mock_session
 
 clean: ## nettoyer artefacts
-	rm -rf .pytest_cache .ruff_cache .mypy_cache .proof dist build src/*.egg-info
+	rm -rf .pytest_cache .ruff_cache .mypy_cache .proof .proof.new .proof.old dist build src/*.egg-info
 	find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
 dist: check-local ## wheel + sdist vérifiés (le portail release impose check complet)

@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -28,6 +29,7 @@ from functools import cache, lru_cache
 from importlib import resources
 from pathlib import Path
 from string import Template
+from typing import Any
 
 from cdpx.artifacts import (
     ArtifactClassification,
@@ -63,6 +65,25 @@ GIT_DIFF_STAT = PROOF_DIR / "git-diff-stat.txt"
 EVIDENCE_DIR = PROOF_DIR / "evidence"
 SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
 SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
+
+# Génération transactionnelle: tout l'arbre est produit dans `.proof.new/`
+# (même parent que `.proof`, donc même filesystem), puis publié par bascule
+# atomique en fin de run réussi. `.proof.old/` ne vit que le temps du swap.
+PROOF_STAGING_SUFFIX = ".new"
+PROOF_PREVIOUS_SUFFIX = ".old"
+
+# Budgets de deadline par étape (secondes). Ils bornent chaque commande de
+# preuve: un dépassement produit un exit 124 et un verdict rouge, jamais un
+# blocage indéfini. `CDPX_PROOF_TIMEOUT_SCALE` (flottant strictement positif,
+# ex. "2" sur machine lente) multiplie uniformément tous les budgets.
+PROOF_TIMEOUT_SCALE_ENV = "CDPX_PROOF_TIMEOUT_SCALE"
+RUFF_TIMEOUT_S = 120.0
+MYPY_TIMEOUT_S = 300.0
+UNIT_TIMEOUT_S = 600.0
+E2E_TIMEOUT_S = 900.0
+SYMFONY_TIMEOUT_S = 900.0
+CLI_HELP_TIMEOUT_S = 30.0
+GIT_TIMEOUT_S = 30.0
 
 GENERATED_PREFIXES = (".proof/", ".idea/")
 PRIVATE_WORKTREE_PREFIXES = ("AGENTS.md", "article/", "presentation/")
@@ -192,6 +213,87 @@ def _repo_env() -> dict[str, str]:
     return env
 
 
+def _staging_dir() -> Path:
+    return PROOF_DIR.with_name(PROOF_DIR.name + PROOF_STAGING_SUFFIX)
+
+
+def _previous_dir() -> Path:
+    return PROOF_DIR.with_name(PROOF_DIR.name + PROOF_PREVIOUS_SUFFIX)
+
+
+def proof_timeout_scale(environ: dict[str, str] | None = None) -> float:
+    """Facteur d'échelle des deadlines, validé fail-closed comme la rétention."""
+
+    values = os.environ if environ is None else environ
+    raw = values.get(PROOF_TIMEOUT_SCALE_ENV)
+    if raw is None:
+        return 1.0
+    if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", raw) or float(raw) <= 0:
+        raise ValueError(f"{PROOF_TIMEOUT_SCALE_ENV} doit être un flottant strictement positif")
+    return float(raw)
+
+
+def _rewrite_text_paths(value: str, rewrites: Sequence[tuple[str, str]]) -> str:
+    for physical, logical in rewrites:
+        value = value.replace(physical, logical)
+    return value
+
+
+def _rewrite_tree_paths(value: Any, rewrites: Sequence[tuple[str, str]]) -> Any:
+    """Applique les réécritures de chemins à toutes les chaînes d'un arbre JSON."""
+
+    if isinstance(value, str):
+        return _rewrite_text_paths(value, rewrites)
+    if isinstance(value, list):
+        return [_rewrite_tree_paths(item, rewrites) for item in value]
+    if isinstance(value, dict):
+        return {key: _rewrite_tree_paths(item, rewrites) for key, item in value.items()}
+    return value
+
+
+def _stream_to_private_file(
+    argv: list[str],
+    sink: Path,
+    *,
+    env: dict[str, str],
+    timeout: float | None,
+) -> tuple[int, bool]:
+    """Exécute ``argv`` en streamant stdout+stderr bruts dans ``sink`` (0600).
+
+    La sortie n'est jamais bufferisée en mémoire: le fichier grossit au fil de
+    l'exécution (observable via tail -f) et la deadline est monotone. Retourne
+    (exit_code, timed_out): 127 si le binaire est introuvable, 124 après kill
+    sur dépassement de deadline.
+    """
+
+    _secure_dir(sink.parent)
+    if sink.is_symlink():
+        raise ArtifactError(f"lien symbolique interdit: {sink}")
+    sink.unlink(missing_ok=True)
+    fd = os.open(sink, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        try:
+            proc = subprocess.Popen(
+                argv,
+                cwd=Path.cwd(),
+                env=env,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+            )
+        except FileNotFoundError as exc:
+            stream.write((str(exc) + "\n").encode("utf-8"))
+            return 127, False
+        try:
+            exit_code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Deadline dépassée: kill puis drain du statut. Ce qui a déjà été
+            # streamé dans le fichier reste disponible pour le log final.
+            proc.kill()
+            proc.wait()
+            return 124, True
+    return exit_code, False
+
+
 def run_evidence(
     id: str,
     label: str,
@@ -199,38 +301,38 @@ def run_evidence(
     log_path: Path,
     *,
     env: dict[str, str],
+    timeout: float | None = None,
     redaction_context: RedactionContext | None = None,
+    path_rewrites: Sequence[tuple[str, str]] = (),
 ) -> CommandEvidence:
     context = redaction_context or redaction_context_from_environment()
     started = _now()
     start = time.monotonic()
     _secure_dir(log_path.parent)
-    safe_argv = _sanitize_argv(argv, context)
+    safe_argv = _sanitize_argv(
+        [_rewrite_text_paths(value, path_rewrites) for value in argv], context
+    )
     header = [
         f"$ {' '.join(safe_argv)}",
         f"started_at: {started}",
         "",
         "--- output ---",
     ]
-    try:
-        proc = subprocess.run(
-            argv,
-            cwd=Path.cwd(),
-            env=env,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-        )
-        exit_code = proc.returncode
-        output = redact_text(proc.stdout, context=context, path=f"$.commands.{id}.stdout")
-    except FileNotFoundError as exc:
-        exit_code = 127
-        output = redact_text(str(exc), context=context, path=f"$.commands.{id}.error") + "\n"
+    # Flux brut streamé dans un fichier privé *.partial (progression observable,
+    # mémoire bornée), puis redaction du texte complet et écriture atomique du
+    # log final: un secret à cheval sur deux chunks ne peut pas y échapper.
+    partial = log_path.with_name(f"{log_path.name}.partial")
+    exit_code, timed_out = _stream_to_private_file(argv, partial, env=env, timeout=timeout)
+    raw = partial.read_text(encoding="utf-8", errors="replace")
+    if timed_out:
+        raw += f"\ntimeout: commande interrompue après {timeout}s (exit 124)\n"
+    output = redact_text(
+        _rewrite_text_paths(raw, path_rewrites), context=context, path=f"$.commands.{id}.stdout"
+    )
     duration = time.monotonic() - start
     footer = ["", "--- result ---", f"exit_code: {exit_code}", f"duration_s: {duration:.3f}", ""]
     _write_private_text(log_path, "\n".join(header) + "\n" + output + "\n".join(footer))
+    partial.unlink(missing_ok=True)
     return CommandEvidence(
         id=id,
         label=label,
@@ -302,9 +404,15 @@ def write_symfony_unavailable_evidence(
     reason: str,
     *,
     redaction_context: RedactionContext | None = None,
+    evidence_dir: Path | None = None,
+    log_path: Path | None = None,
 ) -> None:
     context = redaction_context or redaction_context_from_environment()
-    _secure_dir(EVIDENCE_DIR)
+    # Les défauts sont résolus à l'appel pour rester monkeypatchables et
+    # permettre au pipeline de cibler l'arbre de staging.
+    evidence_dir = EVIDENCE_DIR if evidence_dir is None else evidence_dir
+    log_path = SYMFONY_LOG if log_path is None else log_path
+    _secure_dir(evidence_dir)
     safe_reason = redact_text(reason, context=context, path="$.symfony.reason")
     payload = {
         "schema": SCENARIOS_SCHEMA,
@@ -339,8 +447,8 @@ def write_symfony_unavailable_evidence(
                     {
                         "type": "logs",
                         "label": "Symfony e2e availability log",
-                        "path": str(SYMFONY_LOG),
-                        "bytes": SYMFONY_LOG.stat().st_size if SYMFONY_LOG.exists() else 0,
+                        "path": str(log_path),
+                        "bytes": log_path.stat().st_size if log_path.exists() else 0,
                         "mime": "text/plain",
                         "created_at": _now(),
                     }
@@ -349,7 +457,7 @@ def write_symfony_unavailable_evidence(
         ],
     }
     _write_private_text(
-        EVIDENCE_DIR / "symfony-scenarios.json",
+        evidence_dir / "symfony-scenarios.json",
         json.dumps(redact_tree(payload, context=context), ensure_ascii=False, indent=2) + "\n",
     )
 
@@ -357,8 +465,15 @@ def write_symfony_unavailable_evidence(
 def run_symfony_evidence(
     *,
     redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+    timeout: float | None = None,
+    path_rewrites: Sequence[tuple[str, str]] = (),
 ) -> CommandEvidence:
     context = redaction_context or redaction_context_from_environment()
+    # Résolution à l'appel: sans proof_dir explicite, les globals (donc les
+    # monkeypatchs de tests) font foi; le pipeline passe l'arbre de staging.
+    log_path = SYMFONY_LOG if proof_dir is None else proof_dir / SYMFONY_LOG.name
+    evidence_dir = EVIDENCE_DIR if proof_dir is None else proof_dir / EVIDENCE_DIR.name
     argv = [
         "docker",
         "compose",
@@ -372,28 +487,33 @@ def run_symfony_evidence(
     ]
     started = _now()
     start = time.monotonic()
-    _secure_dir(EVIDENCE_DIR)
+    _secure_dir(evidence_dir)
     compose_env = _repo_env()
     compose_env["CDPX_E2E_UID"] = str(os.getuid())
     compose_env["CDPX_E2E_GID"] = str(os.getgid())
+    # Le volume `.proof` du compose est paramétré: le conteneur monte l'arbre
+    # cible (staging pendant `make proof`, `./.proof` par défaut via Makefile).
+    compose_env["CDPX_PROOF_DIR"] = str((PROOF_DIR if proof_dir is None else proof_dir).resolve())
 
     checks: list[str] = []
     if shutil.which("docker") is None:
         reason = "Docker CLI not found; Symfony e2e is required for release proof."
         _write_command_log(
-            SYMFONY_LOG,
+            log_path,
             argv,
             started,
             reason,
             "status: unavailable\nexit_code: 1",
             redaction_context=context,
         )
-        write_symfony_unavailable_evidence(reason, redaction_context=context)
+        write_symfony_unavailable_evidence(
+            reason, redaction_context=context, evidence_dir=evidence_dir, log_path=log_path
+        )
         return CommandEvidence(
             id="symfony-e2e",
             label="Symfony E2E Docker",
             argv=argv,
-            log=str(SYMFONY_LOG),
+            log=str(log_path),
             exit_code=1,
             duration_s=round(time.monotonic() - start, 3),
             status="unavailable",
@@ -408,19 +528,21 @@ def run_symfony_evidence(
             )
             body = "\n\n".join(checks + [reason])
             _write_command_log(
-                SYMFONY_LOG,
+                log_path,
                 argv,
                 started,
                 body,
                 "status: unavailable\nexit_code: 1",
                 redaction_context=context,
             )
-            write_symfony_unavailable_evidence(reason, redaction_context=context)
+            write_symfony_unavailable_evidence(
+                reason, redaction_context=context, evidence_dir=evidence_dir, log_path=log_path
+            )
             return CommandEvidence(
                 id="symfony-e2e",
                 label="Symfony E2E Docker",
                 argv=argv,
-                log=str(SYMFONY_LOG),
+                log=str(log_path),
                 exit_code=1,
                 duration_s=round(time.monotonic() - start, 3),
                 status="unavailable",
@@ -435,57 +557,75 @@ def run_symfony_evidence(
         "--remove-orphans",
     ]
     pre_code, pre_output = _run_text(down_argv, timeout=60, env=compose_env)
+    up_partial = log_path.with_name(f"{log_path.name}.partial")
     try:
-        proc = subprocess.run(
-            argv,
-            cwd=Path.cwd(),
-            env=compose_env,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
+        # Le `up` est streamé dans un fichier privé (progression observable,
+        # mémoire bornée) et borné par deadline: kill sur dépassement, exit 124.
+        up_code, up_timed_out = _stream_to_private_file(
+            argv, up_partial, env=compose_env, timeout=timeout
         )
     finally:
-        # Même une interruption/exception pendant `up` doit rendre la main avec
-        # les conteneurs et réseaux Compose supprimés.
+        # Même une interruption/exception/deadline pendant `up` doit rendre la
+        # main avec les conteneurs et réseaux Compose supprimés.
         post_code, post_output = _run_text(down_argv, timeout=60, env=compose_env)
+    up_output = up_partial.read_text(encoding="utf-8", errors="replace")
+    if up_timed_out:
+        up_output += f"\ntimeout: docker compose up interrompu après {timeout}s (exit 124)\n"
     duration = time.monotonic() - start
     body = "\n\n".join(
         checks
         + [
             f"$ {' '.join(down_argv)}\n{pre_output.rstrip()}\nexit_code: {pre_code}",
-            f"$ {' '.join(argv)}\n{proc.stdout.rstrip()}\nexit_code: {proc.returncode}",
+            f"$ {' '.join(argv)}\n{up_output.rstrip()}\nexit_code: {up_code}",
             f"$ {' '.join(down_argv)}\n{post_output.rstrip()}\nexit_code: {post_code}",
         ]
     )
-    result_code = proc.returncode if proc.returncode != 0 else post_code
+    result_code = up_code if up_code != 0 else post_code
     _write_command_log(
-        SYMFONY_LOG,
+        log_path,
         argv,
         started,
-        body,
+        _rewrite_text_paths(body, path_rewrites),
         f"exit_code: {result_code}\nduration_s: {duration:.3f}",
         redaction_context=context,
     )
+    up_partial.unlink(missing_ok=True)
     return CommandEvidence(
         id="symfony-e2e",
         label="Symfony E2E Docker",
         argv=argv,
-        log=str(SYMFONY_LOG),
+        log=str(log_path),
         exit_code=result_code,
         duration_s=round(duration, 3),
         status="ok" if result_code == 0 else "failed",
     )
 
 
-def collect_git_context(*, redaction_context: RedactionContext | None = None) -> dict:
+def collect_git_context(
+    *,
+    redaction_context: RedactionContext | None = None,
+    status_path: Path | None = None,
+    diff_stat_path: Path | None = None,
+) -> dict:
     context = redaction_context or redaction_context_from_environment()
-    branch_code, branch = _run_text(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    sha_code, sha = _run_text(["git", "rev-parse", "--short", "HEAD"])
-    status_code, status = _run_text(["git", "status", "--short"])
+    status_path = GIT_STATUS if status_path is None else status_path
+    diff_stat_path = GIT_DIFF_STAT if diff_stat_path is None else diff_stat_path
+    branch_code, branch = _run_text(["git", "rev-parse", "--abbrev-ref", "HEAD"], GIT_TIMEOUT_S)
+    sha_code, sha = _run_text(["git", "rev-parse", "--short", "HEAD"], GIT_TIMEOUT_S)
+    status_code, status = _run_text(["git", "status", "--short"], GIT_TIMEOUT_S)
     stat_code, stat = _run_text(
-        ["git", "diff", "--stat", "--", ".", ":(exclude).proof/*", ":(exclude).idea/*"]
+        [
+            "git",
+            "diff",
+            "--stat",
+            "--",
+            ".",
+            ":(exclude).proof/*",
+            f":(exclude){PROOF_DIR.name}{PROOF_STAGING_SUFFIX}/*",
+            f":(exclude){PROOF_DIR.name}{PROOF_PREVIOUS_SUFFIX}/*",
+            ":(exclude).idea/*",
+        ],
+        GIT_TIMEOUT_S,
     )
 
     safe_status_lines = []
@@ -500,8 +640,8 @@ def collect_git_context(*, redaction_context: RedactionContext | None = None) ->
     if status:
         status += "\n"
     stat = redact_text(stat, context=context, path="$.git.diff_stat")
-    _write_private_text(GIT_STATUS, status)
-    _write_private_text(GIT_DIFF_STAT, stat)
+    _write_private_text(status_path, status)
+    _write_private_text(diff_stat_path, stat)
 
     changed_files = []
     generated_files = []
@@ -528,8 +668,8 @@ def collect_git_context(*, redaction_context: RedactionContext | None = None) ->
         "generated_files": generated_files,
         "changed_count": len(changed_files),
         "generated_count": len(generated_files),
-        "status_path": str(GIT_STATUS),
-        "diff_stat_path": str(GIT_DIFF_STAT),
+        "status_path": str(status_path),
+        "diff_stat_path": str(diff_stat_path),
     }
 
 
@@ -690,7 +830,17 @@ def _junit_status(suite: dict) -> str:
     return "passed" if suite.get("failures", 0) + suite.get("errors", 0) == 0 else "failed"
 
 
-def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) -> list[dict]:
+def build_evidence_catalog(
+    summary: dict,
+    unit: dict,
+    e2e: dict,
+    symfony: dict,
+    *,
+    proof_dir: Path | None = None,
+) -> list[dict]:
+    # Racine physique parcourue pour les preuves visuelles/casts; les chemins
+    # canoniques publiés restent dérivés des constantes module.
+    scan_root = PROOF_DIR if proof_dir is None else proof_dir
     catalog = [
         {
             "type": "rapport-html",
@@ -798,7 +948,7 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) 
         ("*.mp4", "video"),
         ("*.cast", "asciinema"),
     ):
-        for path in sorted(PROOF_DIR.rglob(pattern)):
+        for path in sorted(scan_root.rglob(pattern)):
             catalog.append(
                 {
                     "type": evidence_type,
@@ -1402,6 +1552,7 @@ def build_summary(
     help_commands: list[dict[str, str]] | None = None,
     scenario_evidence: dict | None = None,
     cast_entries: list[dict] | None = None,
+    proof_dir: Path | None = None,
 ) -> dict:
     symfony = symfony or _empty_suite(SYMFONY_JUNIT)
     git_context = git_context or {
@@ -1418,7 +1569,9 @@ def build_summary(
     project = collect_project_inventory(help_commands)
     validation_matrix = parse_validation_matrix()
     coverage_groups = group_cases_by_module(unit, e2e, symfony)
-    scenario_evidence = scenario_evidence or load_scenario_evidence()
+    scenario_evidence = scenario_evidence or load_scenario_evidence(
+        EVIDENCE_DIR if proof_dir is None else proof_dir / EVIDENCE_DIR.name
+    )
     feature_inventory = build_feature_inventory(help_commands, scenario_evidence, git_context)
     documentation = build_documentation_catalog()
     scenario_evidence = enrich_scenario_evidence(scenario_evidence, feature_inventory)
@@ -1536,15 +1689,23 @@ def build_summary(
         "risks": risk_packet["risks"],
         "unknowns": risk_packet["unknowns"],
     }
-    summary["evidence_catalog"] = build_evidence_catalog(summary, unit, e2e, symfony)
+    summary["evidence_catalog"] = build_evidence_catalog(
+        summary, unit, e2e, symfony, proof_dir=proof_dir
+    )
     return summary
 
 
-def _sanitize_text_file(path: Path, context: RedactionContext) -> None:
+def _sanitize_text_file(
+    path: Path,
+    context: RedactionContext,
+    path_rewrites: Sequence[tuple[str, str]] = (),
+) -> None:
     if not path.exists() or path.is_symlink():
         return
     value = path.read_text(encoding="utf-8", errors="replace")
-    cleaned = redact_text(value, context=context, path=f"$.files.{path.name}")
+    cleaned = redact_text(
+        _rewrite_text_paths(value, path_rewrites), context=context, path=f"$.files.{path.name}"
+    )
     _write_private_text(path, cleaned)
 
 
@@ -1647,6 +1808,32 @@ def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassific
     return policy
 
 
+def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
+    """Purge les artefacts d'évidence orphelins d'un pytest tué par deadline.
+
+    Un pytest interrompu (exit 124) n'exécute pas ``pytest_sessionfinish``:
+    ses artefacts attach_* déjà écrits n'ont aucun manifeste, et le staging
+    partageable échouerait fermé avec un message trompeur. On retire ces
+    orphelins de l'arbre — la suite tuée est déjà un échec de commande visible
+    au verdict — plutôt que de masquer la cause réelle.
+    """
+
+    artifacts_root = proof_dir / "evidence" / "artifacts"
+    if not artifacts_root.is_dir():
+        return []
+    policy = _load_evidence_policy(proof_dir)
+    removed: list[str] = []
+    for path in sorted(artifacts_root.rglob("*"), reverse=True):
+        if path.is_symlink():
+            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
+        if path.is_file() and path.resolve() not in policy:
+            path.unlink()
+            removed.append(path.relative_to(proof_dir).as_posix())
+        elif path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    return removed
+
+
 def build_shareable_proof(
     proof_dir: Path = PROOF_DIR,
     *,
@@ -1742,40 +1929,82 @@ def build_shareable_proof(
 
 
 def _generate() -> dict:
+    # Validations d'environnement AVANT toute écriture/destruction: une
+    # configuration invalide ne coûte jamais la preuve précédente.
     retention_seconds = proof_retention_seconds()
-    if PROOF_DIR.exists():
-        shutil.rmtree(PROOF_DIR)
-    _secure_dir(PROOF_DIR)
+    timeout_scale = proof_timeout_scale()
+    staging = _staging_dir()
+    previous = _previous_dir()
+    # Restes d'un run précédent interrompu: le staging est jetable par contrat.
+    for leftover in (staging, previous):
+        if leftover.exists():
+            try:
+                shutil.rmtree(leftover)
+            except PermissionError as exc:
+                # Un run Docker interrompu avant son chown final laisse des
+                # fichiers root dans le staging: message actionnable plutôt
+                # qu'une PermissionError brute au milieu de la génération.
+                raise ArtifactError(
+                    f"staging résiduel non purgeable: {leftover} (fichiers appartenant "
+                    "probablement à root après un run Docker interrompu); réparer avec "
+                    f'`docker run --rm -v "$PWD/{leftover.name}:/t" alpine '
+                    'chown -R "$(id -u):$(id -g)" /t` puis relancer'
+                ) from exc
+    _secure_dir(staging)
     context = redaction_context_from_environment()
     env = _repo_env()
-    unit_xml = PROOF_DIR / "unit-junit.xml"
-    e2e_xml = PROOF_DIR / "e2e-junit.xml"
-    symfony_xml = SYMFONY_JUNIT
+
+    # Séparation chemin physique (écrit dans le staging) / chemin logique
+    # publié (.proof/...): tout ce qui entre au summary, au rapport HTML et
+    # aux logs est réécrit du premier vers le second avant publication.
+    publish_rewrites: tuple[tuple[str, str], ...] = (
+        (str(staging.resolve()), str(PROOF_DIR.resolve())),
+        (str(staging), str(PROOF_DIR)),
+    )
+    # Les preuves écrites DANS le conteneur Symfony parlent déjà en `.proof/…`
+    # (montage /workspace/.proof): on les ramène au chemin physique du staging
+    # pour pouvoir les lire pendant la génération, avant réécriture inverse.
+    ingest_rewrites: tuple[tuple[str, str], ...] = ((f"{PROOF_DIR}/", f"{staging}/"),)
+
+    def scaled(seconds: float) -> float:
+        return seconds * timeout_scale
+
+    evidence_dir = staging / EVIDENCE_DIR.name
+    unit_xml = staging / "unit-junit.xml"
+    e2e_xml = staging / "e2e-junit.xml"
+    symfony_xml = staging / SYMFONY_JUNIT.name
+    cli_help = staging / CLI_HELP.name
 
     commands = [
         run_evidence(
             "ruff-check",
             "Ruff lint",
             [sys.executable, "-m", "ruff", "check", "src", "tests"],
-            PROOF_DIR / "ruff-check.log",
+            staging / "ruff-check.log",
             env=env,
+            timeout=scaled(RUFF_TIMEOUT_S),
             redaction_context=context,
+            path_rewrites=publish_rewrites,
         ),
         run_evidence(
             "ruff-format",
             "Ruff format",
             [sys.executable, "-m", "ruff", "format", "--check", "src", "tests"],
-            PROOF_DIR / "ruff-format.log",
+            staging / "ruff-format.log",
             env=env,
+            timeout=scaled(RUFF_TIMEOUT_S),
             redaction_context=context,
+            path_rewrites=publish_rewrites,
         ),
         run_evidence(
             "mypy",
             "Mypy typage",
             [sys.executable, "-m", "mypy", "src/cdpx"],
-            PROOF_DIR / "mypy.log",
+            staging / "mypy.log",
             env=env,
+            timeout=scaled(MYPY_TIMEOUT_S),
             redaction_context=context,
+            path_rewrites=publish_rewrites,
         ),
         run_evidence(
             "unit",
@@ -1786,12 +2015,14 @@ def _generate() -> dict:
                 "pytest",
                 "tests",
                 "--ignore=tests/e2e",
-                f"--cdpx-evidence-dir={EVIDENCE_DIR}",
+                f"--cdpx-evidence-dir={evidence_dir}",
                 f"--junitxml={unit_xml}",
             ],
-            UNIT_LOG,
+            staging / UNIT_LOG.name,
             env=env,
+            timeout=scaled(UNIT_TIMEOUT_S),
             redaction_context=context,
+            path_rewrites=publish_rewrites,
         ),
         run_evidence(
             "e2e",
@@ -1803,36 +2034,59 @@ def _generate() -> dict:
                 "tests/e2e/test_e2e_chrome.py",
                 "tests/e2e/test_e2e_sessions.py",
                 "-v",
-                f"--cdpx-evidence-dir={EVIDENCE_DIR}",
+                f"--cdpx-evidence-dir={evidence_dir}",
                 f"--junitxml={e2e_xml}",
             ],
-            E2E_LOG,
+            staging / E2E_LOG.name,
             env=env,
+            timeout=scaled(E2E_TIMEOUT_S),
             redaction_context=context,
+            path_rewrites=publish_rewrites,
         ),
-        run_symfony_evidence(redaction_context=context),
+        run_symfony_evidence(
+            redaction_context=context,
+            proof_dir=staging,
+            timeout=scaled(SYMFONY_TIMEOUT_S),
+            path_rewrites=publish_rewrites,
+        ),
         run_evidence(
             "cli-help",
             "Aide CLI",
             [sys.executable, "-m", "cdpx.cli", "--help"],
-            CLI_HELP,
+            cli_help,
             env=env,
+            timeout=scaled(CLI_HELP_TIMEOUT_S),
             redaction_context=context,
+            path_rewrites=publish_rewrites,
         ),
     ]
 
+    # Un pytest tué par deadline n'a pas écrit ses manifestes d'évidence: ses
+    # artefacts orphelins feraient échouer le staging fail-closed avec un
+    # message trompeur, alors que la cause réelle (exit 124) est déjà rouge.
+    if any(
+        command.id in {"unit", "e2e", "symfony-e2e"} and command.exit_code == 124
+        for command in commands
+    ):
+        _purge_unmanifested_evidence(staging)
+
     # Preuve secondaire native (pty, aucune dépendance): les .cast atterrissent
-    # dans .proof/ et entrent au rapport via le catalogue (rglob). Le portail
+    # dans le staging et entrent au rapport via le catalogue (rglob). Le portail
     # exige un statut "generated" pour chaque commande de démonstration.
-    cast_entries = collect_cast_evidence(PROOF_DIR, env=env, redaction_context=context)
+    cast_entries = collect_cast_evidence(staging, env=env, redaction_context=context)
 
     for path in (unit_xml, e2e_xml, symfony_xml):
-        _sanitize_text_file(path, context)
+        _sanitize_text_file(path, context, path_rewrites=publish_rewrites)
     unit = parse_junit(unit_xml)
     e2e = parse_junit(e2e_xml)
     symfony = parse_junit(symfony_xml)
-    help_commands = parse_help_commands(CLI_HELP.read_text(encoding="utf-8", errors="replace"))
-    git_context = collect_git_context(redaction_context=context)
+    help_commands = parse_help_commands(cli_help.read_text(encoding="utf-8", errors="replace"))
+    git_context = collect_git_context(
+        redaction_context=context,
+        status_path=staging / GIT_STATUS.name,
+        diff_stat_path=staging / GIT_DIFF_STAT.name,
+    )
+    scenario_evidence = _rewrite_tree_paths(load_scenario_evidence(evidence_dir), ingest_rewrites)
     summary = build_summary(
         commands,
         unit,
@@ -1840,16 +2094,21 @@ def _generate() -> dict:
         symfony,
         git_context=git_context,
         help_commands=help_commands,
+        scenario_evidence=scenario_evidence,
         cast_entries=cast_entries,
+        proof_dir=staging,
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
+    # Publication: les chemins physiques du staging redeviennent les chemins
+    # logiques .proof/… attendus par le contrat du summary, du HTML et des logs.
+    summary = _rewrite_tree_paths(summary, publish_rewrites)
     summary = redact_tree(summary, context=context, path="$.summary")
     # Les contenus inlinés n'existent que dans le payload HTML: les JSON disque
     # pointent vers les fichiers d'artefacts, sans duplication.
     lean_evidence = _strip_inline_content(summary["scenario_evidence"])
     write_scenario_evidence(
-        EVIDENCE_DIR,
+        evidence_dir,
         lean_evidence,
         redaction_context=context,
     )
@@ -1858,7 +2117,7 @@ def _generate() -> dict:
         for item in summary["evidence_catalog"]
     ]
     _write_private_text(
-        SUMMARY_JSON,
+        staging / SUMMARY_JSON.name,
         json.dumps(
             {**summary, "scenario_evidence": lean_evidence, "evidence_catalog": lean_catalog},
             ensure_ascii=False,
@@ -1867,16 +2126,24 @@ def _generate() -> dict:
         + "\n",
     )
     _write_private_text(
-        REPORT_HTML,
+        staging / REPORT_HTML.name,
         render_html(summary),
     )
-    _harden_tree(PROOF_DIR)
+    _harden_tree(staging)
     build_shareable_proof(
-        PROOF_DIR,
+        staging,
         canaries=environment_secret_values(),
         ttl=retention_seconds,
         pre_redacted_paths={REPORT_HTML.name},
     )
+    # Bascule transactionnelle: la preuve précédente n'est remplacée qu'après
+    # un staging complet et partageable. Toute exception avant ce point laisse
+    # `.proof` intact (le staging partiel reste pour diagnostic et sera purgé
+    # au prochain run).
+    if PROOF_DIR.exists():
+        os.replace(PROOF_DIR, previous)
+    os.replace(staging, PROOF_DIR)
+    shutil.rmtree(previous, ignore_errors=True)
     return summary
 
 
