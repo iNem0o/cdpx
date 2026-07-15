@@ -480,24 +480,28 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
         "routing-500",
         "headers-cache",
     ]
+    # Captures individuelles des variantes clés, prises pendant que la page
+    # de la variante est affichée (juste après sa navigation profiler), au
+    # lieu d'une seule capture finale montrant la dernière route seulement.
+    captured_variants = ("doctrine-n-plus-one", "routing-404", "routing-500")
     try:
         with client as c:
-            results = {
-                case: dev.profiler(
+            results = {}
+            for case in cases:
+                results[case] = dev.profiler(
                     c,
                     f"{SYMFONY_URL}/scenario/profiler/{case}",
                     timeout=20,
                     settle=0.5,
                 )
-                for case in cases
-            }
-            screenshot(
-                c,
-                tmp_path,
-                "symfony-profiler-variants.png",
-                evidence_case,
-                "Profiler variants",
-            )
+                if case in captured_variants:
+                    screenshot(
+                        c,
+                        tmp_path,
+                        f"symfony-profiler-{case}.png",
+                        evidence_case,
+                        f"Profiler variant {case}",
+                    )
     finally:
         close_tab(chrome, target)
 
@@ -889,8 +893,26 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
         with client as c:
             nav.navigate(c, f"{SYMFONY_URL}/scenario/front/states", timeout=20)
             expected = expected_from_page(c)
+            # Capture avant clic (état idle): prise après lecture de l'état
+            # initial et sans bandeau, elle ne touche pas au DOM comparé par
+            # dom_diff, dont la baseline reste intacte.
+            screenshot(
+                c,
+                tmp_path,
+                "symfony-front-state-before.png",
+                evidence_case,
+                "Symfony front state (idle, before click)",
+            )
             diff = dev.dom_diff(c, ["click", "#submit-btn"])
-            screenshot(c, tmp_path, "symfony-front-state.png", evidence_case, "Symfony front state")
+            # Capture après clic (état submitted): matérialise la cible de la
+            # transition que le diff DOM prouve.
+            screenshot(
+                c,
+                tmp_path,
+                "symfony-front-state-after.png",
+                evidence_case,
+                "Symfony front state (submitted, after click)",
+            )
     finally:
         close_tab(chrome, target)
 

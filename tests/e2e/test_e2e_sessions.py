@@ -24,6 +24,7 @@ from cdpx.session import (
     load_manifest,
     stop_session,
 )
+from cdpx.testing.e2e import attach_cli_run
 
 
 def run_session_cli(
@@ -48,6 +49,8 @@ def start_managed_session(
     origins: str,
     chrome_bin: str,
     runtime_dir: Path,
+    evidence_case=None,
+    start_label: str | None = None,
 ) -> tuple[SessionManifest, Path]:
     proc = run_session_cli(
         "start",
@@ -69,6 +72,8 @@ def start_managed_session(
         f"session start en échec: exit={proc.returncode}\n"
         f"stdout={proc.stdout}\nstderr={proc.stderr}"
     )
+    if start_label is not None:
+        attach_cli_run(evidence_case, start_label, proc)
     payload = json.loads(proc.stdout)
     assert payload["started"] is True
     path = Path(payload["manifest"])
@@ -290,6 +295,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         #: l'autorité manquante — le refus est explicable, pas muet
         assert denied_interaction.returncode == 1
         assert "requiert interaction" in denied_interaction.stderr
+        attach_cli_run(evidence_case, "Denied click (observation authority)", denied_interaction)
 
         clicked = successful_session_json(*interaction, "click", "#submit-btn")
         #: l'autorité interaction permet un vrai clic et le DOM en atteste
@@ -301,6 +307,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         #: refus explicite qui nomme le niveau privileged requis
         assert denied_privileged.returncode == 1
         assert "requiert privileged" in denied_privileged.stderr
+        attach_cli_run(evidence_case, "Denied eval (interaction authority)", denied_privileged)
 
         evaluated = successful_session_json(*privileged, "eval", "document.title")
         #: l'autorité privileged débloque l'évaluation JS dans la vraie page
@@ -345,6 +352,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         #: refusée avec un diagnostic qui explique la contention
         assert contended.returncode == 1
         assert "session déjà utilisée" in contended.stderr
+        attach_cli_run(evidence_case, "Contended command (lease held elsewhere)", contended)
         #: le bail relâché, la même commande repasse aussitôt: le refus
         #: venait bien du verrou, pas d'un état cassé
         assert successful_session_json(*observation, "text", "h1")["text"] == "Storage"
@@ -435,6 +443,8 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
         origins=fixtures_http.base_url,
         chrome_bin=chrome_bin,
         runtime_dir=runtime_dir,
+        evidence_case=evidence_case,
+        start_label="Session start (before SIGTERM)",
     )
     session_dir = Path(manifest.session_dir)
     profile_dir = Path(manifest.profile_dir)
@@ -457,6 +467,18 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
             tmp_path / "signal-teardown-session.png",
             "Session before supervisor teardown",
         )
+        if evidence_case is not None:
+            status_proc = run_session_cli(
+                "status",
+                "--session",
+                str(path),
+                "--run-id",
+                manifest.run_id,
+                "--target",
+                manifest.target_id,
+                env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+            )
+            attach_cli_run(evidence_case, "Session status (alive, before SIGTERM)", status_proc)
         #: le manifest expose le pid du superviseur, seul destinataire du
         #: signal de terminaison
         assert manifest.supervisor_pid is not None
