@@ -19,7 +19,7 @@ COPY scripts ./scripts
 COPY tests ./tests
 COPY docs ./docs
 COPY .github ./.github
-COPY Dockerfile Makefile HARNESS.md CLAUDE.md docker-compose.symfony-e2e.yml ./
+COPY Dockerfile Makefile HARNESS.md docker-compose.symfony-e2e.yml ./
 
 RUN pip install -e ".[dev]"
 
