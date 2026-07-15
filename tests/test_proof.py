@@ -608,6 +608,9 @@ def test_render_html_embeds_payload_verdict_and_routes():
         assert route in html
     assert "securityLevel: 'strict'" in html
     assert "connect-src 'none'" in html
+    assert "media-src 'self'" in html
+    assert 'id="artifact-modal"' in html
+    assert 'role="dialog"' in html
     assert "<script src=" not in html
 
 
@@ -667,6 +670,33 @@ def test_cockpit_assets_are_packaged_and_sane():
 
     with pytest.raises(FileNotFoundError):
         proof._cockpit_asset("cockpit/does-not-exist.js")
+
+
+def test_every_artifact_type_has_a_dedicated_viewer():
+    # Garde-fou "calculé => rendu" au niveau des artefacts: chaque type de la
+    # taxonomie fermée doit avoir une entrée dans le registre VIEWERS du
+    # cockpit. Un type collecté sans visualiseur casse le build.
+    from cdpx.testing.evidence import ARTIFACT_TYPES
+
+    assert "const VIEWERS = {" in proof.SPA_JS
+    registry = proof.SPA_JS.split("const VIEWERS = {", 1)[1].split("};", 1)[0]
+    for artifact_type in sorted(ARTIFACT_TYPES):
+        assert f"'{artifact_type}':" in registry, (
+            f"type d'artefact sans visualiseur dans le cockpit: {artifact_type}"
+        )
+
+
+def test_modal_and_keyboard_wiring_are_present():
+    for marker in (
+        "function openModal",
+        "function closeModal",
+        "'Escape'",
+        "'ArrowRight'",
+        "'ArrowLeft'",
+        "data-modal-group",
+        "renderArtifacts(run.artifacts || [], {scenario, run})",
+    ):
+        assert marker in proof.SPA_JS, f"câblage modal manquant: {marker}"
 
 
 def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):

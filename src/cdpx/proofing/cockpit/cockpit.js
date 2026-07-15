@@ -67,6 +67,181 @@
   }).join('') + '</div>';
   const statusPill = (status) => `<span class="pill ${esc(status)}">${esc(status)}</span>`;
 
+  /* === Visualiseurs d'artefacts ===
+     Chaque type de la taxonomie (cdpx.testing.evidence.ARTIFACT_TYPES) doit
+     avoir une entrée VIEWERS: le test "calculé => rendu" échoue sinon.
+     Contrat payload: inline_content / excerpt / truncated / inline_skipped
+     sont optionnels — tout viewer dégrade en lien de téléchargement. */
+
+  const VIEWER_ICONS = {
+    'screenshot': '🖼', 'gif': '🎞', 'video': '🎬', 'console': '≡', 'network': '⇄',
+    'json': '{}', 'profiler': '⏱', 'logs': '¶', 'log-excerpt': '¶', 'command': '$',
+    'asciinema': '⏵', 'file': '⇩'
+  };
+
+  const fileLink = (artifact, label = 'ouvrir le fichier') =>
+    artifact.path ? `<a href="${esc(hrefFor(artifact.path))}">${esc(label)}</a>` : '';
+
+  function downloadFallback(artifact) {
+    const reason = artifact.inline_skipped
+      ? `Contenu non embarqué (${esc(artifact.inline_skipped)}).`
+      : 'Contenu non embarqué dans le rapport.';
+    return `<div class="viewer-fallback"><p>${reason}</p><p>${fileLink(artifact)}</p></div>`;
+  }
+
+  function truncationNote(artifact) {
+    if (!artifact.truncated) return '';
+    return `<p class="viewer-note">Extrait tronqué — ${fileLink(artifact, 'fichier complet')}</p>`;
+  }
+
+  function screenshotViewer(artifact) {
+    const href = esc(hrefFor(artifact.path));
+    return `<figure class="viewer-media"><img src="${href}" alt="${esc(artifact.label || 'screenshot')}" data-zoomable></figure>`;
+  }
+
+  function gifViewer(artifact) {
+    const href = esc(hrefFor(artifact.path));
+    return `<figure class="viewer-media"><img src="${href}" alt="${esc(artifact.label || 'gif')}"></figure>`;
+  }
+
+  function videoViewer(artifact) {
+    const href = esc(hrefFor(artifact.path));
+    return `<figure class="viewer-media"><video controls preload="metadata" src="${href}"></video></figure>`;
+  }
+
+  function basicTextViewer(artifact) {
+    const body = artifact.inline_content || artifact.excerpt;
+    if (!body) return downloadFallback(artifact);
+    return `${truncationNote(artifact)}<pre class="viewer-text">${esc(body)}</pre>`;
+  }
+
+  const VIEWERS = {
+    'screenshot': screenshotViewer,
+    'gif': gifViewer,
+    'video': videoViewer,
+    'console': basicTextViewer,
+    'network': basicTextViewer,
+    'json': basicTextViewer,
+    'profiler': basicTextViewer,
+    'logs': basicTextViewer,
+    'log-excerpt': basicTextViewer,
+    'command': basicTextViewer,
+    'asciinema': basicTextViewer,
+    'file': downloadFallback
+  };
+
+  /* === Modal === */
+
+  const modal = document.getElementById('artifact-modal');
+  const modalState = {items: [], index: -1, context: null, lastFocus: null};
+  let artifactGroups = [];
+
+  function relativeCapture(artifact, run) {
+    if (!artifact.created_at || !run || !run.started_at) return artifact.created_at || '';
+    const offset = (new Date(artifact.created_at) - new Date(run.started_at)) / 1000;
+    if (!isFinite(offset)) return artifact.created_at;
+    const clamped = Math.max(offset, 0);
+    return `${artifact.created_at.slice(11, 19)} (+${clamped.toFixed(1)}s)`;
+  }
+
+  function modalContext(artifact, context) {
+    const rows = [];
+    const scenario = context?.scenario;
+    const run = context?.run;
+    if (scenario) {
+      rows.push(['Scénario', esc(scenario.title || scenario.id || '')]);
+      const wording = scenario.report_text || scenario.ui_text;
+      if (wording) rows.push(['', `<em>« ${esc(wording)} »</em>`]);
+    }
+    const step = artifact.step || (artifact.meta && artifact.meta.step) || '';
+    if (step) rows.push(['Étape', `<code>${esc(step)}</code>`]);
+    if (run && run.nodeid) rows.push(['Test', `<code>${esc(run.nodeid)}</code>`]);
+    if (run && run.intent) rows.push(['Intention', esc(run.intent)]);
+    if (artifact.created_at) rows.push(['Capturé', esc(relativeCapture(artifact, run))]);
+    if (artifact.bytes) rows.push(['Taille', esc(`${artifact.bytes} octets`)]);
+    rows.push(['', fileLink(artifact)]);
+    return rows
+      .filter(([, value]) => value)
+      .map(([key, value]) => `<div class="ctx-row">${key ? `<span class="ctx-key">${esc(key)}</span>` : ''}<span class="ctx-value">${value}</span></div>`)
+      .join('');
+  }
+
+  function renderModalCurrent() {
+    const artifact = modalState.items[modalState.index];
+    if (!artifact) return;
+    const viewer = VIEWERS[artifact.type] || downloadFallback;
+    modal.querySelector('.modal-type').textContent = artifact.type || 'artefact';
+    modal.querySelector('.modal-type').className = 'modal-type pill';
+    modal.querySelector('.modal-title').textContent = artifact.label || artifact.type || 'artefact';
+    modal.querySelector('.modal-counter').textContent =
+      modalState.items.length > 1 ? `${modalState.index + 1}/${modalState.items.length}` : '';
+    modal.querySelector('.modal-content').innerHTML = viewer(artifact);
+    modal.querySelector('.modal-context-body').innerHTML = modalContext(artifact, modalState.context);
+  }
+
+  function openModal(items, index, context) {
+    modalState.items = items;
+    modalState.index = index;
+    modalState.context = context || null;
+    modalState.lastFocus = document.activeElement;
+    renderModalCurrent();
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+    modal.querySelector('.modal-close').focus();
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    document.body.classList.remove('modal-open');
+    modal.querySelector('.modal-content').innerHTML = '';
+    if (modalState.lastFocus && modalState.lastFocus.focus) modalState.lastFocus.focus();
+    modalState.items = [];
+    modalState.index = -1;
+  }
+
+  function stepModal(delta) {
+    if (!modalState.items.length) return;
+    const next = modalState.index + delta;
+    if (next < 0 || next >= modalState.items.length) return;
+    modalState.index = next;
+    renderModalCurrent();
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (modal.hidden) return;
+    if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); stepModal(1); }
+    else if (event.key === 'ArrowLeft') { event.preventDefault(); stepModal(-1); }
+    else if (event.key === 'z') {
+      const zoomable = modal.querySelector('[data-zoomable]');
+      if (zoomable) { event.preventDefault(); zoomable.classList.toggle('zoomed'); }
+    } else if (event.key === 'Tab') {
+      const focusables = Array.from(modal.querySelectorAll('button, a[href], video'));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+
+  modal.addEventListener('click', (event) => {
+    if (event.target.closest('[data-modal-close]') || event.target === modal.querySelector('.modal-overlay')) {
+      closeModal();
+    }
+    const zoomable = event.target.closest('[data-zoomable]');
+    if (zoomable) zoomable.classList.toggle('zoomed');
+  });
+
+  app.addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-modal-group]');
+    if (!chip) return;
+    const group = artifactGroups[Number(chip.dataset.modalGroup)];
+    if (!group) return;
+    event.preventDefault();
+    openModal(group.artifacts, Number(chip.dataset.modalIndex), group.ctx);
+  });
+
   if (window.mermaid) {
     window.mermaid.parseError = () => {};
     window.mermaid.initialize({
@@ -272,32 +447,40 @@
         <div><h3>When</h3><p>${esc(scenario.when)}</p></div>
         <div><h3>Then</h3><p>${esc(scenario.then)}</p></div>
       </section>
-      <h2>Tests liés</h2>${renderScenarioRuns(scenario.matched_scenarios || [], scenario.tests || [])}
+      <h2>Tests liés</h2>${renderScenarioRuns(scenario.matched_scenarios || [], scenario.tests || [], scenario)}
       <h2>Preuves</h2>${renderProofLinks(scenario.proofs || [])}`;
   }
 
-  function renderScenarioRuns(runs, declaredTests) {
+  function renderScenarioRuns(runs, declaredTests, scenario) {
     const declared = list(declaredTests, (test) => `<li><code>${esc(test)}</code></li>`);
     if (!runs.length) return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="empty">Aucun test exécuté.</div></section></div>`;
     const rows = runs.map((run) => `<tr>
       <td>${statusPill(run.status || 'unknown')}</td>
       <td><code>${esc(run.nodeid)}</code><p>${esc(run.message || '')}</p></td>
       <td>${esc(run.duration_s || 0)}s</td>
-      <td>${renderArtifacts(run.artifacts || [])}</td>
+      <td>${renderArtifacts(run.artifacts || [], {scenario, run})}</td>
     </tr>`).join('');
     return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Test</th><th>Durée</th><th>Artefacts</th></tr></thead><tbody>${rows}</tbody></table></div></section></div>`;
   }
 
-  function renderArtifacts(artifacts) {
+  function artifactChip(artifact, group, index) {
+    const href = esc(hrefFor(artifact.path));
+    const icon = VIEWER_ICONS[artifact.type] || VIEWER_ICONS.file;
+    const label = esc(artifact.label || artifact.type || 'artefact');
+    if (!VIEWERS[artifact.type]) {
+      return `<a class="chip" href="${href}"><span class="chip-icon">${icon}</span>${label}</a>`;
+    }
+    const modalAttrs = `data-modal-group="${group}" data-modal-index="${index}"`;
+    if (artifact.type === 'screenshot' || artifact.type === 'gif') {
+      return `<a class="shot" href="${href}" ${modalAttrs}><img src="${href}" alt="${label}" loading="lazy"><span>${icon} ${label}</span></a>`;
+    }
+    return `<a class="chip" href="${href}" ${modalAttrs} title="${esc(artifact.type)}"><span class="chip-icon">${icon}</span>${label}</a>`;
+  }
+
+  function renderArtifacts(artifacts, ctx) {
     if (!artifacts.length) return '<span class="muted">Aucun artefact</span>';
-    return artifacts.map((artifact) => {
-      const href = hrefFor(artifact.path);
-      const label = esc(artifact.label || artifact.type || 'artefact');
-      if (artifact.type === 'screenshot') {
-        return `<a class="shot" href="${esc(href)}"><img src="${esc(href)}" alt="${label}"><span>${label}</span></a>`;
-      }
-      return `<a href="${esc(href)}">${label}</a>`;
-    }).join('');
+    const group = artifactGroups.push({artifacts, ctx: ctx || null}) - 1;
+    return artifacts.map((artifact, index) => artifactChip(artifact, group, index)).join('');
   }
 
   function renderProofLinks(proofs) {
@@ -384,6 +567,8 @@
   }
 
   function render() {
+    artifactGroups = [];
+    if (!modal.hidden) closeModal();
     renderFeatureNav();
     renderDocsNav();
     const parts = route().split('/').filter(Boolean);

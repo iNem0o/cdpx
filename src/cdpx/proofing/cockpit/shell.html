@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
   <title>Rapport de preuve cdpx - $verdict</title>
   <style>
 $spa_css
@@ -38,6 +38,22 @@ $spa_css
       </section>
     </aside>
     <main id="app" aria-live="polite"></main>
+  </div>
+  <div id="artifact-modal" role="dialog" aria-modal="true" aria-label="Visualiseur de preuve" hidden>
+    <div class="modal-overlay" data-modal-close></div>
+    <div class="modal-frame">
+      <header class="modal-head">
+        <span class="modal-type pill"></span>
+        <strong class="modal-title"></strong>
+        <span class="modal-counter muted"></span>
+        <button type="button" class="modal-close" data-modal-close aria-label="Fermer">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="modal-content"></div>
+        <aside class="modal-context"><h2>Contexte</h2><div class="modal-context-body"></div></aside>
+      </div>
+      <footer class="modal-foot muted">← précédent · → suivant · z zoom · Échap fermer</footer>
+    </div>
   </div>
   <script id="report-data" type="application/json">$payload</script>
   <script>
