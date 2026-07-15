@@ -172,6 +172,13 @@ def empty_scenario_evidence():
     return {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
 
 
+def generated_casts():
+    return [
+        {"id": cast_id, "path": f".proof/{cast_id}.cast", "bytes": 64, "status": "generated"}
+        for cast_id, _argv in proof.CAST_COMMANDS
+    ]
+
+
 def _evidence_with_artifacts(artifacts):
     suites = {
         "unit": [
@@ -268,6 +275,7 @@ def test_render_html_size_stays_bounded():
         _minimal_suite(".proof/unit-junit.xml"),
         _minimal_suite(".proof/e2e-junit.xml"),
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
     # Mermaid vendorisé ~3,5 Mo; le shell/CSS/JS du cockpit doit rester marginal.
     assert len(proof.render_html(summary)) < 4_500_000
@@ -377,7 +385,13 @@ def test_build_summary_preserves_historical_artifact_keys():
         status="ok",
     )
 
-    summary = proof.build_summary([command], unit, e2e, scenario_evidence=empty_scenario_evidence())
+    summary = proof.build_summary(
+        [command],
+        unit,
+        e2e,
+        scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
+    )
 
     assert summary["ok"] is True
     assert summary["unit_log"] == ".proof/make-check-pytest.log"
@@ -441,6 +455,7 @@ def test_build_summary_adds_project_evidence_sections():
         git_context=git_context,
         help_commands=help_commands,
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
 
     assert summary["project"]["name"] == "cdpx"
@@ -502,6 +517,7 @@ def test_build_summary_includes_symfony_suite_and_catalog():
         e2e,
         symfony,
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
 
     assert summary["ok"] is True
@@ -576,6 +592,7 @@ def test_spa_renders_every_summary_key():
         _minimal_suite(".proof/e2e-junit.xml"),
         help_commands=proof.parse_help_commands(build_parser().format_help()),
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
     shell_keys = {"ok", "generated_at", "git"}  # rendus par render_html directement
     meta_keys = {"artifact_dir", "report_html", "unit_log", "e2e_log", "symfony_log"}
@@ -592,6 +609,7 @@ def test_render_html_embeds_payload_verdict_and_routes():
         _minimal_suite(".proof/unit-junit.xml"),
         _minimal_suite(".proof/e2e-junit.xml"),
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
     html = proof.render_html(summary)
     assert 'id="report-data"' in html and '"ok": true'.replace(" ", "") in html.replace(" ", "")
@@ -620,6 +638,7 @@ def test_build_summary_exposes_curated_documentation_catalog():
         _minimal_suite(".proof/unit-junit.xml"),
         _minimal_suite(".proof/e2e-junit.xml"),
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
 
     documentation = summary["documentation"]
@@ -638,9 +657,26 @@ def test_mermaid_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
 
     proof._mermaid_bundle.cache_clear()
     monkeypatch.setattr(proof, "MERMAID_SHA256", "0" * 64)
-    with pytest.raises(ValueError, match="bundle Mermaid"):
+    with pytest.raises(ValueError, match="bundle vendor/mermaid"):
         proof._mermaid_bundle()
     proof._mermaid_bundle.cache_clear()
+
+
+def test_xterm_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
+    # Le player cast s'appuie sur xterm.js vendoré (MIT): bundle + CSS vérifiés
+    # par SHA-256, embarqués inline dans le rapport comme Mermaid.
+    bundle = proof._xterm_bundle()
+    assert len(bundle) > 100_000
+    assert "Terminal" in bundle
+
+    stylesheet = proof._xterm_css()
+    assert ".xterm" in stylesheet
+
+    proof._xterm_bundle.cache_clear()
+    monkeypatch.setattr(proof, "XTERM_JS_SHA256", "0" * 64)
+    with pytest.raises(ValueError, match="bundle vendor/xterm"):
+        proof._xterm_bundle()
+    proof._xterm_bundle.cache_clear()
 
 
 def test_cockpit_assets_are_packaged_and_sane():
@@ -662,8 +698,10 @@ def test_cockpit_assets_are_packaged_and_sane():
         pill="ok",
         context="ctx",
         spa_css="",
+        xterm_css="",
         payload="{}",
         mermaid_bundle="",
+        xterm_bundle="",
         spa_js="",
     )
     assert rendered.startswith("<!doctype html>")
@@ -706,13 +744,15 @@ def test_text_viewers_are_specialized_per_type():
         assert marker in proof.SPA_JS, f"visualiseur texte manquant: {marker}"
 
 
-def test_cast_viewer_parses_v2_and_keeps_a_raw_fallback():
-    # Player maison (pas de vendoring GPL): parse .cast v2 (JSONL), sous-
-    # ensemble ANSI, scrubber, et toujours une vue brute de repli.
+def test_cast_viewer_replays_v2_in_xterm_and_keeps_a_raw_fallback():
+    # Player réel: xterm.js vendoré (MIT — asciinema-player est GPL-3), piloté
+    # par la toolbar maison (scrubber, vitesses), vue brute de repli conservée.
     for marker in (
         "function parseCast",
         "header.version !== 2",
-        "function castTerminal",
+        "globalThis.Terminal",
+        "terminal.reset()",
+        "terminal.dispose()",
         "function castViewer",
         "data-cast-scrub",
         "data-cast-rawtoggle",
@@ -720,6 +760,51 @@ def test_cast_viewer_parses_v2_and_keeps_a_raw_fallback():
         "requestAnimationFrame(tick)",
     ):
         assert marker in proof.SPA_JS, f"player asciinema incomplet: {marker}"
+
+
+def test_cast_gate_blocks_the_verdict():
+    # Portail cast: sans entrées (ou avec un statut dégradé), le verdict passe
+    # rouge et la cause est explicite dans proof_failures.
+    missing = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=empty_scenario_evidence(),
+    )
+    #: aucune collecte de cast => verdict rouge, un échec par démo attendue
+    assert missing["ok"] is False
+    assert any(failure.startswith("cast missing:") for failure in missing["proof_failures"])
+
+    degraded_casts = generated_casts()
+    degraded_casts[0]["status"] = "unavailable"
+    degraded = proof.build_summary(
+        [_ok_command()],
+        _minimal_suite(".proof/unit-junit.xml"),
+        _minimal_suite(".proof/e2e-junit.xml"),
+        scenario_evidence=empty_scenario_evidence(),
+        cast_entries=degraded_casts,
+    )
+    #: un cast dégradé est bloquant et nomme la démo fautive
+    assert degraded["ok"] is False
+    assert any(failure.startswith("cast unavailable:") for failure in degraded["proof_failures"])
+    #: le summary expose les entrées pour le rendu SPA (section Run)
+    assert degraded["casts"] == degraded_casts
+
+
+def test_catalog_casts_are_inlined_for_the_player(tmp_path, monkeypatch):
+    # Les .cast du catalogue (produits hors scénario pytest) doivent être
+    # inlinés: sous la CSP du rapport, un lien seul serait injouable.
+    monkeypatch.setattr(proof, "PROOF_DIR", tmp_path)
+    cast_file = tmp_path / "cli-help.cast"
+    cast_file.write_text('{"version": 2}\n[0.1, "o", "ok"]\n', encoding="utf-8")
+
+    catalog = proof.build_evidence_catalog({"commands": []}, {}, {}, {})
+
+    entry = next(item for item in catalog if item["type"] == "asciinema")
+    #: le contenu voyage dans le payload HTML, prêt pour xterm
+    assert entry["inline_content"].startswith('{"version": 2}')
+    #: plus aucune entrée placeholder "optional": le cast est obligatoire
+    assert not any(item.get("status") == "optional" for item in catalog)
 
 
 def test_modal_and_keyboard_wiring_are_present():
@@ -779,6 +864,7 @@ def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
         _minimal_suite(".proof/unit-junit.xml", tests=2, cases=cases),
         _minimal_suite(".proof/e2e-junit.xml"),
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
     assert summary["junit"]["unit"]["cases"] == cases
     assert summary["junit"]["unit"]["focus"][0]["status"] == "failed"  # échecs d'abord
@@ -812,6 +898,7 @@ def test_symfony_skips_are_release_blocking():
         _minimal_suite(".proof/e2e-junit.xml"),
         _minimal_suite(".proof/symfony-e2e-junit.xml", tests=2) | {"passed": 1, "skipped": 1},
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
 
     assert summary["ok"] is False
@@ -837,12 +924,14 @@ def test_chrome_skips_and_missing_junit_are_release_blocking():
         _minimal_suite(".proof/unit-junit.xml"),
         skipped,
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
     missing_summary = proof.build_summary(
         [e2e_command],
         _minimal_suite(".proof/unit-junit.xml"),
         proof._empty_suite(proof.Path(".proof/e2e-junit.xml")),
         scenario_evidence=empty_scenario_evidence(),
+        cast_entries=generated_casts(),
     )
 
     assert skipped_summary["ok"] is False

@@ -234,14 +234,13 @@ def test_attach_file_maps_known_suffixes_to_artifact_types(tmp_path):
     expectations = {
         "shot.png": "screenshot",
         "record.cast": "asciinema",
-        "demo.gif": "gif",
         "clip.webm": "video",
         "trace.log": "logs",
         "payload.json": "json",
     }
     for name, expected in expectations.items():
         source = tmp_path / name
-        if expected in {"screenshot", "gif", "video"}:
+        if expected in {"screenshot", "video"}:
             source.write_bytes(b"\x89BIN\x00")
         else:
             source.write_text("{}\n" if expected == "json" else "line\n", encoding="utf-8")
@@ -351,7 +350,7 @@ def test_attach_log_excerpt_selects_pattern_range_and_absence(tmp_path):
         case.attach_log_excerpt(log, "conflit", pattern="x", line_range=(1, 2))
 
 
-def test_attach_cast_keeps_cast_local_and_attaches_companion_gif(tmp_path):
+def test_attach_cast_keeps_cast_local_and_redacted(tmp_path):
     context = RedactionContext.from_secrets(["canary-value"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_cast",
@@ -365,24 +364,14 @@ def test_attach_cast_keeps_cast_local_and_attaches_companion_gif(tmp_path):
         '{"version": 2, "width": 80}\n[0.1, "o", "hello canary-value"]\n',
         encoding="utf-8",
     )
-    gif = tmp_path / "session.gif"
-    gif.write_bytes(b"GIF89a\x00")
 
-    entry = case.attach_cast(cast, "make proof", gif=gif)
+    entry = case.attach_cast(cast, "make proof")
 
     assert entry["type"] == "asciinema"
     #: textuel donc redacté, mais jamais uploadable (secret fragmentable en ndjson)
     assert entry["classification"] == "internal"
     assert entry["upload_allowed"] is False
     assert "canary-value" not in (tmp_path / entry["path"]).read_text(encoding="utf-8")
-
-    gif_artifact = next(artifact for artifact in case.artifacts if artifact.type == "gif")
-    assert gif_artifact.classification == ArtifactClassification.OPAQUE_RESTRICTED.value
-    assert gif_artifact.upload_allowed is False
-
-    #: le gif compagnon est optionnel: absent => dégradation silencieuse
-    solo = case.attach_cast(cast, "sans gif", gif=tmp_path / "missing.gif")
-    assert solo["type"] == "asciinema"
 
 
 def test_evidence_session_writes_grouped_scenarios(tmp_path):

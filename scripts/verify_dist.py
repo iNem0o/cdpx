@@ -44,6 +44,9 @@ def verify_wheel(path: Path) -> dict[str, object]:
         assert "cdpx/__init__.py" in names
         assert "cdpx/proofing/vendor/mermaid-11.16.0.min.js" in names
         assert "cdpx/proofing/vendor/LICENSE.mermaid" in names
+        assert "cdpx/proofing/vendor/xterm-5.5.0.min.js" in names
+        assert "cdpx/proofing/vendor/xterm-5.5.0.min.css" in names
+        assert "cdpx/proofing/vendor/LICENSE.xterm" in names
         assert "cdpx/proofing/cockpit/shell.html" in names
         assert "cdpx/proofing/cockpit/cockpit.css" in names
         assert "cdpx/proofing/cockpit/cockpit.js" in names
@@ -82,6 +85,9 @@ def verify_sdist(path: Path) -> dict[str, object]:
             "src/cdpx/__init__.py",
             "src/cdpx/proofing/vendor/mermaid-11.16.0.min.js",
             "src/cdpx/proofing/vendor/LICENSE.mermaid",
+            "src/cdpx/proofing/vendor/xterm-5.5.0.min.js",
+            "src/cdpx/proofing/vendor/xterm-5.5.0.min.css",
+            "src/cdpx/proofing/vendor/LICENSE.xterm",
             "src/cdpx/proofing/cockpit/shell.html",
             "src/cdpx/proofing/cockpit/cockpit.css",
             "src/cdpx/proofing/cockpit/cockpit.js",

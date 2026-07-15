@@ -50,6 +50,24 @@ def test_markdown_dependency_and_vendored_mermaid_notice_are_pinned():
     assert "MIT License" in license_path.read_text(encoding="utf-8")
 
 
+def test_vendored_xterm_bundle_and_notice_are_pinned():
+    bundle = Path("src/cdpx/proofing/vendor/xterm-5.5.0.min.js")
+    stylesheet = Path("src/cdpx/proofing/vendor/xterm-5.5.0.min.css")
+    license_path = Path("src/cdpx/proofing/vendor/LICENSE.xterm")
+    notice = Path("THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert bundle.is_file() and stylesheet.is_file() and license_path.is_file()
+    #: le bundle du player est épinglé: toute substitution casse le build
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == (
+        "4196e242ef1cf4c2adead8d97f4a772a69576076f70b095e004b4abbb049e7bf"
+    )
+    assert hashlib.sha256(stylesheet.read_bytes()).hexdigest() == (
+        "f7f724aea2bb620a6482bfb8e4bdecfae1152b0c7facef55fbda61f3b6cfedb2"
+    )
+    #: la licence MIT et la notice tierce accompagnent le vendoring
+    assert "@xterm/xterm@5.5.0" in notice and "LICENSE.xterm" in notice
+    assert "Copyright" in license_path.read_text(encoding="utf-8")
+
+
 def test_public_project_metadata_points_to_github():
     project = PYPROJECT["project"]
     assert project["authors"] == [{"name": "inem0o"}]

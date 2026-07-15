@@ -43,7 +43,6 @@ ARTIFACT_TYPES = frozenset(
     {
         "screenshot",
         "video",
-        "gif",
         "asciinema",
         "console",
         "network",
@@ -60,7 +59,6 @@ _TYPE_BY_SUFFIX = {
     ".jpg": "screenshot",
     ".jpeg": "screenshot",
     ".webp": "screenshot",
-    ".gif": "gif",
     ".webm": "video",
     ".mp4": "video",
     ".cast": "asciinema",
@@ -526,33 +524,20 @@ class EvidenceCase:
         self,
         path: str | Path,
         label: str = "Terminal record",
-        *,
-        gif: str | Path | None = None,
     ) -> dict[str, Any]:
-        """Preuve secondaire: enregistrement asciinema (.cast), GIF compagnon optionnel.
+        """Preuve secondaire: enregistrement terminal (.cast v2), joué par xterm.js.
 
         Le .cast est textuel donc redacté, mais jamais uploadable: un secret
         peut être fragmenté entre événements ndjson et échapper au scan.
         """
 
-        entry = self.attach_file(
+        return self.attach_file(
             path,
             label,
             "asciinema",
             classification=ArtifactClassification.INTERNAL,
             upload_allowed=False,
         )
-        if gif is not None:
-            gif_path = Path(gif)
-            if gif_path.is_file() and not gif_path.is_symlink():
-                self.attach_file(
-                    gif_path,
-                    f"{label} (gif)",
-                    "gif",
-                    classification=ArtifactClassification.OPAQUE_RESTRICTED,
-                    upload_allowed=False,
-                )
-        return entry
 
     def set_report(self, report: Any) -> None:
         self.duration_s = round(float(getattr(report, "duration", 0.0) or 0.0), 3)

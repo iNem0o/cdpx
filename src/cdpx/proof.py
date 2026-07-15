@@ -35,7 +35,7 @@ from cdpx.artifacts import (
     SecureArtifactWriter,
     scan_canaries,
 )
-from cdpx.proofing.cast import collect_cast_evidence
+from cdpx.proofing.cast import CAST_COMMANDS, collect_cast_evidence
 from cdpx.proofing.documentation import (
     build_documentation_catalog,
     documentation_failures,
@@ -69,6 +69,11 @@ VALIDATION_DOC = Path("docs/VALIDATION.md")
 MERMAID_VERSION = "11.16.0"
 MERMAID_RESOURCE = f"vendor/mermaid-{MERMAID_VERSION}.min.js"
 MERMAID_SHA256 = "74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b"
+XTERM_VERSION = "5.5.0"
+XTERM_JS_RESOURCE = f"vendor/xterm-{XTERM_VERSION}.min.js"
+XTERM_CSS_RESOURCE = f"vendor/xterm-{XTERM_VERSION}.min.css"
+XTERM_JS_SHA256 = "4196e242ef1cf4c2adead8d97f4a772a69576076f70b095e004b4abbb049e7bf"
+XTERM_CSS_SHA256 = "f7f724aea2bb620a6482bfb8e4bdecfae1152b0c7facef55fbda61f3b6cfedb2"
 
 _ALLOWED_ENV_NAMES = {
     "CI",
@@ -652,9 +657,12 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
             ),
         },
         {
-            "item": "Asciinema terminal record",
-            "why": "`asciinema` est optionnel et ne doit pas bloquer `make proof`.",
-            "how_to_verify": "Option: `asciinema rec .proof/make-proof.cast -c 'make proof'`.",
+            "item": "Casts de démonstration",
+            "why": (
+                "L'enregistreur natif (pty) fait partie du portail: un cast manquant "
+                "ou dégradé fait échouer `make proof`."
+            ),
+            "how_to_verify": "Ouvrir le rapport et jouer les casts du catalogue de preuves.",
         },
         {
             "item": "Screenshot produit",
@@ -788,7 +796,6 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) 
         ("*.webm", "video"),
         ("*.mp4", "video"),
         ("*.cast", "asciinema"),
-        ("*.gif", "gif"),
     ):
         for path in sorted(PROOF_DIR.rglob(pattern)):
             catalog.append(
@@ -810,19 +817,7 @@ def build_evidence_catalog(summary: dict, unit: dict, e2e: dict, symfony: dict) 
                 "roi": "Non générée automatiquement; utile seulement pour prouver un delta visuel.",
             }
         )
-    if not any(item["type"] == "asciinema" for item in catalog):
-        catalog.append(
-            {
-                "type": "asciinema",
-                "name": "Terminal record",
-                "path": "",
-                "status": "optional",
-                "roi": (
-                    "Optionnel; activer avec CDPX_PROOF_CAST=1 (asciinema requis, "
-                    "GIF via agg). Les logs texte couvrent déjà la reproduction du run."
-                ),
-            }
-        )
+    inline_catalog_casts(catalog)
     return catalog
 
 
@@ -975,7 +970,11 @@ _INLINE_TYPES = frozenset(
     {"command", "log-excerpt", "logs", "json", "console", "network", "profiler", "asciinema"}
 )
 INLINE_MAX_BYTES = 16 * 1024
+# Les .cast sont la matière première du player: cap dédié plus large, mais
+# toujours très en deçà de MAX_CAST_BYTES pour contenir le poids du rapport.
+INLINE_CAST_MAX_BYTES = 256 * 1024
 INLINE_TOTAL_BUDGET = 2 * 1024 * 1024
+INLINE_CAST_BUDGET = 1 * 1024 * 1024
 EXCERPT_HEAD_LINES = 10
 EXCERPT_TAIL_LINES = 30
 
@@ -1004,8 +1003,9 @@ def _inline_artifact(entry: dict, remaining: int) -> int:
         entry["inline_skipped"] = "illisible"
         return remaining
     size = path.stat().st_size
-    if size > INLINE_MAX_BYTES or size > remaining:
-        entry["inline_skipped"] = "taille" if size > INLINE_MAX_BYTES else "budget"
+    unit_cap = INLINE_CAST_MAX_BYTES if entry.get("type") == "asciinema" else INLINE_MAX_BYTES
+    if size > unit_cap or size > remaining:
+        entry["inline_skipped"] = "taille" if size > unit_cap else "budget"
         entry["truncated"] = True
         if not entry.get("excerpt"):
             entry["excerpt"] = _artifact_excerpt(path.read_text(encoding="utf-8", errors="replace"))
@@ -1013,6 +1013,20 @@ def _inline_artifact(entry: dict, remaining: int) -> int:
     entry["inline_content"] = path.read_text(encoding="utf-8", errors="replace")
     entry["truncated"] = False
     return remaining - size
+
+
+def inline_catalog_casts(catalog: list[dict], *, budget: int = INLINE_CAST_BUDGET) -> list[dict]:
+    """Inline les .cast du catalogue: le player du cockpit exige ``inline_content``.
+
+    Sans cet inline, un cast produit hors scénario pytest ne serait qu'un lien
+    de tableau — injouable sous la CSP du rapport (aucun fetch autorisé).
+    """
+
+    remaining = budget
+    for entry in catalog:
+        if entry.get("type") == "asciinema" and entry.get("path"):
+            remaining = _inline_artifact(entry, remaining)
+    return catalog
 
 
 def inline_scenario_artifacts(
@@ -1115,12 +1129,15 @@ def build_project_risks_and_unknowns() -> dict:
             ),
         },
         {
-            "item": "Asciinema du run complet",
-            "why": "`asciinema` est optionnel et ne doit pas bloquer le portail.",
+            "item": "Cast du run complet",
+            "why": (
+                "Le portail enregistre nativement les commandes de démonstration; "
+                "le run `make proof` entier n'est pas auto-enregistré (durée et poids)."
+            ),
             "how_to_verify": (
-                "Opt-in intégré: `CDPX_PROOF_CAST=1 make proof` enregistre les commandes "
-                "de démonstration (GIF via `agg` si présent). Manuel: "
-                "`asciinema rec .proof/make-proof.cast -c 'make proof'`."
+                "Les casts de démonstration sont générés et jugés à chaque `make proof`; "
+                "pour un enregistrement du run complet, lancer `make proof` dans un "
+                "enregistreur de terminal externe."
             ),
         },
     ]
@@ -1308,18 +1325,30 @@ def _json_for_html_script(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
 
+def _verified_vendor_bundle(resource: str, expected_sha256: str, *, forbidden: str) -> str:
+    bundle = resources.files("cdpx.proofing").joinpath(resource).read_bytes()
+    digest = hashlib.sha256(bundle).hexdigest()
+    if digest != expected_sha256:
+        raise ValueError(f"bundle {resource} invalide: attendu={expected_sha256}, reçu={digest}")
+    source = bundle.decode("utf-8")
+    if forbidden in source.lower():
+        raise ValueError(f"bundle {resource} impropre à une inclusion inline")
+    return source
+
+
 @lru_cache(maxsize=1)
 def _mermaid_bundle() -> str:
-    bundle = resources.files("cdpx.proofing").joinpath(MERMAID_RESOURCE).read_bytes()
-    digest = hashlib.sha256(bundle).hexdigest()
-    if digest != MERMAID_SHA256:
-        raise ValueError(
-            f"bundle Mermaid {MERMAID_VERSION} invalide: attendu={MERMAID_SHA256}, reçu={digest}"
-        )
-    source = bundle.decode("utf-8")
-    if "</script" in source.lower():
-        raise ValueError(f"bundle Mermaid {MERMAID_VERSION} impropre à une inclusion inline")
-    return source
+    return _verified_vendor_bundle(MERMAID_RESOURCE, MERMAID_SHA256, forbidden="</script")
+
+
+@lru_cache(maxsize=1)
+def _xterm_bundle() -> str:
+    return _verified_vendor_bundle(XTERM_JS_RESOURCE, XTERM_JS_SHA256, forbidden="</script")
+
+
+@lru_cache(maxsize=1)
+def _xterm_css() -> str:
+    return _verified_vendor_bundle(XTERM_CSS_RESOURCE, XTERM_CSS_SHA256, forbidden="</style")
 
 
 def render_html(summary: dict) -> str:
@@ -1327,6 +1356,8 @@ def render_html(summary: dict) -> str:
     generated = html.escape(summary["generated_at"])
     payload = _json_for_html_script(summary)
     mermaid_bundle = _mermaid_bundle()
+    xterm_bundle = _xterm_bundle()
+    xterm_css = _xterm_css()
     pill = "ok" if summary["ok"] else "failed"
     git_context = summary["git"]
     context = (
@@ -1338,10 +1369,26 @@ def render_html(summary: dict) -> str:
         pill=pill,
         context=context,
         spa_css=SPA_CSS,
+        xterm_css=xterm_css,
         payload=payload,
         mermaid_bundle=mermaid_bundle,
+        xterm_bundle=xterm_bundle,
         spa_js=SPA_JS,
     )
+
+
+def cast_failures_from_entries(cast_entries: list[dict] | None) -> list[str]:
+    """Portail cast: chaque commande de démonstration doit avoir son .cast généré."""
+
+    by_id = {str(entry.get("id", "")): entry for entry in (cast_entries or [])}
+    failures = []
+    for cast_id, _argv in CAST_COMMANDS:
+        entry = by_id.get(cast_id)
+        if entry is None:
+            failures.append(f"cast missing: {cast_id}")
+        elif entry.get("status") != "generated":
+            failures.append(f"cast {entry.get('status', 'unknown')}: {cast_id}")
+    return failures
 
 
 def build_summary(
@@ -1353,6 +1400,7 @@ def build_summary(
     git_context: dict | None = None,
     help_commands: list[dict[str, str]] | None = None,
     scenario_evidence: dict | None = None,
+    cast_entries: list[dict] | None = None,
 ) -> dict:
     symfony = symfony or _empty_suite(SYMFONY_JUNIT)
     git_context = git_context or {
@@ -1423,6 +1471,7 @@ def build_summary(
         symfony_failures.append(f"symfony evidence unavailable ({unavailable} scenarios)")
     if symfony["skipped"]:
         symfony_failures.append(f"symfony tests skipped ({symfony['skipped']})")
+    cast_gate_failures = cast_failures_from_entries(cast_entries)
     ok = (
         all(command.exit_code == 0 for command in commands)
         and failed_tests == 0
@@ -1431,6 +1480,7 @@ def build_summary(
         and not documentation_catalog_failures
         and not symfony_failures
         and not suite_failures
+        and not cast_gate_failures
     )
     summary = {
         "ok": ok,
@@ -1474,12 +1524,14 @@ def build_summary(
         "scenario_totals": scenario_evidence["totals"],
         "feature_inventory": feature_inventory,
         "documentation": documentation,
+        "casts": list(cast_entries or []),
         "proof_failures": scenario_failures
         + feature_inventory_failures
         + documentation_catalog_failures
         + command_failures
         + symfony_failures
-        + suite_failures,
+        + suite_failures
+        + cast_gate_failures,
         "risks": risk_packet["risks"],
         "unknowns": risk_packet["unknowns"],
     }
@@ -1664,10 +1716,10 @@ def _generate() -> dict:
         ),
     ]
 
-    # Preuve secondaire opt-in (CDPX_PROOF_CAST=1): les .cast/.gif atterrissent
-    # dans .proof/ et entrent au rapport via le catalogue (rglob), le verdict
-    # ne dépend jamais de leur présence.
-    collect_cast_evidence(PROOF_DIR, env=env, redaction_context=context)
+    # Preuve secondaire native (pty, aucune dépendance): les .cast atterrissent
+    # dans .proof/ et entrent au rapport via le catalogue (rglob). Le portail
+    # exige un statut "generated" pour chaque commande de démonstration.
+    cast_entries = collect_cast_evidence(PROOF_DIR, env=env, redaction_context=context)
 
     for path in (unit_xml, e2e_xml, symfony_xml):
         _sanitize_text_file(path, context)
@@ -1683,6 +1735,7 @@ def _generate() -> dict:
         symfony,
         git_context=git_context,
         help_commands=help_commands,
+        cast_entries=cast_entries,
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
@@ -1695,9 +1748,17 @@ def _generate() -> dict:
         lean_evidence,
         redaction_context=context,
     )
+    lean_catalog = [
+        {key: value for key, value in item.items() if key != "inline_content"}
+        for item in summary["evidence_catalog"]
+    ]
     _write_private_text(
         SUMMARY_JSON,
-        json.dumps({**summary, "scenario_evidence": lean_evidence}, ensure_ascii=False, indent=2)
+        json.dumps(
+            {**summary, "scenario_evidence": lean_evidence, "evidence_catalog": lean_catalog},
+            ensure_ascii=False,
+            indent=2,
+        )
         + "\n",
     )
     _write_private_text(

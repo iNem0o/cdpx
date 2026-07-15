@@ -74,7 +74,7 @@
      sont optionnels — tout viewer dégrade en lien de téléchargement. */
 
   const VIEWER_ICONS = {
-    'screenshot': '🖼', 'gif': '🎞', 'video': '🎬', 'console': '≡', 'network': '⇄',
+    'screenshot': '🖼', 'video': '🎬', 'console': '≡', 'network': '⇄',
     'json': '{}', 'profiler': '⏱', 'logs': '¶', 'log-excerpt': '¶', 'command': '$',
     'asciinema': '⏵', 'file': '⇩'
   };
@@ -97,11 +97,6 @@
   function screenshotViewer(artifact) {
     const href = esc(hrefFor(artifact.path));
     return `<figure class="viewer-media"><img src="${href}" alt="${esc(artifact.label || 'screenshot')}" data-zoomable></figure>`;
-  }
-
-  function gifViewer(artifact) {
-    const href = esc(hrefFor(artifact.path));
-    return `<figure class="viewer-media"><img src="${href}" alt="${esc(artifact.label || 'gif')}"></figure>`;
   }
 
   function videoViewer(artifact) {
@@ -265,11 +260,11 @@
     return `${head}${streams}`;
   }
 
-  /* === Mini-player asciinema (.cast v2) ===
-     Player maison volontairement minimal (pas de vendoring: asciinema-player
-     est GPL-3.0 depuis la v3). Sous-ensemble ANSI: SGR 16 couleurs + bold,
-     \r, effacement de ligne/écran. La vue brute et le GIF compagnon couvrent
-     les casts que ce sous-ensemble rendrait mal. */
+  /* === Player asciinema (.cast v2) sur xterm.js ===
+     Émulation terminal complète via le bundle xterm.js vendoré (MIT —
+     asciinema-player officiel est GPL-3.0, incompatible avec le paquet).
+     La toolbar maison (lecture, scrub, vitesses) écrit dans xterm; le
+     rembobinage = reset + rejeu (xterm n'a pas d'état réversible). */
 
   const ANSI_RE = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g;
 
@@ -291,72 +286,9 @@
     return {header, events};
   }
 
-  function castTerminal() {
-    const state = {grid: [[]], row: 0, col: 0, cls: ''};
-    const put = (char) => {
-      const line = state.grid[state.row];
-      while (line.length < state.col) line.push({ch: ' ', cls: ''});
-      line[state.col] = {ch: char, cls: state.cls};
-      state.col += 1;
-    };
-    const applySgr = (params) => {
-      for (const raw of (params || '0').split(';')) {
-        const code = Number(raw || '0');
-        if (code === 0) state.cls = '';
-        else if (code === 1) state.cls = (state.cls + ' cast-b').trim();
-        else if (code >= 30 && code <= 37) state.cls = (state.cls.replace(/cast-f\d+/g, '') + ` cast-f${code - 30}`).trim();
-        else if (code >= 90 && code <= 97) state.cls = (state.cls.replace(/cast-f\d+/g, '') + ` cast-f${code - 90 + 8}`).trim();
-      }
-    };
-    const write = (data) => {
-      let index = 0;
-      while (index < data.length) {
-        const char = data[index];
-        if (char === '\x1b') {
-          const rest = data.slice(index);
-          const match = rest.match(/^\x1b\[([0-9;?]*)([ -\/]*)([@-~])/);
-          if (match) {
-            const [full, params, , final] = match;
-            if (final === 'm') applySgr(params);
-            else if (final === 'K') {
-              const line = state.grid[state.row];
-              if (params === '2') state.grid[state.row] = [];
-              else line.splice(state.col);
-            } else if (final === 'J') {
-              state.grid = [[]]; state.row = 0; state.col = 0;
-            } else if (final === 'H') {
-              state.row = 0; state.col = 0;
-              while (state.grid.length <= state.row) state.grid.push([]);
-            }
-            index += full.length;
-            continue;
-          }
-          index += 1;
-          continue;
-        }
-        if (char === '\n') { state.row += 1; state.col = 0; while (state.grid.length <= state.row) state.grid.push([]); }
-        else if (char === '\r') { state.col = 0; }
-        else if (char === '\t') { do { put(' '); } while (state.col % 8); }
-        else if (char >= ' ') { put(char); }
-        index += 1;
-      }
-    };
-    const toHtml = () => state.grid.map((line) => {
-      if (!line.length) return '';
-      const spans = [];
-      let current = null;
-      for (const cell of line) {
-        if (current && current.cls === cell.cls) current.text += cell.ch;
-        else { current = {cls: cell.cls, text: cell.ch}; spans.push(current); }
-      }
-      return spans.map((span) => span.cls ? `<span class="${esc(span.cls)}">${esc(span.text)}</span>` : esc(span.text)).join('');
-    }).join('\n');
-    return {write, toHtml};
-  }
-
   function castViewer(artifact) {
     const parsed = parseCast(artifact.inline_content);
-    if (!parsed) return basicTextViewer(artifact);
+    if (!parsed || typeof globalThis.Terminal !== 'function') return basicTextViewer(artifact);
     const rawText = parsed.events.map((event) => event.data).join('').replace(ANSI_RE, '').replace(/\r/g, '');
     const duration = parsed.events.length ? parsed.events[parsed.events.length - 1].t : 0;
     return `<div class="cast" data-cast>
@@ -368,7 +300,7 @@
         <span class="muted" data-cast-time></span>
         <label class="muted cast-rawtoggle"><input type="checkbox" data-cast-rawtoggle> vue brute</label>
       </div>
-      <pre class="cast-screen" data-cast-screen></pre>
+      <div class="cast-screen" data-cast-screen></div>
       <pre class="viewer-text" data-cast-raw hidden>${esc(rawText)}</pre>
     </div>`;
   }
@@ -379,6 +311,7 @@
     if (!castPlayer) return;
     castPlayer.playing = false;
     if (castPlayer.raf) cancelAnimationFrame(castPlayer.raf);
+    if (castPlayer.terminal) castPlayer.terminal.dispose();
     castPlayer = null;
   }
 
@@ -386,7 +319,7 @@
     stopCastPlayer();
     const root = container.querySelector('[data-cast]');
     const parsed = parseCast(artifact.inline_content);
-    if (!root || !parsed) return;
+    if (!root || !parsed || typeof globalThis.Terminal !== 'function') return;
     const screen = root.querySelector('[data-cast-screen]');
     const raw = root.querySelector('[data-cast-raw]');
     const scrub = root.querySelector('[data-cast-scrub]');
@@ -394,16 +327,26 @@
     const playButton = root.querySelector('[data-cast-play]');
     const speedButton = root.querySelector('[data-cast-speed]');
     const duration = parsed.events.length ? parsed.events[parsed.events.length - 1].t : 0;
-    const player = {events: parsed.events, duration, clock: 0, playing: false, speed: 1, raf: 0, last: 0};
+    const terminal = new globalThis.Terminal({
+      cols: Number(parsed.header.width) || 100,
+      rows: Number(parsed.header.height) || 30,
+      disableStdin: true,
+      convertEol: false,
+      scrollback: 5000,
+      fontSize: 13
+    });
+    terminal.open(screen);
+    const player = {events: parsed.events, duration, clock: 0, playing: false, speed: 1, raf: 0, last: 0, written: 0, terminal};
 
     const renderAt = (clock) => {
       player.clock = Math.min(Math.max(clock, 0), duration);
-      const terminal = castTerminal();
-      for (const event of player.events) {
-        if (event.t > player.clock) break;
-        terminal.write(event.data);
-      }
-      screen.innerHTML = terminal.toHtml();
+      let target = 0;
+      while (target < player.events.length && player.events[target].t <= player.clock) target += 1;
+      // Avance: on n'écrit que le delta. Recul: reset + rejeu depuis zéro.
+      let start = player.written;
+      if (target < player.written) { terminal.reset(); start = 0; }
+      for (let index = start; index < target; index += 1) terminal.write(player.events[index].data);
+      player.written = target;
       scrub.value = String(Math.round(player.clock * 1000));
       timeLabel.textContent = `${player.clock.toFixed(1)}s / ${duration.toFixed(1)}s`;
       playButton.textContent = player.playing ? '⏸ pause' : '▶ lecture';
@@ -450,7 +393,6 @@
 
   const VIEWERS = {
     'screenshot': screenshotViewer,
-    'gif': gifViewer,
     'video': videoViewer,
     'console': consoleViewer,
     'network': networkViewer,
@@ -940,7 +882,7 @@
       return `<a class="chip" href="${href}"><span class="chip-icon">${icon}</span>${label}</a>`;
     }
     const modalAttrs = `data-modal-group="${group}" data-modal-index="${index}"`;
-    if (artifact.type === 'screenshot' || artifact.type === 'gif') {
+    if (artifact.type === 'screenshot') {
       return `<a class="shot" href="${href}" ${modalAttrs}><img src="${href}" alt="${label}" loading="lazy"><span>${icon} ${label}</span></a>`;
     }
     return `<a class="chip" href="${href}" ${modalAttrs} title="${esc(artifact.type)}"><span class="chip-icon">${icon}</span>${label}</a>`;
@@ -986,8 +928,31 @@
       <h2>Commandes</h2><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Preuve</th><th>Commande</th><th>Durée</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
       <h2>Suites JUnit</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Tests</th><th>Passés</th><th>Échecs</th><th>Skips</th><th>Durée</th><th>XML</th></tr></thead><tbody>${suiteRows}</tbody></table></div>
       <details class="panel secondary-table"><summary>Focus (échecs ou plus lents)</summary><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Statut</th><th>Test</th><th>Durée</th></tr></thead><tbody>${focusRows}</tbody></table></div></details>
+      ${renderCastSection()}
       <details class="panel secondary-table"><summary>Fins de logs</summary>${tails}</details>
       <details class="panel secondary-table"><summary>Catalogue des preuves</summary>${renderEvidenceCatalog()}</details>`;
+  }
+
+  function renderCastSection() {
+    // Portail cast: chaque commande de démonstration doit avoir son .cast
+    // "generated"; les versions inlinées du catalogue s'ouvrent dans le player.
+    const casts = data.casts || [];
+    if (!casts.length) return '';
+    const playable = (data.evidence_catalog || [])
+      .filter((item) => item.type === 'asciinema' && item.inline_content)
+      .map((item) => ({...item, label: item.name}));
+    const chips = playable.length
+      ? renderArtifacts(playable, null)
+      : '<span class="muted">Aucun cast jouable embarqué dans ce rapport.</span>';
+    const rows = casts.map((cast) => `<tr>
+      <td>${statusPill(cast.status === 'generated' ? 'ok' : 'failed')}</td>
+      <td><code>${esc(cast.id)}</code></td>
+      <td><code>${esc(cast.path || '—')}</code></td>
+      <td>${esc(cast.bytes || 0)}</td>
+    </tr>`).join('');
+    return `<h2>Casts de démonstration</h2>
+      <div class="badges">${chips}</div>
+      <div class="table-wrap"><table><thead><tr><th>Statut</th><th>Cast</th><th>Fichier</th><th>Octets</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderCommandTimeline(commands) {
