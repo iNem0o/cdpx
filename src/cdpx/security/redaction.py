@@ -27,7 +27,12 @@ _JWT_RE = re.compile(
     r"[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
 )
 _HTTP_URL_RE = re.compile(r"\bhttps?://[^\s<>'\"]+", flags=re.IGNORECASE)
-_DATA_URL_RE = re.compile(r"\bdata:[^\s<>'\"]+", flags=re.IGNORECASE)
+_DATA_URL_RE = re.compile(
+    r"\bdata:(?:[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+)?"
+    r"(?:;[a-zA-Z0-9!#$&^_.+%={}:@/?-]+)*,"
+    r"[^\s<>'\"]*",
+    flags=re.IGNORECASE,
+)
 _TRAILING_URL_PUNCTUATION = ".,;:!?)]}"
 _INVALID_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _URL_CONTROL_RE = re.compile(r"[\x00-\x20\x7f]")

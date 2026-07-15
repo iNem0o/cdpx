@@ -346,10 +346,18 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path):
         "totals": {},
         "scenario_totals": {},
     }
-    report = tmp_path / "proof-report.html"
-    report.write_text(proof.render_html(summary), encoding="utf-8")
+    proof_dir = tmp_path / ".proof"
+    report = proof_dir / "proof-report.html"
+    proof._write_private_text(report, proof.render_html(summary))
+    staging = proof.build_shareable_proof(
+        proof_dir,
+        canaries=["never-present"],
+        pre_redacted_paths={"proof-report.html"},
+    )
 
-    target = report.as_uri() + "#/docs/view/docs/SESSION-LIFECYCLE.md"
+    target = (
+        staging / ".proof" / "proof-report.html"
+    ).as_uri() + "#/docs/view/docs/SESSION-LIFECYCLE.md"
     assert nav.navigate(client, target)["ok"] is True
     nav.wait_for(client, ".panel.doc", timeout=20)
     runtime_state = js.evaluate(

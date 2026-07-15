@@ -79,6 +79,18 @@ Git publique utilisée pour empêcher les doublons.
   - Verification (commande/CI): E2E cockpit ciblé, `make check`, `make proof`
     et `make dist` verts.
 
+- Session-Key: agent/github-integration-hardening@bc45078
+  - Symptom: le rapport généré levait `Unexpected token ';'` car des marqueurs
+    `cdpx-redacted` apparaissaient au milieu du bundle Mermaid minifié.
+  - Root cause (missing capability): le rapport entier, code statique compris,
+    repassait deux fois dans des détecteurs conçus pour du texte libre; `data:`
+    dans une propriété JavaScript était confondu avec une Data URL.
+  - Fix encoded (doc/script/lint): le résumé dynamique est redacted avant rendu,
+    le rapport pré-nettoyé traverse le staging sans mutation et le détecteur de
+    Data URL exige désormais un en-tête conforme; le scan de canaris reste final.
+  - Verification (commande/CI): tests redaction et staging, E2E Chrome sur le
+    rapport partageable, `make check`, `make proof`, `node --check` et `cmp` verts.
+
 ## Réponses CDP croisées pendant une interception
 
 - **Symptôme :** `Page.navigate` expirait dans Chrome Docker lorsque Fetch

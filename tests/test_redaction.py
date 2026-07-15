@@ -150,6 +150,19 @@ def test_redact_text_avoids_aggressive_email_and_number_masking():
     assert redact_text(value) == value
 
 
+def test_redact_text_distinguishes_javascript_data_properties_from_data_urls():
+    value = (
+        "const selection={data:function(value){return value},meta:{data:[1,2]}};"
+        'const icon = "data:image/png;base64,cHJpdmF0ZQ==";'
+    )
+
+    redacted = redact_text(value)
+
+    assert "{data:function(value)" in redacted
+    assert "{data:[1,2]}" in redacted
+    assert '"data:image/png;cdpx-redacted,***"' in redacted
+
+
 def test_environment_secret_discovery_is_name_scoped_and_ignores_tiny_values():
     values = secret_values_from_environment(
         {

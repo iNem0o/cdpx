@@ -71,6 +71,10 @@ Le HTML brut des sources Markdown est désactivé. Les liens internes sont
 résolus uniquement vers les documents publiés, et Mermaid fonctionne avec
 `securityLevel: strict`, une CSP sans connexion sortante et un bundle local
 dont l'empreinte est vérifiée avant génération du rapport.
+Le résumé dynamique est expurgé avant le rendu HTML. Le bundle JavaScript
+vérifié n'est ensuite pas repassé dans les détecteurs de texte libre — qui
+pourraient confondre une propriété minifiée avec une URL — tandis que le scan
+final de canaris reste bloquant sur le staging partageable.
 
 Politique Symfony: Docker, Compose et la suite Symfony réelle sont obligatoires
 pour toute preuve de release. Une preuve `unavailable` ou un test Symfony

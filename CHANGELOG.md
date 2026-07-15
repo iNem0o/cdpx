@@ -31,6 +31,9 @@ Ce projet suit un versionnage sémantique.
 
 ### Modifié
 
+- Le cockpit préserve désormais son bundle Mermaid après redaction : les
+  propriétés JavaScript minifiées ne sont plus confondues avec des Data URLs,
+  et le rapport pré-nettoyé traverse le staging sans mutation du code.
 - `session start --startup-timeout` sépare désormais le budget de cold start
   Chrome (60 secondes par défaut, 300 maximum) des timeouts CDP. Le superviseur
   et son parent partagent ce budget sans course d'expiration; les runners CI

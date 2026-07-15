@@ -2053,15 +2053,19 @@ def build_shareable_proof(
     *,
     canaries: list[str] | None = None,
     ttl: float | None = None,
+    pre_redacted_paths: set[str] | frozenset[str] | None = None,
 ) -> Path:
     """Build the only CI-uploadable proof tree from an explicit manifest.
 
     Textual proof material is already redacted when it reaches this function.
     Opaque/binary attachments remain in the private local proof and are never
-    copied to staging. A final exact-value canary scan fails closed.
+    copied to staging. ``pre_redacted_paths`` is reserved for text assembled
+    exclusively from redacted structures plus trusted static code. A final
+    exact-value canary scan fails closed, including for these preserved files.
     """
 
     selected_ttl = proof_retention_seconds() if ttl is None else ttl
+    preserved = pre_redacted_paths or set()
     if selected_ttl <= 0:
         raise ArtifactError("TTL de proof strictement positif requis")
     if proof_dir.is_symlink() or not proof_dir.is_dir():
@@ -2085,12 +2089,26 @@ def build_shareable_proof(
     for source in source_paths:
         relative = source.relative_to(proof_dir).as_posix()
         classification, upload_allowed = _proof_artifact_policy(source)
-        writer.register_file(
-            source,
-            name=f".proof/{relative}",
-            classification=classification,
-            upload_allowed=upload_allowed,
-        )
+        artifact_name = f".proof/{relative}"
+        if relative in preserved:
+            # Ces fichiers ont déjà été construits exclusivement depuis des
+            # structures redacted. Ne pas repasser du JavaScript de confiance
+            # dans les regex de texte libre; le scan de canaris final demeure
+            # le verrou de publication.
+            writer.write_bytes(
+                artifact_name,
+                source.read_bytes(),
+                classification=classification,
+                upload_allowed=upload_allowed,
+                mime=mimetypes.guess_type(source.name)[0] or "application/octet-stream",
+            )
+        else:
+            writer.register_file(
+                source,
+                name=artifact_name,
+                classification=classification,
+                upload_allowed=upload_allowed,
+            )
 
     # Publish a read-only copy of the full private manifest so reviewers can
     # see which opaque files were deliberately withheld from CI upload.
@@ -2221,13 +2239,14 @@ def _generate() -> dict:
     )
     _write_private_text(
         REPORT_HTML,
-        redact_text(render_html(summary), context=context, path="$.report_html"),
+        render_html(summary),
     )
     _harden_tree(PROOF_DIR)
     build_shareable_proof(
         PROOF_DIR,
         canaries=environment_secret_values(),
         ttl=retention_seconds,
+        pre_redacted_paths={REPORT_HTML.name},
     )
     return summary
 

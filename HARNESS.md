@@ -119,6 +119,10 @@ classification, décision d'upload, version de redaction et expiration.
 `SecureArtifactWriter` réapplique automatiquement `redact_text`/`redact_tree`
 aux écritures texte/JSON et aux fichiers textuels enregistrés. `write_bytes`
 reste opaque : sa classification, et non une inspection impossible, tranche.
+Le rapport HTML du cockpit constitue l'exception bornée : son résumé dynamique
+est redacted comme arbre avant rendu, puis le JavaScript Mermaid local vérifié
+est ajouté sans subir les regex de texte libre. Sa copie partageable est
+préservée à l'identique et reste soumise au scan final de canaris.
 
 | Classification | Usage | Partage automatique |
 | --- | --- | --- |

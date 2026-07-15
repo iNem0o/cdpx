@@ -62,11 +62,17 @@ def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path,
 
 def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(tmp_path):
     proof_dir = tmp_path / ".proof"
-    proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
+    report = '<script>const graph={data:[1,2]};const icon="data:image/png;base64,abc";</script>'
+    proof._write_private_text(proof_dir / "proof-report.html", report)
     proof._write_private_text(proof_dir / "validation-summary.json", '{"ok": true}\n')
     proof._write_private_bytes(proof_dir / "evidence" / "shot.png", b"\x89PNG\r\n")
 
-    staging = proof.build_shareable_proof(proof_dir, canaries=["never-present"], ttl=7200)
+    staging = proof.build_shareable_proof(
+        proof_dir,
+        canaries=["never-present"],
+        ttl=7200,
+        pre_redacted_paths={"proof-report.html"},
+    )
 
     assert (staging / ".proof" / "proof-report.html").exists()
     assert (staging / ".proof" / "validation-summary.json").exists()
@@ -77,6 +83,7 @@ def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(tmp
     assert mode(staging) == 0o700
     assert mode(staging / "manifest.json") == 0o600
     assert mode(staging / ".proof" / "proof-report.html") == 0o600
+    assert (staging / ".proof" / "proof-report.html").read_text(encoding="utf-8") == report
     private_manifest = json.loads(
         (proof_dir / "artifact-manifest.json").read_text(encoding="utf-8")
     )
@@ -93,6 +100,20 @@ def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
 
     with pytest.raises(ArtifactError, match="canary"):
         proof.build_shareable_proof(proof_dir, canaries=["leaked-canary"])
+
+    assert not (proof_dir / "shareable").exists()
+
+
+def test_pre_redacted_report_still_fails_closed_on_canary(tmp_path):
+    proof_dir = tmp_path / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", "<p>leaked-canary</p>")
+
+    with pytest.raises(ArtifactError, match="canary"):
+        proof.build_shareable_proof(
+            proof_dir,
+            canaries=["leaked-canary"],
+            pre_redacted_paths={"proof-report.html"},
+        )
 
     assert not (proof_dir / "shareable").exists()
 
