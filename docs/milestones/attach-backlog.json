@@ -10,26 +10,6 @@
   "what": "Joindre la sortie de la commande session start et un status avant SIGTERM pour tracer l'état vivant qui précède le démantèlement."
  },
  {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid",
-  "helper": "evidence_case.attach_json",
-  "what": "Le test ne demande pas evidence_case; joindre mermaid_state et les sondes d'hermétisme (script[src], resources) documenterait le rendu offline."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_record_replay_real",
-  "helper": "evidence_case.attach_json",
-  "what": "Joindre le journal NDJSON et le résultat de divergence (broken) en plus du screenshot replay-final."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_seo_audit_real",
-  "helper": "@pytest.mark.scenario",
-  "what": "Les tests d'audit SEO (seo_audit_real, seo_edge_real) n'ont pas de marqueur scenario alors qu'ils couvrent un usecase produit (audit SEO)."
- },
- {
-  "nodeid": "tests/e2e/test_e2e_chrome.py::test_record_replay_real",
-  "helper": "@pytest.mark.scenario",
-  "what": "Record/replay est un parcours produit complet (orchestration-control.replay-flow) sans marqueur scenario."
- },
- {
   "nodeid": "tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants",
   "helper": "screenshot / evidence_case.attach_screenshot",
   "what": "Capturer les variantes cles (routing-404, routing-500, doctrine-n-plus-one) individuellement au lieu d'une seule capture finale apres la derniere navigation."

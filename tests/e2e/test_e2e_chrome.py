@@ -430,7 +430,7 @@ def test_cli_stdout_stderr_and_exit_contract(cli_page, evidence_case):
     scenario_id="harness-proof-cockpit.publish-feature-proof",
     proves=["The offline Docs route renders the real session Mermaid diagrams."],
 )
-def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path):
+def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence_case):
     """La preuve partageable rend sa route Docs entièrement hors ligne dans un
     vrai Chrome: les diagrammes Mermaid du cycle de session deviennent des SVG
     sans script externe ni requête réseau."""
@@ -480,8 +480,24 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path):
     #: les quatre diagrammes source sont tous rendus en SVG sans erreur de parsing
     assert mermaid_state == {"svg": 4, "sources": 4, "errors": [], "runtime": "object"}
     #: hermétisme prouvé: aucun script externe déclaré, aucune ressource réseau chargée
-    assert js.evaluate(client, "document.querySelectorAll('script[src]').length") == 0
-    assert js.evaluate(client, "performance.getEntriesByType('resource').length") == 0
+    external_scripts = js.evaluate(client, "document.querySelectorAll('script[src]').length")
+    network_resources = js.evaluate(client, "performance.getEntriesByType('resource').length")
+    assert external_scripts == 0
+    assert network_resources == 0
+    if evidence_case is not None:
+        # Rendu offline documenté: l'état Mermaid (4 sources -> 4 SVG, 0 erreur)
+        # et les sondes d'herméticité (aucun script[src], aucune ressource
+        # réseau) prouvent que la route Docs partageable tient en file:// seul.
+        evidence_case.attach_json(
+            "rendu-offline-mermaid",
+            {
+                "mermaid": mermaid_state,
+                "hermeticity": {
+                    "external_scripts": external_scripts,
+                    "network_resources": network_resources,
+                },
+            },
+        )
 
     js.evaluate(
         client,
@@ -725,6 +741,12 @@ def test_vitals_real_with_interaction(page):
     assert js.evaluate(c, "document.body.dataset.clicked") == "1"
 
 
+@pytest.mark.scenario(
+    feature="seo-performance-accessibility",
+    journey="audit-seo-rendered-dom",
+    scenario_id="seo-performance-accessibility.audit-rendered-seo-and-a11y",
+    proves=["SEO audit surfaces edge-case findings from the rendered DOM."],
+)
 def test_seo_edge_real(page):
     """L'audit SEO détecte les cas limites: estimation en pixels du titre,
     h1 dupliqués, JSON-LD invalide et Product incomplet."""
@@ -776,6 +798,14 @@ def test_pdf_real(page, tmp_path):
     assert dest.read_bytes().startswith(b"%PDF-")
 
 
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="replay-flow",
+    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    proves=[
+        "Record then replay reconstructs a bounded flow and halts at the first divergence.",
+    ],
+)
 def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monkeypatch):
     """Un parcours enregistré agit immédiatement puis se rejoue intégralement
     sur un onglet vierge; un journal altéré provoque une divergence détectée
@@ -817,6 +847,10 @@ def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monk
             assert res["ok"] is True and res["played"] == 3
             assert js.get_text(c, "#result")["text"] == "OK:Léo"
             attach_screenshot(evidence_case, c, "replay-final")
+            if evidence_case is not None:
+                # Journal rejouable intact (.ndjson typé logs/internal): le
+                # secret @env n'y figure jamais, seule la référence est persistée.
+                evidence_case.attach_file(journal, "journal-rejouable-ndjson", "logs")
             # journal altéré (sélecteur disparu) -> divergence, arrêt net
             journal.write_text(
                 journal.read_text().replace("#submit-btn", "#gone"), encoding="utf-8"
@@ -826,6 +860,10 @@ def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monk
             #: s'arrête là au lieu de continuer à l'aveugle
             assert broken["ok"] is False and broken["played"] == 2
             assert broken["divergence"].startswith("event 2:")
+            if evidence_case is not None:
+                # Résultat de divergence: arrêt net à l'évènement altéré (played=2),
+                # preuve lisible du refus de rejouer à l'aveugle après le journal cassé.
+                evidence_case.attach_json("replay-divergence", broken)
     finally:
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
 
@@ -985,6 +1023,12 @@ def test_declarative_scenario_static_observability_fail_real(
     }
 
 
+@pytest.mark.scenario(
+    feature="seo-performance-accessibility",
+    journey="audit-seo-rendered-dom",
+    scenario_id="seo-performance-accessibility.audit-rendered-seo-and-a11y",
+    proves=["SEO audit stays clean on a healthy page and flags a broken one."],
+)
 def test_seo_audit_real(page):
     """L'audit SEO rend un rapport vierge sur une page saine (JSON-LD parsé
     compris) et signale les défauts d'une page cassée."""
