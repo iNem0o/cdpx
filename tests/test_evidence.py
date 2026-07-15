@@ -142,6 +142,29 @@ def test_attach_file_redacts_text_but_keeps_binary_restricted(tmp_path):
     assert binary_entry["upload_allowed"] is False
 
 
+def test_attach_file_treats_ndjson_journal_as_textual_evidence(tmp_path):
+    """Un journal .ndjson est une preuve textuelle: copié redacté et classé
+    internal, donc inlinable par le cockpit au lieu de rester opaque."""
+    context = RedactionContext.from_secrets(["canary-value"])
+    case = EvidenceCase(
+        nodeid="tests/test_demo.py::test_ndjson",
+        root=tmp_path,
+        suite="unit",
+        title="ndjson",
+        redaction_context=context,
+    )
+    source = tmp_path / "record.ndjson"
+    source.write_text('{"typed": "canary-value"}\n', encoding="utf-8")
+
+    entry = case.attach_file(source, "journal")
+
+    #: typé logs et classé internal: le cockpit peut inliner le journal
+    assert entry["type"] == "logs"
+    assert entry["classification"] == ArtifactClassification.INTERNAL.value
+    #: la copie est redactée, le journal attaché ne divulgue rien
+    assert "canary-value" not in (tmp_path / entry["path"]).read_text()
+
+
 def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
     """Le manifeste de session porte le schéma v2, une expiration postérieure
     à la création et la version de la politique de redaction, le tout écrit
@@ -278,8 +301,8 @@ def test_attach_file_enforces_closed_artifact_taxonomy(tmp_path):
 
 
 def test_attach_file_maps_known_suffixes_to_artifact_types(tmp_path):
-    """Chaque suffixe connu (png, cast, webm, log, json) détermine seul le
-    type d'artefact, sans indication de l'appelant."""
+    """Chaque suffixe connu (png, cast, webm, log, ndjson, json) détermine seul
+    le type d'artefact, sans indication de l'appelant."""
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_suffixes",
         root=tmp_path,
@@ -291,6 +314,7 @@ def test_attach_file_maps_known_suffixes_to_artifact_types(tmp_path):
         "record.cast": "asciinema",
         "clip.webm": "video",
         "trace.log": "logs",
+        "journal.ndjson": "logs",
         "payload.json": "json",
     }
     for name, expected in expectations.items():

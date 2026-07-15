@@ -64,6 +64,7 @@ _TYPE_BY_SUFFIX = {
     ".cast": "asciinema",
     ".json": "json",
     ".log": "logs",
+    ".ndjson": "logs",
     ".txt": "logs",
 }
 PROOF_RETENTION_ENV = "CDPX_PROOF_RETENTION_DAYS"
@@ -165,6 +166,7 @@ def _is_textual(mime: str, path: Path) -> bool:
             ".json",
             ".log",
             ".md",
+            ".ndjson",
             ".txt",
             ".xml",
             ".yml",
