@@ -6,8 +6,13 @@ from cdpx.proofing.documentation import build_documentation_catalog
 
 
 def test_real_documentation_catalog_publishes_references_and_all_features():
+    """Le catalogue construit depuis le dépôt réel publie les références
+    racines et toutes les fiches features en HTML, sans violation, avec des
+    liens internes réécrits vers le routeur du cockpit."""
     catalog = build_documentation_catalog()
 
+    #: le catalogue livré respecte son schéma, désigne son index et ne
+    #: contient aucune violation résiduelle
     assert catalog["schema"] == "cdpx.docs/v1"
     assert catalog["index"] == "README.md"
     assert catalog["violations"] == []
@@ -20,6 +25,8 @@ def test_real_documentation_catalog_publishes_references_and_all_features():
         "docs/VALIDATION.md",
     } <= paths
     feature_docs = [item for item in catalog["documents"] if item["kind"] == "feature"]
+    #: chaque fiche feature du dépôt est publiée en HTML corps-seul (sans
+    #: front-matter) et reste rattachée à son feature_id
     assert len(feature_docs) == 8
     assert all(item["feature_id"] for item in feature_docs)
     assert all(item["html"].lstrip().startswith("<h2") for item in feature_docs)
@@ -27,15 +34,21 @@ def test_real_documentation_catalog_publishes_references_and_all_features():
     session = next(
         item for item in catalog["documents"] if item["path"] == "docs/SESSION-LIFECYCLE.md"
     )
+    #: les diagrammes mermaid survivent au rendu comme blocs natifs et les
+    #: liens relatifs sont réécrits vers la navigation interne du cockpit
     assert session["html"].count('<pre class="mermaid">') == 4
     assert "#/docs/view/HARNESS.md" in session["html"]
     assert "#/docs/view/docs/features/state-session.md" in session["html"]
 
 
 def test_catalog_tree_follows_filesystem_and_applies_labels():
+    """L'arbre de navigation reflète l'arborescence réelle des fichiers du
+    dépôt tout en substituant les libellés curatés lisibles par un humain."""
     catalog = build_documentation_catalog()
     tree = catalog["tree"]
 
+    #: chaque niveau du filesystem reçoit son libellé humain, et les huit
+    #: fiches sont rangées sous le nœud des spécifications fonctionnelles
     assert tree["label"] == "Documentation produit"
     docs = next(child for child in tree["children"] if child["path"] == "docs")
     assert docs["label"] == "Références"
@@ -58,24 +71,34 @@ exclude = []
 
 
 def test_catalog_rejects_paths_outside_repository(tmp_path):
+    """Un include pointant hors du dépôt est refusé en bloc: la rubrique Docs
+    ne peut pas servir de canal d'exfiltration de fichiers externes."""
     _write_config(tmp_path, "../secret.md")
 
     catalog = build_documentation_catalog(root=tmp_path, feature_specs=[])
 
+    #: rien n'est publié et la violation explicite le motif du rejet
+    #: (chemin échappant à la racine du dépôt)
     assert catalog["documents"] == []
     assert "hors dépôt" in catalog["violations"][0]
 
 
 def test_catalog_rejects_empty_glob(tmp_path):
+    """Un glob de config sans correspondance est une violation, pas un
+    silence: une entrée morte de cockpit.toml doit se voir immédiatement."""
     _write_config(tmp_path, "docs/missing-*.md")
 
     catalog = build_documentation_catalog(root=tmp_path, feature_specs=[])
 
+    #: le catalogue reste vide et la violation dénonce le motif sans
+    #: résultat au lieu de publier un sous-ensemble trompeur
     assert catalog["documents"] == []
     assert "sans résultat" in catalog["violations"][0]
 
 
 def test_catalog_rejects_symlinked_document(tmp_path):
+    """Un document atteint via un lien symbolique est refusé: seul un fichier
+    régulier du dépôt est publiable, contre les évasions par symlink."""
     target = tmp_path / "README.md"
     target.write_text("# README\n", encoding="utf-8")
     docs = tmp_path / "docs"
@@ -85,5 +108,7 @@ def test_catalog_rejects_symlinked_document(tmp_path):
 
     catalog = build_documentation_catalog(root=tmp_path, feature_specs=[])
 
+    #: le symlink est rejeté avec un message exigeant un fichier régulier,
+    #: même si sa cible vit dans le dépôt
     assert catalog["documents"] == []
     assert "régulier requis" in catalog["violations"][0]
