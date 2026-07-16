@@ -6,10 +6,16 @@ import stat
 
 import pytest
 
+from cdpx.action_model import ClickAction, EvalAction, GotoAction, TypeAction
 from cdpx.client import CDPClient
 from cdpx.journal import JournalError, append_event, materialize_action, serialize_action
-from cdpx.primitives import advanced
+from cdpx.orchestration import OrchestrationContext
+from cdpx.primitives import recording
 from cdpx.security import RedactionContext
+
+
+def orchestration(redaction: RedactionContext | None = None) -> OrchestrationContext:
+    return OrchestrationContext.from_origins("http://*.test", redaction=redaction)
 
 
 def test_type_literal_is_redacted_and_not_replayable():
@@ -18,7 +24,7 @@ def test_type_literal_is_redacted_and_not_replayable():
     serait mentir."""
     context = RedactionContext.from_secrets(["super-secret"])
     stored, replayable = serialize_action(
-        ["type", "#password", "super-secret", "--clear"],
+        TypeAction("#password", "super-secret", clear=True),
         context=context,
     )
     #: la forme stockée ne garde que la structure de l'action,
@@ -41,21 +47,21 @@ def test_secret_env_reference_is_replayable_without_serializing_value(monkeypatc
     le nom de la variable et la valeur secrète est résolue au moment du
     rejeu."""
     monkeypatch.setenv("CHECKOUT_PASSWORD", "env-secret")
-    stored, replayable = serialize_action(["type", "#password", "@env:CHECKOUT_PASSWORD"])
+    stored, replayable = serialize_action(TypeAction("#password", "@env:CHECKOUT_PASSWORD"))
     #: seule la référence est persistée, la valeur reste dans l'environnement
     assert replayable is True
     assert stored["input"] == {"secret_ref": "CHECKOUT_PASSWORD", "source": "env"}
     assert "env-secret" not in json.dumps(stored)
     #: la matérialisation résout la référence au dernier moment et
     #: reconstruit l'action complète pour l'exécution
-    assert materialize_action(stored) == ["type", "#password", "env-secret"]
+    assert materialize_action(stored) == TypeAction("#password", "env-secret")
 
 
 def test_missing_secret_ref_fails_before_action(monkeypatch):
     """Une référence de secret absente de l'environnement fait échouer la
     matérialisation avant toute exécution, en nommant la variable."""
     monkeypatch.delenv("MISSING_SECRET", raising=False)
-    stored, _ = serialize_action(["type", "#password", "@env:MISSING_SECRET"])
+    stored, _ = serialize_action(TypeAction("#password", "@env:MISSING_SECRET"))
     #: l'erreur cite la référence manquante, diagnostic immédiat sans avoir
     #: lancé la moindre action navigateur
     with pytest.raises(JournalError, match="MISSING_SECRET"):
@@ -65,7 +71,7 @@ def test_missing_secret_ref_fails_before_action(monkeypatch):
 def test_eval_is_redacted_and_non_replayable():
     """Une expression eval est masquée dans le journal mais reste corrélable
     par son empreinte SHA-256; l'action n'est jamais rejouable."""
-    stored, replayable = serialize_action(["eval", "document.cookie"])
+    stored, replayable = serialize_action(EvalAction("document.cookie"))
     #: l'expression disparaît du journal, seule son empreinte permet de la
     #: corréler à une exécution connue
     assert replayable is False
@@ -80,7 +86,7 @@ def test_any_redacted_action_is_stored_safely_and_marked_non_replayable():
     chemin secret, token) perd son droit de rejeu; une action intacte le
     conserve."""
     stored, replayable = serialize_action(
-        ["goto", "https://user:pass@example.test/reset/private-path?token=value#trace"],
+        GotoAction("https://user:pass@example.test/reset/private-path?token=value#trace"),
         context=RedactionContext.from_secrets(["private-path"]),
     )
 
@@ -89,7 +95,7 @@ def test_any_redacted_action_is_stored_safely_and_marked_non_replayable():
     assert stored == ["goto", "https://example.test/reset/***?token=***"]
     assert replayable is False
 
-    unchanged, replayable = serialize_action(["click", "#submit"])
+    unchanged, replayable = serialize_action(ClickAction("#submit"))
     #: une action sans rien à masquer traverse intacte et reste rejouable
     assert unchanged == ["click", "#submit"]
     assert replayable is True
@@ -106,7 +112,7 @@ def test_v1_sensitive_actions_are_always_rejected():
     with pytest.raises(JournalError, match="v1 sensible"):
         materialize_action(["eval", "1 + 1"])
     #: une action v1 sans donnée sensible reste rejouable telle quelle
-    assert materialize_action(["click", "#go"]) == ["click", "#go"]
+    assert materialize_action(["click", "#go"]) == ClickAction("#go")
 
 
 def test_secure_append_permissions_are_enforced(tmp_path):
@@ -148,26 +154,27 @@ def test_record_v2_executes_secret_but_never_persists_it(
 
     def run_action(_client, action, timeout=30):
         seen.append(action)
-        return {"typed": action[2], "selector": action[1]}
+        assert isinstance(action, TypeAction)
+        return {"typed": action.text, "selector": action.selector}
 
     monkeypatch.setenv("CHECKOUT_PASSWORD", "runtime-canary-secret")
-    monkeypatch.setattr(advanced.actions, "run_action", run_action)
+    monkeypatch.setattr(recording.actions, "run_action", run_action)
     target_id = next(iter(mock.targets))
     mock.targets[target_id]["url"] = "http://demo.test/page"
     target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
-        result = advanced.record(
+        result = recording.record(
             client,
             str(path),
-            ["type", "#password", "@env:CHECKOUT_PASSWORD"],
+            TypeAction("#password", "@env:CHECKOUT_PASSWORD"),
             run_id="R1",
-            origins="http://*.test",
+            context=orchestration(),
         )
     raw = path.read_text(encoding="utf-8")
     event = json.loads(raw)
     #: l'action réellement exécutée a bien reçu la valeur résolue: la
     #: redaction ne dégrade pas l'exécution
-    assert seen == [["type", "#password", "runtime-canary-secret"]]
+    assert seen == [TypeAction("#password", "runtime-canary-secret")]
     #: sur disque, seule la référence subsiste et le résultat est masqué
     assert "runtime-canary-secret" not in raw
     assert event["schema"] == "cdpx.record/v2"
@@ -200,7 +207,7 @@ def test_record_eval_never_persists_result_or_error(
             raise ValueError(f"eval failed with {canary}")
         return {"value": canary}
 
-    monkeypatch.setattr(advanced.actions, "run_action", run_action)
+    monkeypatch.setattr(recording.actions, "run_action", run_action)
     target_id = next(iter(mock.targets))
     mock.targets[target_id]["url"] = "http://demo.test/page"
     target = mock._public_target(target_id)
@@ -209,18 +216,18 @@ def test_record_eval_never_persists_result_or_error(
             #: l'échec de l'eval remonte à l'appelant, le journal ne
             #: l'avale pas
             with pytest.raises(ValueError, match="eval failed"):
-                advanced.record(
+                recording.record(
                     client,
                     str(path),
-                    ["eval", "window.readSecret()"],
-                    origins="http://*.test",
+                    EvalAction("window.readSecret()"),
+                    context=orchestration(),
                 )
         else:
-            advanced.record(
+            recording.record(
                 client,
                 str(path),
-                ["eval", "window.readSecret()"],
-                origins="http://*.test",
+                EvalAction("window.readSecret()"),
+                context=orchestration(),
             )
 
     raw = path.read_text(encoding="utf-8")
@@ -265,7 +272,7 @@ def test_replay_v2_resolves_all_refs_before_first_action(
     mock.targets[target_id]["url"] = "http://demo.test/page"
     target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
-        result = advanced.replay(client, str(path), origins="http://*.test")
+        result = recording.replay(client, str(path), context=orchestration())
     #: la référence manquante interrompt le rejeu avant la première action
     #: et la divergence la nomme pour le diagnostic
     assert result["played"] == 0 and result["ok"] is False

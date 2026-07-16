@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from cdpx.artifacts import ArtifactError
+from cdpx.proofing.evidence_policy import PROOF_RETENTION_ENV
 from cdpx.proofing.private_io import _secure_dir
 from cdpx.security.redaction import RedactionContext, redact_text
-from cdpx.testing.evidence import PROOF_RETENTION_ENV
 
 # `CDPX_PROOF_TIMEOUT_SCALE` (flottant strictement positif, ex. "2" sur machine
 # lente) multiplie uniformément tous les budgets de deadline de la preuve.

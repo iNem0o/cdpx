@@ -15,7 +15,6 @@ import fcntl
 import json
 import os
 import pty
-import secrets
 import select
 import struct
 import subprocess
@@ -25,6 +24,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cdpx.proofing.private_io import _write_private_text
 from cdpx.security.redaction import RedactionContext, redact_text
 
 MAX_CAST_BYTES = 2 * 1024 * 1024
@@ -34,18 +34,6 @@ CAST_COMMANDS: tuple[tuple[str, list[str]], ...] = (
     ("cli-help", [sys.executable, "-m", "cdpx.cli", "--help"]),
     ("mock-session-demo", [sys.executable, "-m", "cdpx.proofing.demo"]),
 )
-
-
-def _write_private_text(path: Path, value: str) -> None:
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(value)
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _spawn_on_pty(argv: list[str], env: dict[str, str]) -> tuple[subprocess.Popen[bytes], int]:

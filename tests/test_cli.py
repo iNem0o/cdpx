@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from cdpx import __version__
-from cdpx.cli import main
+from cdpx.cli import _build_redaction_context, _prepare_args, build_parser, main
+from cdpx.cli_context import CommandInvocation, CommandOptions, SessionArtifactPolicy
+from cdpx.client import CDPTransportError
+from cdpx.policy import Authority
+from cdpx.primitives import nav
 
 
 @pytest.fixture(autouse=True)
@@ -33,6 +37,69 @@ def run(mock, capsys, *argv):
     )
     out = capsys.readouterr()
     return code, out.out, out.err
+
+
+def test_prepare_builds_immutable_typed_invocation(cli_manifest, mock):
+    """La préparation normalise les options dans un contexte explicite sans
+    enrichir le Namespace argparse avec des attributs privés cachés."""
+    manifest = cli_manifest
+    namespace = build_parser().parse_args(
+        [
+            "--session",
+            str(mock.cli_manifest_path),
+            "--run-id",
+            manifest.run_id,
+            "--target",
+            manifest.target_id,
+            "version",
+        ]
+    )
+    parsed_values = vars(namespace).copy()
+    options = CommandOptions.from_namespace(namespace)
+    invocation = CommandInvocation(options, _build_redaction_context(options))
+
+    prepared = _prepare_args(invocation)
+
+    assert vars(namespace) == parsed_values
+    assert prepared.execution == manifest.execution_context()
+    assert prepared.manifest == manifest
+    assert isinstance(prepared.artifacts, SessionArtifactPolicy)
+
+
+def test_command_options_convert_cli_domain_values():
+    goto = CommandOptions.from_namespace(
+        build_parser().parse_args(["goto", "http://demo.test/", "--wait", "none"])
+    )
+    storage = CommandOptions.from_namespace(
+        build_parser().parse_args(["storage", "--kind", "session"])
+    )
+    lifecycle = CommandOptions.from_namespace(
+        build_parser().parse_args(
+            [
+                "session",
+                "start",
+                "--run-id",
+                "R1",
+                "--authority",
+                "privileged",
+                "--origins",
+                "http://demo.test",
+            ]
+        )
+    )
+
+    assert goto.wait == "none"
+    assert storage.kind == "session"
+    assert lifecycle.authority is Authority.PRIVILEGED
+
+
+@pytest.mark.parametrize(("field", "value"), [("wait", "later"), ("kind", "memory")])
+def test_command_options_reject_invalid_domain_values(field, value):
+    namespace = build_parser().parse_args(["version"])
+    setattr(namespace, field, value)
+
+    with pytest.raises(RuntimeError, match="CLI invalide"):
+        CommandOptions.from_namespace(namespace)
 
 
 def test_tabs_list(mock, capsys):
@@ -76,17 +143,59 @@ def test_goto(mock, capsys):
 def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
     """Un échec de navigation CDP (errorText) devient exit 1 avec le motif
     sur stderr, au lieu d'un JSON trompeusement vert sur stdout."""
-    monkeypatch.setattr(
-        "cdpx.cli.nav.navigate",
-        lambda *a, **kw: {
-            "url": "http://bad.test",
-            "ok": False,
-            "errorText": "ERR_NAME_NOT_RESOLVED",
-        },
-    )
+
+    def fail_navigation(*_args, **_kwargs):
+        raise nav.NavigationError(
+            {
+                "url": "http://bad.test",
+                "ok": False,
+                "errorText": "ERR_NAME_NOT_RESOLVED",
+            }
+        )
+
+    monkeypatch.setattr("cdpx.commands.navigation.nav.navigate", fail_navigation)
     code, _, err = run(mock, capsys, "goto", "http://bad.test")
     #: l'erreur réseau remonte comme échec runtime diagnostiqué sur stderr
     assert code == 1 and "ERR_NAME_NOT_RESOLVED" in err
+
+
+def test_transport_failure_exits_1_instead_of_returning_partial_success(mock, capsys, monkeypatch):
+    def fail_transport(*_args, **_kwargs):
+        raise CDPTransportError("transport interrompu pendant collecte")
+
+    monkeypatch.setattr("cdpx.commands.navigation.nav.navigate", fail_transport)
+
+    code, out, err = run(mock, capsys, "goto", "http://site.test/")
+
+    assert code == 1
+    assert out == ""
+    assert "transport interrompu" in err
+
+
+def test_connection_failure_exits_1_with_transport_diagnostic(mock, capsys, monkeypatch):
+    def fail_connect(*_args, **_kwargs):
+        raise CDPTransportError("connexion CDP impossible vers le target")
+
+    monkeypatch.setattr("cdpx.commands.shared.CDPClient", fail_connect)
+
+    code, out, err = run(mock, capsys, "goto", "http://site.test/")
+
+    assert code == 1
+    assert out == ""
+    assert "connexion CDP impossible" in err
+
+
+def test_send_failure_exits_1_with_transport_diagnostic(mock, capsys, monkeypatch):
+    def fail_send(*_args, **_kwargs):
+        raise CDPTransportError("transport interrompu pendant envoi Page.enable")
+
+    monkeypatch.setattr("cdpx.client.CDPClient.send", fail_send)
+
+    code, out, err = run(mock, capsys, "goto", "http://site.test/")
+
+    assert code == 1
+    assert out == ""
+    assert "envoi Page.enable" in err
 
 
 def test_eval(mock, capsys):
@@ -756,6 +865,30 @@ def test_missing_session_fails_before_discovery(capsys, monkeypatch):
     err = capsys.readouterr().err
     #: l'absence de session est un exit 2 qui dit quoi exporter
     assert code == 2 and "CDPX_SESSION" in err
+
+
+def test_invalid_action_argv_without_session_stays_usage_error(capsys, monkeypatch):
+    """Un argv d'action invalide ne court-circuite pas le diagnostic de
+    session: la redaction se construit sans parser l'action, et l'absence
+    d'identité reste une erreur d'usage propre, jamais un traceback."""
+    for name in ("CDPX_SESSION", "CDPX_RUN_ID", "CDPX_TARGET"):
+        monkeypatch.delenv(name, raising=False)
+    code = main(["dom-diff", "--", "bogus", "x"])
+    captured = capsys.readouterr()
+    #: l'identité manquante prime sur l'action illisible: exit 2 documenté
+    assert code == 2 and "CDPX_SESSION" in captured.err
+    #: le diagnostic reste un message cdpx, pas un ValueError brut
+    assert "Traceback" not in captured.err and captured.out == ""
+
+
+def test_invalid_action_argv_with_session_is_diagnosed(mock, capsys):
+    """Avec une session valide, un argv d'action inconnu échoue au préflight
+    en erreur diagnostiquée sur stderr, stdout restant vide."""
+    code, out, err = run(mock, capsys, "dom-diff", "--", "bogus", "x")
+    #: le préflight rejette l'action inconnue avec son usage, exit 1
+    assert code == 1 and "cdpx:" in err and "action" in err
+    #: pas de traceback brut ni de JSON trompeur sur stdout
+    assert "Traceback" not in err and out == ""
 
 
 @pytest.mark.parametrize("option", ["--host", "--port"])

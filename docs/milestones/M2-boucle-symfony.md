@@ -14,7 +14,7 @@ que l'humain ouvre quoi que ce soit.
   `http://app.test/_profiler/{token}?panel=db` et parser le HTML des panels.
 - Note d'évolution (post-M2): l'API JSON du profiler évoquée à l'origine
   n'existe pas côté Symfony — l'adaptateur réel parse le HTML des panels
-  (voir `src/cdpx/primitives/profiler_panels.py`) et le fetch se fait DEPUIS
+  (voir `src/cdpx/primitives/profiler/`) et le fetch se fait DEPUIS
   la page (fetch même origine), pas depuis cdpx: cookies et résolution d'hôte
   du navigateur, indispensable derrière Docker.
 - Sortie: {token, url, panels: {db: {queries, statements, duplicates, ...},

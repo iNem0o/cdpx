@@ -1,7 +1,7 @@
 # Fixtures HTML du Web Profiler Symfony
 
 Ces fichiers figent le markup des panels du WebProfilerBundle (Symfony 7.3)
-tel que parsé par `src/cdpx/primitives/profiler_panels.py`. Ils sont servis par
+tel que parsé par `src/cdpx/primitives/profiler/`. Ils sont servis par
 le serveur de fixtures sur `/_profiler/<token>?panel=<nom>` (le nom du fichier
 est la valeur du paramètre `panel`; `exception-raised.html` n'est utilisé que
 par les tests de parsing).

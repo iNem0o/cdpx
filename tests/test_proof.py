@@ -13,11 +13,33 @@ import pytest
 from cdpx import proof
 from cdpx.artifacts import ArtifactClassification, ArtifactError
 from cdpx.cli import build_parser
+from cdpx.proofing import cast as proof_cast
 from cdpx.security.redaction import RedactionContext
 
 
 def mode(path):
     return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_cast_private_write_creates_private_parent_and_refuses_symlink(tmp_path):
+    """L'écriture des .cast suit le protocole d'écriture privée partagé de
+    private_io (parent créé en 0700, fichier 0600, symlink refusé fail-closed)
+    au lieu d'un doublon local plus faible propre au module cast."""
+    cast_path = tmp_path / "nested" / "demo.cast"
+
+    proof_cast._write_private_text(cast_path, '{"version":2}\n')
+
+    #: le parent est créé et durci, le cast reste privé
+    assert mode(cast_path.parent) == 0o700
+    assert mode(cast_path) == 0o600
+    outside = tmp_path / "outside.cast"
+    outside.write_text("preserve", encoding="utf-8")
+    link = tmp_path / "linked.cast"
+    link.symlink_to(outside)
+    #: un lien symbolique à la place du cast est refusé sans suivre la cible
+    with pytest.raises(ArtifactError, match="symbolique"):
+        proof_cast._write_private_text(link, "replace")
+    assert outside.read_text(encoding="utf-8") == "preserve"
 
 
 def _manifest_entry(path, classification, upload_allowed):
@@ -729,6 +751,56 @@ def test_purge_retention_keeps_proof_when_manifest_is_unreadable(tmp_path, monke
     assert (proof_dir / "keep.txt").read_text(encoding="utf-8") == "preserve"
 
 
+def test_purge_retention_survives_evidence_run_without_manifest(tmp_path, monkeypatch, capsys):
+    """Un run d'évidence résiduel sans manifest.json (interruption, résidu
+    étranger) ne fait pas échouer make proof: la purge du début de run le
+    conserve fail-open et continue, même contrat que purge_expired."""
+    store = tmp_path / ".cdpx-evidence"
+    orphan = store / "run-orphelin"
+    orphan.mkdir(parents=True)
+    (orphan / "chrome.log").write_text("résidu", encoding="utf-8")
+    monkeypatch.setattr(proof, "PROOF_DIR", tmp_path / ".proof")
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", store)
+
+    result = proof._purge_expired_local_proofs()
+
+    #: le run sans manifeste est conservé et la purge se conclut sans erreur
+    assert result == {"evidence_runs": [], "proof_dir": False}
+    assert (orphan / "chrome.log").read_text(encoding="utf-8") == "résidu"
+
+
+def test_purge_retention_warns_and_continues_on_unreadable_evidence_manifest(
+    tmp_path, monkeypatch, capsys
+):
+    """Un manifeste d'évidence illisible (fichiers root laissés par un run
+    Docker) ne casse pas make proof: la purge avertit avec le remède chown
+    et le run continue — le catch PermissionError du consommateur est vivant."""
+    store = tmp_path / ".cdpx-evidence"
+    protected = store / "run-root"
+    protected.mkdir(parents=True)
+    manifest = protected / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    original_read_bytes = Path.read_bytes
+
+    def fail_manifest_read(path, *args, **kwargs):
+        if path == manifest:
+            raise PermissionError("permission denied")
+        return original_read_bytes(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_manifest_read)
+    monkeypatch.setattr(proof, "PROOF_DIR", tmp_path / ".proof")
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", store)
+
+    result = proof._purge_expired_local_proofs()
+
+    #: le run n'est pas purgé et rien n'a explosé: purge best-effort
+    assert result == {"evidence_runs": [], "proof_dir": False}
+    assert protected.exists()
+    #: l'avertissement actionnable nomme le store et le remède d'appropriation
+    err = capsys.readouterr().err
+    assert "purge de rétention impossible" in err and "chown" in err
+
+
 def test_purge_retention_never_touches_transactional_dirs(tmp_path, monkeypatch):
     """La purge de rétention ignore .proof.new et .proof.old même porteurs
     d'un manifeste expiré: ces répertoires appartiennent à la logique
@@ -1378,6 +1450,70 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
     with pytest.raises(ArtifactError, match="`artifacts` doit être une liste"):
         proof.load_scenario_evidence(tmp_path)
 
+    #: les champs imbriqués sont validés avant le cast vers les modèles stricts
+    path.write_text(
+        json.dumps(
+            {
+                "suite": "unit",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/x.py::t",
+                        "proves": ["ok", 3],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArtifactError, match="`proves`.*liste de textes"):
+        proof.load_scenario_evidence(tmp_path)
+
+    path.write_text(
+        json.dumps(
+            {
+                "suite": "unit",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/x.py::t",
+                        "artifacts": [{"path": "shot.png", "bytes": "large"}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArtifactError, match="`bytes` doit être de type int"):
+        proof.load_scenario_evidence(tmp_path)
+
+
+def test_scenario_evidence_normalizes_to_the_declared_model(tmp_path):
+    path = tmp_path / "unit-scenarios.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "cdpx.scenarios/v2",
+                "suite": "unit",
+                "unknown_root": "discarded",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/x.py::t",
+                        "duration_s": 1,
+                        "unknown_scenario": "discarded",
+                        "artifacts": [{"path": "shot.png", "unknown": "discarded"}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    evidence = proof.load_scenario_evidence(tmp_path)
+    scenario = evidence["suites"]["unit"][0]
+
+    assert scenario["duration_s"] == 1.0
+    assert "unknown_scenario" not in scenario
+    assert "unknown" not in scenario["artifacts"][0]
+
 
 def test_write_scenario_evidence_round_trips_versioned_suites(tmp_path):
     """L'écrivain publie chaque suite non vide sous le schéma versionné v2,
@@ -1743,7 +1879,7 @@ def test_spa_renders_every_summary_key():
     meta_keys.add("scenario_evidence")  # duplicat brut de feature_inventory/matched_scenarios
     #: une clé calculée mais jamais lue par la SPA échoue ici: le travail mort est un bug
     for key in summary:
-        if key in shell_keys | meta_keys or f"data.{key}" in proof.SPA_JS:
+        if key in shell_keys | meta_keys or f"data.{key}" in proof.cockpit_javascript():
             continue
         raise AssertionError(f"clé du summary calculée mais jamais rendue par la SPA: {key}")
 
@@ -1907,8 +2043,8 @@ def test_every_artifact_type_has_a_dedicated_viewer():
     from cdpx.testing.evidence import ARTIFACT_TYPES
 
     #: le registre doit exister sous la forme attendue avant d'en inspecter le contenu
-    assert "const VIEWERS = {" in proof.SPA_JS
-    registry = proof.SPA_JS.split("const VIEWERS = {", 1)[1].split("};", 1)[0]
+    assert "const VIEWERS = {" in proof.cockpit_javascript()
+    registry = proof.cockpit_javascript().split("const VIEWERS = {", 1)[1].split("};", 1)[0]
     #: un type collecté sans visualiseur casse le build: rien ne reste invisible au reviewer
     for artifact_type in sorted(ARTIFACT_TYPES):
         assert f"'{artifact_type}':" in registry, (
@@ -1937,7 +2073,7 @@ def test_text_viewers_are_specialized_per_type():
         "function commandViewer",
         "transcriptSection(body, 'stderr')",
     ):
-        assert marker in proof.SPA_JS, f"visualiseur texte manquant: {marker}"
+        assert marker in proof.cockpit_javascript(), f"visualiseur texte manquant: {marker}"
 
 
 def test_modal_resolves_inline_content_by_path():
@@ -1955,9 +2091,11 @@ def test_modal_resolves_inline_content_by_path():
         "(data.scenario_evidence || {}).suites",
         "function resolveInline",
     ):
-        assert marker in proof.SPA_JS, f"résolution inline par path manquante: {marker}"
+        assert marker in proof.cockpit_javascript(), (
+            f"résolution inline par path manquante: {marker}"
+        )
     #: le modal enrichit l'artefact avant de choisir son visualiseur
-    assert "resolveInline(modalState.items[modalState.index])" in proof.SPA_JS
+    assert "resolveInline(modalState.items[modalState.index])" in proof.cockpit_javascript()
 
 
 def test_cast_viewer_replays_v2_in_xterm_and_keeps_a_raw_fallback():
@@ -1979,7 +2117,7 @@ def test_cast_viewer_replays_v2_in_xterm_and_keeps_a_raw_fallback():
         "'asciinema': castViewer",
         "requestAnimationFrame(tick)",
     ):
-        assert marker in proof.SPA_JS, f"player asciinema incomplet: {marker}"
+        assert marker in proof.cockpit_javascript(), f"player asciinema incomplet: {marker}"
 
 
 def test_cast_gate_blocks_the_verdict():
@@ -2052,7 +2190,7 @@ def test_modal_and_keyboard_wiring_are_present():
         "data-modal-group",
         "ctx: {scenario, run}",
     ):
-        assert marker in proof.SPA_JS, f"câblage modal manquant: {marker}"
+        assert marker in proof.cockpit_javascript(), f"câblage modal manquant: {marker}"
 
 
 def test_reading_order_timeline_and_badges_guide_the_review():
@@ -2073,7 +2211,7 @@ def test_reading_order_timeline_and_badges_guide_the_review():
         "function failedRuns",
         "typeBadges(scenarioArtifacts(feature.matched_scenarios))",
     ):
-        assert marker in proof.SPA_JS, f"UX de lecture incomplète: {marker}"
+        assert marker in proof.cockpit_javascript(), f"UX de lecture incomplète: {marker}"
 
 
 def test_scenario_view_renders_intent_and_assertion_hierarchy():
@@ -2094,7 +2232,7 @@ def test_scenario_view_renders_intent_and_assertion_hierarchy():
         "run.stdout",
         "run.stderr",
     ):
-        assert marker in proof.SPA_JS, f"vue scénario incomplète: {marker}"
+        assert marker in proof.cockpit_javascript(), f"vue scénario incomplète: {marker}"
 
 
 def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):

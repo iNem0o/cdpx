@@ -4,8 +4,8 @@ title = "Inspection du DOM et actions utilisateur"
 status = "validated"
 summary = "Lire le texte/HTML rendu, évaluer du JavaScript, compter des éléments et produire des entrées utilisateur trusted."
 entrypoints = ["cdpx eval", "cdpx text", "cdpx html", "cdpx count", "cdpx click", "cdpx type", "cdpx key"]
-path_globs = ["src/cdpx/primitives/js.py", "src/cdpx/primitives/inputs.py", "tests/fixtures/form.html", "tests/fixtures/interactions-rich.html"]
-test_globs = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*", "tests/e2e/test_e2e_chrome.py::test_cli_dom_and_keyboard*"]
+path_globs = ["src/cdpx/primitives/js.py", "src/cdpx/primitives/inputs.py", "tests/fixtures/form.html", "tests/fixtures/interactions-rich.html", "src/cdpx/action_model.py", "tests/test_action_model.py"]
+test_globs = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*", "tests/e2e/test_e2e_chrome.py::test_cli_dom_and_keyboard*", "tests/test_action_model.py::*", "tests/test_cli.py::test_invalid_action_argv*"]
 docs = ["docs/PRIMITIVES.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -42,6 +42,19 @@ when = "cdpx clique, tape du texte ou presse des touches via les domaines Input 
 then = "L'état de la fixture change et la preuve e2e conserve une capture d'écran de l'état final du navigateur."
 tests = ["tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "compose-typed-actions"
+journey = "submit-form"
+title = "Composer des actions typées au contrat CLI stable"
+ui_text = "Une action composée (goto/wait/click/type/key/eval) se décrit en argv stable, et un argv illisible est diagnostiqué proprement."
+report_text = "Ce scénario prouve que le modèle d'actions typées BrowserAction fait aller-retour avec la forme argv du CLI et qu'un argv d'action invalide produit un diagnostic d'usage, jamais un traceback."
+given = "Des argv d'actions composées valides et invalides, avec ou sans identité de session."
+when = "Le CLI parse l'action composée au préflight et la restitue en argv stable aux frontières externes."
+then = "Le round-trip argv est sans perte et l'argv invalide sort en erreur d'usage diagnostiquée (exit 1/2) sans traceback."
+tests = ["tests/test_action_model.py::*", "tests/test_cli.py::test_invalid_action_argv*"]
+expected_proofs = ["junit"]
+
 +++
 
 ## Intention

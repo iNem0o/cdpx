@@ -110,6 +110,11 @@ from cdpx.proofing.evidence_catalog import (
 from cdpx.proofing.evidence_catalog import (
     parse_validation_matrix as parse_validation_matrix,
 )
+from cdpx.proofing.evidence_policy import (
+    environment_secret_values,
+    proof_retention_seconds,
+    redaction_context_from_environment,
+)
 from cdpx.proofing.execution import (
     PROOF_TIMEOUT_SCALE_ENV as PROOF_TIMEOUT_SCALE_ENV,
 )
@@ -287,11 +292,6 @@ from cdpx.proofing.summary import (
     cast_failures_from_entries as cast_failures_from_entries,
 )
 from cdpx.security.redaction import RedactionContext, redact_tree
-from cdpx.testing.evidence import (
-    environment_secret_values,
-    proof_retention_seconds,
-    redaction_context_from_environment,
-)
 
 PROOF_DIR = Path(".proof")
 REPORT_HTML = PROOF_DIR / "proof-report.html"
@@ -539,10 +539,21 @@ def _cockpit_asset(name: str) -> str:
     return source
 
 
-SPA_CSS = _cockpit_asset(COCKPIT_CSS_RESOURCE)
-# Chaque partie se termine par un saut de ligne: le join laisse une ligne vide
-# entre les parties, comme dans l'ancien fichier monolithique.
-SPA_JS = "(function () {\n" + "\n".join(_cockpit_asset(p) for p in COCKPIT_JS_PARTS) + "})();\n"
+@cache
+def cockpit_stylesheet() -> str:
+    """Feuille de style SPA, lue (et validée) au premier rendu seulement."""
+    return _cockpit_asset(COCKPIT_CSS_RESOURCE)
+
+
+@cache
+def cockpit_javascript() -> str:
+    """Bundle JS SPA assemblé paresseusement: aucune I/O de ressources à
+    l'import de cdpx.proof, la validation fail-fast se joue au premier appel.
+
+    Chaque partie se termine par un saut de ligne: le join laisse une ligne
+    vide entre les parties, comme dans l'ancien fichier monolithique.
+    """
+    return "(function () {\n" + "\n".join(_cockpit_asset(p) for p in COCKPIT_JS_PARTS) + "})();\n"
 
 
 def _json_for_html_script(data: dict) -> str:
@@ -592,12 +603,12 @@ def render_html(summary: dict) -> str:
         verdict=verdict,
         pill=pill,
         context=context,
-        spa_css=SPA_CSS,
+        spa_css=cockpit_stylesheet(),
         xterm_css=xterm_css,
         payload=payload,
         mermaid_bundle=mermaid_bundle,
         xterm_bundle=xterm_bundle,
-        spa_js=SPA_JS,
+        spa_js=cockpit_javascript(),
     )
 
 

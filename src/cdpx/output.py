@@ -33,8 +33,6 @@ def _bound_value(value: Any, *, limit: int, root: bool = False) -> Any:
                 out[f"{key}_truncated"] = True
                 out[f"{key}_total"] = len(item)
                 out[f"{key}_limit"] = limit
-            elif isinstance(item, dict):
-                out[key] = _bound_value(item, limit=limit)
             else:
                 out[key] = _bound_value(item, limit=limit)
         return out

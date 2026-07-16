@@ -8,7 +8,8 @@ from cdpx import discovery, scenarios
 from cdpx.artifacts import scan_canaries
 from cdpx.cli import main
 from cdpx.client import CDPClient
-from cdpx.primitives import profiler_panels
+from cdpx.orchestration import OrchestrationContext
+from cdpx.primitives import profiler
 
 
 def client_for(mock):
@@ -16,6 +17,10 @@ def client_for(mock):
     mock.targets[target_id]["url"] = "http://shop.test/"
     target = discovery.pick_page("127.0.0.1", mock.http_port, target_id)
     return CDPClient(target["webSocketDebuggerUrl"], timeout=5)
+
+
+def orchestration(origins: str = "http://*.test") -> OrchestrationContext:
+    return OrchestrationContext.from_origins(origins)
 
 
 def test_parse_scenario_with_step_capture():
@@ -61,6 +66,23 @@ def test_parse_rejects_unknown_field():
         )
 
 
+def test_parse_rejects_cleartext_type_pair():
+    """La forme [selector, text] d'un step type mettrait le secret en clair
+    dans le YAML: elle est refusée dès la validation, position du step à
+    l'appui, avant toute préparation ou connexion."""
+    #: le refus arrive au parsing, localisé, et nomme l'exigence secret_ref
+    with pytest.raises(
+        scenarios.ScenarioUsageError, match=r"steps\[0\]\.type exige un objet avec secret_ref"
+    ):
+        scenarios.parse(
+            {
+                "name": "cleartext",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"type": ["#password", "hunter2"]}],
+            }
+        )
+
+
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
@@ -94,7 +116,7 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path, evide
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
         )
 
     #: verdict pass sans aucun finding: les trois étapes et les trois
@@ -145,7 +167,7 @@ def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock,
             evidence_root=tmp_path,
             timeout=0.5,
             settle=0,
-            origins="http://*.test",
+            context=orchestration(),
         )
 
     #: l'étape n'aboutit qu'une fois la visibilité réellement constatée
@@ -187,11 +209,11 @@ def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
             {
                 "panel": key,
                 "status": 200,
-                "html": (fixtures / f"{profiler_panels.PANEL_SOURCES[key]}.html").read_text(
+                "html": (fixtures / f"{profiler.PANEL_SOURCES[key]}.html").read_text(
                     encoding="utf-8"
                 ),
             }
-            for key in profiler_panels.ALL_PANELS
+            for key in profiler.ALL_PANELS
         ]
     )
     mock.on_eval("__cdpx_profiler_panels", payload)
@@ -206,7 +228,7 @@ def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
         )
 
     assert result["verdict"] == "pass"
@@ -239,7 +261,7 @@ def test_run_scenario_failure_still_captures_checkpoint_and_final(mock, tmp_path
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
         )
 
     #: le clic sur un élément introuvable rend un verdict fail sans lever
@@ -289,7 +311,7 @@ def test_run_scenario_console_and_network_assertions_fail(mock, tmp_path):
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
         )
 
     #: chaque assertion violée produit son propre finding identifiable,
@@ -346,7 +368,7 @@ def test_final_drain_precedes_console_and_network_assertions(mock, tmp_path, mon
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0, context=orchestration()
         )
 
     #: l'erreur console et le 500 injectés après la dernière étape sont
@@ -396,7 +418,7 @@ def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
     )
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0.01, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
         )
     artifact = next(a for a in result["artifacts"] if a["type"] == "network")
     data = json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
@@ -438,7 +460,7 @@ def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mo
             client,
             scenario,
             evidence_root=tmp_path,
-            origins="http://shop.test",
+            context=orchestration("http://shop.test"),
             settle=0,
         )
 
@@ -499,9 +521,15 @@ def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, m
         }
     )
 
+    context = orchestration()
+    prepared = scenarios.prepare(scenario, context)
+    monkeypatch.setenv("CHECKOUT_PASSWORD", "changed-after-preflight")
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+            client,
+            prepared,
+            evidence_root=tmp_path,
+            settle=0,
         )
 
     serialized = json.dumps(result, ensure_ascii=False)
@@ -558,7 +586,7 @@ def test_scenario_eval_never_persists_result_or_error(mock, tmp_path, fails):
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0, context=orchestration()
         )
 
     #: le canari renvoyé par la page ne fuit ni dans le résultat sérialisé
@@ -589,7 +617,7 @@ def test_scenario_artifacts_are_private_classified_and_manifested(mock, tmp_path
 
     with client_for(mock) as client:
         result = scenarios.run(
-            client, scenario, evidence_root=tmp_path, settle=0, origins="http://*.test"
+            client, scenario, evidence_root=tmp_path, settle=0, context=orchestration()
         )
 
     run_dir = Path(result["evidence_dir"])

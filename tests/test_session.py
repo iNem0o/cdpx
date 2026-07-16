@@ -26,9 +26,24 @@ from cdpx.session import (
     stop_session,
     write_manifest,
 )
+from cdpx.sessions import supervisor as supervisor_mod
 
 SESSION_ID = "a" * 24
 PROFILE_ID = "b" * 16
+
+
+def test_supervisor_teardown_is_idempotent(tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    runtime = supervisor_mod.SupervisorRuntime(
+        session_dir=session_dir,
+        error_path=tmp_path / "session.error",
+    )
+
+    supervisor_mod._teardown_runtime(runtime)
+    supervisor_mod._teardown_runtime(runtime)
+
+    assert not session_dir.exists()
 
 
 def manifest_for(root: Path) -> SessionManifest:

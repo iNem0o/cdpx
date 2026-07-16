@@ -483,7 +483,10 @@ def test_supervisor_signal_still_tears_down_chrome_and_private_files(
         #: signal de terminaison
         assert manifest.supervisor_pid is not None
         os.kill(manifest.supervisor_pid, signal.SIGTERM)
-        deadline = time.monotonic() + 10
+        # Budget aligné sur le pire cas du teardown superviseur lui-même:
+        # close_tab HTTP + terminate (5s) + kill (5s) + rmtree du profil —
+        # 10s suffisaient à vide mais flakaient sous la charge de make proof.
+        deadline = time.monotonic() + 30
         while session_dir.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         proof["teardown"] = {

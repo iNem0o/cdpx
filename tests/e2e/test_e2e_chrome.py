@@ -22,8 +22,25 @@ from pathlib import Path
 import pytest
 
 from cdpx import discovery, proof
+from cdpx.action_model import ClickAction, GotoAction, TypeAction
 from cdpx.client import CDPClient
-from cdpx.primitives import actions, advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.orchestration import OrchestrationContext
+from cdpx.primitives import (
+    actions,
+    audit,
+    capture,
+    dev,
+    diagnostics,
+    emulation,
+    frames,
+    inputs,
+    interception,
+    js,
+    nav,
+    net,
+    recording,
+    state,
+)
 from cdpx.session import SessionManifest, start_session, stop_session
 from cdpx.testing.e2e import (
     attach_cli_run,
@@ -1964,7 +1981,7 @@ def test_dom_diff_real(page):
     c, base = page
     nav.navigate(c, f"{base}/form.html")
     inputs.type_text(c, "#name", "Léo")
-    res = dev.dom_diff(c, ["click", "#submit-btn"])
+    res = dev.dom_diff(c, ClickAction("#submit-btn"))
     #: le diff matérialise la mutation provoquée par le clic (passage à l'état soumis)
     assert res["changed"] is True
     assert any("submitted" in line for line in res["diff"])
@@ -1975,18 +1992,18 @@ def test_a11y_and_frame_real(page):
     atteint le contenu à l'intérieur d'une iframe enfant."""
     c, base = page
     nav.navigate(c, f"{base}/iframe.html")
-    tree = advanced.a11y(c)
+    tree = diagnostics.a11y(c)
     #: Chrome expose un arbre a11y non vide pour la page hôte
     assert tree["count"] > 0
     #: le texte lu vient bien du document enfant, pas de la page hôte
-    assert advanced.frame_text(c, "#child-marker")["text"] == "Contenu de l'iframe"
+    assert frames.frame_text(c, "#child-marker")["text"] == "Contenu de l'iframe"
 
 
 def test_coverage_real(page):
     """La couverture CSS mesurée sur une vraie page est cohérente: règles
     utilisées et inutilisées se répartissent exactement le total."""
     c, base = page
-    res = advanced.coverage(c, f"{base}/coverage.html")
+    res = diagnostics.coverage(c, f"{base}/coverage.html")
     #: la fixture expose au moins une feuille dont des règles sont réellement exercées
     assert res["count"] >= 1
     assert res["css"]["rules"] >= 1
@@ -2000,13 +2017,13 @@ def test_intercept_real_fulfill_block_continue(page):
     blocage, laisser-passer) sur un trafic réel, et la page observe exactement
     les réponses altérées."""
     c, base = page
-    res = advanced.intercept_goto(
+    res = interception.intercept_goto(
         c,
-        [
+        f"{base}/intercept.html",
+        rules=[
             "*api/status/500* => 204",
             "*api/slow* => block",
         ],
-        f"{base}/intercept.html",
         settle=1.0,
     )
     actions = {hit["action"] for hit in res["hits"]}
@@ -2030,7 +2047,7 @@ def test_vitals_real_with_interaction(page):
     """Les Web Vitals (LCP, CLS, INP) sont mesurés sur une vraie page, l'INP
     étant provoqué par un clic synthétique dont la page garde la trace."""
     c, base = page
-    res = advanced.vitals(c, f"{base}/vitals.html", click_selector="#inp-button", settle=1.0)
+    res = diagnostics.vitals(c, f"{base}/vitals.html", click_selector="#inp-button", settle=1.0)
     #: les trois métriques sont toutes présentes et plausibles (jamais négatives)
     assert set(res) == {"url", "lcp", "cls", "inp"}
     assert res["lcp"] >= 0 and res["cls"] >= 0 and res["inp"] >= 0
@@ -2109,27 +2126,28 @@ def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monk
     et un arrêt net au bon évènement."""
     journal = tmp_path / "session.ndjson"
     base = fixtures_http.base_url
+    context = OrchestrationContext.from_origins("http://127.0.0.1:*")
     monkeypatch.setenv("FORM_NAME", "Léo")
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
-            advanced.record(
+            recording.record(
                 c,
                 str(journal),
-                ["goto", f"{base}/form.html"],
-                origins="http://127.0.0.1:*",
+                GotoAction(f"{base}/form.html"),
+                context=context,
             )
-            advanced.record(
+            recording.record(
                 c,
                 str(journal),
-                ["type", "#name", "@env:FORM_NAME", "--clear"],
-                origins="http://127.0.0.1:*",
+                TypeAction("#name", "@env:FORM_NAME", clear=True),
+                context=context,
             )
-            advanced.record(
+            recording.record(
                 c,
                 str(journal),
-                ["click", "#submit-btn"],
-                origins="http://127.0.0.1:*",
+                ClickAction("#submit-btn"),
+                context=context,
             )
             #: l'enregistrement n'est pas passif: chaque étape a agi sur la page en la capturant
             assert js.get_text(c, "#result")["text"] == "OK:Léo"  # record a bien AGI
@@ -2139,7 +2157,7 @@ def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monk
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
-            res = advanced.replay(c, str(journal), origins="http://127.0.0.1:*")
+            res = recording.replay(c, str(journal), context=context)
             #: le rejeu reconstruit seul les trois étapes et aboutit au même DOM final
             assert res["ok"] is True and res["played"] == 3
             assert js.get_text(c, "#result")["text"] == "OK:Léo"
@@ -2152,7 +2170,7 @@ def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monk
             journal.write_text(
                 journal.read_text().replace("#submit-btn", "#gone"), encoding="utf-8"
             )
-            broken = advanced.replay(c, str(journal), origins="http://127.0.0.1:*")
+            broken = recording.replay(c, str(journal), context=context)
             #: la divergence est localisée à l'évènement altéré et le rejeu
             #: s'arrête là au lieu de continuer à l'aveugle
             assert broken["ok"] is False and broken["played"] == 2
@@ -2173,8 +2191,8 @@ def test_emulate_composed_action_real(chrome, fixtures_http, evidence_case):
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
-            advanced.emulate(c, "mobile")
-            result = actions.run_action(c, ["goto", f"{fixtures_http.base_url}/index.html"])
+            emulation.emulate(c, "mobile")
+            result = actions.run_action(c, GotoAction(f"{fixtures_http.base_url}/index.html"))
             #: la page chargée sous émulation voit l'écran et l'user-agent du preset mobile
             assert result["ok"] is True
             assert js.evaluate(c, "screen.width") == 390
@@ -2199,15 +2217,15 @@ def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
             nav.navigate(c, f"{fixtures_http.base_url}/index.html")
             initial = js.evaluate(c, "screen.width")
-            advanced.emulate(c, "mobile")
+            emulation.emulate(c, "mobile")
             #: le preset mobile est effectif côté page, écran et user-agent compris
             assert js.evaluate(c, "screen.width") == 390
             assert "cdpx-mobile" in js.evaluate(c, "navigator.userAgent")
-            advanced.emulate(c, reset=True)
+            emulation.emulate(c, reset=True)
             #: --reset restaure les deux dimensions, y compris l'UA (régression historique)
             assert js.evaluate(c, "screen.width") == initial
             assert "cdpx-mobile" not in js.evaluate(c, "navigator.userAgent")
-            advanced.emulate(c, "mobile")  # re-pose l'override, la connexion se ferme
+            emulation.emulate(c, "mobile")  # re-pose l'override, la connexion se ferme
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
             #: après fermeture de la connexion, l'override reposé a disparu:
             #: aucune émulation fantôme ne survit à une invocation isolée

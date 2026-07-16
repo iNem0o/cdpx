@@ -15,6 +15,10 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from cdpx.proofing.evidence_policy import (
+    SCENARIOS_SCHEMA,
+    redaction_context_from_environment,
+)
 from cdpx.proofing.execution import (
     CommandEvidence,
     _repo_env,
@@ -26,10 +30,6 @@ from cdpx.proofing.execution import (
 )
 from cdpx.proofing.private_io import _now, _secure_dir, _write_private_text
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
-from cdpx.testing.evidence import (
-    SCENARIOS_SCHEMA,
-    redaction_context_from_environment,
-)
 
 SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
 

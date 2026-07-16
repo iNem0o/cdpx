@@ -11,7 +11,18 @@ import re
 import urllib.parse
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
+
+from cdpx.action_model import (
+    BrowserAction,
+    ClickAction,
+    EvalAction,
+    GotoAction,
+    KeyAction,
+    TypeAction,
+    WaitAction,
+)
+from cdpx.cdp_types import DiscoveryTarget
 
 
 class PolicyError(ValueError):
@@ -81,71 +92,142 @@ class ExecutionContext:
         }
 
 
-_OBSERVATION_COMMANDS = {
-    "version",
-    "goto",
-    "wait",
-    "text",
-    "html",
-    "count",
-    "screenshot",
-    "pdf",
-    "console",
-    "network",
-    "seo",
-    "metrics",
-    "a11y",
-    "coverage",
-    "frame",
+AuthorityMode = Literal["fixed", "preflight"]
+DestinationSource = Literal["none", "url", "cookie-url", "action-goto"]
+CurrentOriginPolicy = Literal["always", "never", "unless-destination", "action-non-navigation"]
+
+
+@dataclass(frozen=True)
+class CommandSemantics:
+    authority_mode: AuthorityMode
+    authority: Authority | None = None
+    destination_source: DestinationSource = "none"
+    current_origin: CurrentOriginPolicy = "always"
+
+
+def _fixed(
+    authority: Authority,
+    *,
+    destination_source: DestinationSource = "none",
+    current_origin: CurrentOriginPolicy = "always",
+) -> CommandSemantics:
+    return CommandSemantics(
+        "fixed",
+        authority,
+        destination_source,
+        current_origin,
+    )
+
+
+COMMAND_SEMANTICS = {
+    "version": _fixed(Authority.OBSERVATION),
+    "goto": _fixed(Authority.OBSERVATION, destination_source="url", current_origin="never"),
+    "wait": _fixed(Authority.OBSERVATION),
+    "text": _fixed(Authority.OBSERVATION),
+    "html": _fixed(Authority.OBSERVATION),
+    "count": _fixed(Authority.OBSERVATION),
+    "screenshot": _fixed(Authority.OBSERVATION),
+    "pdf": _fixed(Authority.OBSERVATION),
+    "console": _fixed(Authority.OBSERVATION),
+    "network": _fixed(Authority.OBSERVATION, destination_source="url", current_origin="never"),
+    "seo": _fixed(
+        Authority.OBSERVATION,
+        destination_source="url",
+        current_origin="unless-destination",
+    ),
+    "metrics": _fixed(Authority.OBSERVATION),
+    "a11y": _fixed(Authority.OBSERVATION),
+    "coverage": _fixed(Authority.OBSERVATION, destination_source="url", current_origin="never"),
+    "frame": _fixed(Authority.OBSERVATION),
+    "click": _fixed(Authority.INTERACTION),
+    "type": _fixed(Authority.INTERACTION),
+    "key": _fixed(Authority.INTERACTION),
+    "eval": _fixed(Authority.PRIVILEGED),
+    "cookies": _fixed(
+        Authority.PRIVILEGED,
+        destination_source="cookie-url",
+        current_origin="never",
+    ),
+    "storage": _fixed(Authority.PRIVILEGED),
+    "profiler": _fixed(
+        Authority.PRIVILEGED,
+        destination_source="url",
+        current_origin="never",
+    ),
+    "intercept": _fixed(
+        Authority.PRIVILEGED,
+        destination_source="action-goto",
+        current_origin="never",
+    ),
+    "emulate": _fixed(
+        Authority.PRIVILEGED,
+        destination_source="action-goto",
+        current_origin="action-non-navigation",
+    ),
+    "tabs": _fixed(Authority.OBSERVATION),
+    "vitals": _fixed(
+        Authority.OBSERVATION,
+        destination_source="url",
+        current_origin="never",
+    ),
+    "dom-diff": _fixed(
+        Authority.OBSERVATION,
+        destination_source="action-goto",
+    ),
+    "record": CommandSemantics(
+        "preflight",
+        destination_source="action-goto",
+        current_origin="action-non-navigation",
+    ),
+    "replay": CommandSemantics("preflight", current_origin="never"),
+    "scenario": CommandSemantics("preflight", current_origin="never"),
 }
-_INTERACTION_COMMANDS = {"click", "type", "key"}
-_PRIVILEGED_COMMANDS = {"eval", "cookies", "storage", "profiler", "intercept", "emulate", "session"}
-_COMPOSED_COMMANDS = {"dom-diff", "record"}
+
+# Session lifecycle commands do not use a browser authority grant. ``start``
+# creates that grant; ``status`` and ``stop`` authenticate possession of the
+# private manifest with its exact run/target identity at the session boundary.
+LIFECYCLE_COMMANDS = frozenset({"session"})
 
 
-def authority_for(command: str, action: list[str] | None = None) -> Authority:
-    """Retourne l'autorité minimale, et refuse toute commande non classée."""
-    if command in _OBSERVATION_COMMANDS:
-        return Authority.OBSERVATION
-    if command in _INTERACTION_COMMANDS:
-        return Authority.INTERACTION
-    if command in _PRIVILEGED_COMMANDS:
+def command_semantics(command: str) -> CommandSemantics:
+    if command in LIFECYCLE_COMMANDS:
+        raise PolicyError(f"commande de cycle de vie hors matrice d'autorité navigateur: {command}")
+    try:
+        return COMMAND_SEMANTICS[command]
+    except KeyError as error:
+        raise PolicyError(f"commande non classée par la politique: {command}") from error
+
+
+def authority_for(command: str) -> Authority:
+    """Return the command's baseline authority without classifying actions."""
+    semantics = command_semantics(command)
+    if semantics.authority_mode == "fixed":
+        if semantics.authority is None:
+            raise PolicyError(f"autorité fixe absente: {command}")
+        return semantics.authority
+    if semantics.authority_mode == "preflight":
         return Authority.PRIVILEGED
-    if command == "tabs":
-        if action and action[0] == "list":
-            return Authority.OBSERVATION
-        raise PolicyError("action tabs non classée par la politique")
-    if command == "vitals":
-        return Authority.INTERACTION if action and action[0] == "click" else Authority.OBSERVATION
-    if command in _COMPOSED_COMMANDS:
-        if not action:
-            return Authority.OBSERVATION
-        return action_authority(action)
-    if command in {"replay", "scenario"}:
-        # Ces commandes doivent être préflightées intégralement. Sans la liste
-        # d'actions validée, le défaut sûr est le niveau maximal.
-        return max_authority(action or []) if action else Authority.PRIVILEGED
-    raise PolicyError(f"commande non classée par la politique: {command}")
+    raise PolicyError(f"mode d'autorité non géré: {semantics.authority_mode}")
 
 
-def action_authority(action: list[str]) -> Authority:
-    if not action:
-        raise PolicyError("action composée manquante")
-    verb = action[0]
-    if verb in {"goto", "wait"}:
+_ACTION_TYPES = (GotoAction, WaitAction, ClickAction, TypeAction, KeyAction, EvalAction)
+
+
+def action_authority(action: BrowserAction) -> Authority:
+    if isinstance(action, GotoAction | WaitAction):
         return Authority.OBSERVATION
-    if verb in _INTERACTION_COMMANDS:
+    if isinstance(action, ClickAction | TypeAction | KeyAction):
         return Authority.INTERACTION
-    if verb == "eval":
+    if isinstance(action, EvalAction):
         return Authority.PRIVILEGED
-    raise PolicyError(f"action non classée par la politique: {verb}")
+    raise PolicyError(f"action non classée par la politique: {action!r}")
 
 
 def max_authority(actions: list[Any]) -> Authority:
     required = Authority.OBSERVATION
     for item in actions:
-        action = item if isinstance(item, list) else getattr(item, "action", None)
-        if not isinstance(action, list):
+        action = item if isinstance(item, _ACTION_TYPES) else getattr(item, "action", None)
+        if not isinstance(action, _ACTION_TYPES):
             raise PolicyError("liste d'actions préflightée requise")
         candidate = action_authority(action)
         if _AUTHORITY_RANK[candidate] > _AUTHORITY_RANK[required]:
@@ -156,9 +238,8 @@ def max_authority(actions: list[Any]) -> Authority:
 def assert_authorized(
     context: ExecutionContext,
     command: str,
-    action: list[str] | None = None,
 ) -> None:
-    required = authority_for(command, action)
+    required = authority_for(command)
     assert_grant(context, required, command)
 
 
@@ -213,7 +294,8 @@ def _split_host_port(authority: str) -> tuple[str, str | None]:
     if authority.count(":") > 1:
         raise PolicyError(f"IPv6 entre crochets requise: {authority}")
     if ":" in authority:
-        return tuple(authority.rsplit(":", 1))  # type: ignore[return-value]
+        host, port = authority.rsplit(":", 1)
+        return host, port
     return authority, None
 
 
@@ -318,7 +400,7 @@ def assert_loopback_endpoint(discovery_host: str, websocket_url: str | None = No
         raise PolicyError(f"session: WebSocket CDP non loopback: {websocket_url}")
 
 
-def validate_target(target: dict[str, Any], expected_id: str) -> dict[str, Any]:
+def validate_target(target: DiscoveryTarget, expected_id: str) -> DiscoveryTarget:
     if target.get("id") != expected_id:
         raise PolicyError(
             f"target non attribué au run: attendu {expected_id}, reçu {target.get('id')}"

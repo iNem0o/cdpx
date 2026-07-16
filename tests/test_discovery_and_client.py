@@ -1,9 +1,12 @@
 """Découverte HTTP (/json) et client WebSocket, validés contre le mock CDP."""
 
+import json
+
 import pytest
 
+from cdpx import client as client_module
 from cdpx import discovery
-from cdpx.client import CDPClient, CDPError, CDPTimeout
+from cdpx.client import CDPClient, CDPError, CDPTimeout, CDPTransportError
 
 
 def _connect(mock) -> CDPClient:
@@ -47,6 +50,67 @@ def test_loopback_discovery_ignores_environment_proxy(mock, monkeypatch):
     assert discovery.version("127.0.0.1", mock.http_port)["Protocol-Version"] == "1.3"
 
 
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ('{"not": "a list"}', "tableau JSON requis"),
+        ('[{"type": "page"}]', "sans id valide"),
+        ("not-json", "JSON invalide"),
+    ],
+)
+def test_list_targets_rejects_malformed_discovery_shapes(monkeypatch, payload, message):
+    monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: payload)
+
+    with pytest.raises(discovery.DiscoveryError, match=message):
+        discovery.list_targets("127.0.0.1", 9222)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ('[{"id":"T1","url":3}]', "target\\[0\\]\\.url textuel requis"),
+        (
+            '[{"id":"T1","webSocketDebuggerUrl":false}]',
+            "webSocketDebuggerUrl textuel requis",
+        ),
+    ],
+)
+def test_list_targets_rejects_non_string_declared_fields(monkeypatch, payload, message):
+    monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: payload)
+
+    with pytest.raises(discovery.DiscoveryError, match=message):
+        discovery.list_targets("127.0.0.1", 9222)
+
+
+def test_version_rejects_non_string_declared_fields(monkeypatch):
+    monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: '{"Browser":3}')
+
+    with pytest.raises(discovery.DiscoveryError, match="version\\.Browser textuel requis"):
+        discovery.version("127.0.0.1", 9222)
+
+
+def test_version_decode_error_keeps_http_context(monkeypatch):
+    monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: "not-json")
+
+    with pytest.raises(discovery.DiscoveryError, match="JSON invalide") as error:
+        discovery.version("127.0.0.1", 9222)
+
+    assert error.value.method == "GET"
+    assert error.value.url == "http://127.0.0.1:9222/json/version"
+    assert isinstance(error.value.__cause__, json.JSONDecodeError)
+
+
+def test_list_decode_error_keeps_http_context(monkeypatch):
+    monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: "not-json")
+
+    with pytest.raises(discovery.DiscoveryError, match="JSON invalide") as error:
+        discovery.list_targets("127.0.0.1", 9222)
+
+    assert error.value.method == "GET"
+    assert error.value.url == "http://127.0.0.1:9222/json/list"
+    assert isinstance(error.value.__cause__, json.JSONDecodeError)
+
+
 def test_new_activate_close_tab(mock):
     """Le cycle de vie complet d'un onglet — création sur une URL, activation,
     fermeture — passe par l'API HTTP /json et laisse l'inventaire cohérent."""
@@ -58,6 +122,85 @@ def test_new_activate_close_tab(mock):
     discovery.close_tab("127.0.0.1", mock.http_port, tab["id"])
     #: la fermeture retire réellement la cible: retour à l'état initial
     assert len(discovery.list_targets("127.0.0.1", mock.http_port)) == 1
+
+
+def test_new_tab_falls_back_to_get_only_for_method_not_allowed(monkeypatch):
+    calls = []
+
+    def legacy_http(_host, _port, _path, method="GET"):
+        calls.append(method)
+        if method == "PUT":
+            raise discovery.DiscoveryError("PUT rejected", status=405)
+        return '{"id":"legacy"}'
+
+    monkeypatch.setattr(discovery, "_http", legacy_http)
+
+    assert discovery.new_tab("127.0.0.1", 9222)["id"] == "legacy"
+    assert calls == ["PUT", "GET"]
+
+
+def test_new_tab_preserves_non_compatibility_put_failure(monkeypatch):
+    calls = []
+
+    def failed_http(_host, _port, _path, method="GET"):
+        calls.append(method)
+        raise discovery.DiscoveryError("browser unavailable", status=503)
+
+    monkeypatch.setattr(discovery, "_http", failed_http)
+
+    with pytest.raises(discovery.DiscoveryError, match="browser unavailable") as error:
+        discovery.new_tab("127.0.0.1", 9222)
+
+    assert error.value.status == 503
+    assert calls == ["PUT"]
+
+
+def test_new_tab_malformed_put_response_does_not_trigger_legacy_fallback(monkeypatch):
+    calls = []
+
+    def malformed_http(_host, _port, _path, method="GET"):
+        calls.append(method)
+        return "not-json"
+
+    monkeypatch.setattr(discovery, "_http", malformed_http)
+
+    with pytest.raises(discovery.DiscoveryError, match="JSON invalide") as error:
+        discovery.new_tab("127.0.0.1", 9222)
+
+    assert calls == ["PUT"]
+    assert error.value.method == "PUT"
+    assert error.value.url == "http://127.0.0.1:9222/json/new"
+    assert isinstance(error.value.__cause__, json.JSONDecodeError)
+
+
+def test_new_tab_reports_both_failed_compatibility_attempts(monkeypatch):
+    def failed_http(_host, _port, _path, method="GET"):
+        status = 405 if method == "PUT" else 500
+        raise discovery.DiscoveryError(f"{method} failed", status=status)
+
+    monkeypatch.setattr(discovery, "_http", failed_http)
+
+    with pytest.raises(discovery.DiscoveryError, match="PUT failed.*GET failed") as error:
+        discovery.new_tab("127.0.0.1", 9222)
+
+    assert error.value.status == 500
+
+
+def test_new_tab_malformed_legacy_get_response_keeps_fallback_context(monkeypatch):
+    def legacy_http(_host, _port, _path, method="GET"):
+        if method == "PUT":
+            raise discovery.DiscoveryError("PUT rejected", status=405)
+        return "not-json"
+
+    monkeypatch.setattr(discovery, "_http", legacy_http)
+
+    with pytest.raises(discovery.DiscoveryError, match="legacy GET fallback failed") as error:
+        discovery.new_tab("127.0.0.1", 9222)
+
+    assert error.value.method == "GET"
+    assert error.value.url == "http://127.0.0.1:9222/json/new"
+    assert isinstance(error.value.__cause__, discovery.DiscoveryError)
+    assert isinstance(error.value.__cause__.__cause__, json.JSONDecodeError)
 
 
 def test_pick_page_by_id_and_missing(mock):
@@ -91,6 +234,37 @@ def test_send_and_result(mock, evidence_case):
             "Trace protocolaire du mock (Page.enable)",
             {"Page.enable": mock.commands_for("Page.enable")},
         )
+
+
+def test_connection_failure_is_wrapped_with_endpoint_context(monkeypatch):
+    def fail_connect(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(client_module, "connect", fail_connect)
+
+    with pytest.raises(CDPTransportError, match="connexion CDP impossible.*ws://x.test") as error:
+        CDPClient("ws://x.test/devtools/page/T1")
+
+    assert isinstance(error.value.__cause__, OSError)
+
+
+def test_send_failure_is_wrapped_with_method_context():
+    class BrokenSocket:
+        def send(self, _payload):
+            raise OSError("connection closed")
+
+    client = object.__new__(CDPClient)
+    client.ws_url = "ws://x.test/devtools/page/T1"
+    client.timeout = 5
+    client._id = 0
+    client.events = []
+    client._responses = {}
+    client._ws = BrokenSocket()
+
+    with pytest.raises(CDPTransportError, match="envoi Page.enable") as error:
+        client.send_nowait("Page.enable")
+
+    assert isinstance(error.value.__cause__, OSError)
 
 
 def test_send_nowait_allows_event_before_command_response(mock):
@@ -165,6 +339,17 @@ def test_events_buffered_then_waited(mock):
         assert ev2["params"]["timestamp"] == 1.0
 
 
+def test_wait_event_preserves_interleaved_command_response(mock):
+    with _connect(mock) as client:
+        command_id = client.send_nowait("Page.navigate", {"url": "http://x.test/"})
+
+        event = client.wait_event("Page.loadEventFired", timeout=2)
+        response = client.wait_response(command_id, timeout=0.1)
+
+    assert event["method"] == "Page.loadEventFired"
+    assert response == {"frameId": "FRAME1", "loaderId": "LOADER1"}
+
+
 def test_wait_event_timeout(mock):
     """L'attente d'un évènement qui ne vient jamais échoue en temps borné
     par une exception dédiée: pas de blocage possible du CLI."""
@@ -172,6 +357,36 @@ def test_wait_event_timeout(mock):
     #: au lieu de suspendre indéfiniment l'appelant
     with _connect(mock) as c, pytest.raises(CDPTimeout):
         c.wait_event("Page.loadEventFired", timeout=0.3)
+
+
+def test_zero_timeout_is_immediate_for_commands_responses_and_events(mock):
+    with _connect(mock) as client, pytest.raises(CDPTimeout):
+        client.send("Page.enable", timeout=0)
+
+    with _connect(mock) as client:
+        command_id = client.send_nowait("Page.enable")
+        with pytest.raises(CDPTimeout):
+            client.wait_response(command_id, timeout=0)
+
+    with _connect(mock) as client, pytest.raises(CDPTimeout):
+        client.wait_event("Page.loadEventFired", timeout=0)
+
+    with _connect(mock) as client, pytest.raises(CDPTimeout):
+        client.next_event(timeout=0)
+
+
+def test_negative_timeouts_are_rejected_before_io(mock):
+    with _connect(mock) as client:
+        before = len(mock.commands)
+        with pytest.raises(ValueError, match="timeout"):
+            client.send("Page.enable", timeout=-0.1)
+        with pytest.raises(ValueError, match="timeout"):
+            client.wait_response(999, timeout=-0.1)
+        with pytest.raises(ValueError, match="timeout"):
+            client.wait_event("Page.loadEventFired", timeout=-0.1)
+        with pytest.raises(ValueError, match="timeout"):
+            client.next_event(timeout=-0.1)
+        assert len(mock.commands) == before
 
 
 def test_collect_events_filters_and_drains(mock):
@@ -185,3 +400,86 @@ def test_collect_events_filters_and_drains(mock):
         assert len(got) == 1
         #: le buffer interne ressort vide: la fenêtre d'écoute a tout drainé
         assert c.events == []
+
+
+def test_collect_events_preserves_interleaved_command_response(mock):
+    with _connect(mock) as client:
+        command_id = client.send_nowait("Page.enable")
+
+        assert client.collect_events(0.05) == []
+        assert client.wait_response(command_id, timeout=0) == {}
+
+
+def test_collect_events_rejects_negative_duration_without_draining(mock):
+    with _connect(mock) as client:
+        client.events = [{"method": "Runtime.consoleAPICalled", "params": {}}]
+
+        with pytest.raises(ValueError, match="durée de collecte"):
+            client.collect_events(-0.1)
+
+        assert len(client.events) == 1
+
+
+@pytest.mark.parametrize(
+    ("received", "message"),
+    [
+        (OSError("connection closed"), "transport interrompu"),
+        ("not-json", "message CDP invalide"),
+        ("[]", "objet CDP requis"),
+    ],
+)
+def test_collect_events_surfaces_transport_and_frame_failures(received, message):
+    """Une collecte interrompue n'est jamais présentée comme un succès partiel."""
+
+    class ScriptedSocket:
+        def recv(self, *, timeout):
+            if isinstance(received, Exception):
+                raise received
+            return received
+
+    client = object.__new__(CDPClient)
+    client.events = [{"method": "Runtime.consoleAPICalled", "params": {}}]
+    client._ws = ScriptedSocket()
+
+    with pytest.raises(CDPTransportError, match=message):
+        client.collect_events(0.1)
+
+    assert len(client.events) == 1
+
+
+@pytest.mark.parametrize(
+    ("received", "message"),
+    [
+        ('{"method":3,"params":{}}', "évènement CDP invalide"),
+        (
+            '{"method":"Page.loadEventFired","params":[]}',
+            "params CDP invalides",
+        ),
+        ('{"id":"1","result":{}}', "réponse CDP sans id valide"),
+        ('{"id":1,"result":[]}', "result CDP invalide"),
+        (
+            '{"id":1,"error":{"code":"x","message":3}}',
+            "error CDP mal formée",
+        ),
+        (
+            '{"id":1,"result":{},"error":{"code":1,"message":"x"}}',
+            "réponse CDP ambiguë",
+        ),
+        (
+            '{"method":"Page.loadEventFired","result":{}}',
+            "évènement CDP invalide",
+        ),
+    ],
+)
+def test_collect_events_rejects_malformed_cdp_envelopes(received, message):
+    class ScriptedSocket:
+        def recv(self, *, timeout):
+            return received
+
+    client = object.__new__(CDPClient)
+    client.events = []
+    client._responses = {}
+    client._ws = ScriptedSocket()
+
+    with pytest.raises(CDPTransportError, match=message):
+        client.collect_events(0.1)

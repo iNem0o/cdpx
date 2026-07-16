@@ -66,7 +66,7 @@ s'attachent pas au Chrome personnel déjà ouvert.
 
 | Décision | Raison |
 |---|---|
-| Python 3.11+, stdlib + `websockets` seul | zéro framework, lisible, installable partout et cohérent avec l'écosystème d'outillage existant |
+| Python 3.11+, stdlib + dépendances runtime ciblées (`websockets`, `markdown-it-py`, `PyYAML`) | `websockets` porte le transport CDP synchrone, `markdown-it-py` le rendu CommonMark du cockpit de preuve et `PyYAML` les scénarios déclaratifs; aucun framework applicatif n'est introduit |
 | Client **sync** (`websockets.sync`) | un CLI est séquentiel; pas d'asyncio à propager dans les primitives ni les tests |
 | Connexion directe au `webSocketDebuggerUrl` du target page | modèle simple du prototype initial; pas de sessions flatten à gérer |
 | Mock CDP qui **enregistre les commandes** | tester le protocole émis, pas seulement la sortie: une régression de params CDP casse un test, pas une session de dev |

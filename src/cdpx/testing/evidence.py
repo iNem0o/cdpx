@@ -5,22 +5,46 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
-import os
 import re
-import secrets
 import time
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from cdpx.artifacts import REDACTION_POLICY_VERSION, ArtifactClassification
+from cdpx.private_files import atomic_write_bytes
+from cdpx.proofing.evidence_policy import (
+    ARTIFACT_TYPES as ARTIFACT_TYPES,
+)
+from cdpx.proofing.evidence_policy import (
+    DEFAULT_EVIDENCE_TTL as DEFAULT_EVIDENCE_TTL,
+)
+from cdpx.proofing.evidence_policy import (
+    EVIDENCE_SCHEMA as EVIDENCE_SCHEMA,
+)
+from cdpx.proofing.evidence_policy import (
+    PROOF_RETENTION_ENV as PROOF_RETENTION_ENV,
+)
+from cdpx.proofing.evidence_policy import (
+    SCENARIOS_SCHEMA as SCENARIOS_SCHEMA,
+)
+from cdpx.proofing.evidence_policy import (
+    environment_secret_values as environment_secret_values,
+)
+from cdpx.proofing.evidence_policy import (
+    proof_retention_days as proof_retention_days,
+)
+from cdpx.proofing.evidence_policy import (
+    proof_retention_seconds as proof_retention_seconds,
+)
+from cdpx.proofing.evidence_policy import (
+    redaction_context_from_environment as redaction_context_from_environment,
+)
 from cdpx.security.redaction import (
     RedactionContext,
     redact_text,
     redact_tree,
-    secret_values_from_environment,
 )
 from cdpx.testing.intent import (
     TestIntent,
@@ -35,25 +59,6 @@ INTEGRATION_MODULES = {
     "tests/test_discovery_and_client.py",
     "tests/test_fixture_server.py",
 }
-EVIDENCE_SCHEMA = "cdpx.evidence/v2"
-SCENARIOS_SCHEMA = "cdpx.scenarios/v2"
-# Taxonomie fermée: chaque type connu a une politique de classification et un
-# visualiseur dédié dans le cockpit; une chaîne libre laisserait dériver les deux.
-ARTIFACT_TYPES = frozenset(
-    {
-        "screenshot",
-        "video",
-        "asciinema",
-        "console",
-        "network",
-        "profiler",
-        "json",
-        "logs",
-        "command",
-        "log-excerpt",
-        "file",
-    }
-)
 _TYPE_BY_SUFFIX = {
     ".png": "screenshot",
     ".jpg": "screenshot",
@@ -67,11 +72,6 @@ _TYPE_BY_SUFFIX = {
     ".ndjson": "logs",
     ".txt": "logs",
 }
-PROOF_RETENTION_ENV = "CDPX_PROOF_RETENTION_DAYS"
-DEFAULT_PROOF_RETENTION_DAYS = 14
-MIN_PROOF_RETENTION_DAYS = 1
-MAX_PROOF_RETENTION_DAYS = 90
-DEFAULT_EVIDENCE_TTL = DEFAULT_PROOF_RETENTION_DAYS * 24 * 60 * 60
 _TEXT_MIME_PREFIXES = ("text/",)
 _TEXT_MIMES = {
     "application/json",
@@ -93,20 +93,7 @@ def _secure_dir(path: Path) -> None:
 
 
 def _write_private_bytes(path: Path, data: bytes) -> None:
-    _secure_dir(path.parent)
-    if path.is_symlink():
-        raise ValueError(f"lien symbolique interdit pour une preuve: {path}")
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
+    atomic_write_bytes(path, data)
 
 
 def _write_private_text(path: Path, value: str) -> None:
@@ -115,45 +102,6 @@ def _write_private_text(path: Path, value: str) -> None:
 
 def _iso(value: datetime) -> str:
     return value.isoformat(timespec="seconds")
-
-
-def redaction_context_from_environment(
-    environ: Mapping[str, str] | None = None,
-) -> RedactionContext:
-    """Build a process-local registry without serialising environment values."""
-
-    return RedactionContext.from_secrets(environment_secret_values(environ))
-
-
-def environment_secret_values(environ: Mapping[str, str] | None = None) -> list[str]:
-    values = environ if environ is not None else os.environ
-    detected = secret_values_from_environment(values)
-    canaries = [
-        value for name, value in values.items() if value and name.startswith("CDPX_PROOF_CANARY")
-    ]
-    return list(dict.fromkeys([*detected, *canaries]))
-
-
-def proof_retention_days(environ: Mapping[str, str] | None = None) -> int:
-    """Retourne la rétention du proof, avec validation stricte fail-closed."""
-
-    values = os.environ if environ is None else environ
-    raw = values.get(PROOF_RETENTION_ENV)
-    if raw is None:
-        return DEFAULT_PROOF_RETENTION_DAYS
-    if not re.fullmatch(r"[1-9][0-9]*", raw):
-        raise ValueError(f"{PROOF_RETENTION_ENV} doit être un entier positif")
-    days = int(raw)
-    if not MIN_PROOF_RETENTION_DAYS <= days <= MAX_PROOF_RETENTION_DAYS:
-        raise ValueError(
-            f"{PROOF_RETENTION_ENV} doit être compris entre "
-            f"{MIN_PROOF_RETENTION_DAYS} et {MAX_PROOF_RETENTION_DAYS}"
-        )
-    return days
-
-
-def proof_retention_seconds(environ: Mapping[str, str] | None = None) -> int:
-    return proof_retention_days(environ) * 24 * 60 * 60
 
 
 def _is_textual(mime: str, path: Path) -> bool:

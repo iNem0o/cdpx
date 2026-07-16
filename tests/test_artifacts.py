@@ -261,3 +261,64 @@ def test_canary_scanner_and_expiration_purge(tmp_path):
     #: passé le TTL, le run est purgé du disque et son identifiant rapporté
     assert purge_expired(tmp_path, now=future) == ["expired"]
     assert not writer.run_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not-json",
+        "{}",
+        '{"expires_at": "2026-01-01T00:00:00"}',
+    ],
+)
+def test_expiration_purge_rejects_invalid_manifests(tmp_path, payload):
+    run_dir = tmp_path / "broken"
+    run_dir.mkdir()
+    manifest = run_dir / "manifest.json"
+    manifest.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ArtifactError, match="manifest d'artefacts invalide.*broken") as error:
+        purge_expired(tmp_path)
+
+    assert error.value.__cause__ is not None
+    assert run_dir.exists()
+
+
+def test_expiration_purge_propagates_permission_error_as_is(tmp_path, monkeypatch):
+    run_dir = tmp_path / "unreadable"
+    run_dir.mkdir()
+    manifest = run_dir / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    original_read_bytes = Path.read_bytes
+
+    def fail_manifest_read(path, *args, **kwargs):
+        if path == manifest:
+            raise PermissionError("permission denied")
+        return original_read_bytes(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_manifest_read)
+
+    #: PermissionError traverse sans être requalifiée: le consommateur proof
+    #: la reconnaît (remède chown) et poursuit son run best-effort
+    with pytest.raises(PermissionError):
+        purge_expired(tmp_path)
+    #: rien n'a été détruit sous le doute
+    assert run_dir.exists()
+
+
+def test_expiration_purge_skips_dir_without_manifest(tmp_path):
+    orphan = tmp_path / "orphan"
+    orphan.mkdir()
+    (orphan / "data.txt").write_text("preserve", encoding="utf-8")
+    expired = tmp_path / "expired"
+    expired.mkdir()
+    (expired / "manifest.json").write_text(
+        '{"expires_at": "2000-01-01T00:00:00+00:00"}', encoding="utf-8"
+    )
+
+    removed = purge_expired(tmp_path)
+
+    #: le répertoire sans manifeste est conservé fail-open, sans exception
+    assert orphan.exists() and "orphan" not in removed
+    #: la purge a continué au-delà de l'orphelin: l'expiré daté est bien parti
+    assert removed == ["expired"] and not expired.exists()

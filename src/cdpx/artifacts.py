@@ -7,7 +7,6 @@ import json
 import mimetypes
 import os
 import re
-import secrets
 import shutil
 import stat
 from dataclasses import asdict, dataclass
@@ -16,6 +15,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from cdpx.private_files import PrivateFileError, atomic_write_bytes
 from cdpx.security import RedactionContext, redact_text, redact_tree
 
 SCHEMA = "cdpx.artifacts/v1"
@@ -91,20 +91,10 @@ def _assert_private_owner(info: os.stat_result, relative: str) -> None:
 
 
 def _atomic_private_write(path: Path, data: bytes) -> None:
-    _secure_dir(path.parent)
-    if path.is_symlink():
-        raise ArtifactError(f"lien symbolique interdit: {path}")
-    temp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp, path)
-        path.chmod(0o600)
-    finally:
-        temp.unlink(missing_ok=True)
+        atomic_write_bytes(path, data)
+    except PrivateFileError as error:
+        raise ArtifactError(str(error)) from error
 
 
 class SecureArtifactWriter:
@@ -430,10 +420,36 @@ def purge_expired(root: str | Path, *, now: datetime | None = None) -> list[str]
     for run_dir in sorted(candidates):
         manifest = run_dir / "manifest.json"
         try:
-            payload = json.loads(manifest.read_text(encoding="utf-8"))
-            expires = datetime.fromisoformat(payload["expires_at"])
-        except (OSError, KeyError, ValueError, json.JSONDecodeError):
+            raw = manifest.read_bytes()
+        except FileNotFoundError:
+            # Répertoire sans manifeste (résidu partiel ou étranger): la purge
+            # ne juge que ce qu'un manifeste date — conservation fail-open.
             continue
+        except PermissionError:
+            # Fichiers root laissés par un run Docker: propagé tel quel, le
+            # consommateur (cdpx.proof) avertit avec le remède chown et
+            # poursuit son run best-effort.
+            raise
+        except OSError as error:
+            raise ArtifactError(f"manifest d'artefacts invalide: {manifest}: {error}") from error
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("objet JSON requis")
+            raw_expiration = payload["expires_at"]
+            if not isinstance(raw_expiration, str):
+                raise ValueError("expires_at textuel requis")
+            expires = datetime.fromisoformat(raw_expiration)
+            if expires.tzinfo is None or expires.utcoffset() is None:
+                raise ValueError("expires_at avec fuseau requis")
+        except (
+            UnicodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            raise ArtifactError(f"manifest d'artefacts invalide: {manifest}: {error}") from error
         if current >= expires:
             shutil.rmtree(run_dir)
             removed.append(run_dir.name)

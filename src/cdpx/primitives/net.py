@@ -7,7 +7,8 @@ DevTools. C'est le pendant réseau de `console`: le feedback loop complet.
 
 from __future__ import annotations
 
-from cdpx.client import CDPClient
+from cdpx.client import CDPClient, validate_time_budget
+from cdpx.primitives import nav
 from cdpx.security import RedactionContext, redact_text, redact_url
 
 NET_EVENTS = (
@@ -26,12 +27,13 @@ def capture(
     context: RedactionContext | None = None,
 ) -> dict:
     """Navigue vers `url` en capturant l'activité réseau jusqu'à load + settle."""
+    timeout = validate_time_budget(timeout, "timeout réseau")
+    settle = validate_time_budget(settle, "stabilisation réseau")
     redaction = context or RedactionContext()
     client.send("Network.enable")
     client.send("Page.enable")
     navigation = client.send("Page.navigate", {"url": url}, timeout=timeout)
-    if navigation.get("errorText"):
-        raise ValueError(f"navigation échouée: {navigation['errorText']}")
+    nav.raise_for_navigation_error(navigation, url, wait="load")
     client.wait_event("Page.loadEventFired", timeout=timeout)
     events = client.collect_events(settle, NET_EVENTS)
 

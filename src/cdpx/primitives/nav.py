@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from cdpx.client import CDPClient, CDPTimeout
+from cdpx.option_types import NavigationWait
 
 WAIT_EVENTS = {
     "load": "Page.loadEventFired",
@@ -18,8 +20,45 @@ WAIT_EVENTS = {
 }
 
 
-def navigate(client: CDPClient, url: str, wait: str = "load", timeout: float = 30.0) -> dict:
+class NavigationError(ValueError):
+    """A Page.navigate failure with its normalized CDP result attached."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
+        detail = result.get("errorText") or result.get("url") or "erreur inconnue"
+        super().__init__(f"navigation échouée: {detail}")
+
+
+def raise_for_navigation_error(
+    response: dict[str, Any],
+    url: str,
+    *,
+    wait: NavigationWait,
+) -> None:
+    """Normalize and raise any CDP navigation failure."""
+    error_text = response.get("errorText")
+    if error_text:
+        raise NavigationError(
+            {
+                "url": url,
+                "frameId": response.get("frameId"),
+                "loaderId": response.get("loaderId"),
+                "errorText": error_text,
+                "waited": wait,
+                "ok": False,
+            }
+        )
+
+
+def navigate(
+    client: CDPClient,
+    url: str,
+    wait: NavigationWait = "load",
+    timeout: float = 30.0,
+) -> dict:
     """Navigue et attend l'évènement de cycle de vie demandé (load|domcontentloaded|none)."""
+    if wait not in {*WAIT_EVENTS, "none"}:
+        raise ValueError(f"attente de navigation inconnue: {wait}")
     client.send("Page.enable")
     started = time.monotonic()
     res = client.send("Page.navigate", {"url": url}, timeout=timeout)
@@ -30,9 +69,7 @@ def navigate(client: CDPClient, url: str, wait: str = "load", timeout: float = 3
         "errorText": res.get("errorText"),
         "waited": wait,
     }
-    if res.get("errorText"):
-        out["ok"] = False
-        return out
+    raise_for_navigation_error(res, url, wait=wait)
     if wait in WAIT_EVENTS:
         client.wait_event(WAIT_EVENTS[wait], timeout=timeout)
     out["ok"] = True

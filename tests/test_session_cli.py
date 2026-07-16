@@ -11,6 +11,7 @@ import pytest
 from cdpx import session as session_mod
 from cdpx.artifacts import scan_canaries
 from cdpx.cli import main
+from cdpx.commands import shared as shared_commands
 from cdpx.session import SessionManifest, write_manifest
 
 SESSION_ID = "c" * 24
@@ -105,6 +106,21 @@ def test_session_identity_uses_environment_defaults(mock, capsys, tmp_path, monk
     #: en bout, la donnée revenant bien de la cible supervisée
     assert code == 0 and not streams.err
     assert json.loads(streams.out)["text"] == "environment session"
+
+
+def test_shared_browser_client_rejects_target_websocket_drift(mock, capsys, tmp_path, monkeypatch):
+    manifest, _ = session_manifest(mock, tmp_path)
+    drifted = {
+        **mock._public_target(manifest.target_id),
+        "webSocketDebuggerUrl": (f"ws://127.0.0.1:{mock.http_port}/devtools/page/DIFFERENT"),
+    }
+    monkeypatch.setattr(shared_commands.discovery, "pick_page", lambda *_args: drifted)
+
+    code, _out, err = run_session(mock, capsys, manifest, "text")
+
+    assert code == 1
+    assert "WebSocket du target différent du manifest" in err
+    assert mock.commands == []
 
 
 def test_explicit_session_identity_overrides_environment(mock, capsys, tmp_path, monkeypatch):
@@ -274,6 +290,44 @@ def test_session_authority_refuses_eval_before_any_cdp_command(mock, capsys, tmp
     assert code == 1 and "requiert privileged" in err
     #: pas un seul message CDP: le contrôle d'autorité précède la connexion
     assert mock.commands == []
+
+
+def test_session_vitals_click_escalates_to_interaction(mock, capsys, tmp_path):
+    """vitals est observable, mais --click transporte une interaction: sous
+    une autorité observation, l'escalade est refusée avant tout trafic CDP."""
+    manifest, _ = session_manifest(mock, tmp_path, authority="observation")
+    code, _, err = run_session(
+        mock, capsys, manifest, "vitals", "http://demo.test/page", "--click", "#buy"
+    )
+    #: le refus nomme l'autorité que le --click exige réellement
+    assert code == 1 and "requiert interaction" in err
+    #: décision locale: aucune commande n'a atteint le navigateur
+    assert mock.commands == []
+
+
+def test_session_dom_diff_eval_escalates_to_privileged(mock, capsys, tmp_path):
+    """dom-diff hérite de l'autorité de l'action transportée: un eval enveloppé
+    exige privileged même là où dom-diff seul resterait observable."""
+    manifest, _ = session_manifest(mock, tmp_path, authority="interaction")
+    code, _, err = run_session(mock, capsys, manifest, "dom-diff", "--", "eval", "document.title")
+    #: l'enveloppe n'abaisse jamais l'autorité de l'action transportée
+    assert code == 1 and "requiert privileged" in err
+    #: le refus est décidé à vide, avant toute connexion au navigateur
+    assert mock.commands == []
+
+
+def test_session_record_eval_refused_at_preflight_before_journal(mock, capsys, tmp_path):
+    """record préflighte l'action avant d'ouvrir le journal: un eval sous
+    interaction est refusé sans écrire le moindre artefact."""
+    manifest, _ = session_manifest(mock, tmp_path, authority="interaction")
+    journal = tmp_path / "journal.jsonl"
+    code, _, err = run_session(
+        mock, capsys, manifest, "record", "-o", str(journal), "--", "eval", "1+1"
+    )
+    #: le préflight juge l'action transportée, pas la commande record elle-même
+    assert code == 1 and "requiert privileged" in err
+    #: refus avant journalisation: aucun journal créé, aucun trafic CDP
+    assert not journal.exists() and mock.commands == []
 
 
 def test_session_navigation_checks_destination_before_connecting(mock, capsys, tmp_path):
@@ -500,9 +554,10 @@ steps:
 
     code, _, err = run_session(mock, capsys, manifest, "scenario", "run", str(path))
 
-    #: le diagnostic enseigne la bonne pratique (secret_ref) et le refus
-    #: tombe avant le moindre message CDP: aucun pas du scénario n'a tourné
-    assert code == 1 and "secret_ref" in err
+    #: le diagnostic enseigne la bonne pratique (secret_ref) et le refus est
+    #: une erreur d'usage à la validation du YAML, localisée sur le step,
+    #: avant le moindre message CDP: aucun pas du scénario n'a tourné
+    assert code == 2 and "secret_ref" in err and "steps[0]" in err
     assert mock.commands == []
 
 

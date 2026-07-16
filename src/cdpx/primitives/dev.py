@@ -10,10 +10,13 @@ import difflib
 import json
 import urllib.parse
 
-from cdpx.client import CDPClient
-from cdpx.policy import assert_url_allowed, origin_from_url
-from cdpx.primitives import actions, js, profiler_panels
-from cdpx.security import RedactionContext
+from cdpx.action_model import BrowserAction, action_argv
+from cdpx.cdp_types import CDPEvent
+from cdpx.client import CDPClient, validate_time_budget
+from cdpx.orchestration import OrchestrationContext
+from cdpx.policy import assert_url_allowed
+from cdpx.primitives import actions, js, nav
+from cdpx.primitives import profiler as profiler_api
 
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
@@ -52,7 +55,7 @@ DOM_SNAPSHOT_JS = r"""
 """
 
 
-def find_profiler_hit(events: list[dict], fallback_url: str) -> dict | None:
+def find_profiler_hit(events: list[CDPEvent], fallback_url: str) -> dict | None:
     """Première réponse réseau portant X-Debug-Token-Link (ou repli
     X-Debug-Token, dont on reconstruit le lien /_profiler/{token}).
 
@@ -85,48 +88,49 @@ def profiler(
     timeout: float = 30.0,
     settle: float = 0.2,
     panels: list[str] | None = None,
-    context: RedactionContext | None = None,
-    allowed_origins: tuple[str, ...] | None = None,
+    context: OrchestrationContext | None = None,
 ) -> dict:
     """Navigue, trouve X-Debug-Token-Link et parse les panels du Web Profiler.
 
     `panels=None` = tous les panels connus; `panels=[]` = sonde token seule.
     """
-    keys = profiler_panels.normalize_panels(panels)
-    origins = allowed_origins or (origin_from_url(url),)
-    assert_url_allowed(url, origins)
+    timeout = validate_time_budget(timeout, "timeout profiler")
+    settle = validate_time_budget(settle, "stabilisation profiler")
+    keys = profiler_api.normalize_panels(panels)
+    policy = context or OrchestrationContext.for_url(url)
+    assert_url_allowed(url, policy.origins)
     client.send("Network.enable")
     client.send("Page.enable")
-    client.send("Page.navigate", {"url": url}, timeout=timeout)
+    navigation = client.send("Page.navigate", {"url": url}, timeout=timeout)
+    nav.raise_for_navigation_error(navigation, url, wait="load")
     client.wait_event("Page.loadEventFired", timeout=timeout)
     events = client.collect_events(settle, NET_EVENTS)
 
     final_url = js.evaluate(client, "window.location.href")
     if not isinstance(final_url, str):
         raise ValueError("URL finale du profiler indéterminable")
-    assert_url_allowed(final_url, origins)
+    assert_url_allowed(final_url, policy.origins)
 
     hit = find_profiler_hit(events, url)
     if not hit:
         raise ValueError("header X-Debug-Token-Link/X-Debug-Token introuvable")
-    return profiler_panels.collect(
+    return profiler_api.collect_profiler_report(
         client,
         hit,
         panels=keys,
         timeout=timeout,
-        context=context,
-        allowed_origins=origins,
+        context=policy,
         page_url=final_url,
     )
 
 
-def dom_diff(client: CDPClient, action: list[str]) -> dict:
+def dom_diff(client: CDPClient, action: BrowserAction) -> dict:
     before = _snapshot(client)
     actions.run_action(client, action)
     after = _snapshot(client)
     diff = list(difflib.unified_diff(before, after, fromfile="before", tofile="after", lineterm=""))
     return {
-        "action": action,
+        "action": action_argv(action),
         "changed": before != after,
         "diff": diff,
         "lines": len(diff),

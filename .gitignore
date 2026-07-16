@@ -18,6 +18,7 @@ venv/
 .proof.new/
 .proof.old/
 .ci-artifacts/
+.codehealth/
 *.png
 *.pdf
 !tests/fixtures/pixel.png

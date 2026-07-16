@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 from cdpx.client import CDPClient, CDPError
+from cdpx.option_types import StorageKind
 from cdpx.primitives.js import evaluate
 from cdpx.security import MASK
 
@@ -47,7 +48,13 @@ def clear_cookies(client: CDPClient) -> dict:
         return {"cleared": True, "method": "Network.clearBrowserCookies"}
 
 
-def get_storage(client: CDPClient, kind: str = "local", show_values: bool = False) -> dict:
+def get_storage(
+    client: CDPClient,
+    kind: StorageKind = "local",
+    show_values: bool = False,
+) -> dict:
+    if kind not in {"local", "session"}:
+        raise ValueError(f"stockage inconnu: {kind}")
     store = "localStorage" if kind == "local" else "sessionStorage"
     expr = f"JSON.stringify(Object.fromEntries(Object.entries({store})))"
     raw = evaluate(client, expr)

@@ -4,8 +4,8 @@ title = "État et contrôles de session"
 status = "validated"
 summary = "Attribuer une session navigateur supervisée et inspecter cookies/localStorage/sessionStorage sans fuite de secrets par défaut."
 entrypoints = ["cdpx cookies", "cdpx storage", "cdpx session"]
-path_globs = ["src/cdpx/session.py", "src/cdpx/policy.py", "src/cdpx/artifacts.py", "src/cdpx/security/*.py", "src/cdpx/primitives/state.py", "src/cdpx/testing/mock_session.py", "tests/test_session.py", "tests/test_policy.py", "tests/test_session_cli.py", "tests/test_artifacts.py", "tests/test_redaction.py", "tests/test_security_integration.py", "tests/e2e/test_e2e_sessions.py", "tests/fixtures/storage.html"]
-test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*", "tests/e2e/test_e2e_sessions.py::*"]
+path_globs = ["src/cdpx/session.py", "src/cdpx/policy.py", "src/cdpx/artifacts.py", "src/cdpx/security/*.py", "src/cdpx/primitives/state.py", "src/cdpx/testing/mock_session.py", "tests/test_session.py", "tests/test_policy.py", "tests/test_session_cli.py", "tests/test_artifacts.py", "tests/test_redaction.py", "tests/test_security_integration.py", "tests/e2e/test_e2e_sessions.py", "tests/fixtures/storage.html", "src/cdpx/sessions/*.py", "src/cdpx/private_files.py", "tests/test_private_files.py"]
+test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*", "tests/e2e/test_e2e_sessions.py::*", "tests/test_private_files.py::*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
 docs = ["docs/PRIMITIVES.md", "docs/SESSION-LIFECYCLE.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -43,7 +43,7 @@ report_text = "Ce scénario prouve que l'état de session du navigateur est obse
 given = "Une fixture de storage locale pose des cookies et des valeurs de storage navigateur."
 when = "cdpx lit les cookies, le localStorage ou le sessionStorage."
 then = "La sortie est structurée et sûre à relire dans le rapport de preuve."
-tests = ["tests/test_cli.py::test_cookies*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/e2e/test_e2e_chrome.py::test_cookies*"]
+tests = ["tests/test_cli.py::test_cookies*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -67,7 +67,7 @@ report_text = "Ce scénario prouve sur Chrome réel l'isolation de trois runs, l
 given = "Trois runs démarrent des sessions supervisées avec les autorités observation, interaction et privileged."
 when = "Le CLI exécute lectures, interactions et opérations privilégiées, tente un lease concurrent puis arrête chaque session."
 then = "Les états navigateur restent isolés, les autorités sont appliquées, le second lease échoue et chaque profil/endpoint disparaît au teardown."
-tests = ["tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/e2e/test_e2e_sessions.py::test_supervised_sessions_are_isolated_authorized_and_torn_down"]
+tests = ["tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/e2e/test_e2e_sessions.py::test_supervised_sessions_are_isolated_authorized_and_torn_down", "tests/test_private_files.py::*"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]

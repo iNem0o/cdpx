@@ -11,7 +11,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from cdpx.primitives import actions
+from cdpx.action_model import (
+    BrowserAction,
+    EvalAction,
+    TypeAction,
+    action_argv,
+    parse_action,
+)
 from cdpx.security import MASK, RedactionContext, redact_action, redact_text
 
 SCHEMA = "cdpx.record/v2"
@@ -23,21 +29,17 @@ class JournalError(ValueError):
 
 
 def serialize_action(
-    action: list[str],
+    action: BrowserAction,
     *,
     context: RedactionContext | None = None,
 ) -> tuple[list[str] | dict[str, Any], bool]:
-    actions.validate_action(action)
     ctx = context or RedactionContext()
-    verb = action[0]
-    if verb == "type":
-        value = action[2]
-        clear = "--clear" in action[3:]
-        match = _SECRET_REF.fullmatch(value)
+    if isinstance(action, TypeAction):
+        match = _SECRET_REF.fullmatch(action.text)
         if not match:
-            ctx.register_secret(value)
-        selector = redact_text(action[1], context=ctx, path="$.action.selector")
-        selector_changed = selector != action[1]
+            ctx.register_secret(action.text)
+        selector = redact_text(action.selector, context=ctx, path="$.action.selector")
+        selector_changed = selector != action.selector
         if match:
             stored_input: dict[str, Any] = {
                 "secret_ref": match.group(1),
@@ -52,36 +54,36 @@ def serialize_action(
             "verb": "type",
             "selector": selector,
             "input": stored_input,
-            "clear": clear,
+            "clear": action.clear,
         }, replayable
-    if verb == "eval":
-        expression = " ".join(action[1:])
-        ctx.register_secret(expression)
+    if isinstance(action, EvalAction):
+        ctx.register_secret(action.expression)
         ctx.mark("$.action.expression")
         return {
             "verb": "eval",
             "expression": MASK,
-            "sha256": hashlib.sha256(expression.encode("utf-8")).hexdigest(),
+            "sha256": hashlib.sha256(action.expression.encode("utf-8")).hexdigest(),
         }, False
-    cleaned = redact_action(action, context=ctx, path="$.action")
+    argv = action_argv(action)
+    cleaned = redact_action(argv, context=ctx, path="$.action")
     if not isinstance(cleaned, list):  # pragma: no cover - entrée validée argv
         raise JournalError("action nettoyée invalide")
     stored = [str(item) for item in cleaned]
-    return stored, stored == action
+    return stored, stored == argv
 
 
 def materialize_action(
     stored: list[str] | Mapping[str, Any],
     *,
     environ: Mapping[str, str] | None = None,
-) -> list[str]:
+) -> BrowserAction:
     if isinstance(stored, list):
         if not all(isinstance(item, str) for item in stored):
             raise JournalError("action v1 invalide")
-        actions.validate_action(stored)
+        action = parse_action(stored)
         if stored[0] in {"type", "eval"}:
             raise JournalError("action v1 sensible refusée")
-        return list(stored)
+        return action
     if not isinstance(stored, Mapping):
         raise JournalError("action de journal invalide")
     verb = stored.get("verb")
@@ -97,11 +99,7 @@ def materialize_action(
         value = source.get(secret_ref)
         if value is None:
             raise JournalError(f"secret_ref introuvable dans l'environnement: {secret_ref}")
-        action = ["type", selector, value]
-        if stored.get("clear") is True:
-            action.append("--clear")
-        actions.validate_action(action)
-        return action
+        return TypeAction(selector, value, clear=stored.get("clear") is True)
     if verb == "eval":
         raise JournalError("action eval redacted non rejouable")
     raise JournalError(f"verbe de journal v2 inconnu: {verb}")

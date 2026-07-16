@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from cdpx import discovery
+from cdpx.cdp_types import DiscoveryTarget
 from cdpx.policy import (
     Authority,
     ExecutionContext,
@@ -39,11 +40,16 @@ from cdpx.policy import (
     is_loopback_host,
     validate_target,
 )
+from cdpx.private_files import PrivateFileError, atomic_write_text
 from cdpx.security.redaction import (
     RedactionContext,
     redact_text,
     secret_values_from_environment,
 )
+from cdpx.sessions.process import abort_supervisor as _abort_supervisor
+from cdpx.sessions.process import argv_has_markers as _argv_has_markers
+from cdpx.sessions.process import process_identity as _process_identity
+from cdpx.sessions.process import remove_tree as _remove_tree
 
 SCHEMA = "cdpx.session/v1"
 MANIFEST_NAME = "manifest.json"
@@ -117,19 +123,10 @@ def _secure_mkdir(path: Path) -> None:
 
 
 def _write_private(path: Path, data: str) -> None:
-    _secure_mkdir(path.parent)
-    temp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp, path)
-        path.chmod(0o600)
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            temp.unlink()
+        atomic_write_text(path, data)
+    except PrivateFileError as error:
+        raise PolicyError(str(error)) from error
 
 
 @dataclass(frozen=True)
@@ -187,7 +184,30 @@ class SessionManifest:
         }
 
 
-def _policy_attestation(source: SessionManifest | dict[str, Any]) -> str:
+@dataclass(frozen=True)
+class SupervisorBootstrap:
+    """Fully validated input consumed by the private supervisor process."""
+
+    session_id: str
+    run_id: str
+    profile_id: str
+    browser_kind: str
+    authority: str
+    origins: tuple[str, ...]
+    owner_pid: int | None
+    owner_start_time: str | None
+    chrome_bin: str
+    startup_timeout: float
+    session_dir: str
+    profile_dir: str
+    artifacts_dir: str
+    created_at: str
+    expires_at: str
+
+
+def _policy_attestation(
+    source: SessionManifest | SupervisorBootstrap | dict[str, Any],
+) -> str:
     payload: dict[str, Any] = {}
     for field in _ATTESTED_POLICY_FIELDS:
         value = source[field] if isinstance(source, dict) else getattr(source, field)
@@ -760,6 +780,21 @@ def assert_session_active(manifest: SessionManifest) -> None:
     _assert_exact_target(manifest)
 
 
+def assert_manifest_target_binding(
+    manifest: SessionManifest,
+    target: DiscoveryTarget,
+) -> DiscoveryTarget:
+    """Validate that a discovered target is the exact endpoint in the manifest."""
+
+    validated = validate_target(target, manifest.target_id)
+    websocket_url = validated.get("webSocketDebuggerUrl")
+    assert_loopback_endpoint(manifest.host, websocket_url)
+    if websocket_url != manifest.websocket_url:
+        raise PolicyError("session: WebSocket du target différent du manifest")
+    _validate_websocket_binding(manifest.websocket_url, manifest.port, manifest.target_id)
+    return validated
+
+
 def _assert_devtools_port_binding(manifest: SessionManifest) -> None:
     active_port = Path(manifest.profile_dir) / "DevToolsActivePort"
     try:
@@ -781,66 +816,10 @@ def remove_session_files(manifest_path: str | Path) -> None:
     shutil.rmtree(session_dir)
 
 
-def _linux_process_identity(pid: int) -> tuple[str, tuple[str, ...]]:
-    proc = Path("/proc") / str(pid)
-    try:
-        stat_line = (proc / "stat").read_text(encoding="utf-8")
-        end = stat_line.rfind(")")
-        fields = stat_line[end + 2 :].split()
-        start_ticks = fields[19]
-        argv = tuple(
-            item.decode("utf-8", "surrogateescape")
-            for item in (proc / "cmdline").read_bytes().split(b"\0")
-            if item
-        )
-    except (OSError, IndexError, ValueError) as e:
-        raise PolicyError(f"identité du processus {pid} invérifiable") from e
-    if end < 0 or not start_ticks.isdigit() or not argv:
-        raise PolicyError(f"identité du processus {pid} invalide")
-    return f"linux:{start_ticks}", argv
-
-
-def _ps_process_identity(pid: int) -> tuple[str, tuple[str, ...]]:
-    try:
-        started = subprocess.run(
-            ["ps", "-o", "lstart=", "-p", str(pid)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        ).stdout.strip()
-        command = subprocess.run(
-            ["ps", "-o", "command=", "-p", str(pid)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError) as e:
-        raise PolicyError(f"identité du processus {pid} invérifiable") from e
-    if not started or not command:
-        raise PolicyError(f"identité du processus {pid} invalide")
-    # Le fallback POSIX ne peut pas reconstruire argv sans ambiguïté. Le
-    # marqueur est donc recherché dans la commande complète.
-    return f"ps:{started}", (command,)
-
-
-def _process_identity(pid: int) -> tuple[str, tuple[str, ...]]:
-    _strict_int(pid, "pid", maximum=_MAX_PID)
-    if Path("/proc/self/stat").exists():
-        return _linux_process_identity(pid)
-    return _ps_process_identity(pid)
-
-
-def _argv_has_marker(argv: tuple[str, ...], marker: str) -> bool:
-    return marker in argv or (len(argv) == 1 and marker in argv[0])
-
-
-def _argv_has_markers(argv: tuple[str, ...], markers: str | tuple[str, ...]) -> bool:
-    expected = (markers,) if isinstance(markers, str) else markers
-    return all(_argv_has_marker(argv, marker) for marker in expected)
-
-
+# Implémentations vivantes de l'identité/terminaison de processus: les tests
+# les monkeypatchent via ce namespace (session._process_identity, ...) et le
+# superviseur les consomme via la façade. sessions/process.py ne doit pas en
+# porter de doublon.
 def _assert_process_identity(
     pid: int,
     expected_start_time: str,
@@ -861,14 +840,6 @@ def _process_matches(
 ) -> bool:
     try:
         _assert_process_identity(pid, start_time, marker, "processus")
-    except PolicyError:
-        return False
-    return True
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        _process_identity(pid)
     except PolicyError:
         return False
     return True
@@ -896,26 +867,6 @@ def _terminate_owned_pid(
         return
     _assert_process_identity(pid, start_time, marker, "processus")
     _terminate_pid(pid, start_time)
-
-
-def _abort_supervisor(supervisor: subprocess.Popen[Any], session_dir: Path) -> None:
-    if supervisor.poll() is None:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(supervisor.pid, signal.SIGTERM)
-        try:
-            supervisor.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(supervisor.pid, signal.SIGKILL)
-            supervisor.wait(timeout=5)
-    _remove_tree(session_dir)
-
-
-def _remove_tree(path: Path) -> None:
-    try:
-        shutil.rmtree(path)
-    except FileNotFoundError:
-        pass
 
 
 def _startup_diagnostic_tails(session_dir: Path) -> str:
@@ -1001,31 +952,23 @@ def _wait_discovery(port: int, proc: subprocess.Popen[Any], timeout: float = 30)
     raise PolicyError("endpoint discovery Chrome indisponible")
 
 
-def _page_targets(host: str, port: int) -> list[dict[str, Any]]:
+def _page_targets(host: str, port: int) -> list[DiscoveryTarget]:
     try:
         targets = discovery.list_targets(host, port)
     except discovery.DiscoveryError as e:
         raise PolicyError(f"discovery de session indisponible: {e}") from e
     if not isinstance(targets, list):
         raise PolicyError("discovery de session: liste de targets requise")
-    return [
-        target for target in targets if isinstance(target, dict) and target.get("type") == "page"
-    ]
+    return [target for target in targets if target.get("type") == "page"]
 
 
-def _assert_exact_target(manifest: SessionManifest) -> dict[str, Any]:
+def _assert_exact_target(manifest: SessionManifest) -> DiscoveryTarget:
     pages = _page_targets(manifest.host, manifest.port)
     if len(pages) != 1:
         raise PolicyError(
             f"session {manifest.session_id}: un seul target page requis, trouvé={len(pages)}"
         )
-    target = validate_target(pages[0], manifest.target_id)
-    websocket_url = target.get("webSocketDebuggerUrl")
-    assert_loopback_endpoint(manifest.host, websocket_url)
-    if websocket_url != manifest.websocket_url:
-        raise PolicyError("target de session: WebSocket différent du manifest")
-    _validate_websocket_binding(manifest.websocket_url, manifest.port, manifest.target_id)
-    return target
+    return assert_manifest_target_binding(manifest, pages[0])
 
 
 def _enforce_single_page_target(
@@ -1085,7 +1028,7 @@ def _secure_directory(path: Path, label: str) -> os.stat_result:
     return info
 
 
-def _read_bootstrap(bootstrap_path: Path) -> dict[str, Any]:
+def _read_bootstrap(bootstrap_path: Path) -> SupervisorBootstrap:
     if not bootstrap_path.is_absolute():
         bootstrap_path = Path.cwd() / bootstrap_path
     if bootstrap_path.name != "bootstrap.json":
@@ -1124,7 +1067,7 @@ def _read_bootstrap(bootstrap_path: Path) -> dict[str, Any]:
 def _validate_bootstrap_payload(
     payload: dict[str, Any],
     bootstrap_path: Path,
-) -> dict[str, Any]:
+) -> SupervisorBootstrap:
     session_id = payload["session_id"]
     profile_id = payload["profile_id"]
     if not isinstance(session_id, str) or not _SESSION_ID_RE.fullmatch(session_id):
@@ -1187,177 +1130,29 @@ def _validate_bootstrap_payload(
         if not isinstance(owner_start_time, str) or not owner_start_time:
             raise PolicyError("bootstrap de session: owner_start_time invalide")
         _assert_process_identity(owner_pid, owner_start_time, None, "owner")
-    return payload
+    return SupervisorBootstrap(
+        session_id=session_id,
+        run_id=payload["run_id"],
+        profile_id=profile_id,
+        browser_kind=payload["browser_kind"],
+        authority=payload["authority"],
+        origins=tuple(origins),
+        owner_pid=owner_pid,
+        owner_start_time=owner_start_time,
+        chrome_bin=chrome_bin,
+        startup_timeout=startup_timeout,
+        session_dir=str(expected_paths["session_dir"]),
+        profile_dir=str(expected_paths["profile_dir"]),
+        artifacts_dir=str(expected_paths["artifacts_dir"]),
+        created_at=payload["created_at"],
+        expires_at=payload["expires_at"],
+    )
 
 
 def _supervise(bootstrap_path: Path, attestation: str) -> int:
-    try:
-        data = _read_bootstrap(bootstrap_path)
-        expected_attestation = _policy_attestation(data)
-        if not secrets.compare_digest(attestation, expected_attestation):
-            raise PolicyError("bootstrap de session: attestation invalide")
-    except Exception as e:  # noqa: BLE001 - aucun effet avant validation
-        print(f"{type(e).__name__}: {e}", file=sys.stderr)
-        return 1
+    from cdpx.sessions.supervisor import supervise
 
-    session_dir = Path(data["session_dir"])
-    parent = session_dir.parent
-    error_path = parent / f"{data['session_id']}.error"
-    chrome: subprocess.Popen[Any] | None = None
-    chrome_log = None
-    manifest: SessionManifest | None = None
-    stop_requested = False
-
-    def request_stop(_signum: int, _frame: Any) -> None:
-        nonlocal stop_requested
-        stop_requested = True
-
-    try:
-        signal.signal(signal.SIGTERM, request_stop)
-        signal.signal(signal.SIGINT, request_stop)
-        startup_deadline = time.monotonic() + float(data["startup_timeout"])
-        print("startup_stage=spawn_chrome", flush=True)
-        profile_dir = Path(data["profile_dir"])
-        log_path = session_dir / "chrome-stderr.log"
-        log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        chrome_log = os.fdopen(log_fd, "w", encoding="utf-8")
-        browser_command = (
-            build_chrome_command(data["chrome_bin"], profile_dir)
-            if data["browser_kind"] == "chrome"
-            else build_mock_command(profile_dir)
-        )
-        chrome = subprocess.Popen(
-            browser_command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=chrome_log,
-            close_fds=True,
-        )
-        print("startup_stage=wait_devtools_port", flush=True)
-        port = _read_devtools_port(
-            profile_dir,
-            chrome,
-            timeout=_remaining_startup_timeout(startup_deadline, "DevToolsActivePort"),
-        )
-        print(f"startup_stage=wait_discovery port={port}", flush=True)
-        _wait_discovery(
-            port,
-            chrome,
-            timeout=_remaining_startup_timeout(startup_deadline, "discovery Chrome"),
-        )
-        print("startup_stage=create_target", flush=True)
-        target = discovery.new_tab("127.0.0.1", port, "about:blank")
-        target_id = str(target["id"])
-        ws_url = str(target["webSocketDebuggerUrl"])
-        assert_loopback_endpoint("127.0.0.1", ws_url)
-        browser_start_time, browser_argv = _process_identity(chrome.pid)
-        if not _argv_has_markers(
-            browser_argv,
-            _browser_markers(data["browser_kind"], profile_dir),
-        ):
-            raise PolicyError("navigateur démarré sans les marqueurs attribués")
-        supervisor_start_time, supervisor_argv = _process_identity(os.getpid())
-        expected_bootstrap = str(session_dir / "bootstrap.json")
-        expected_supervisor_markers = (
-            "-m",
-            "cdpx.session",
-            "_supervise",
-            expected_bootstrap,
-            f"--attestation={attestation}",
-        )
-        if not _argv_has_markers(supervisor_argv, expected_supervisor_markers):
-            raise PolicyError("supervisor sans marqueur bootstrap attribué")
-        manifest = SessionManifest(
-            session_id=data["session_id"],
-            run_id=data["run_id"],
-            profile_id=data["profile_id"],
-            browser_kind=data["browser_kind"],
-            authority=data["authority"],
-            origins=tuple(data["origins"]),
-            host="127.0.0.1",
-            port=port,
-            target_id=target_id,
-            websocket_url=ws_url,
-            browser_pid=chrome.pid,
-            browser_start_time=browser_start_time,
-            supervisor_pid=os.getpid(),
-            supervisor_start_time=supervisor_start_time,
-            owner_pid=int(data["owner_pid"]) if data["owner_pid"] is not None else None,
-            owner_start_time=data["owner_start_time"],
-            session_dir=data["session_dir"],
-            profile_dir=data["profile_dir"],
-            artifacts_dir=data["artifacts_dir"],
-            created_at=data["created_at"],
-            expires_at=data["expires_at"],
-        )
-        _validate_manifest_fields(manifest)
-        print("startup_stage=attest_target", flush=True)
-        _enforce_single_page_target(
-            manifest,
-            close_timeout=min(
-                2.0,
-                _remaining_startup_timeout(startup_deadline, "attestation target"),
-            ),
-        )
-        write_manifest(manifest)
-        print("startup_stage=ready", flush=True)
-        bootstrap_path.unlink(missing_ok=True)
-        expires = _aware_timestamp(manifest.expires_at, "expires_at")
-        while True:
-            if stop_requested:
-                break
-            if chrome.poll() is not None:
-                break
-            if (session_dir / STOP_NAME).exists():
-                break
-            if (
-                manifest.owner_pid is not None
-                and manifest.owner_start_time is not None
-                and not _process_matches(
-                    manifest.owner_pid,
-                    manifest.owner_start_time,
-                    None,
-                )
-            ):
-                break
-            if _now() >= expires:
-                break
-            _enforce_single_page_target(manifest)
-            time.sleep(0.25)
-        return 0
-    except Exception as e:  # noqa: BLE001 - erreur transmise au processus appelant
-        diagnostics = _startup_diagnostic_tails(session_dir)
-        _write_private(
-            error_path,
-            f"{type(e).__name__}: {e}\n{diagnostics}\n",
-        )
-        return 1
-    finally:
-        if manifest is not None:
-            with contextlib.suppress(Exception):
-                discovery.close_tab(manifest.host, manifest.port, manifest.target_id)
-        if chrome is not None:
-            if chrome.poll() is None:
-                chrome.terminate()
-                try:
-                    chrome.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    chrome.kill()
-                    chrome.wait(timeout=5)
-            else:
-                chrome.wait()
-        if chrome_log is not None:
-            chrome_log.close()
-        try:
-            shutil.rmtree(session_dir)
-        except FileNotFoundError:
-            pass
-        except OSError as cleanup_error:
-            _write_private(
-                error_path,
-                f"{type(cleanup_error).__name__}: cleanup session échoué: {cleanup_error}\n",
-            )
-            raise
+    return supervise(bootstrap_path, attestation)
 
 
 def _build_private_parser() -> argparse.ArgumentParser:

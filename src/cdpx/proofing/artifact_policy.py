@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import NoReturn
 
 from cdpx.artifacts import ArtifactClassification, ArtifactError
+from cdpx.proofing.evidence_policy import EVIDENCE_SCHEMA
 from cdpx.proofing.execution import _read_json_or_fail, _rewrite_text_paths
 from cdpx.proofing.private_io import _write_private_text
 from cdpx.security.redaction import RedactionContext, redact_text
-from cdpx.testing.evidence import EVIDENCE_SCHEMA
 
 _TEXTUAL_PROOF_SUFFIXES = {
     ".css",

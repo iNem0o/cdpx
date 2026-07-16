@@ -10,32 +10,19 @@ Usecases agent:
 from __future__ import annotations
 
 import base64
-import os
 import pathlib
-import secrets
 from collections.abc import Iterable
 
-from cdpx.client import CDPClient
+from cdpx.cdp_types import CDPEvent
+from cdpx.client import CDPClient, validate_time_budget
+from cdpx.private_files import atomic_write_bytes
 from cdpx.security import RedactionContext, redact_text
 
 CONSOLE_EVENTS = ("Runtime.consoleAPICalled", "Runtime.exceptionThrown")
 
 
 def _write_private(path: pathlib.Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if path.is_symlink():
-        raise ValueError(f"lien symbolique interdit: {path}")
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
+    atomic_write_bytes(path, data)
 
 
 def screenshot(client: CDPClient, path: str, full_page: bool = False, fmt: str = "png") -> dict:
@@ -74,6 +61,7 @@ def console_capture(
 
     Contrat de sortie stable: liste d'entrées {kind, type, text, ts}.
     """
+    duration = validate_time_budget(duration, "durée de capture console")
     client.send("Runtime.enable")
     events = client.collect_events(duration, CONSOLE_EVENTS)
     entries = list(console_entries(events, context=context))
@@ -82,7 +70,7 @@ def console_capture(
 
 
 def console_entries(
-    events: Iterable[dict], context: RedactionContext | None = None
+    events: Iterable[CDPEvent], context: RedactionContext | None = None
 ) -> Iterable[dict]:
     redaction = context or RedactionContext()
     for index, ev in enumerate(events):

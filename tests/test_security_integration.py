@@ -8,13 +8,15 @@ from pathlib import Path
 import pytest
 
 from cdpx import journal
+from cdpx.action_model import TypeAction
 from cdpx.artifacts import (
     ArtifactClassification,
     SecureArtifactWriter,
     scan_canaries,
 )
 from cdpx.client import CDPClient
-from cdpx.primitives import advanced, capture, dev, net, state
+from cdpx.orchestration import OrchestrationContext
+from cdpx.primitives import capture, dev, net, recording, state
 from cdpx.security import MASK, RedactionContext, redact_text, redact_tree
 
 CANARY = "CDPX-CANARY-7d3df679f62b"
@@ -214,7 +216,7 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
         navigation_url,
         panels=["db"],
         settle=0.01,
-        context=context,
+        context=OrchestrationContext.from_origins("http://*.test", redaction=context),
     )
     # Même frontière que le CLI avant stdout ou persistance d'un artefact.
     result = redact_tree(primitive_result, context=context)
@@ -306,13 +308,12 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     context = RedactionContext()
     record_path = tmp_path / "journal" / "record.ndjson"
 
-    result = advanced.record(
+    result = recording.record(
         client,
         str(record_path),
-        ["type", "#checkout-password", "@env:CHECKOUT_PASSWORD"],
+        TypeAction("#checkout-password", "@env:CHECKOUT_PASSWORD"),
         run_id="security-run",
-        redaction_context=context,
-        origins="http://*.test",
+        context=OrchestrationContext.from_origins("http://*.test", redaction=context),
     )
     safe_error = redact_tree(
         {"error": f"submission failed for {CANARY}; {ORDINARY_TEXT}"},
@@ -429,7 +430,11 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
         },
     )
 
-    result = advanced.replay(client, str(record_path), origins="http://*.test")
+    result = recording.replay(
+        client,
+        str(record_path),
+        context=OrchestrationContext.from_origins("http://*.test"),
+    )
 
     #: le rejeu échoue sans jouer aucune action et la divergence nomme la
     #: référence manquante pour un correctif immédiat

@@ -28,6 +28,13 @@ doit ensuite fournir **les trois** identifiants `--session`, `--run-id` et
 `CDPX_TARGET`. Les options explicites gagnent sur l'environnement et les
 valeurs vides sont refusées.
 
+Les commandes de cycle de vie ne sont pas des commandes navigateur et ne
+consomment donc aucun niveau d'autorité du manifest. `session start` crée ce
+plafond d'autorité ; `session status` et `session stop` sont autorisées par la
+possession du manifest privé et exigent sa correspondance exacte
+`run_id`/`target_id`. Si elles étaient routées par erreur dans la matrice des
+commandes CDP, la politique les refuserait explicitement.
+
 Le manifest privé fournit l'endpoint de découverte ; l'hôte et le port ne sont
 jamais choisis par l'appelant. Le run et le target doivent correspondre
 exactement au manifest, le target doit être une `page`, et les endpoints de

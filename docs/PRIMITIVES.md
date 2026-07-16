@@ -83,7 +83,7 @@ détaillés dans la [référence des sessions supervisées](SESSION-LIFECYCLE.md
 
 | CLI | Usecase | Pourquoi |
 |---|---|---|
-| `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | profil, target, autorité, origines, TTL, budget de cold start et teardown supervisés; les erreurs gardent des tails nettoyés |
+| `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | lifecycle hors matrice d'autorité CDP: `start` crée le grant; `status`/`stop` exigent le manifest privé et son identité run/target exacte |
 | `cdpx cookies get [--show-values]` | inspecter la session (masqué par défaut) | sécurité: cf. HARNESS.md §2 |
 | `cdpx cookies set --name n --value-env NOM --url u` / `clear` | préparer un scénario sans exposer la valeur dans argv | reproductibilité; `clear` = Storage.clearCookies avec repli |
 | `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, valeurs masquées par défaut | panier invité, consentement, caches front |
@@ -141,13 +141,21 @@ cdpx scenario run checkout_guest_add_to_cart.yml
 Une règle d'interception n'accepte que `continue`, `block` ou un statut
 `200..599`; toute faute de frappe est refusée au parsing. Dans un scénario,
 `wait_visible` vérifie réellement attachement, display/visibility et boîte non
-nulle, et une saisie sensible se décrit avec `secret_ref`. Le drainage final
+nulle, et un step `type` exige `secret_ref` (la forme `[selector, text]` en
+clair est refusée à la validation). Le drainage final
 console/réseau précède les assertions.
 
 Limites : `network` n'est pas un HAR (pas de corps ni de chronologie complète)
 et `replay` compare seulement les champs enregistrés non volatils. Un rejeu
 vert ne prouve un effet métier que si le journal ou le scénario porte une
 assertion observable correspondante.
+
+Notes de compatibilité : une rupture de transport pendant la collecte passive
+d'évènements est désormais une erreur diagnostiquée (exit 1), plus un succès
+partiel silencieux — un scénario interrompu à mi-course ne rend donc plus de
+verdict tronqué. Les journaux pré-schema dont un pas `type` portait un
+résultat historique `typed: "<texte>"` divergent au rejeu (l'adaptateur de
+cet ancien contrat a été retiré) : ré-enregistrer le journal.
 
 ## Harness et cockpit de preuve — [fiche](features/harness-proof-cockpit.md)
 

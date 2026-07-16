@@ -11,12 +11,12 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from cdpx.proofing.evidence_policy import redaction_context_from_environment
 from cdpx.proofing.private_io import _write_private_text
 from cdpx.security.redaction import (
     RedactionContext,
     redact_text,
 )
-from cdpx.testing.evidence import redaction_context_from_environment
 
 GENERATED_PREFIXES = (".proof/", ".idea/")
 PRIVATE_WORKTREE_PREFIXES = ("AGENTS.md", "article/", "presentation/")

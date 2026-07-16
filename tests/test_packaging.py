@@ -18,6 +18,14 @@ PYPROJECT = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 REPOSITORY_URL = "https://github.com/inem0o/cdpx"
 
 
+def test_action_journal_layer_does_not_depend_on_browser_primitives():
+    journal_source = Path("src/cdpx/journal.py").read_text(encoding="utf-8")
+    action_source = Path("src/cdpx/action_model.py").read_text(encoding="utf-8")
+
+    assert "cdpx.primitives" not in journal_source
+    assert "cdpx.primitives" not in action_source
+
+
 def test_version_has_single_source():
     """La version n'a qu'une seule source de vérité (cdpx.__version__),
     déléguée dynamiquement par pyproject, et respecte le format x.y.z."""

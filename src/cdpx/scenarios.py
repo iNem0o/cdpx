@@ -14,14 +14,24 @@ import urllib.parse
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
+from cdpx.action_model import (
+    BrowserAction,
+    ClickAction,
+    EvalAction,
+    GotoAction,
+    KeyAction,
+    TypeAction,
+)
 from cdpx.artifacts import ArtifactClassification, ArtifactEntry, SecureArtifactWriter
+from cdpx.cdp_types import CDPEvent
 from cdpx.client import CDPClient, CDPError, CDPTimeout
-from cdpx.policy import assert_url_allowed, parse_origins
-from cdpx.primitives import actions, advanced, capture, dev, inputs, js, nav, profiler_panels
+from cdpx.orchestration import OrchestrationContext
+from cdpx.policy import assert_url_allowed
+from cdpx.primitives import actions, capture, dev, emulation, inputs, js, nav, profiler
 from cdpx.security import (
     MASK,
     RedactionContext,
@@ -68,6 +78,22 @@ class Scenario:
     artifacts: list[str]
 
 
+@dataclass(frozen=True)
+class ScenarioOperation:
+    step: ScenarioStep
+    action: BrowserAction | None = None
+    wait_kind: Literal["visible", "text"] | None = None
+    selector: str | None = None
+    expected: str | None = None
+
+
+@dataclass(frozen=True)
+class PreparedScenario:
+    scenario: Scenario
+    context: OrchestrationContext
+    operations: tuple[ScenarioOperation, ...]
+
+
 @dataclass
 class ScenarioRun:
     name: str
@@ -109,9 +135,9 @@ class ScenarioRun:
 
 
 class PassiveCollector:
-    def __init__(self, context: RedactionContext | None = None) -> None:
-        self.redaction = context or RedactionContext()
-        self.allowed_origins: tuple[str, ...] | None = None
+    def __init__(self, context: OrchestrationContext) -> None:
+        self.context = context
+        self.redaction = context.redaction
         self.console_entries: list[dict[str, Any]] = []
         self.requests: dict[str, dict[str, Any]] = {}
         self.profiler_hits: list[dict[str, Any]] = []
@@ -147,16 +173,15 @@ class PassiveCollector:
     def profiler(self, client: CDPClient, timeout: float) -> dict[str, Any] | None:
         if not self.profiler_hits:
             return None
-        return profiler_panels.collect(
+        return profiler.collect_profiler_report(
             client,
             self.profiler_hits[-1],
             timeout=timeout,
-            context=self.redaction,
-            allowed_origins=self.allowed_origins,
+            context=self.context,
             page_url=_current_url(client),
         )
 
-    def _ingest(self, events: list[dict[str, Any]]) -> None:
+    def _ingest(self, events: list[CDPEvent]) -> None:
         self.console_entries.extend(
             capture.console_entries(
                 _events(events, capture.CONSOLE_EVENTS),
@@ -238,16 +263,16 @@ def parse(raw: Any, *, source: Path | None = None) -> Scenario:
     context = _required_dict(raw, "context", where)
     _unknown(context, {"base_url", "emulation"}, f"{where}context.")
     base_url = _required_str(context, "base_url", f"{where}context.")
-    emulation = context.get("emulation")
-    if emulation is not None and emulation not in advanced.PRESETS:
-        raise ScenarioUsageError(f"{where}context.emulation inconnu: {emulation}")
+    emulation_preset = context.get("emulation")
+    if emulation_preset is not None and emulation_preset not in emulation.PRESETS:
+        raise ScenarioUsageError(f"{where}context.emulation inconnu: {emulation_preset}")
     steps = _parse_steps(raw.get("steps"), where)
     assertions = _parse_assertions(raw.get("assertions", []), where)
     artifacts = _parse_artifacts(raw.get("artifacts", []), where, "artifacts")
     return Scenario(
         name=name,
         base_url=base_url,
-        emulation=emulation,
+        emulation=emulation_preset,
         steps=steps,
         assertions=assertions,
         artifacts=artifacts,
@@ -256,119 +281,77 @@ def parse(raw: Any, *, source: Path | None = None) -> Scenario:
 
 def run(
     client: CDPClient,
-    scenario: Scenario,
+    scenario: Scenario | PreparedScenario,
     *,
     evidence_root: str | Path = ".cdpx-evidence",
     timeout: float = 15.0,
     settle: float = 0.5,
-    origins: str,
-    redaction_context: RedactionContext | None = None,
+    context: OrchestrationContext | None = None,
     run_id: str | None = None,
     artifact_ttl: float = 86400,
 ) -> dict[str, Any]:
-    redaction = redaction_context or RedactionContext()
-    for step in scenario.steps:
-        if step.verb == "type":
-            _type_action(step.value, context=redaction)
-    allowed_origins = parse_origins(origins, required=True)
+    if isinstance(scenario, PreparedScenario):
+        prepared = scenario
+        if context is not None and context is not prepared.context:
+            raise ScenarioUsageError("scenario préparé avec un autre contexte")
+    else:
+        if context is None:
+            raise ScenarioUsageError("contexte d'orchestration requis")
+        prepared = prepare(scenario, context)
+    scenario_spec = prepared.scenario
+    context = prepared.context
+    redaction = context.redaction
+    allowed_origins = context.origins
     writer = SecureArtifactWriter(
         evidence_root,
-        _run_key(scenario.name, run_id=run_id),
+        _run_key(scenario_spec.name, run_id=run_id),
         ttl=artifact_ttl,
         redaction_context=redaction,
     )
-    run_state = ScenarioRun(scenario.name, writer.run_dir, writer)
-    collector = PassiveCollector(redaction)
-    collector.allowed_origins = allowed_origins
+    run_state = ScenarioRun(scenario_spec.name, writer.run_dir, writer)
+    collector = PassiveCollector(context)
     collector.enable(client)
-    if scenario.emulation:
-        advanced.emulate(client, scenario.emulation)
+    if scenario_spec.emulation:
+        emulation.emulate(client, scenario_spec.emulation)
 
-    origin_blocked = False
-    for step in scenario.steps:
-        record = {
-            "index": step.index,
-            "label": step.label,
-            "verb": step.verb,
-            "ok": True,
-        }
-        started = time.monotonic()
-        try:
-            _assert_origin(client, scenario, step, origins)
-            result = _run_step(client, scenario, step, timeout, redaction)
-            if step.verb == "goto":
-                run_state.last_url = _absolute_url(scenario.base_url, step.value)
-            record["result"] = _persistable_step_result(step, result, redaction)
-        except ACTION_ERRORS as e:
-            record["ok"] = False
-            if step.verb == "eval":
-                redaction.mark("$.step.error")
-                safe_error = MASK
-                record["error_masked"] = True
-            else:
-                safe_error = redact_text(str(e), context=redaction, path="$.step.error")
-            record["error"] = safe_error
-            run_state.finding("step_failed", safe_error, step=step.label)
-        finally:
-            record["elapsed_ms"] = round((time.monotonic() - started) * 1000, 1)
-            run_state.steps.append(record)
-            collector.drain(client, settle)
-            try:
-                actual_url = _assert_current_origin(client, origins)
-                if step.verb == "goto":
-                    run_state.last_url = actual_url
-            except ACTION_ERRORS as e:
-                origin_blocked = True
-                safe_error = redact_text(
-                    str(e),
-                    context=redaction,
-                    path="$.step.origin_error",
-                )
-                if record["ok"]:
-                    record["ok"] = False
-                    record["error"] = safe_error
-                run_state.finding("origin_refused", safe_error, step=step.label)
-            if not origin_blocked:
-                _capture_many(
-                    client,
-                    collector,
-                    run_state,
-                    step.capture,
-                    step.label,
-                    step.index,
-                    timeout,
-                )
-        if not record["ok"]:
+    origin_allowed = True
+    for operation in prepared.operations:
+        step_ok, origin_allowed = _execute_scenario_operation(
+            client,
+            operation,
+            scenario_spec,
+            allowed_origins,
+            run_state,
+            collector,
+            redaction,
+            timeout=timeout,
+            settle=settle,
+        )
+        if not step_ok:
             break
 
     collector.drain(client, settle)
-    if not origin_blocked:
-        try:
-            _assert_current_origin(client, origins)
-        except ACTION_ERRORS as e:
-            origin_blocked = True
-            run_state.finding(
-                "origin_refused",
-                redact_text(str(e), context=redaction, path="$.final.origin_error"),
-                step="final",
-            )
-    if not origin_blocked:
-        _run_assertions(client, collector, run_state, scenario.assertions)
-        try:
-            _assert_current_origin(client, origins)
-        except ACTION_ERRORS as e:
-            origin_blocked = True
-            run_state.finding(
-                "origin_refused",
-                redact_text(
-                    str(e),
-                    context=redaction,
-                    path="$.assertions.origin_error",
-                ),
-                step="assertions",
-            )
-    if not origin_blocked:
-        _capture_many(client, collector, run_state, scenario.artifacts, "final", None, timeout)
+    if origin_allowed:
+        origin_allowed = _record_current_origin(
+            client,
+            allowed_origins,
+            run_state,
+            redaction,
+            step="final",
+            error_path="$.final.origin_error",
+        )
+    if origin_allowed:
+        _run_assertions(client, collector, run_state, scenario_spec.assertions)
+        origin_allowed = _record_current_origin(
+            client,
+            allowed_origins,
+            run_state,
+            redaction,
+            step="assertions",
+            error_path="$.assertions.origin_error",
+        )
+    if origin_allowed:
+        _capture_many(client, collector, run_state, scenario_spec.artifacts, "final", None, timeout)
     result = redact_tree(run_state.as_dict(), context=redaction)
     writer.write_json(
         "scenario-result.json",
@@ -377,6 +360,95 @@ def run(
         upload_allowed=False,
     )
     return result
+
+
+def _execute_scenario_operation(
+    client: CDPClient,
+    operation: ScenarioOperation,
+    scenario: Scenario,
+    allowed_origins: tuple[str, ...],
+    run_state: ScenarioRun,
+    collector: PassiveCollector,
+    redaction: RedactionContext,
+    *,
+    timeout: float,
+    settle: float,
+) -> tuple[bool, bool]:
+    step = operation.step
+    record = {
+        "index": step.index,
+        "label": step.label,
+        "verb": step.verb,
+        "ok": True,
+    }
+    started = time.monotonic()
+    try:
+        _assert_origin(client, scenario, step, allowed_origins)
+        result = _run_operation(client, operation, timeout)
+        if step.verb == "goto":
+            run_state.last_url = _absolute_url(scenario.base_url, step.value)
+        record["result"] = _persistable_step_result(step, result, redaction)
+    except ACTION_ERRORS as error:
+        record["ok"] = False
+        if step.verb == "eval":
+            redaction.mark("$.step.error")
+            safe_error = MASK
+            record["error_masked"] = True
+        else:
+            safe_error = redact_text(str(error), context=redaction, path="$.step.error")
+        record["error"] = safe_error
+        run_state.finding("step_failed", safe_error, step=step.label)
+    finally:
+        record["elapsed_ms"] = round((time.monotonic() - started) * 1000, 1)
+        run_state.steps.append(record)
+        collector.drain(client, settle)
+
+    origin_allowed = _record_current_origin(
+        client,
+        allowed_origins,
+        run_state,
+        redaction,
+        step=step.label,
+        error_path="$.step.origin_error",
+        record=record,
+        update_last_url=step.verb == "goto",
+    )
+    if origin_allowed:
+        _capture_many(
+            client,
+            collector,
+            run_state,
+            step.capture,
+            step.label,
+            step.index,
+            timeout,
+        )
+    return bool(record["ok"]), origin_allowed
+
+
+def _record_current_origin(
+    client: CDPClient,
+    allowed_origins: tuple[str, ...],
+    run_state: ScenarioRun,
+    redaction: RedactionContext,
+    *,
+    step: str,
+    error_path: str,
+    record: dict[str, Any] | None = None,
+    update_last_url: bool = False,
+) -> bool:
+    try:
+        actual_url = _assert_current_origin(client, allowed_origins)
+    except ACTION_ERRORS as error:
+        safe_error = redact_text(str(error), context=redaction, path=error_path)
+        if record is not None and record["ok"]:
+            record["ok"] = False
+            record["error"] = safe_error
+        run_state.finding("origin_refused", safe_error, step=step)
+        return False
+    if update_last_url:
+        run_state.last_url = actual_url
+    return True
 
 
 def _parse_steps(value: Any, where: str) -> list[ScenarioStep]:
@@ -451,9 +523,7 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
     elif verb == "wait_text":
         _require_pair(value, f"{prefix}{verb}")
     elif verb == "type":
-        if isinstance(value, list):
-            _require_pair(value, f"{prefix}{verb}")
-        elif isinstance(value, dict):
+        if isinstance(value, dict):
             _unknown(value, {"selector", "secret_ref", "clear"}, f"{prefix}{verb}.")
             if not isinstance(value.get("selector"), str):
                 raise ScenarioUsageError(f"{prefix}{verb}.selector doit être une chaîne")
@@ -463,51 +533,73 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear doit être booléen")
         else:
-            raise ScenarioUsageError(f"{prefix}{verb} doit être [selector, text] ou un objet")
+            # La forme [selector, text] mettrait le secret en clair dans le
+            # YAML: refusée dès la validation, avec la position du step.
+            raise ScenarioUsageError(f"{prefix}{verb} exige un objet avec secret_ref")
 
 
-def _run_step(
+def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenario:
+    operations: list[ScenarioOperation] = []
+    for step in scenario.steps:
+        if step.verb == "goto":
+            operation = ScenarioOperation(
+                step,
+                action=GotoAction(_absolute_url(scenario.base_url, step.value)),
+            )
+        elif step.verb == "wait_visible":
+            operation = ScenarioOperation(step, wait_kind="visible", selector=step.value)
+        elif step.verb == "wait_text":
+            selector, expected = step.value
+            operation = ScenarioOperation(
+                step,
+                wait_kind="text",
+                selector=selector,
+                expected=expected,
+            )
+        elif step.verb == "click":
+            operation = ScenarioOperation(step, action=ClickAction(step.value))
+        elif step.verb == "key":
+            operation = ScenarioOperation(step, action=KeyAction(step.value))
+        elif step.verb == "eval":
+            operation = ScenarioOperation(step, action=EvalAction(step.value))
+        elif step.verb == "type":
+            operation = ScenarioOperation(
+                step,
+                action=_type_action(step.value, context=context.redaction),
+            )
+        else:  # pragma: no cover - le parseur valide STEP_ACTIONS
+            raise ScenarioUsageError(f"action inconnue: {step.verb}")
+        operations.append(operation)
+    return PreparedScenario(scenario, context, tuple(operations))
+
+
+def _run_operation(
     client: CDPClient,
-    scenario: Scenario,
-    step: ScenarioStep,
+    operation: ScenarioOperation,
     timeout: float,
-    context: RedactionContext,
 ) -> dict:
-    if step.verb == "goto":
-        return actions.run_action(
-            client,
-            ["goto", _absolute_url(scenario.base_url, step.value)],
-            timeout,
-        )
-    if step.verb == "wait_visible":
-        return nav.wait_for_visible(client, step.value, timeout=min(timeout, 10.0))
-    if step.verb == "click":
-        return actions.run_action(client, ["click", step.value], timeout)
-    if step.verb == "key":
-        return actions.run_action(client, ["key", step.value], timeout)
-    if step.verb == "eval":
-        return actions.run_action(client, ["eval", step.value], timeout)
-    if step.verb == "type":
-        return actions.run_action(client, _type_action(step.value, context=context), timeout)
-    if step.verb == "wait_text":
-        selector, expected = step.value
-        return _wait_text(client, selector, expected, timeout)
-    raise ScenarioUsageError(f"action inconnue: {step.verb}")
+    if operation.action is not None:
+        return actions.run_action(client, operation.action, timeout)
+    if operation.wait_kind == "visible" and operation.selector is not None:
+        return nav.wait_for_visible(client, operation.selector, timeout=min(timeout, 10.0))
+    if (
+        operation.wait_kind == "text"
+        and operation.selector is not None
+        and operation.expected is not None
+    ):
+        return _wait_text(client, operation.selector, operation.expected, timeout)
+    raise ScenarioUsageError(f"opération non matérialisée: {operation.step.label}")
 
 
-def _type_action(value: Any, *, context: RedactionContext) -> list[str]:
+def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
     if isinstance(value, dict):
         secret_ref = value["secret_ref"]
         if secret_ref not in os.environ:
             raise ScenarioUsageError(f"secret_ref introuvable: {secret_ref}")
         text = os.environ[secret_ref]
         context.register_secret(text)
-        action = ["type", value["selector"], text]
-        if value.get("clear"):
-            action.append("--clear")
-        return action
-    context.register_secret(value[1])
-    return ["type", value[0], value[1]]
+        return TypeAction(value["selector"], text, clear=bool(value.get("clear")))
+    raise ScenarioUsageError("scenario type exige secret_ref")
 
 
 def _persistable_step_result(
@@ -618,8 +710,7 @@ def _capture_one(
                 client,
                 run_state.last_url,
                 timeout=timeout,
-                context=collector.redaction,
-                allowed_origins=collector.allowed_origins,
+                context=collector.context,
             )
         if profiler_result is None:
             run_state.finding(
@@ -658,18 +749,17 @@ def _assert_origin(
     client: CDPClient,
     scenario: Scenario,
     step: ScenarioStep,
-    origins: str,
+    origins: tuple[str, ...],
 ) -> None:
-    allowed = parse_origins(origins, required=True)
     if step.verb == "goto":
-        assert_url_allowed(_absolute_url(scenario.base_url, step.value), allowed)
+        assert_url_allowed(_absolute_url(scenario.base_url, step.value), origins)
     else:
-        assert_url_allowed(_current_url(client), allowed)
+        assert_url_allowed(_current_url(client), origins)
 
 
-def _assert_current_origin(client: CDPClient, origins: str) -> str:
+def _assert_current_origin(client: CDPClient, origins: tuple[str, ...]) -> str:
     current_url = _current_url(client)
-    assert_url_allowed(current_url, parse_origins(origins, required=True))
+    assert_url_allowed(current_url, origins)
     return current_url
 
 
@@ -684,7 +774,7 @@ def _absolute_url(base_url: str, value: str) -> str:
     return urllib.parse.urljoin(base_url.rstrip("/") + "/", value)
 
 
-def _events(events: list[dict[str, Any]], names: tuple[str, ...]) -> list[dict[str, Any]]:
+def _events(events: list[CDPEvent], names: tuple[str, ...]) -> list[CDPEvent]:
     return [event for event in events if event.get("method") in names]
 
 

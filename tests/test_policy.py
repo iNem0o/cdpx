@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import pytest
 
+from cdpx.action_model import ClickAction, EvalAction, GotoAction, KeyAction, TypeAction, WaitAction
 from cdpx.policy import (
     Authority,
     ExecutionContext,
     PolicyError,
+    action_authority,
     assert_authorized,
     assert_loopback_endpoint,
     assert_url_allowed,
     authority_for,
+    command_semantics,
     parse_origins,
     validate_target,
 )
@@ -137,35 +140,48 @@ def test_target_must_be_the_owned_page_target():
 
 
 @pytest.mark.parametrize(
-    ("command", "action", "expected"),
+    ("command", "expected"),
     [
-        ("goto", None, Authority.OBSERVATION),
-        ("text", None, Authority.OBSERVATION),
-        ("network", None, Authority.OBSERVATION),
-        ("click", None, Authority.INTERACTION),
-        ("type", None, Authority.INTERACTION),
-        ("key", None, Authority.INTERACTION),
-        ("eval", None, Authority.PRIVILEGED),
-        ("cookies", ["get"], Authority.PRIVILEGED),
-        ("storage", None, Authority.PRIVILEGED),
-        ("profiler", None, Authority.PRIVILEGED),
-        ("intercept", None, Authority.PRIVILEGED),
-        ("emulate", ["goto", "http://x.test"], Authority.PRIVILEGED),
-        ("vitals", None, Authority.OBSERVATION),
-        ("vitals", ["click", "#go"], Authority.INTERACTION),
-        ("record", ["wait", "#ready"], Authority.OBSERVATION),
-        ("record", ["click", "#go"], Authority.INTERACTION),
-        ("record", ["eval", "1"], Authority.PRIVILEGED),
-        ("tabs", ["list"], Authority.OBSERVATION),
+        ("goto", Authority.OBSERVATION),
+        ("text", Authority.OBSERVATION),
+        ("network", Authority.OBSERVATION),
+        ("click", Authority.INTERACTION),
+        ("type", Authority.INTERACTION),
+        ("key", Authority.INTERACTION),
+        ("eval", Authority.PRIVILEGED),
+        ("cookies", Authority.PRIVILEGED),
+        ("storage", Authority.PRIVILEGED),
+        ("profiler", Authority.PRIVILEGED),
+        ("intercept", Authority.PRIVILEGED),
+        ("emulate", Authority.PRIVILEGED),
+        ("vitals", Authority.OBSERVATION),
+        ("dom-diff", Authority.OBSERVATION),
+        ("record", Authority.PRIVILEGED),
+        ("replay", Authority.PRIVILEGED),
+        ("scenario", Authority.PRIVILEGED),
+        ("tabs", Authority.OBSERVATION),
     ],
 )
-def test_command_authority_matrix(command, action, expected):
-    """Chaque commande CLI est classée dans une autorité fixe (observation,
-    interaction, privileged); les commandes composites héritent de l'autorité
-    de l'action qu'elles embarquent."""
+def test_command_authority_matrix(command, expected):
+    """Chaque commande CLI possède une autorité de base indépendante de son action."""
     #: la matrice commande -> autorité est le contrat exact que le portail
     #: d'autorisation applique avant toute exécution
-    assert authority_for(command, action) is expected
+    assert authority_for(command) is expected
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        (GotoAction("http://site.test"), Authority.OBSERVATION),
+        (WaitAction("#ready"), Authority.OBSERVATION),
+        (ClickAction("#go"), Authority.INTERACTION),
+        (TypeAction("#name", "Ada"), Authority.INTERACTION),
+        (KeyAction("Enter"), Authority.INTERACTION),
+        (EvalAction("document.title"), Authority.PRIVILEGED),
+    ],
+)
+def test_typed_action_authority_matrix(action, expected):
+    assert action_authority(action) is expected
 
 
 def test_unknown_commands_and_insufficient_grants_fail_closed():
@@ -189,3 +205,11 @@ def test_unknown_commands_and_insufficient_grants_fail_closed():
         assert_authorized(context, "click")
     with pytest.raises(PolicyError, match="requiert privileged"):
         assert_authorized(context, "eval")
+
+
+def test_session_lifecycle_is_outside_browser_authority_matrix():
+    """Le lifecycle possède sa propre frontière de capacité: ``start`` crée
+    le grant navigateur, tandis que ``status`` et ``stop`` exigent l'identité
+    exacte du manifest au lieu de simuler une commande CDP privileged."""
+    with pytest.raises(PolicyError, match="cycle de vie hors matrice"):
+        command_semantics("session")

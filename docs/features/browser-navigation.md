@@ -4,8 +4,8 @@ title = "Navigation et synchronisation"
 status = "validated"
 summary = "Inspecter le target attribué, ouvrir des pages et attendre des états navigateur déterministes avant de lire ou d'agir."
 entrypoints = ["cdpx tabs", "cdpx version", "cdpx goto", "cdpx wait"]
-path_globs = ["src/cdpx/discovery.py", "src/cdpx/client.py", "src/cdpx/primitives/nav.py", "tests/test_discovery_and_client.py", "tests/fixtures/index.html", "tests/fixtures/spa.html"]
-test_globs = ["tests/test_discovery_and_client.py::*", "tests/test_primitives.py::test_navigate*", "tests/test_primitives.py::test_wait*", "tests/test_cli.py::test_tabs*", "tests/test_cli.py::test_goto*", "tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_cli_browser_lifecycle*"]
+path_globs = ["src/cdpx/discovery.py", "src/cdpx/client.py", "src/cdpx/primitives/nav.py", "tests/test_discovery_and_client.py", "tests/fixtures/index.html", "tests/fixtures/spa.html", "src/cdpx/cdp_types.py"]
+test_globs = ["tests/test_discovery_and_client.py::*", "tests/test_primitives.py::test_navigate*", "tests/test_primitives.py::test_wait*", "tests/test_cli.py::test_tabs*", "tests/test_cli.py::test_goto*", "tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_cli_browser_lifecycle*", "tests/test_primitives.py::test_event_primitives_reject_negative_budgets*", "tests/test_cli.py::test_connection_failure_exits_1*", "tests/test_cli.py::test_send_failure_exits_1*", "tests/test_cli.py::test_transport_failure_exits_1*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -42,6 +42,19 @@ when = "cdpx attend un sélecteur ou inspecte le target attribué à la session.
 then = "Le target est attribué et le sélecteur attendu est attaché au DOM pour les primitives suivantes."
 tests = ["tests/test_discovery_and_client.py::*", "tests/test_cli.py::test_tabs*", "tests/test_primitives.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_wait*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "diagnose-transport-failures"
+journey = "open-page"
+title = "Diagnostiquer les échecs de transport et refuser les budgets invalides"
+ui_text = "Une connexion ou un envoi CDP qui échoue devient un diagnostic exit 1, et un budget de temps négatif est refusé avant toute I/O."
+report_text = "Ce scénario prouve que les échecs de transport CDP sortent en erreur diagnostiquée sur stderr (jamais un succès partiel trompeur) et que les budgets de temps invalides sont rejetés avant de toucher le navigateur."
+given = "Un transport CDP scripté pour échouer à la connexion, à l'envoi ou pendant la collecte, et des budgets de temps négatifs."
+when = "Le CLI exécute une commande navigateur et les primitives valident leur budget avant d'émettre."
+then = "Chaque échec de transport rend exit 1 avec son motif sur stderr et aucun message CDP n'est émis pour un budget invalide."
+tests = ["tests/test_cli.py::test_connection_failure_exits_1*", "tests/test_cli.py::test_send_failure_exits_1*", "tests/test_cli.py::test_transport_failure_exits_1*", "tests/test_primitives.py::test_event_primitives_reject_negative_budgets*"]
+expected_proofs = ["junit"]
+
 +++
 
 ## Intention

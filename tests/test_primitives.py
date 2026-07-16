@@ -8,11 +8,34 @@ import stat
 import pytest
 
 from cdpx import discovery
+from cdpx.action_model import ClickAction, EvalAction, GotoAction
 from cdpx.client import CDPClient, CDPTimeout
-from cdpx.primitives import advanced, audit, capture, dev, inputs, js, nav, net, state
+from cdpx.orchestration import OrchestrationContext
+from cdpx.primitives import (
+    actions,
+    audit,
+    capture,
+    dev,
+    diagnostics,
+    emulation,
+    frames,
+    inputs,
+    interception,
+    js,
+    nav,
+    net,
+    recording,
+    state,
+)
 from cdpx.security import RedactionContext
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+
+
+def orchestration(
+    origins: str = "http://*.test", redaction: RedactionContext | None = None
+) -> OrchestrationContext:
+    return OrchestrationContext.from_origins(origins, redaction=redaction)
 
 
 @pytest.fixture()
@@ -35,6 +58,36 @@ def test_navigate_waits_load(mock, client):
     assert res["ok"] is True and res["frameId"] == "FRAME1"
     #: côté protocole, une navigation unique part avec l'URL non altérée
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/page"}]
+
+
+def test_navigate_raises_typed_error_with_failed_result(client, monkeypatch):
+    real_send = client.send
+
+    def send(method, params=None, **kwargs):
+        if method == "Page.navigate":
+            return {"frameId": "FRAME1", "errorText": "ERR_NAME_NOT_RESOLVED"}
+        return real_send(method, params, **kwargs)
+
+    monkeypatch.setattr(client, "send", send)
+
+    with pytest.raises(nav.NavigationError) as excinfo:
+        nav.navigate(client, "http://bad.test/")
+
+    assert excinfo.value.result == {
+        "url": "http://bad.test/",
+        "frameId": "FRAME1",
+        "loaderId": None,
+        "errorText": "ERR_NAME_NOT_RESOLVED",
+        "waited": "load",
+        "ok": False,
+    }
+
+
+def test_navigate_rejects_unknown_wait_before_protocol(mock, client):
+    with pytest.raises(ValueError, match="attente de navigation inconnue"):
+        nav.navigate(client, "http://site.test/page", wait="networkidle")  # type: ignore[arg-type]
+
+    assert mock.commands == []
 
 
 def test_wait_for_polls_until_found(mock, client):
@@ -783,7 +836,7 @@ def test_profiler_rejects_requested_origin_before_navigation(mock, client):
             client,
             "https://attacker.example/report",
             panels=["db"],
-            allowed_origins=("http://allowed.test",),
+            context=orchestration("http://allowed.test"),
         )
 
     #: preuve du fail-closed: aucun ordre CDP n'est parti vers le navigateur
@@ -833,7 +886,7 @@ def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
             client,
             requested,
             panels=["db"],
-            allowed_origins=("http://allowed.test",),
+            context=orchestration("http://allowed.test"),
         )
 
     #: aucun panel n'a été récupéré depuis la page détournée
@@ -850,7 +903,7 @@ def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):
     after = ["<body>", '  <div#result[data-state="submitted"]>', '    "OK:Léo"']
     mock.on_eval("__cdpx_dom_snapshot", json.dumps(before), json.dumps(after))
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    res = dev.dom_diff(client, ["click", "#submit-btn"])
+    res = dev.dom_diff(client, ClickAction("#submit-btn"))
     #: le diff détecte la mutation et en expose la ligne changée, exploitable telle quelle
     assert res["changed"] is True
     assert any("submitted" in line for line in res["diff"])
@@ -877,8 +930,8 @@ def test_dom_diff_is_stable_across_runs_on_same_state(mock, client):
         json.dumps(after),
     )
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    first = dev.dom_diff(client, ["click", "#submit-btn"])
-    second = dev.dom_diff(client, ["click", "#submit-btn"])
+    first = dev.dom_diff(client, ClickAction("#submit-btn"))
+    second = dev.dom_diff(client, ClickAction("#submit-btn"))
 
     #: le diff est strictement identique d'un run à l'autre, ligne à ligne
     assert first["diff"] == second["diff"]
@@ -960,6 +1013,13 @@ def test_get_storage_masks_values_by_default_with_explicit_opt_in(mock, client):
     }
     #: deux lectures = deux évaluations distinctes, aucun cache implicite
     assert len(mock.commands_for("Runtime.evaluate")) == 2
+
+
+def test_storage_rejects_unknown_kind_before_evaluation(mock, client):
+    with pytest.raises(ValueError, match="stockage inconnu"):
+        state.get_storage(client, "persistent")  # type: ignore[arg-type]
+
+    assert mock.commands == []
 
 
 # -- audit ------------------------------------------------------------------------
@@ -1065,7 +1125,7 @@ def test_metrics(mock, client):
     assert res["Nodes"] == 42 and res["JSHeapUsedSize"] == 1048576
 
 
-# -- advanced ------------------------------------------------------------------
+# -- interception, emulation, diagnostics, recording --------------------------
 
 
 def test_intercept_goto_fulfills_matching_request(mock, client):
@@ -1082,7 +1142,11 @@ def test_intercept_goto_fulfills_matching_request(mock, client):
             }
         ]
     )
-    res = advanced.intercept_goto(client, ["*payment* => 503"], "http://s.test/checkout")
+    res = interception.intercept_goto(
+        client,
+        "http://s.test/checkout",
+        rules=["*payment* => 503"],
+    )
     #: le hit journalisé relie l'URL interceptée à l'action de la règle appliquée
     assert res["hits"] == [{"url": "http://s.test/api/payment", "action": "503"}]
     #: la requête a été satisfaite côté protocole avec le statut simulé
@@ -1104,7 +1168,7 @@ def test_intercept_goto_blocks_and_continues(mock, client):
             },
         ]
     )
-    res = advanced.intercept_goto(client, ["*a => block"], "http://s.test/")
+    res = interception.intercept_goto(client, "http://s.test/", rules=["*a => block"])
     #: le journal distingue le blocage ciblé de la continuation par défaut
     assert res["hits"] == [
         {"url": "http://s.test/a", "action": "block"},
@@ -1134,7 +1198,7 @@ def test_intercept_rejects_invalid_rule_before_cdp(mock, client, rule):
     CDP."""
     #: la grammaire des règles est validée à froid, quel que soit le défaut du cas
     with pytest.raises(ValueError):
-        advanced.intercept_goto(client, [rule], "http://s.test/")
+        interception.intercept_goto(client, "http://s.test/", rules=[rule])
     #: fail-closed: le navigateur n'a rien vu passer
     assert mock.commands == []
 
@@ -1144,12 +1208,45 @@ def test_intercept_prevalidates_every_rule_before_cdp(mock, client):
     règle est validée avant la première commande CDP."""
     #: la règle valide en tête ne suffit pas à démarrer l'interception
     with pytest.raises(ValueError):
-        advanced.intercept_goto(
+        interception.intercept_goto(
             client,
-            ["*first* => continue", "*second* => typo"],
             "http://s.test/",
+            rules=["*first* => continue", "*second* => typo"],
         )
     #: aucune commande partielle: c'est tout ou rien
+    assert mock.commands == []
+
+
+@pytest.mark.parametrize(
+    ("operation", "kwargs"),
+    [
+        (capture.console_capture, {"duration": -0.1}),
+        (net.capture, {"url": "http://s.test/", "settle": -0.1}),
+        (dev.profiler, {"url": "http://s.test/", "settle": -0.1}),
+        (diagnostics.vitals, {"url": "http://s.test/", "settle": -0.1}),
+        (
+            interception.intercept_goto,
+            {"rules": [], "url": "http://s.test/", "settle": -0.1},
+        ),
+    ],
+)
+def test_event_primitives_reject_negative_budgets_before_cdp(mock, client, operation, kwargs):
+    with pytest.raises(ValueError):
+        operation(client, **kwargs)
+
+    assert mock.commands == []
+
+
+def test_intercept_zero_timeout_is_immediate_and_uses_cdp_timeout(mock, client):
+    with pytest.raises(CDPTimeout, match="timeout interception"):
+        interception.intercept_goto(
+            client,
+            "http://s.test/",
+            rules=[],
+            timeout=0,
+            settle=0,
+        )
+
     assert mock.commands == []
 
 
@@ -1168,10 +1265,10 @@ def test_intercept_accepts_status_bounds(mock, client, status):
             }
         ]
     )
-    res = advanced.intercept_goto(
+    res = interception.intercept_goto(
         client,
-        [f"*status* => {status}"],
         "http://s.test/",
+        rules=[f"*status* => {status}"],
         settle=0,
     )
     #: le statut limite traverse jusqu'au fulfillRequest du protocole, sans arrondi
@@ -1193,10 +1290,10 @@ def test_intercept_accepts_explicit_continue(mock, client):
             }
         ]
     )
-    res = advanced.intercept_goto(
+    res = interception.intercept_goto(
         client,
-        ["*continue* => continue"],
         "http://s.test/",
+        rules=["*continue* => continue"],
         settle=0,
     )
     #: le hit est journalisé même quand la règle laisse passer la requête
@@ -1210,10 +1307,10 @@ def test_emulate_mobile_and_reset(mock, client):
     tout — UA comprise (bug historique) — via la séquence protocolaire
     complète."""
     #: le profil mobile est appliqué avec le drapeau device correspondant
-    assert advanced.emulate(client, "mobile")["applied"] is True
+    assert emulation.emulate(client, "mobile")["applied"] is True
     assert mock.commands_for("Emulation.setDeviceMetricsOverride")[0]["mobile"] is True
     mock.commands.clear()
-    assert advanced.emulate(client, reset=True)["reset"] is True
+    assert emulation.emulate(client, reset=True)["reset"] is True
     # Séquence complète de reset, UA compris (bug historique: UA mobile jamais
     # restaurée; vérifié contre Chrome réel — setUserAgentOverride "" rétablit
     # l'UA par défaut, clearDeviceMetricsOverride lève l'override device).
@@ -1234,7 +1331,7 @@ def test_vitals_installs_observer_and_reads_values(mock, client):
     demandée puis lit les métriques web vitals depuis la page."""
     mock.on_eval("__cdpxVitals", json.dumps({"lcp": 12, "cls": 0.1, "inp": 0}))
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    res = advanced.vitals(client, "http://s.test/vitals.html", click_selector="#inp-button")
+    res = diagnostics.vitals(client, "http://s.test/vitals.html", click_selector="#inp-button")
     #: les métriques rapportées proviennent bien de l'observer injecté dans la page
     assert res["lcp"] == 12 and res["cls"] == 0.1
     #: l'observer était en place avant le chargement, et le clic INP a eu lieu
@@ -1242,13 +1339,50 @@ def test_vitals_installs_observer_and_reads_values(mock, client):
     assert mock.commands_for("Input.dispatchMouseEvent")
 
 
+def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, client):
+    """Caractérisation de la garde d'origine canonique du clic vitals: une URL
+    courante portant le port par défaut explicite (:80) est acceptée contre
+    http://*.test — divergence assumée avec l'ancien matcher fnmatch qui la
+    refusait, désormais figée."""
+    mock.on_eval("window.location.href", "http://s.test:80/vitals.html")
+    mock.on_eval("__cdpxVitals", json.dumps({"lcp": 5, "cls": 0.0, "inp": 1}))
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    res = diagnostics.vitals(
+        client,
+        "http://s.test/vitals.html",
+        click_selector="#go",
+        origins="http://*.test",
+    )
+    #: le matcher canonique de policy normalise le port par défaut: clic permis
+    assert mock.commands_for("Input.dispatchMouseEvent")
+    assert res["inp"] == 1
+
+
+def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
+    """Caractérisation du fail-fast profiler: un errorText de Page.navigate
+    fait échouer immédiatement, sans attendre loadEventFired jusqu'au timeout
+    comme le faisait l'ancien comportement — divergence assumée, figée ici."""
+    real_send = client.send
+
+    def send(method, params=None, **kwargs):
+        if method == "Page.navigate":
+            return {"frameId": "F1", "errorText": "ERR_CONNECTION_REFUSED"}
+        return real_send(method, params, **kwargs)
+
+    monkeypatch.setattr(client, "send", send)
+    with pytest.raises(nav.NavigationError, match="ERR_CONNECTION_REFUSED"):
+        dev.profiler(client, "http://s.test/page")
+    #: l'échec précède toute lecture de la page: aucune évaluation JS émise
+    assert mock.commands_for("Runtime.evaluate") == []
+
+
 def test_vitals_rechecks_redirected_origin_before_click(mock, client):
     """Même après une navigation autorisée, une redirection hors origines
     permises bloque le clic INP: la mutation est re-jugée sur l'URL réelle."""
     mock.on_eval("window.location.href", "https://prod.example/redirected")
     #: la mutation est refusée sur la destination réelle, pas sur l'URL demandée
-    with pytest.raises(ValueError, match="mutation refusée"):
-        advanced.vitals(
+    with pytest.raises(ValueError, match="origine refusée"):
+        diagnostics.vitals(
             client,
             "http://allowed.test/vitals.html",
             click_selector="#go",
@@ -1261,7 +1395,7 @@ def test_vitals_rechecks_redirected_origin_before_click(mock, client):
 def test_a11y_compacts_ax_tree(mock, client):
     """L'arbre d'accessibilité est compacté en une liste plate de noeuds qui
     conservent leur rôle exploitable pour l'audit."""
-    res = advanced.a11y(client)
+    res = diagnostics.a11y(client)
     #: la compaction préserve le compte des noeuds et leurs rôles significatifs
     assert res["count"] == 2
     assert res["nodes"][1]["role"] == "button"
@@ -1270,7 +1404,7 @@ def test_a11y_compacts_ax_tree(mock, client):
 def test_coverage_aggregates_files(mock, client):
     """La couverture agrège JS et CSS par fichier sous un contrat stable; sans
     donnée mesurable, le pourcentage vaut None plutôt qu'un faux zéro."""
-    res = advanced.coverage(client, "http://s.test/")
+    res = diagnostics.coverage(client, "http://s.test/")
     #: le contrat par fichier est complet et l'indéterminé reste None, pas 0
     assert res["files"][0] == {
         "url": "http://fixture/app.js",
@@ -1308,7 +1442,7 @@ def test_coverage_reports_byte_coverage_not_range_counts(mock, client, monkeypat
         return original_send(method, params, timeout)
 
     monkeypatch.setattr(client, "send", send)
-    res = advanced.coverage(client, "http://s.test/")
+    res = diagnostics.coverage(client, "http://s.test/")
     #: 100 octets dont 20 morts donnent 80%: le calcul soustrait les plages
     #: non exécutées au lieu de compter les plages
     assert res["js"] == {"total_bytes": 100, "used_bytes": 80, "unused_bytes": 20}
@@ -1320,7 +1454,7 @@ def test_frame_text_reads_iframe_content(mock, client):
     contentDocument, hors de portée d'un querySelector de la page hôte."""
     mock.on_eval("contentDocument", "iframe text")
     #: le texte retourné vient du document embarqué, pas de la page hôte
-    assert advanced.frame_text(client, "#child-marker")["text"] == "iframe text"
+    assert frames.frame_text(client, "#child-marker")["text"] == "iframe text"
 
 
 def test_record_executes_action_and_journals_result(mock, client, tmp_path):
@@ -1328,7 +1462,7 @@ def test_record_executes_action_and_journals_result(mock, client, tmp_path):
     l'évènement NDJSON complet: action, issue et résultat structuré."""
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    res = advanced.record(client, str(path), ["click", "#submit"], origins="http://*.test")
+    res = recording.record(client, str(path), ClickAction("#submit"), context=orchestration())
     #: le bilan annonce un succès et exactement un évènement journalisé
     assert res["ok"] is True and res["recorded"] == 1
     # l'action a été réellement exécutée (protocole émis), pas seulement journalisée
@@ -1352,7 +1486,7 @@ def test_record_journals_failure_then_raises(mock, client, tmp_path):
     mock.on_eval("getBoundingClientRect", None)  # élément introuvable
     #: l'échec remonte comme exception typée, après écriture du journal
     with pytest.raises(inputs.ElementNotFound):
-        advanced.record(client, str(path), ["click", "#missing"], origins="http://*.test")
+        recording.record(client, str(path), ClickAction("#missing"), context=orchestration())
     event = json.loads(path.read_text().splitlines()[0])
     #: la trace conserve l'action tentée, son échec et le message d'erreur
     assert event["ok"] is False and event["action"] == ["click", "#missing"]
@@ -1364,10 +1498,10 @@ def test_replay_reexecutes_journal_against_browser(mock, client, tmp_path):
     dans l'ordre d'enregistrement, et rapporte un rejeu intégral fidèle."""
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
-    advanced.record(client, str(path), ["goto", "http://site.test/"], origins="http://*.test")
-    advanced.record(client, str(path), ["click", "#submit"], origins="http://*.test")
+    recording.record(client, str(path), GotoAction("http://site.test/"), context=orchestration())
+    recording.record(client, str(path), ClickAction("#submit"), context=orchestration())
     mock.commands.clear()
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: le bilan atteste deux évènements lus, deux joués, aucune divergence
     assert res == {"path": str(path), "events": 2, "played": 2, "ok": True}
     # le rejeu a bien ré-émis navigation puis clic, dans l'ordre du journal
@@ -1386,7 +1520,7 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        advanced.actions,
+        recording.actions,
         "run_action",
         lambda _client, _action: {
             "typed": True,
@@ -1396,7 +1530,7 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
         },
     )
 
-    result = advanced.replay(client, str(path), origins="http://*.test")
+    result = recording.replay(client, str(path), context=orchestration())
 
     #: refus net: aucune action jouée sur un format d'archive sensible
     assert result["ok"] is False and result["played"] == 0
@@ -1422,7 +1556,7 @@ def test_replay_stops_at_first_divergence(mock, client, tmp_path, evidence_case)
         encoding="utf-8",
     )
     mock.on_eval("getBoundingClientRect", None)  # le clic rejoué échoue
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: une seule action jouée avant l'échec, divergence localisée sur le fautif
     assert res["ok"] is False and res["played"] == 1
     assert res["divergence"].startswith("event 1:")
@@ -1445,7 +1579,7 @@ def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
     se rejoue pas et rien ne part vers le navigateur."""
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["click","#submit"],"ok":false}\n', encoding="utf-8")
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: la divergence cite l'échec journalisé sans avoir tenté de le reproduire
     assert res["ok"] is False and res["divergence"] == "event 0: ok=false journalisé"
     #: fail-closed: aucune commande CDP n'a été émise
@@ -1457,7 +1591,7 @@ def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
     max_actions) avant la moindre exécution: toute corruption bloque tout."""
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n{not-json}\n', "utf-8")
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: la ligne corrompue est localisée et même la première ligne valide n'est
     #: pas rejouée
     assert res["ok"] is False and res["divergence"].startswith("line 2:")
@@ -1465,13 +1599,13 @@ def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
     path.write_text('{"ok":true}\n', encoding="utf-8")
     #: une entrée sans action est un journal invalide, signalé par sa ligne
     assert (
-        advanced.replay(client, str(path), origins="http://*.test")["divergence"]
+        recording.replay(client, str(path), context=orchestration())["divergence"]
         == "line 1: action manquante"
     )
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n' * 3, encoding="utf-8")
     #: dépasser le budget d'actions lève avant toute émission protocolaire
     with pytest.raises(ValueError):
-        advanced.replay(client, str(path), max_actions=2, origins="http://*.test")
+        recording.replay(client, str(path), max_actions=2, context=orchestration())
     assert mock.commands == []  # budget dépassé -> rien n'est rejoué
 
 
@@ -1484,7 +1618,7 @@ def test_replay_validates_action_grammar_before_any_execution(mock, client, tmp_
         '{"action":["shell","oops"],"ok":true,"result":{}}\n',
         encoding="utf-8",
     )
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: le verbe interdit est repéré à sa ligne et rien n'a été exécuté, pas
     #: même la première action pourtant valide
     assert res["ok"] is False and res["divergence"].startswith("line 2:")
@@ -1501,7 +1635,7 @@ def test_replay_compares_semantic_results(mock, client, tmp_path):
         '"result":{"url":"http://other.test/","ok":true,"elapsed_ms":999}}\n',
         encoding="utf-8",
     )
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: la divergence structurée ne cite que le champ significatif (url), pas
     #: le chronométrage volatil pourtant différent
     assert res["ok"] is False and res["played"] == 1
@@ -1524,7 +1658,7 @@ def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path
         encoding="utf-8",
     )
     mock.on_eval("window.location.href", "http://prod.example/")
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
     #: la navigation interdite bloque le rejeu avant même la première action
     assert res["ok"] is False and res["played"] == 0
     #: le refus est motivé par l'origine et le clic n'est jamais parti
@@ -1544,7 +1678,7 @@ def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, cli
     )
     mock.on_eval("window.location.href", "https://prod.example/redirected")
 
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
 
     #: le goto s'est joué mais la mutation qui suit est refusée
     assert res["ok"] is False and res["played"] == 1
@@ -1569,10 +1703,10 @@ def test_replay_rejects_forbidden_goto_before_navigation(mock, client, tmp_path)
         encoding="utf-8",
     )
 
-    result = advanced.replay(
+    result = recording.replay(
         client,
         str(path),
-        origins="http://allowed.test",
+        context=orchestration("http://allowed.test"),
     )
 
     #: rejeu refusé à zéro action jouée, motivé par l'origine interdite
@@ -1589,11 +1723,11 @@ def test_record_rejects_forbidden_goto_before_navigation_or_journal(mock, client
 
     #: l'interdiction se joue en amont de tout effet de bord
     with pytest.raises(ValueError, match="origine refusée"):
-        advanced.record(
+        recording.record(
             client,
             str(path),
-            ["goto", "https://forbidden.example/"],
-            origins="http://allowed.test",
+            GotoAction("https://forbidden.example/"),
+            context=orchestration("http://allowed.test"),
         )
 
     #: ni navigation émise, ni fichier journal créé sur disque
@@ -1622,7 +1756,7 @@ def test_replay_origin_guard_fails_closed_when_current_url_is_unknown(
     path.write_text(events, encoding="utf-8")
     mock.on_eval("window.location.href", None)
 
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
 
     #: le rejeu s'arrête exactement là où l'URL devient nécessaire au jugement
     assert res["ok"] is False and res["played"] == played
@@ -1646,7 +1780,7 @@ def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
         json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}),
     )
 
-    res = advanced.replay(client, str(path), origins="http://*.test")
+    res = recording.replay(client, str(path), context=orchestration())
 
     #: le clic s'est joué puis la destination résultante a été refusée
     assert res["ok"] is False and res["played"] == 1
@@ -1655,85 +1789,20 @@ def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
 
 
-def test_origin_guard_blocks_mutations_only_when_configured():
-    """Le garde distingue lecture et mutation: hors zone autorisée, lire est
-    permis mais cliquer est refusé; en zone, tout passe."""
-    #: lire hors zone est permis: le garde ne bride pas l'observation
-    advanced.assert_origin_allowed("text", "https://prod.example/", "http://*.test")
-    #: la même origine devient interdite dès que l'action mute la page
-    with pytest.raises(ValueError):
-        advanced.assert_origin_allowed("click", "https://prod.example/", "http://*.test")
-    #: en zone autorisée, la mutation passe sans lever
-    advanced.assert_origin_allowed("click", "http://shop.test/page", "http://*.test")
-
-
-@pytest.mark.scenario(
-    feature="orchestration-control",
-    journey="replay-flow",
-    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
-    proves=["La garde CDPX_ORIGINS classe chaque commande selon sa mutation effective."],
-)
-def test_origin_guard_classifies_commands_by_effective_mutation():
-    """La classification mutation/lecture suit l'effet réel: verbes simples
-    classés en dur, commandes composées jugées sur le verbe de l'action
-    qu'elles embarquent."""
-    # Contrat de sécurité: mutations refusées hors CDPX_ORIGINS, lectures permises.
-    # Pour les commandes composées, c'est le VERBE de l'action qui décide.
-    mutates = advanced.command_mutates
-    #: tous les verbes qui écrivent dans la page sont classés mutation, replay
-    #: compris puisque son journal peut contenir n'importe quelle action
-    assert all(mutates(c) for c in ("click", "type", "key", "eval", "intercept"))
-    assert mutates("replay")  # le journal rejoué peut contenir n'importe quelle action
-    #: les lectures pures ne déclenchent jamais le garde
-    assert not mutates("text") and not mutates("goto") and not mutates("seo")
-    #: une commande composée hérite de la nature de son action embarquée
-    for composed in ("dom-diff", "record", "emulate"):
-        assert mutates(composed, ["click", "#x"])
-        assert mutates(composed, ["eval", "1"])
-        assert not mutates(composed, ["goto", "http://x.test/"])
-        assert not mutates(composed, [])
-    #: emulate sans action embarquée est une neutralisation, pas une mutation
-    assert not mutates("emulate", None)  # emulate --reset seul: lecture/neutralisation
-    #: vitals et cookies ne mutent que si leur sous-action écrit réellement
-    assert mutates("vitals", ["click", "#button"])
-    assert not mutates("vitals", [])
-    assert mutates("cookies", ["set"])
-    assert mutates("cookies", ["clear"])
-    assert not mutates("cookies", ["get"])
-
-
-def test_origin_guard_checks_composed_action_verb():
-    """Pour une commande composée, c'est le verbe de l'action embarquée qui
-    déclenche le refus; replay hors zone est toujours refusé."""
-    #: dom-diff hors zone est refusé quand son action embarquée clique
-    with pytest.raises(ValueError):
-        advanced.assert_origin_allowed(
-            "dom-diff", "https://prod.example/", "http://*.test", action=["click", "#x"]
-        )
-    #: le même dom-diff passe quand l'action embarquée ne fait que naviguer
-    advanced.assert_origin_allowed(
-        "dom-diff", "https://prod.example/", "http://*.test", action=["goto", "http://a.test/"]
-    )
-    #: replay est toujours traité en mutation: son journal peut tout contenir
-    with pytest.raises(ValueError):
-        advanced.assert_origin_allowed("replay", "https://prod.example/", "http://*.test")
-
-
 def test_run_action_dispatches_and_rejects_unknown(mock, client):
     """run_action route chaque verbe connu vers sa primitive — preuve
     protocolaire à l'appui — et rejette tout verbe hors grammaire, action
     vide comprise."""
-    from cdpx.primitives import actions
 
-    res = actions.run_action(client, ["goto", "http://site.test/"])
+    res = actions.run_action_argv(client, ["goto", "http://site.test/"])
     #: le verbe goto atteint la vraie primitive de navigation, protocole émis
     assert res["ok"] is True
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/"}]
     mock.on_eval("2 + 2", 4)
     #: le verbe eval retourne la valeur calculée par la page
-    assert actions.run_action(client, ["eval", "2 + 2"]) == {"value": 4}
+    assert actions.run_action(client, EvalAction("2 + 2")) == {"value": 4}
     #: verbe inconnu et action vide sont tous deux refusés par la grammaire
     with pytest.raises(ValueError):
-        actions.run_action(client, ["shell", "rm -rf /"])
+        actions.run_action_argv(client, ["shell", "rm -rf /"])
     with pytest.raises(ValueError):
-        actions.run_action(client, [])
+        actions.run_action_argv(client, [])

@@ -19,8 +19,9 @@ from pathlib import Path
 import pytest
 
 from cdpx import discovery
+from cdpx.action_model import ClickAction
 from cdpx.client import CDPClient
-from cdpx.primitives import advanced, audit, capture, dev, js, nav
+from cdpx.primitives import audit, capture, dev, diagnostics, emulation, js, nav
 from cdpx.session import SessionManifest, start_session, stop_session
 
 CHROME_BIN = next(
@@ -618,7 +619,7 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
     target, client = open_tab(chrome)
     try:
         with client as c:
-            baseline = advanced.vitals(
+            baseline = diagnostics.vitals(
                 c,
                 f"{SYMFONY_URL}/scenario/vitals/baseline",
                 click_selector="#inp-button",
@@ -627,7 +628,7 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
             baseline_metrics = audit.metrics(c)
             baseline_expected = expected_from_page(c)
             baseline_diagnostics = vitals_diagnostics(c)
-            degraded = advanced.vitals(
+            degraded = diagnostics.vitals(
                 c,
                 f"{SYMFONY_URL}/scenario/vitals/degraded",
                 click_selector="#inp-button",
@@ -712,29 +713,29 @@ def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, e
         "resource-blocking",
     ]
     evidence = {}
-    emulation = {}
+    applied_emulation = {}
     try:
         with client as c:
             for case in cases:
                 if case == "inp-long-task":
-                    emulation[case] = advanced.emulate(c, "cpu-4x")
+                    applied_emulation[case] = emulation.emulate(c, "cpu-4x")
                 elif case == "resource-blocking":
-                    emulation[case] = advanced.emulate(c, "slow-3g")
-                result = advanced.vitals(
+                    applied_emulation[case] = emulation.emulate(c, "slow-3g")
+                result = diagnostics.vitals(
                     c,
                     f"{SYMFONY_URL}/scenario/vitals/{case}",
                     click_selector="#inp-button",
                     settle=1.0,
                 )
-                diagnostics = vitals_diagnostics(c)
+                diagnostic_details = vitals_diagnostics(c)
                 expected = expected_from_page(c)
                 evidence[case] = {
                     "vitals": result,
-                    "diagnostics": diagnostics,
+                    "diagnostics": diagnostic_details,
                     "expected": expected,
-                    "applied_emulation": emulation.get(case),
+                    "applied_emulation": applied_emulation.get(case),
                 }
-                advanced.emulate(c, reset=True)
+                emulation.emulate(c, reset=True)
             screenshot(
                 c,
                 tmp_path,
@@ -792,11 +793,11 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
     try:
         with client as c:
             nav.navigate(c, f"{SYMFONY_URL}/scenario/rgaa/baseline", timeout=20)
-            baseline_tree = advanced.a11y(c)
+            baseline_tree = diagnostics.a11y(c)
             baseline = rgaa_checks(c)
             baseline_expected = expected_from_page(c)
             nav.navigate(c, f"{SYMFONY_URL}/scenario/rgaa/regression", timeout=20)
-            regression_tree = advanced.a11y(c)
+            regression_tree = diagnostics.a11y(c)
             regression = rgaa_checks(c)
             regression_expected = expected_from_page(c)
             screenshot(
@@ -903,7 +904,7 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
                 evidence_case,
                 "Symfony front state (idle, before click)",
             )
-            diff = dev.dom_diff(c, ["click", "#submit-btn"])
+            diff = dev.dom_diff(c, ClickAction("#submit-btn"))
             # Capture après clic (état submitted): matérialise la cible de la
             # transition que le diff DOM prouve.
             screenshot(

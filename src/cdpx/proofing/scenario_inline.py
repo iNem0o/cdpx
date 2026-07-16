@@ -13,6 +13,10 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from cdpx.proofing.evidence_policy import (
+    SCENARIOS_SCHEMA,
+    redaction_context_from_environment,
+)
 from cdpx.proofing.execution import _read_json_or_fail
 from cdpx.proofing.private_io import _now, _secure_dir, _write_private_text
 from cdpx.proofing.scenario_models import (
@@ -22,10 +26,6 @@ from cdpx.proofing.scenario_models import (
     validated_scenario_file,
 )
 from cdpx.security.redaction import RedactionContext, redact_tree
-from cdpx.testing.evidence import (
-    SCENARIOS_SCHEMA,
-    redaction_context_from_environment,
-)
 
 # L'inline ne concerne que le textuel: la CSP du rapport (connect-src 'none')
 # interdit tout fetch, donc ce que les visualiseurs affichent doit voyager
