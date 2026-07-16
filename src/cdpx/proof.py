@@ -514,8 +514,19 @@ def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> ScenarioEvidence:
 
 COCKPIT_SHELL_RESOURCE = "cockpit/shell.html"
 COCKPIT_CSS_RESOURCE = "cockpit/cockpit.css"
-COCKPIT_JS_RESOURCE = "cockpit/cockpit.js"
-COCKPIT_RESOURCES = (COCKPIT_SHELL_RESOURCE, COCKPIT_CSS_RESOURCE, COCKPIT_JS_RESOURCE)
+# Le JS du cockpit est découpé en parties ordonnées, concaténées dans une IIFE
+# unique: l'ordre est codé en dur (pas de glob) pour rester déterministe, et
+# chaque partie passe individuellement la garde anti-</script> de
+# _cockpit_asset. La concaténation restaure la portée de closure historique.
+COCKPIT_JS_PARTS = (
+    "cockpit/js/00-helpers.js",
+    "cockpit/js/10-viewers.js",
+    "cockpit/js/20-modal.js",
+    "cockpit/js/30-mermaid-nav.js",
+    "cockpit/js/40-views.js",
+    "cockpit/js/50-router.js",
+)
+COCKPIT_RESOURCES = (COCKPIT_SHELL_RESOURCE, COCKPIT_CSS_RESOURCE, *COCKPIT_JS_PARTS)
 
 
 @cache
@@ -529,7 +540,9 @@ def _cockpit_asset(name: str) -> str:
 
 
 SPA_CSS = _cockpit_asset(COCKPIT_CSS_RESOURCE)
-SPA_JS = _cockpit_asset(COCKPIT_JS_RESOURCE)
+# Chaque partie se termine par un saut de ligne: le join laisse une ligne vide
+# entre les parties, comme dans l'ancien fichier monolithique.
+SPA_JS = "(function () {\n" + "\n".join(_cockpit_asset(p) for p in COCKPIT_JS_PARTS) + "})();\n"
 
 
 def _json_for_html_script(data: dict) -> str:

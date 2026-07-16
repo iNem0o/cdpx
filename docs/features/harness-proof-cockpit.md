@@ -236,8 +236,9 @@ preuves. Les fences `mermaid` sont rendues hors ligne par un bundle local
 épinglé et vérifié ; aucun CDN n'est contacté à l'ouverture du rapport.
 
 La présentation du cockpit vit dans `src/cdpx/proofing/cockpit/` (`shell.html`,
-`cockpit.css`, `cockpit.js`), chargée via `importlib.resources` et livrée dans
-le wheel. Chaque type d'artefact de la taxonomie fermée (`screenshot`,
+`cockpit.css` et les parties ordonnées `js/00-helpers.js` → `js/50-router.js`
+concaténées en une IIFE unique), chargée via `importlib.resources` et livrée
+dans le wheel. Chaque type d'artefact de la taxonomie fermée (`screenshot`,
 `video`, `console`, `network`, `json`, `profiler`, `logs`, `log-excerpt`,
 `command`, `asciinema`, `file`) possède un visualiseur dédié ouvert dans une
 modal contextuelle (wording du scénario, étape, test, horodatage relatif,

@@ -59,7 +59,8 @@ au début de chaque `make proof`, selon les TTL du manifeste de rétention.
 Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
 
 - [x] Extraire la présentation du cockpit vers `src/cdpx/proofing/cockpit/`
-      (shell.html, cockpit.css, cockpit.js — lintables, livrés dans le wheel).
+      (shell.html, cockpit.css, js/ en parties ordonnées — livrés dans le
+      wheel).
 - [x] Relier chaque test à son intention écrite dans le code : docstring =
       intention de la méthode, commentaires `#:` = déroulé annoté par
       assertion, corrélé à la ligne d'échec et rendu hiérarchiquement.

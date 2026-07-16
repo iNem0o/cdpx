@@ -57,7 +57,12 @@ def verify_wheel(path: Path) -> dict[str, object]:
         assert "cdpx/proofing/vendor/LICENSE.xterm" in names
         assert "cdpx/proofing/cockpit/shell.html" in names
         assert "cdpx/proofing/cockpit/cockpit.css" in names
-        assert "cdpx/proofing/cockpit/cockpit.js" in names
+        assert "cdpx/proofing/cockpit/js/00-helpers.js" in names
+        assert "cdpx/proofing/cockpit/js/10-viewers.js" in names
+        assert "cdpx/proofing/cockpit/js/20-modal.js" in names
+        assert "cdpx/proofing/cockpit/js/30-mermaid-nav.js" in names
+        assert "cdpx/proofing/cockpit/js/40-views.js" in names
+        assert "cdpx/proofing/cockpit/js/50-router.js" in names
         assert metadata["Name"] == "cdpx"
         assert metadata["Version"] == __version__
         assert metadata["License-Expression"] == "MIT"
@@ -98,7 +103,12 @@ def verify_sdist(path: Path) -> dict[str, object]:
             "src/cdpx/proofing/vendor/LICENSE.xterm",
             "src/cdpx/proofing/cockpit/shell.html",
             "src/cdpx/proofing/cockpit/cockpit.css",
-            "src/cdpx/proofing/cockpit/cockpit.js",
+            "src/cdpx/proofing/cockpit/js/00-helpers.js",
+            "src/cdpx/proofing/cockpit/js/10-viewers.js",
+            "src/cdpx/proofing/cockpit/js/20-modal.js",
+            "src/cdpx/proofing/cockpit/js/30-mermaid-nav.js",
+            "src/cdpx/proofing/cockpit/js/40-views.js",
+            "src/cdpx/proofing/cockpit/js/50-router.js",
             "tests/fixtures/profiler/LICENSE.SYMFONY",
         }
         missing = {name for name in required if f"{root}/{name}" not in names}
