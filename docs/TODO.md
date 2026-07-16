@@ -31,8 +31,8 @@ le portail intégré et le paquet installé :
 
 `SecureArtifactWriter` redige automatiquement texte, JSON et fichiers textuels
 enregistrés; le scanner de canaris reste le dernier verrou de publication pour
-les secrets connus. Une automatisation de purge périodique des preuves locales
-reste à décider.
+les secrets connus. Les preuves locales expirées sont purgées automatiquement
+au début de chaque `make proof`, selon les TTL du manifeste de rétention.
 
 ## Préparation open source
 
@@ -89,13 +89,21 @@ Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
 
 ## Dette technique continue
 
-- [ ] Étendre `KEY_MAP` au-delà du jeu désormais testé (édition/navigation,
-      Space et quatre flèches) uniquement avec un besoin réel, un test mock et
-      un scénario navigateur.
-- [ ] Promouvoir un usage répété de `eval` en primitive nommée lorsqu'il revient
-      au moins trois fois.
 - [x] Épingler les images de validation par digest et confier leur mise à jour
       mensuelle à Dependabot.
+- [ ] Instaurer un mécanisme ExecPlan (plans d'exécution tracés dans le dépôt,
+      cf. [docs/leverage-log.md](leverage-log.md)) : évolution du harness
+      volontairement reportée, à traiter dans une session dédiée.
+
+### Règles de veille
+
+Règles permanentes, sans état à cocher — elles s'appliquent à chaque session :
+
+- `KEY_MAP` ne s'étend au-delà du jeu testé (édition/navigation, Space et
+  quatre flèches) qu'avec un besoin réel, un test mock et un scénario
+  navigateur.
+- Un usage de `eval` qui revient au moins trois fois est promu en primitive
+  nommée.
 
 Cocher un item signifie : code et documentation alignés, tests proportionnés
 au risque, et `make check` vert.

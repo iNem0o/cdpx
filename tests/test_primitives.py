@@ -862,6 +862,33 @@ def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):
     ]
 
 
+def test_dom_diff_is_stable_across_runs_on_same_state(mock, client):
+    """Deux exécutions de dom-diff sur un état DOM identique produisent un
+    diff strictement identique: la sortie est déterministe, pas dépendante
+    du run."""
+    before = ["<body>", '  <div#result[data-state="idle"]>']
+    after = ["<body>", '  <div#result[data-state="submitted"]>', '    "OK:Léo"']
+    #: le mock rejoue exactement le même couple avant/après pour chaque run
+    mock.on_eval(
+        "__cdpx_dom_snapshot",
+        json.dumps(before),
+        json.dumps(after),
+        json.dumps(before),
+        json.dumps(after),
+    )
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    first = dev.dom_diff(client, ["click", "#submit-btn"])
+    second = dev.dom_diff(client, ["click", "#submit-btn"])
+
+    #: le diff est strictement identique d'un run à l'autre, ligne à ligne
+    assert first["diff"] == second["diff"]
+    #: la stabilité couvre toute la sortie, pas seulement le champ diff
+    assert first == second
+    #: garde-fou: le diff comparé n'est pas trivialement vide
+    assert first["changed"] is True
+    assert first["lines"] > 0
+
+
 # -- state ------------------------------------------------------------------------
 
 

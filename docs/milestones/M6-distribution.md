@@ -47,4 +47,6 @@ Docker, Chrome et Symfony sont obligatoires pour la release. Le wheel doit
 - [x] image Docker et Chrome réel verts ;
 - [x] suite Symfony distincte et bloquante ;
 - [x] preuve consolidée disponible comme artefact ;
-- [ ] première exécution verte sur le runner GitHub public — suivi en M7.
+- [x] première exécution verte sur le runner GitHub public — attestée dans
+      `docs/leverage-log.md` (runs `29161949162` et `29162518918` verts avec
+      `PR Gate / Required`).

@@ -41,5 +41,7 @@ que l'humain ouvre quoi que ce soit.
       Symfony demo (`make docker-symfony-e2e`: vrais collecteurs Doctrine,
       cache, HTTP client, Messenger — panels parsés, plus aucun signal
       X-CDPX fabriqué)
-- [ ] follow: NDJSON documenté dans PRIMITIVES.md
-- [ ] dom-diff: diff stable (2 runs = même diff)
+- [x] follow: NDJSON documenté dans PRIMITIVES.md (exception au contrat "un
+      objet JSON" explicitée, testée dans `tests/test_cli.py`)
+- [x] dom-diff: diff stable (2 runs = même diff — normalisation triée du
+      snapshot, prouvé par test mock dans `tests/test_primitives.py`)
