@@ -5,7 +5,7 @@ status = "validated"
 summary = "Exécuter des portails qualité déterministes et publier un cockpit de validation central, orienté features."
 entrypoints = ["make help", "make setup", "make check-local", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make release", "make clean", "make dist", "make smoke-dist", "python -m cdpx.proof"]
 path_globs = ["Makefile", "pyproject.toml", "MANIFEST.in", "scripts/*.py", "Dockerfile", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/proofing/cockpit/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_intent.py", "tests/test_cast.py", "tests/test_e2e_helpers.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/features/*.md", "docs/milestones/*.md", "docs/milestones/*.json"]
-test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid"]
+test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid", "tests/e2e/test_e2e_chrome.py::test_cockpit_*", "tests/e2e/test_e2e_chrome.py::test_modal_*"]
 docs = ["README.md", "HARNESS.md", "CLAUDE.md", "docs/VALIDATION.md", "docs/ROADMAP.md", "docs/TODO.md"]
 expected_proofs = ["junit"]
 
@@ -41,6 +41,30 @@ given = "Les fiches features, les preuves pytest, le XML JUnit et les journaux d
 when = "python -m cdpx.proof construit le résumé de validation et le rapport HTML, en rendant la doc Markdown des fiches features."
 then = "Le rapport local relie dossiers de features, scénarios, tests, captures privées et manques; le staging CI ne contient que les fichiers textuels manifestés et nettoyés."
 tests = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid"]
+expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "navigate-cockpit-views"
+journey = "publish-proof"
+title = "Naviguer les vues du cockpit publié"
+ui_text = "Le lecteur du rapport navigue de l'accueil aux vues Features, Gaps, Run, CLI, Validation et Projet dans un vrai navigateur, hors ligne."
+report_text = "Ce scénario prouve que la SPA du cockpit rend chacune de ses vues de pilotage en file:// seul : drill-down feature → journey → scénario → carte de test, panneau « À lire d'abord » et gaps sur run rouge, chronologie et casts du run, surface CLI complète, matrice de validation et contexte projet, avec repli explicite sur route inconnue."
+given = "Un rapport de preuve partageable généré depuis un résumé riche (feature avec journey et scénarios pass/fail, commandes, suites JUnit, casts, matrice de validation)."
+when = "Le rapport est ouvert en file:// dans un vrai Chrome et le lecteur suit les routes et liens internes du cockpit."
+then = "Chaque vue rend ses données sans aucune requête réseau et les liens internes relient features, scénarios, tests et preuves."
+tests = ["tests/e2e/test_e2e_chrome.py::test_cockpit_features_view_drills_down_to_scenario", "tests/e2e/test_e2e_chrome.py::test_cockpit_read_first_and_gaps_surface_failures", "tests/e2e/test_e2e_chrome.py::test_cockpit_run_view_lists_commands_timeline_and_casts", "tests/e2e/test_e2e_chrome.py::test_cockpit_cli_and_validation_views", "tests/e2e/test_e2e_chrome.py::test_cockpit_project_view_and_unknown_route"]
+expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "inspect-artifact-viewers"
+journey = "publish-proof"
+title = "Inspecter les preuves dans la modal d'artefacts"
+ui_text = "Chaque preuve attachée s'ouvre dans un visualiseur dédié de la modal, pilotable entièrement au clavier."
+report_text = "Ce scénario prouve que chaque type de la taxonomie fermée possède un visualiseur fonctionnel dans la modal contextuelle : console filtrable, table réseau, arbre JSON, profiler, logs, extrait surligné, transcript de commande, screenshot zoomable, vidéo locale, repli téléchargement et player cast xterm — avec focus piégé, flèches bornées et Échap restituant le focus."
+given = "Un rapport partageable dont un scénario porte un artefact inliné de chaque type de la taxonomie fermée."
+when = "Le lecteur ouvre les preuves depuis la chronologie du scénario et pilote la modal au clavier (flèches, Tab, Échap)."
+then = "Chaque type se rend dans son visualiseur dédié et la navigation clavier reste confinée à la modal jusqu'à sa fermeture."
+tests = ["tests/e2e/test_e2e_chrome.py::test_modal_renders_every_textual_viewer", "tests/e2e/test_e2e_chrome.py::test_modal_renders_media_and_cast_viewers", "tests/e2e/test_e2e_chrome.py::test_modal_keyboard_navigation_and_focus_trap"]
 expected_proofs = ["junit", "screenshot"]
 +++
 

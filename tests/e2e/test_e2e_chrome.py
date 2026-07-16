@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -33,6 +34,7 @@ from cdpx.testing.e2e import (
     successful_json,
     wait_for_chrome,
 )
+from cdpx.testing.evidence import ARTIFACT_TYPES
 
 SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
 
@@ -509,6 +511,1287 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
         client,
         "document.querySelector('#docsNav').innerText",
     )
+
+
+# === Cockpit de preuve: couverture comportementale de la SPA ===
+# Un rapport partageable est généré UNE fois par module (rendu ~4 Mo) depuis un
+# summary synthétique riche, puis chaque test sonde une vue ou un visualiseur
+# de la modal via CDP. Tout passe par la façade cdpx.proof (render_html,
+# build_shareable_proof): ces tests sont le filet de sécurité comportemental
+# du refactor interne de proof.py à venir.
+
+COCKPIT_FEATURE = "demo-checkout"
+COCKPIT_JOURNEY = "buy-item"
+COCKPIT_PASS_NODEID = "tests/e2e/demo_checkout.py::test_pay_success"
+COCKPIT_FAIL_NODEID = "tests/e2e/demo_checkout.py::test_pay_declined"
+COCKPIT_EVIDENCE_PREFIX = ".proof/evidence/artifacts/e2e/demo-checkout"
+
+
+def _demo_cast() -> str:
+    lines = [
+        json.dumps({"version": 2, "width": 40, "height": 10}),
+        json.dumps([0.2, "o", "$ cdpx tabs list\r\n"]),
+        json.dumps([0.6, "o", '{"count": 1}\r\n']),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _artifact_bodies(screenshot_path: Path) -> dict[str, dict]:
+    """Un corps de démonstration par type de la taxonomie fermée.
+
+    Les types inlinables (_INLINE_TYPES de proof.py) portent inline_content —
+    un attach retombé en type `file` opaque serait invisible dans la modal;
+    screenshot pointe un vrai PNG, video/file assument le repli téléchargement.
+    """
+
+    console_payload = json.dumps(
+        {
+            "entries": [
+                {"kind": "console", "type": "log", "text": "fixture-log prêt"},
+                {"kind": "console", "type": "warning", "text": "API dépréciée"},
+                {"kind": "exception", "type": "error", "text": "fixture-uncaught boom"},
+            ]
+        }
+    )
+    network_payload = json.dumps(
+        {
+            "summary": {"total": 2, "errors_4xx_5xx": 1, "failed": 0, "bytes": 640},
+            "requests": [
+                {
+                    "method": "GET",
+                    "url": "http://demo.test/api/json",
+                    "status": 200,
+                    "resourceType": "xhr",
+                    "encodedBytes": 512,
+                },
+                {
+                    "method": "GET",
+                    "url": "http://demo.test/api/status/500",
+                    "status": 500,
+                    "resourceType": "xhr",
+                    "encodedBytes": 128,
+                },
+            ],
+        }
+    )
+    return {
+        "asciinema": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/session.cast",
+            "inline_content": _demo_cast(),
+        },
+        "command": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/goto.txt",
+            "inline_content": (
+                '$ cdpx goto http://demo.test/\n--- stdout ---\n{"ok": true}\n'
+                "--- stderr ---\n\n--- exit_code: 0 ---\n"
+            ),
+            "meta": {
+                "argv": ["cdpx", "goto", "http://demo.test/"],
+                "exit_code": 0,
+                "duration_s": 0.42,
+            },
+        },
+        "console": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/console.json",
+            "inline_content": console_payload,
+        },
+        "file": {"path": f"{COCKPIT_EVIDENCE_PREFIX}/dump.bin", "inline_skipped": "illisible"},
+        "json": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/verdict.json",
+            "inline_content": json.dumps({"verdict": "pass", "steps": [1, 2, 3]}),
+        },
+        "log-excerpt": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/excerpt.txt",
+            "inline_content": "ligne saine\nERROR paiement refusé\nligne suivante",
+            "meta": {"source": ".proof/app.log", "pattern": "ERROR", "matched_lines": [2]},
+        },
+        "logs": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/run.log",
+            "inline_content": "ligne un\nligne deux\nligne trois",
+        },
+        "network": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/network.json",
+            "inline_content": network_payload,
+        },
+        "profiler": {
+            "path": f"{COCKPIT_EVIDENCE_PREFIX}/profiler.json",
+            "inline_content": json.dumps(
+                {"profiler_status": 200, "token_present": True, "panels": {"db": {"queries": 6}}}
+            ),
+        },
+        "screenshot": {"path": str(screenshot_path), "bytes": screenshot_path.stat().st_size},
+        "video": {"path": f"{COCKPIT_EVIDENCE_PREFIX}/replay.webm", "inline_skipped": "taille"},
+    }
+
+
+def _taxonomy_artifacts(screenshot_path: Path) -> list[dict]:
+    bodies = _artifact_bodies(screenshot_path)
+    artifacts = []
+    # Itération sur la taxonomie réelle: un type ajouté à ARTIFACT_TYPES sans
+    # corps de démonstration ici lève KeyError — le nouveau type doit recevoir
+    # sa preuve synthétique ET son visualiseur, jamais un oubli silencieux.
+    for index, artifact_type in enumerate(sorted(ARTIFACT_TYPES)):
+        body = bodies[artifact_type]
+        artifacts.append(
+            {
+                "type": artifact_type,
+                "label": f"demo-{artifact_type}",
+                "bytes": len(body.get("inline_content", "")) or 512,
+                "created_at": f"2026-07-15T00:00:{index + 1:02d}+00:00",
+                **body,
+            }
+        )
+    return artifacts
+
+
+def _cockpit_run(
+    nodeid: str,
+    short_id: str,
+    status: str,
+    artifacts: list[dict],
+    *,
+    intent: str,
+    assertions: list[dict],
+    message: str = "",
+    failed_line: int = 0,
+) -> dict:
+    return {
+        "nodeid": nodeid,
+        "suite": "e2e",
+        "status": status,
+        "feature": COCKPIT_FEATURE,
+        "journey": COCKPIT_JOURNEY,
+        "scenario": short_id,
+        "scenario_id": f"{COCKPIT_FEATURE}.{short_id}",
+        "started_at": "2026-07-15T00:00:00+00:00",
+        "duration_s": 1.2,
+        "intent": intent,
+        "assertions": assertions,
+        "failed_line": failed_line,
+        "message": message,
+        "artifacts": artifacts,
+    }
+
+
+def _proofs_for(run: dict) -> list[dict]:
+    return [
+        {
+            "scenario": run["nodeid"],
+            "scenario_id": run["scenario_id"],
+            "type": artifact["type"],
+            "label": artifact["label"],
+            "path": artifact["path"],
+        }
+        for artifact in run["artifacts"]
+    ]
+
+
+def _scenario_node(short_id: str, title: str, texts: dict[str, str], run: dict) -> dict:
+    return {
+        "id": short_id,
+        "scenario_id": f"{COCKPIT_FEATURE}.{short_id}",
+        "journey": COCKPIT_JOURNEY,
+        "title": title,
+        "tests": [run["nodeid"]],
+        "expected_proofs": ["junit"],
+        "matched_tests": [run["nodeid"]],
+        "matched_scenarios": [run],
+        "proofs": _proofs_for(run),
+        "gaps": [],
+        **texts,
+    }
+
+
+def _cockpit_summary(screenshot_path: Path) -> dict:
+    help_proc = subprocess.run(
+        [sys.executable, "-m", "cdpx.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    help_commands = proof.parse_help_commands(help_proc.stdout)
+    run_pass = _cockpit_run(
+        COCKPIT_PASS_NODEID,
+        "pay-success",
+        "passed",
+        _taxonomy_artifacts(screenshot_path),
+        intent="Le client règle son panier et reçoit sa preuve d'achat.",
+        assertions=[
+            {
+                "line": 12,
+                "end_line": 12,
+                "text": "le panier est facturé au bon montant",
+                "code_excerpt": "assert total == 42",
+                "kind": "assert",
+                "status": "",
+            },
+            {
+                "line": 15,
+                "end_line": 15,
+                "text": "le reçu est émis au client",
+                "code_excerpt": "assert receipt.sent",
+                "kind": "assert",
+                "status": "",
+            },
+        ],
+    )
+    run_fail = _cockpit_run(
+        COCKPIT_FAIL_NODEID,
+        "pay-declined",
+        "failed",
+        [
+            {
+                "type": "screenshot",
+                "label": "echec-paiement",
+                "path": str(screenshot_path),
+                "bytes": screenshot_path.stat().st_size,
+                "created_at": "2026-07-15T00:00:02+00:00",
+            }
+        ],
+        intent="Un paiement refusé doit rester un échec visible, jamais un faux vert.",
+        assertions=[
+            {
+                "line": 30,
+                "end_line": 30,
+                "text": "la commande est créée",
+                "code_excerpt": "assert order.id",
+                "kind": "assert",
+                "status": "",
+            },
+            {
+                "line": 34,
+                "end_line": 34,
+                "text": "le paiement est accepté",
+                "code_excerpt": "assert paid",
+                "kind": "assert",
+                "status": "failed",
+            },
+        ],
+        message="AssertionError: paiement refusé",
+        failed_line=34,
+    )
+    node_pass = _scenario_node(
+        "pay-success",
+        "Payer avec succès",
+        {
+            "ui_text": "Le client règle son panier.",
+            "report_text": "Ce scénario prouve le paiement nominal.",
+            "given": "Un panier prêt à être réglé.",
+            "when": "Le client valide le paiement.",
+            "then": "Le reçu est émis.",
+        },
+        run_pass,
+    )
+    node_fail = _scenario_node(
+        "pay-declined",
+        "Paiement refusé",
+        {
+            "ui_text": "Un paiement refusé est signalé au client.",
+            "report_text": "Ce scénario prouve la visibilité des refus de paiement.",
+            "given": "Une carte refusée par la banque.",
+            "when": "Le client tente de payer.",
+            "then": "Le refus est expliqué sans reçu émis.",
+        },
+        run_fail,
+    )
+    journey = {
+        "id": COCKPIT_JOURNEY,
+        "title": "Acheter un article",
+        "entrypoint": "cdpx goto",
+        "scenarios": [node_pass, node_fail],
+        "matched_tests": [COCKPIT_PASS_NODEID, COCKPIT_FAIL_NODEID],
+        "matched_scenarios": [run_pass, run_fail],
+        "proofs": _proofs_for(run_pass) + _proofs_for(run_fail),
+        "gaps": [],
+    }
+    feature = {
+        "id": COCKPIT_FEATURE,
+        "title": "Achat de démonstration",
+        "status": "active",
+        "summary": "Parcours d'achat synthétique construit pour éprouver le cockpit.",
+        "entrypoints": ["cdpx goto"],
+        "path_globs": [],
+        "test_globs": [],
+        "docs": [],
+        "journeys": [journey],
+        "scenarios": [node_pass, node_fail],
+        "expected_proofs": ["junit"],
+        "source": "docs/features/demo-checkout.md",
+        "sections": [],
+        "doc_html": (
+            "<h2>Mode d'emploi</h2><p>Documentation de démonstration du parcours d'achat.</p>"
+        ),
+        "matched_entrypoints": [],
+        "matched_paths": [],
+        "matched_tests": [COCKPIT_PASS_NODEID, COCKPIT_FAIL_NODEID],
+        "matched_scenarios": [run_pass, run_fail],
+        "proofs": _proofs_for(run_pass) + _proofs_for(run_fail),
+        "changed_paths": [],
+        "gaps": [],
+    }
+    entrypoints = [
+        {
+            "id": f"cdpx {command['name']}",
+            "type": "cli",
+            "source": "src/cdpx/cli.py",
+            "label": command.get("help", ""),
+        }
+        for command in help_commands
+    ]
+    cast_text = _demo_cast()
+    return {
+        "ok": False,
+        "generated_at": "2026-07-15T00:00:00+00:00",
+        "git": {"branch": "e2e-cockpit", "sha": "0000000", "changed_files": []},
+        "environment": {"python": "3.12", "platform": "e2e-fixture", "chrome_or_chromium": True},
+        "cli_help": ".proof/cdpx-help.txt",
+        "totals": {"tests": 13, "passed": 12, "skipped": 0, "failed": 1, "unavailable": 0},
+        "scenario_totals": {
+            "scenarios": 2,
+            "unit": 0,
+            "integration": 0,
+            "e2e": 2,
+            "symfony": 0,
+            "screenshots": 2,
+            "missing_e2e_screenshots": [],
+        },
+        "scenario_evidence": {
+            "suites": {"unit": [], "integration": [], "e2e": [run_pass, run_fail], "symfony": []},
+            "files": [],
+            "totals": {
+                "scenarios": 2,
+                "unit": 0,
+                "integration": 0,
+                "e2e": 2,
+                "symfony": 0,
+                "screenshots": 2,
+                "missing_e2e_screenshots": [],
+            },
+        },
+        "feature_inventory": {
+            "features": [feature],
+            "entrypoints": entrypoints,
+            "feature_by_entrypoint": {"cdpx goto": COCKPIT_FEATURE},
+            "totals": {
+                "features": 1,
+                "entrypoints": len(entrypoints),
+                "mapped_entrypoints": 1,
+                "scenarios": 2,
+                "documented_scenarios": 2,
+                "warnings": 1,
+                "violations": 1,
+            },
+            "violations": ["scenario unmapped: tests/e2e/demo_checkout.py::test_flaky"],
+            "warnings": ["source path unmapped: src/demo/extra.py"],
+            "docs_dir": "docs/features",
+        },
+        "documentation": {"documents": [], "tree": {}},
+        "commands": [
+            {
+                "id": "ruff-check",
+                "label": "Ruff lint",
+                "argv": ["ruff", "check", "src", "tests"],
+                "log": ".proof/ruff-check.log",
+                "exit_code": 0,
+                "duration_s": 2.5,
+                "status": "ok",
+                "log_tail": "All checks passed!",
+            },
+            {
+                "id": "unit",
+                "label": "Pytest unitaires",
+                "argv": ["pytest", "tests"],
+                "log": ".proof/make-check-pytest.log",
+                "exit_code": 0,
+                "duration_s": 30.0,
+                "status": "ok",
+                "log_tail": "430 passed",
+            },
+            {
+                "id": "e2e",
+                "label": "Pytest E2E Chrome",
+                "argv": ["pytest", "tests/e2e"],
+                "log": ".proof/e2e-chrome.log",
+                "exit_code": 1,
+                "duration_s": 61.4,
+                "status": "failed",
+                "log_tail": f"FAILED {COCKPIT_FAIL_NODEID}",
+            },
+        ],
+        "junit": {
+            "unit": {
+                "path": ".proof/unit-junit.xml",
+                "exists": True,
+                "tests": 10,
+                "passed": 10,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0,
+                "time_s": 3.2,
+                "parse_error": None,
+                "cases": [],
+                "focus": [
+                    {
+                        "classname": "tests.test_cli",
+                        "name": "test_pretty",
+                        "time_s": 0.5,
+                        "status": "passed",
+                        "message": "",
+                    }
+                ],
+            },
+            "e2e": {
+                "path": ".proof/e2e-junit.xml",
+                "exists": True,
+                "tests": 2,
+                "passed": 1,
+                "failures": 1,
+                "errors": 0,
+                "skipped": 0,
+                "time_s": 61.0,
+                "parse_error": None,
+                "cases": [],
+                "focus": [
+                    {
+                        "classname": "tests.e2e.demo_checkout",
+                        "name": "test_pay_declined",
+                        "time_s": 1.4,
+                        "status": "failed",
+                        "message": "AssertionError",
+                    }
+                ],
+            },
+            "symfony": {
+                "path": ".proof/symfony-e2e-junit.xml",
+                "exists": True,
+                "tests": 1,
+                "passed": 1,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0,
+                "time_s": 12.0,
+                "parse_error": None,
+                "cases": [],
+                "focus": [],
+            },
+        },
+        "casts": [
+            {
+                "id": "cdpx-help",
+                "status": "generated",
+                "path": ".proof/cdpx-help.cast",
+                "bytes": len(cast_text),
+            }
+        ],
+        "evidence_catalog": [
+            {
+                "type": "asciinema",
+                "name": "cdpx-help",
+                "path": ".proof/cdpx-help.cast",
+                "status": "generated",
+                "roi": "Replay terminal de la démonstration.",
+                "inline_content": cast_text,
+            },
+            {
+                "type": "screenshot",
+                "name": "Capture UI",
+                "path": "",
+                "status": "not-needed",
+                "roi": "Non générée automatiquement.",
+            },
+        ],
+        "project": {
+            "name": "cdpx",
+            "version": "0.0-e2e",
+            "mission": (
+                "CLI de primitives Chrome DevTools Protocol pour la preuve de démonstration."
+            ),
+            "cli_command_count": len(help_commands),
+            "cli_commands": [command["name"] for command in help_commands],
+            "docs": ["README.md", "HARNESS.md"],
+            "fixtures": ["tests/fixtures/index.html"],
+        },
+        "validation_matrix": [{"milestone": "M9", "proof": "Preuves secondaires généralisées"}],
+        "coverage_groups": [
+            {"suite": "e2e", "module": "demo_checkout", "tests": 2, "failed": 1, "skipped": 0}
+        ],
+        "risks": [
+            {
+                "risk": "Chrome obligatoire.",
+                "mitigation": "make proof échoue sans binaire.",
+                "rollback": "Installer Chrome puis relancer.",
+            }
+        ],
+        "unknowns": [
+            {
+                "item": "Réseau externe",
+                "why": "Fixtures loopback uniquement.",
+                "how_to_verify": "Inspecter les logs réseau.",
+            }
+        ],
+        "proof_failures": ["command failed: Pytest E2E Chrome (.proof/e2e-chrome.log)"],
+    }
+
+
+@pytest.fixture(scope="module")
+def cockpit_report(tmp_path_factory):
+    """Rapport de preuve partageable généré une seule fois pour tout le module:
+    le rendu HTML (~4 Mo, bundles Mermaid + xterm inclus) est trop coûteux pour
+    être reconstruit à chaque test de la SPA."""
+    root = tmp_path_factory.mktemp("cdpx-cockpit")
+    screenshot = root / "demo-capture.png"
+    screenshot.write_bytes((Path(__file__).parents[1] / "fixtures" / "pixel.png").read_bytes())
+    summary = _cockpit_summary(screenshot)
+    proof_dir = root / ".proof"
+    proof._write_private_text(proof_dir / "proof-report.html", proof.render_html(summary))
+    staging = proof.build_shareable_proof(
+        proof_dir,
+        canaries=["never-present"],
+        pre_redacted_paths={"proof-report.html"},
+    )
+    return (staging / ".proof" / "proof-report.html").as_uri()
+
+
+def _js_ready(client: CDPClient, expression: str, timeout: float = 15.0) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        if js.evaluate(client, expression) is True:
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"cockpit jamais prêt: {expression}")
+        time.sleep(0.05)
+
+
+def _click(client: CDPClient, selector: str) -> None:
+    clicked = js.evaluate(
+        client,
+        "(() => { const el = document.querySelector(" + json.dumps(selector) + ");"
+        " if (!el) return false; el.click(); return true; })()",
+    )
+    assert clicked is True, f"élément introuvable au clic: {selector}"
+
+
+def _open_cockpit(client: CDPClient, report_url: str, route: str, ready: str) -> None:
+    assert nav.navigate(client, f"{report_url}#{route}")["ok"] is True
+    _js_ready(client, ready)
+
+
+def _goto_route(client: CDPClient, route: str, ready: str) -> None:
+    js.evaluate(client, "location.hash = " + json.dumps("#" + route))
+    _js_ready(client, ready)
+
+
+def _open_artifact_modal(client: CDPClient, artifact_type: str) -> None:
+    selector = (
+        "#app .timeline-row .shot"
+        if artifact_type == "screenshot"
+        else f'#app .timeline-row .chip[title="{artifact_type}"]'
+    )
+    _click(client, selector)
+    state = js.evaluate(
+        client,
+        "({hidden: document.getElementById('artifact-modal').hidden,"
+        " type: document.querySelector('.modal-type').textContent})",
+    )
+    assert state == {"hidden": False, "type": artifact_type}, state
+
+
+def _close_modal(client: CDPClient) -> None:
+    inputs.press_key(client, "Escape")
+    assert js.evaluate(client, "document.getElementById('artifact-modal').hidden") is True
+
+
+def _expand_test_card(client: CDPClient) -> None:
+    """Déplie la carte de test comme le ferait un lecteur.
+
+    La carte d'un test passé est un <details> replié par défaut: son contenu
+    répond à click() programmatique mais n'est pas focusable tant que la carte
+    est fermée — l'utilisateur réel doit l'ouvrir pour atteindre les chips.
+    """
+
+    expanded = js.evaluate(
+        client,
+        "(() => { const card = document.querySelector('#app .test-card');"
+        " if (!card) return false; card.open = true; return card.open; })()",
+    )
+    assert expanded is True
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.navigate-cockpit-views",
+    proves=["The cockpit SPA drills down from features to journeys, scenarios and test cards."],
+)
+def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evidence_case):
+    """L'accueil du cockpit rend verdict et métriques, puis le drill-down
+    Features -> fiche -> journey -> scénario aboutit à la carte de test avec
+    fil d'Ariane, pastilles de statut, bloc BDD et déroulé annoté."""
+    client, _base = page
+    _open_cockpit(client, cockpit_report, "/features", "!!document.querySelector('#app .metrics')")
+
+    home = js.evaluate(
+        client,
+        "({verdict: document.querySelector('.metrics .metric strong').textContent,"
+        " tests: document.querySelectorAll('.metrics .metric strong')[1].textContent,"
+        " cards: document.querySelectorAll('#app .grid .card').length,"
+        " cardPill: document.querySelector('#app .grid .card .pill').textContent,"
+        " sideEntry: document.querySelector("
+        "'#featureNav a[data-feature-id=\"demo-checkout\"]').textContent})",
+    )
+    #: l'accueil annonce le verdict rouge et le compte de tests du run, et la
+    #: feature synthétique apparaît en carte comme dans la barre latérale
+    assert home["verdict"] == "ECHEC"
+    assert home["tests"] == "12/13"
+    assert home["cards"] == 1 and home["cardPill"] == "failed"
+    assert "Achat de démonstration" in home["sideEntry"]
+    assert "1 journeys" in home["sideEntry"]
+
+    _click(client, '#app .grid .card h2 a[href="#/features/demo-checkout"]')
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Achat de démonstration'")
+    feature_view = js.evaluate(
+        client,
+        "({crumbs: document.querySelector('#app .crumbs').textContent,"
+        " pill: document.querySelector('#app .meta .pill').textContent,"
+        " doc: document.querySelector('#app .panel.doc').textContent,"
+        " journeyLink: !!document.querySelector("
+        "'#app a[href=\"#/features/demo-checkout/journeys/buy-item\"]')})",
+    )
+    #: la fiche feature porte son fil d'Ariane, sa pastille d'échec, sa doc
+    #: utilisateur rendue et le lien vers son journey
+    assert "Features" in feature_view["crumbs"]
+    assert feature_view["pill"] == "failed"
+    assert "Documentation de démonstration" in feature_view["doc"]
+    assert feature_view["journeyLink"] is True
+
+    _click(client, '#app a[href="#/features/demo-checkout/journeys/buy-item"]')
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Acheter un article'")
+    journey_view = js.evaluate(
+        client,
+        "({entrypoint: document.querySelector('#app p code').textContent,"
+        " rows: document.querySelectorAll('#app .scenario-list .scenario-row').length,"
+        " pills: Array.from("
+        "document.querySelectorAll('#app .scenario-row .pill'), n => n.textContent)})",
+    )
+    #: le journey liste ses deux scénarios documentés avec leur verdict propre
+    assert journey_view["entrypoint"] == "cdpx goto"
+    assert journey_view["rows"] == 2
+    assert journey_view["pills"] == ["ok", "failed"]
+
+    _click(client, '#app a[href="#/features/demo-checkout/scenarios/pay-success"]')
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Payer avec succès'")
+    scenario_view = js.evaluate(
+        client,
+        "({crumbLinks: document.querySelectorAll('#app .crumbs a').length,"
+        " bdd: Array.from(document.querySelectorAll('#app .bdd h3'), n => n.textContent),"
+        " given: document.querySelector('#app .bdd div p').textContent,"
+        " cardPill: document.querySelector('#app .test-card summary .pill').textContent,"
+        " nodeid: document.querySelector('#app .test-card summary code').textContent,"
+        " intent: document.querySelector('#app .test-intent').textContent,"
+        " okMarks: document.querySelectorAll('#app .assertion-row.assertion-ok').length,"
+        " timeline: document.querySelectorAll('#app .timeline-row').length})",
+    )
+    #: la fiche scénario remonte jusqu'au test: fil d'Ariane complet, bloc
+    #: Given/When/Then documenté, carte de test passée avec intention
+    assert scenario_view["crumbLinks"] == 3
+    assert scenario_view["bdd"] == ["Given", "When", "Then"]
+    assert scenario_view["given"] == "Un panier prêt à être réglé."
+    assert scenario_view["cardPill"] == "passed"
+    assert scenario_view["nodeid"] == COCKPIT_PASS_NODEID
+    assert "règle son panier" in scenario_view["intent"]
+    #: le déroulé annoté peint en vert les deux assertions du test passé et la
+    #: chronologie expose un artefact par type de la taxonomie
+    assert scenario_view["okMarks"] == 2
+    assert scenario_view["timeline"] == len(ARTIFACT_TYPES)
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "cockpit-drilldown",
+            {
+                "home": home,
+                "feature": feature_view,
+                "journey": journey_view,
+                "scenario": scenario_view,
+            },
+        )
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.navigate-cockpit-views",
+    proves=["A red run surfaces read-first failures and a dedicated gaps view."],
+)
+def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evidence_case):
+    """Sur un run rouge, l'accueil ouvre par « À lire d'abord » (échecs de
+    preuve et tests failed reliés à leur scénario), la barre du haut compte les
+    gaps, et la route #/gaps détaille violations, warnings et proof failures."""
+    client, _base = page
+    _open_cockpit(
+        client, cockpit_report, "/features", "!!document.querySelector('#app .read-first')"
+    )
+
+    read_first = js.evaluate(
+        client,
+        "({heading: document.querySelector('.read-first h2').textContent,"
+        " items: Array.from("
+        "document.querySelectorAll('.read-first li'), n => n.textContent.trim()),"
+        " failedPill: document.querySelector('.read-first li .pill.failed')?.textContent,"
+        " failedHref: document.querySelector('.read-first li a')?.getAttribute('href'),"
+        " gapsSup: document.querySelector('[data-route=\"/gaps\"] sup')?.textContent,"
+        " gapsSupBad: !!document.querySelector('[data-route=\"/gaps\"] sup.sup-bad'),"
+        " runSup: document.querySelector('[data-route=\"/run\"] sup.sup-bad')?.textContent})",
+    )
+    #: le panneau « À lire d'abord » nomme la commande échouée ET le test
+    #: failed, relié à son scénario par le lien scenario_id complet
+    assert read_first["heading"] == "À lire d'abord"
+    assert any("command failed: Pytest E2E Chrome" in item for item in read_first["items"])
+    assert any(COCKPIT_FAIL_NODEID in item for item in read_first["items"])
+    assert read_first["failedPill"] == "failed"
+    assert read_first["failedHref"] == (
+        "#/features/demo-checkout/scenarios/demo-checkout.pay-declined"
+    )
+    #: la barre du haut agrège les gaps (1 violation + 1 warning + 1 proof
+    #: failure) et le nombre de tests failed sur le lien Run
+    assert read_first["gapsSup"] == "3" and read_first["gapsSupBad"] is True
+    assert read_first["runSup"] == "1"
+
+    _goto_route(
+        client, "/gaps", "document.querySelector('#app h1')?.textContent === 'Gaps et violations'"
+    )
+    gaps = js.evaluate(
+        client,
+        "({panels: Array.from(document.querySelectorAll('#app .panel h2'), n => n.textContent),"
+        " violations: document.querySelectorAll('#app .panel')[0].textContent,"
+        " warnings: document.querySelectorAll('#app .panel')[1].textContent,"
+        " failures: document.querySelectorAll('#app .panel')[2].textContent})",
+    )
+    #: la vue Gaps sépare violations d'inventaire, warnings et proof failures,
+    #: chacun restituant son diagnostic textuel exact
+    assert gaps["panels"] == ["Violations", "Warnings", "Proof failures"]
+    assert "scenario unmapped" in gaps["violations"]
+    assert "source path unmapped" in gaps["warnings"]
+    assert "command failed: Pytest E2E Chrome" in gaps["failures"]
+    if evidence_case is not None:
+        evidence_case.attach_json("read-first-et-gaps", {"read_first": read_first, "gaps": gaps})
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.inspect-artifact-viewers",
+    proves=["Every inlined textual artifact type opens in its dedicated modal viewer."],
+)
+def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case):
+    """Chaque preuve textuelle inlinée s'ouvre dans son visualiseur dédié:
+    console filtrable par niveau, table réseau, arbre JSON, profiler, logs
+    numérotés, extrait de log surligné et transcript de commande."""
+    client, _base = page
+    _open_cockpit(
+        client,
+        cockpit_report,
+        "/features/demo-checkout/scenarios/pay-success",
+        "!!document.querySelector('#app .artifact-timeline')",
+    )
+    _expand_test_card(client)
+
+    chips = js.evaluate(
+        client,
+        "({total: document.querySelectorAll('#app .timeline-row a').length,"
+        " openable: document.querySelectorAll('#app .timeline-row [data-modal-group]').length})",
+    )
+    #: ratchet: chaque type de la taxonomie fermée produit un chip capable
+    #: d'ouvrir la modal — un type ajouté sans visualiseur casserait ce compte
+    assert chips == {"total": len(ARTIFACT_TYPES), "openable": len(ARTIFACT_TYPES)}
+
+    _open_artifact_modal(client, "console")
+    console_view = js.evaluate(
+        client,
+        "({filters: Array.from("
+        "document.querySelectorAll('.modal-content .console-filter'), n => n.textContent.trim()),"
+        " lines: document.querySelectorAll('.modal-content .console-line').length})",
+    )
+    #: la console compte ses messages par niveau et rend chaque ligne
+    assert console_view["filters"] == ["error (1)", "warn (1)", "log (1)"]
+    assert console_view["lines"] == 3
+    _click(client, '.modal-content [data-console-level="log"]')
+    #: décocher un niveau masque exactement les lignes de ce niveau
+    assert (
+        js.evaluate(
+            client, "document.querySelectorAll('.modal-content .console-line[hidden]').length"
+        )
+        == 1
+    )
+    _close_modal(client)
+
+    _open_artifact_modal(client, "network")
+    network_view = js.evaluate(
+        client,
+        "({summary: document.querySelector('.modal-content .viewer-summary').textContent,"
+        " rows: document.querySelectorAll('.modal-content tbody tr').length,"
+        " bad: document.querySelectorAll('.modal-content .net-status.net-bad').length,"
+        " ok: document.querySelectorAll('.modal-content .net-status.net-ok').length})",
+    )
+    #: la table réseau restitue le résumé agrégé et colore les statuts HTTP
+    assert "2 requêtes" in network_view["summary"]
+    assert "1 erreurs 4xx/5xx" in network_view["summary"]
+    assert network_view["rows"] == 2
+    assert network_view["bad"] == 1 and network_view["ok"] == 1
+    _close_modal(client)
+
+    _open_artifact_modal(client, "json")
+    json_view = js.evaluate(
+        client,
+        "({nodes: document.querySelectorAll("
+        "'.modal-content .json-view details.json-node').length,"
+        " keys: Array.from("
+        "document.querySelectorAll('.modal-content .json-key'), n => n.textContent)})",
+    )
+    #: le JSON est rendu en arbre repliable, clés visibles
+    assert json_view["nodes"] >= 2
+    assert "verdict" in json_view["keys"] and "steps" in json_view["keys"]
+    _close_modal(client)
+
+    _open_artifact_modal(client, "profiler")
+    profiler_view = js.evaluate(
+        client,
+        "({chips: document.querySelectorAll('.modal-content .viewer-summary .chip').length,"
+        " tree: !!document.querySelector('.modal-content .json-view')})",
+    )
+    #: le profiler résume ses scalaires en chips et garde l'arbre JSON complet
+    assert profiler_view["chips"] == 2 and profiler_view["tree"] is True
+    _close_modal(client)
+
+    _open_artifact_modal(client, "logs")
+    logs_view = js.evaluate(
+        client,
+        "({lines: document.querySelectorAll('.modal-content .log-view .log-line').length,"
+        " numbered: document.querySelectorAll('.modal-content .log-num').length})",
+    )
+    #: les logs pleins sont numérotés ligne à ligne
+    assert logs_view == {"lines": 3, "numbered": 3}
+    _close_modal(client)
+
+    _open_artifact_modal(client, "log-excerpt")
+    excerpt_view = js.evaluate(
+        client,
+        "({banner: document.querySelector('.modal-content .viewer-summary').textContent,"
+        " hits: document.querySelectorAll('.modal-content .log-hit').length,"
+        " numbered: document.querySelectorAll('.modal-content .log-num').length})",
+    )
+    #: l'extrait affiche source et motif, surligne la ligne correspondante et
+    #: ne numérote pas (les numéros du fichier d'origine sont perdus)
+    assert "source" in excerpt_view["banner"] and "motif" in excerpt_view["banner"]
+    assert excerpt_view["hits"] == 1 and excerpt_view["numbered"] == 0
+    _close_modal(client)
+
+    _open_artifact_modal(client, "command")
+    command_view = js.evaluate(
+        client,
+        "({exit: document.querySelector('.modal-content .command-head .pill').textContent,"
+        " argv: document.querySelector('.modal-content .command-head code').textContent,"
+        " stdout: document.querySelector('.modal-content .stream-out pre').textContent,"
+        " stderr: document.querySelector('.modal-content .stream-err pre').textContent})",
+    )
+    #: le transcript de commande sépare stdout/stderr, rappelle l'argv exacte
+    #: et le code de sortie en pastille
+    assert command_view["exit"] == "exit 0"
+    assert command_view["argv"] == "$ cdpx goto http://demo.test/"
+    assert '{"ok": true}' in command_view["stdout"]
+    assert command_view["stderr"] == "(vide)"
+    _close_modal(client)
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "visualiseurs-textuels",
+            {
+                "chips": chips,
+                "console": console_view,
+                "network": network_view,
+                "json": json_view,
+                "profiler": profiler_view,
+                "logs": logs_view,
+                "log_excerpt": excerpt_view,
+                "command": command_view,
+            },
+        )
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.inspect-artifact-viewers",
+    proves=["Media artifacts get zoom, download fallback and an embedded xterm cast player."],
+)
+def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_case):
+    """Les preuves non inlinables ont leur visualiseur: screenshot zoomable
+    avec horodatage relatif, vidéo en player natif local, fichier opaque en
+    repli téléchargement, et cast asciinema joué dans un terminal xterm."""
+    client, _base = page
+    _open_cockpit(
+        client,
+        cockpit_report,
+        "/features/demo-checkout/scenarios/pay-success",
+        "!!document.querySelector('#app .artifact-timeline')",
+    )
+    _expand_test_card(client)
+
+    _open_artifact_modal(client, "screenshot")
+    shot = js.evaluate(
+        client,
+        "({img: !!document.querySelector("
+        "'.modal-content figure.viewer-media img[data-zoomable]'),"
+        " captured: document.querySelector('.modal-context-body').textContent})",
+    )
+    #: l'image est zoomable et le contexte date la capture relativement au
+    #: début du run du test
+    assert shot["img"] is True
+    assert "(+" in shot["captured"]
+    _click(client, ".modal-content img[data-zoomable]")
+    #: un clic agrandit, le suivant restaure — bascule sans état résiduel
+    assert (
+        js.evaluate(
+            client, "document.querySelector('.modal-content img').classList.contains('zoomed')"
+        )
+        is True
+    )
+    _click(client, ".modal-content img[data-zoomable]")
+    assert (
+        js.evaluate(
+            client, "document.querySelector('.modal-content img').classList.contains('zoomed')"
+        )
+        is False
+    )
+    _close_modal(client)
+
+    _open_artifact_modal(client, "video")
+    video_view = js.evaluate(
+        client,
+        "({player: !!document.querySelector('.modal-content video[controls]'),"
+        " src: document.querySelector('.modal-content video')?.getAttribute('src')})",
+    )
+    #: la vidéo (jamais inlinée) est servie par un player natif pointant le
+    #: fichier local de la preuve privée
+    assert video_view["player"] is True
+    assert video_view["src"] == "evidence/artifacts/e2e/demo-checkout/replay.webm"
+    _close_modal(client)
+
+    _open_artifact_modal(client, "file")
+    fallback = js.evaluate(
+        client,
+        "({text: document.querySelector('.modal-content .viewer-fallback').textContent,"
+        " link: document.querySelector('.modal-content .viewer-fallback a')?.textContent})",
+    )
+    #: un fichier opaque assume son repli: raison du non-embarquement et lien
+    #: de téléchargement vers l'artefact
+    assert "Contenu non embarqué" in fallback["text"]
+    assert fallback["link"] == "ouvrir le fichier"
+    _close_modal(client)
+
+    _open_artifact_modal(client, "asciinema")
+    cast_view = js.evaluate(
+        client,
+        "({xterm: !!document.querySelector('.modal-content [data-cast-screen] .xterm'),"
+        " time: document.querySelector('.modal-content [data-cast-time]').textContent,"
+        " scrubMax: document.querySelector('.modal-content [data-cast-scrub]').max,"
+        " play: document.querySelector('.modal-content [data-cast-play]').textContent})",
+    )
+    #: le player cast initialise un vrai terminal xterm, calé en fin de cast,
+    #: avec scrubber borné à la durée réelle et bouton lecture
+    assert cast_view["xterm"] is True
+    assert cast_view["time"] == "0.6s / 0.6s"
+    assert cast_view["scrubMax"] == "600"
+    assert "lecture" in cast_view["play"]
+    _click(client, ".modal-content [data-cast-rawtoggle]")
+    raw_view = js.evaluate(
+        client,
+        "({raw: document.querySelector('.modal-content [data-cast-raw]').hidden,"
+        " screen: document.querySelector('.modal-content [data-cast-screen]').hidden,"
+        " text: document.querySelector('.modal-content [data-cast-raw]').textContent})",
+    )
+    #: la vue brute de repli remplace l'écran et restitue le texte du cast
+    #: débarrassé des séquences de contrôle
+    assert raw_view["raw"] is False and raw_view["screen"] is True
+    assert "cdpx tabs list" in raw_view["text"]
+    _close_modal(client)
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "visualiseurs-medias-et-cast",
+            {"screenshot": shot, "video": video_view, "file": fallback, "cast": cast_view},
+        )
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.inspect-artifact-viewers",
+    proves=["The artifact modal is fully keyboard drivable with a focus trap."],
+)
+def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence_case):
+    """La modal est pilotable au clavier: focus initial sur Fermer, flèches
+    précédent/suivant bornées à la liste, Tab piégé aux extrémités de la
+    modal, et Échap ferme en restituant le focus à l'élément d'origine."""
+    client, _base = page
+    _open_cockpit(
+        client,
+        cockpit_report,
+        "/features/demo-checkout/scenarios/pay-success",
+        "!!document.querySelector('#app .artifact-timeline')",
+    )
+    #: la carte doit être dépliée pour que le chip soit focusable, condition
+    #: de la restitution de focus testée à la fermeture
+    _expand_test_card(client)
+    chip_selector = '#app .timeline-row .chip[title="command"]'
+    opened = js.evaluate(
+        client,
+        "(() => { const el = document.querySelector(" + json.dumps(chip_selector) + ");"
+        " if (!el) return false; el.focus(); el.click(); return true; })()",
+    )
+    assert opened is True
+    #: à l'ouverture, le focus saute sur le bouton Fermer de la modal
+    assert js.evaluate(client, "document.activeElement.classList.contains('modal-close')") is True
+
+    order = sorted(ARTIFACT_TYPES)
+    total = len(order)
+    position = order.index("command") + 1
+    counter = "document.querySelector('.modal-counter').textContent"
+    #: le compteur situe l'artefact ouvert dans la chronologie du test
+    assert js.evaluate(client, counter) == f"{position}/{total}"
+    inputs.press_key(client, "ArrowLeft")
+    assert js.evaluate(client, counter) == f"{position - 1}/{total}"
+    inputs.press_key(client, "ArrowLeft")
+    #: la flèche précédente est bornée: pas de sortie de liste au premier item
+    assert js.evaluate(client, counter) == f"{position - 1}/{total}"
+    inputs.press_key(client, "ArrowRight")
+    #: la flèche suivante revient exactement sur l'artefact de départ
+    assert js.evaluate(client, counter) == f"{position}/{total}"
+
+    focusables_expr = (
+        "Array.from(document.getElementById('artifact-modal')"
+        ".querySelectorAll('button, a[href], video'))"
+    )
+    focus_count = js.evaluate(
+        client,
+        "(() => { const f = " + focusables_expr + "; f[f.length - 1].focus();"
+        " return f.length; })()",
+    )
+    assert focus_count >= 2
+    inputs.press_key(client, "Tab")
+    #: depuis le dernier focusable, Tab boucle sur le premier (bouton Fermer)
+    assert js.evaluate(client, "document.activeElement.classList.contains('modal-close')") is True
+    shift_tab = {"key": "Tab", "code": "Tab", "windowsVirtualKeyCode": 9, "modifiers": 8}
+    client.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **shift_tab})
+    client.send("Input.dispatchKeyEvent", {"type": "keyUp", **shift_tab})
+    #: Maj+Tab depuis le premier focusable repart sur le dernier: le clavier
+    #: reste confiné à la modal dans les deux sens
+    assert (
+        js.evaluate(
+            client,
+            "(() => { const f = " + focusables_expr + ";"
+            " return document.activeElement === f[f.length - 1]; })()",
+        )
+        is True
+    )
+
+    inputs.press_key(client, "Escape")
+    closed = js.evaluate(
+        client,
+        "({hidden: document.getElementById('artifact-modal').hidden,"
+        " bodyOpen: document.body.classList.contains('modal-open'),"
+        " content: document.querySelector('.modal-content').innerHTML,"
+        " focusRestored: document.activeElement === document.querySelector("
+        + json.dumps(chip_selector)
+        + ")})",
+    )
+    #: Échap ferme, vide le contenu, libère le body et rend le focus au chip
+    #: qui avait ouvert la modal
+    assert closed == {"hidden": True, "bodyOpen": False, "content": "", "focusRestored": True}
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "clavier-modal", {"total": total, "position": position, "closed": closed}
+        )
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.navigate-cockpit-views",
+    proves=["The run view renders command timeline, JUnit tables and playable casts."],
+)
+def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report, evidence_case):
+    """La vue Run raconte le run de preuve: chronologie proportionnelle des
+    commandes (échec en rouge), tables commandes et JUnit, fins de logs, et la
+    section casts avec sa table de portail et son chip jouable dans xterm."""
+    client, _base = page
+    _open_cockpit(client, cockpit_report, "/run", "!!document.querySelector('#app .run-timeline')")
+
+    run_view = js.evaluate(
+        client,
+        "({bars: document.querySelectorAll('.run-timeline .tl-bar').length,"
+        " badBars: document.querySelectorAll('.run-timeline .tl-bad').length,"
+        " badTitle: document.querySelector('.run-timeline .tl-bad').title,"
+        " commandRows: document.querySelectorAll('#app .table-wrap')[0]"
+        ".querySelectorAll('tbody tr').length,"
+        " commandText: document.querySelectorAll('#app .table-wrap')[0].textContent,"
+        " suiteRows: document.querySelectorAll('#app .table-wrap')[1]"
+        ".querySelectorAll('tbody tr').length,"
+        " suiteText: document.querySelectorAll('#app .table-wrap')[1].textContent,"
+        " headings: Array.from(document.querySelectorAll('#app h2'), n => n.textContent),"
+        " castChip: !!document.querySelector('#app .badges .chip[title=\"asciinema\"]'),"
+        " castText: document.querySelectorAll('#app .table-wrap')[3].textContent,"
+        " tails: Array.from("
+        "document.querySelectorAll('#app details summary'), n => n.textContent).join(' ')})",
+    )
+    #: la chronologie trace une barre par commande et peint l'échec en rouge,
+    #: avec le détail au survol
+    assert run_view["bars"] == 3 and run_view["badBars"] == 1
+    assert "Pytest E2E Chrome" in run_view["badTitle"]
+    #: la table des commandes reprend chaque preuve de commande avec son log
+    assert run_view["commandRows"] == 3
+    assert "Ruff lint" in run_view["commandText"]
+    assert ".proof/e2e-chrome.log" in run_view["commandText"]
+    #: les trois suites JUnit (unit, e2e, symfony) sont agrégées
+    assert run_view["suiteRows"] == 3
+    assert "symfony" in run_view["suiteText"]
+    #: la section casts du portail liste le cast généré et les fins de logs
+    #: restent accessibles en repli
+    assert "Casts de démonstration" in run_view["headings"]
+    assert run_view["castChip"] is True
+    assert "cdpx-help" in run_view["castText"]
+    assert "Fins de logs" in run_view["tails"]
+    #: la fin de log de la commande échouée est bien embarquée dans la vue
+    assert js.evaluate(
+        client,
+        "document.querySelector('#app').textContent.includes("
+        + json.dumps(f"FAILED {COCKPIT_FAIL_NODEID}")
+        + ")",
+    )
+
+    _click(client, '#app .badges .chip[title="asciinema"]')
+    cast_modal = js.evaluate(
+        client,
+        "({hidden: document.getElementById('artifact-modal').hidden,"
+        " xterm: !!document.querySelector('.modal-content .xterm')})",
+    )
+    #: le cast du catalogue s'ouvre depuis la vue Run dans le player xterm
+    assert cast_modal == {"hidden": False, "xterm": True}
+    _close_modal(client)
+    if evidence_case is not None:
+        evidence_case.attach_json("vue-run", {"run": run_view, "cast_modal": cast_modal})
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.navigate-cockpit-views",
+    proves=["CLI surface and validation matrix render from the embedded payload."],
+)
+def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
+    """La vue CLI recense les 31 sous-commandes réelles avec leur rattachement
+    feature, et la vue Validation rend matrice de milestones, couverture par
+    module, risques et inconnues assumées."""
+    client, _base = page
+    _open_cockpit(
+        client,
+        cockpit_report,
+        "/cli",
+        "document.querySelector('#app h1')?.textContent === 'Surface CLI et entrypoints'",
+    )
+    cli_view = js.evaluate(
+        client,
+        "({intro: document.querySelector('#app p').textContent,"
+        " rows: document.querySelectorAll('#app tbody tr').length,"
+        " body: document.querySelector('#app tbody').textContent,"
+        " mapped: !!document.querySelector('#app tbody a[href=\"#/features/demo-checkout\"]')})",
+    )
+    #: le contrat CLI (31 sous-commandes réelles, extraites de l'aide du vrai
+    #: binaire) est visible tel quel dans le cockpit
+    assert cli_view["rows"] == 31
+    assert "31 sous-commandes" in cli_view["intro"]
+    assert "cdpx goto" in cli_view["body"] and "cdpx tabs" in cli_view["body"]
+    #: chaque entrypoint affiche son rattachement: lien vers la feature quand
+    #: il existe, mention explicite sinon
+    assert cli_view["mapped"] is True
+    assert "non rattaché" in cli_view["body"]
+
+    _goto_route(
+        client,
+        "/validation",
+        "document.querySelector('#app h1')?.textContent === 'Matrice de validation'",
+    )
+    validation_view = js.evaluate(
+        client,
+        "({headings: Array.from(document.querySelectorAll('#app h2'), n => n.textContent),"
+        " tables: document.querySelectorAll('#app .table-wrap table').length,"
+        " text: document.querySelector('#app').textContent})",
+    )
+    #: la vue Validation aligne ses quatre volets, chacun avec sa table
+    assert validation_view["headings"] == [
+        "Preuve par milestone",
+        "Tests par module",
+        "Risques et mitigations",
+        "Inconnues assumées",
+    ]
+    assert validation_view["tables"] == 4
+    #: matrice, couverture, risques et inconnues restituent les données du run
+    assert "M9" in validation_view["text"]
+    assert "demo_checkout" in validation_view["text"]
+    assert "make proof échoue sans binaire." in validation_view["text"]
+    assert "Fixtures loopback uniquement." in validation_view["text"]
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "vues-cli-et-validation", {"cli": cli_view, "validation": validation_view}
+        )
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="publish-proof",
+    scenario_id="harness-proof-cockpit.navigate-cockpit-views",
+    proves=["Project context renders and unknown routes fall back to a not-found view."],
+)
+def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_case):
+    """La vue Projet rend mission, version, contexte git/environnement et les
+    inventaires docs/fixtures; une route inconnue aboutit à la vue
+    « Introuvable » qui cite le chemin fautif au lieu d'une page vide."""
+    client, _base = page
+    _open_cockpit(
+        client,
+        cockpit_report,
+        "/project",
+        "document.querySelector('#app h1')?.textContent === 'Contexte projet'",
+    )
+    project_view = js.evaluate(
+        client,
+        "({mission: document.querySelector('#app .panel').textContent,"
+        " lists: Array.from("
+        "document.querySelectorAll('#app .two .panel'), n => n.textContent)})",
+    )
+    #: le panneau mission agrège mission, version, branche git et environnement
+    assert "Chrome DevTools Protocol" in project_view["mission"]
+    assert "0.0-e2e" in project_view["mission"]
+    assert "e2e-cockpit" in project_view["mission"]
+    assert "Chrome/Chromium présent" in project_view["mission"]
+    #: docs et fixtures du projet sont inventoriées en deux panneaux
+    assert any("README.md" in item for item in project_view["lists"])
+    assert any("tests/fixtures/index.html" in item for item in project_view["lists"])
+
+    _goto_route(
+        client,
+        "/nulle-part",
+        "document.querySelector('#app h1')?.textContent === 'Vue introuvable'",
+    )
+    not_found = js.evaluate(
+        client,
+        "({crumb: document.querySelector('#app .crumbs').textContent,"
+        " route: document.querySelector('#app p code').textContent})",
+    )
+    #: la route inconnue est nommée dans la vue de repli, fil d'Ariane compris
+    assert not_found["route"] == "/nulle-part"
+    assert "Introuvable" in not_found["crumb"]
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "vue-projet-et-introuvable", {"project": project_view, "not_found": not_found}
+        )
 
 
 def test_navigate_and_read_title(page):
