@@ -362,6 +362,7 @@ def test_generate_rejects_invalid_retention_before_replacing_existing_proof(tmp_
     marker = proof_dir / "keep.txt"
     marker.write_text("preserve", encoding="utf-8")
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "0")
 
     #: la rétention nulle est refusée dès l'entrée de generate()
@@ -395,6 +396,7 @@ def test_generate_preserves_previous_proof_when_a_step_fails(tmp_path, monkeypat
     sentinel = proof_dir / "keep.txt"
     sentinel.write_text("preserve", encoding="utf-8")
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
 
     def explode(*_args, **_kwargs):
         raise RuntimeError("étape de preuve cassée")
@@ -423,6 +425,7 @@ def test_generate_recovers_interrupted_swap_before_purging_leftovers(tmp_path, m
     previous.mkdir()
     (previous / "keep.txt").write_text("preserve", encoding="utf-8")
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
 
     def explode(*_args, **_kwargs):
         raise RuntimeError("étape de preuve cassée")
@@ -451,6 +454,7 @@ def test_generate_reports_unpurgeable_staging_with_actionable_error(tmp_path, mo
     staging = tmp_path / ".proof.new"
     staging.mkdir()
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
 
     def deny(path, *args, **kwargs):
         raise PermissionError(13, "Permission denied", str(path))
@@ -524,10 +528,13 @@ def _fake_git_context(**_kwargs):
 def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony=None, casts=None):
     # Câble le pipeline _generate() sur des faux déterministes (aucun process
     # externe) et retourne le .proof cible; chaque test remplace la brique
-    # dont il veut injecter la panne.
+    # dont il veut injecter la panne. Le store d'évidence runtime est lui
+    # aussi confiné au tmp_path: la purge de rétention du début de run ne doit
+    # jamais toucher le store réel du dépôt pendant les tests.
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
     monkeypatch.setattr(proof, "run_evidence", run_evidence or _fake_run_evidence)
     monkeypatch.setattr(proof, "run_symfony_evidence", symfony or _fake_symfony_evidence)
     monkeypatch.setattr(proof, "collect_cast_evidence", casts or _fake_cast_entries)
@@ -648,6 +655,156 @@ def test_generate_warns_without_failing_when_previous_cleanup_is_denied(
     captured = capsys.readouterr()
     #: l'avertissement nomme le dossier fautif et le remède chown sur stderr
     assert ".proof.old" in captured.err
+    assert "chown" in captured.err
+
+
+def _write_retention_manifest(run_dir, expires_at):
+    # Manifeste minimal de rétention: seul expires_at est lu par la purge.
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "manifest.json").write_text(json.dumps({"expires_at": expires_at}), encoding="utf-8")
+
+
+def test_generate_purges_expired_evidence_runs_at_start(tmp_path, monkeypatch, capsys):
+    """La purge de rétention au début de generate() supprime les runs expirés
+    du store d'évidence runtime, conserve les runs frais, et atteste la
+    décision dans summary["retention"] comme sur stderr."""
+    monkeypatch.delenv("CDPX_PROOF_RETENTION_DAYS", raising=False)
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
+    store = tmp_path / ".cdpx-evidence"
+    _write_retention_manifest(store / "run-perime", "2000-01-01T00:00:00+00:00")
+    _write_retention_manifest(store / "run-frais", "2999-01-01T00:00:00+00:00")
+
+    summary = proof.generate()
+
+    #: seul le run expiré disparaît; le run encore couvert par son TTL reste intact
+    assert not (store / "run-perime").exists()
+    assert (store / "run-frais" / "manifest.json").is_file()
+    #: le summary publié atteste la purge: run listé, .proof conservé, TTL nommé
+    assert summary["retention"]["purged"]["evidence_runs"] == ["run-perime"]
+    assert summary["retention"]["purged"]["proof_dir"] is False
+    assert summary["retention"]["retention_days"] == 14
+    #: le champ atterrit bien dans validation-summary.json, pas seulement en mémoire
+    published = json.loads((proof_dir / "validation-summary.json").read_text(encoding="utf-8"))
+    assert published["retention"]["purged"]["evidence_runs"] == ["run-perime"]
+    #: la purge est tracée sur stderr, jamais silencieuse
+    assert "run-perime" in capsys.readouterr().err
+
+
+def test_generate_purges_expired_proof_dir_before_regeneration(tmp_path, monkeypatch, capsys):
+    """Un .proof dont le manifeste global artifact-manifest.json porte un
+    expires_at dépassé est purgé automatiquement au début du run, avant toute
+    régénération, et la décision est attestée dans le summary."""
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
+    (proof_dir / "artifact-manifest.json").write_text(
+        json.dumps({"expires_at": "2000-01-01T00:00:00+00:00"}), encoding="utf-8"
+    )
+
+    summary = proof.generate()
+
+    #: la preuve expirée a été purgée puis un arbre neuf publié à sa place
+    assert summary["retention"]["purged"]["proof_dir"] is True
+    assert (proof_dir / "validation-summary.json").is_file()
+    #: la purge de la preuve expirée est tracée sur stderr avant régénération
+    assert "preuve locale expirée purgée" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("corruption", ["absent", "invalide"])
+def test_purge_retention_keeps_proof_when_manifest_is_unreadable(tmp_path, monkeypatch, corruption):
+    """Manifeste de rétention absent ou corrompu => conservation fail-open:
+    la purge du début de run ne détruit jamais une preuve dont l'expiration
+    est inconnue, même contrat que purge_expired sur les runs d'évidence."""
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir()
+    (proof_dir / "keep.txt").write_text("preserve", encoding="utf-8")
+    if corruption == "invalide":
+        (proof_dir / "artifact-manifest.json").write_text("{pas du json", encoding="utf-8")
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
+
+    result = proof._purge_expired_local_proofs()
+
+    #: rien n'est purgé et la purge ne signale aucune suppression
+    assert result == {"evidence_runs": [], "proof_dir": False}
+    #: la preuve à l'expiration inconnue est conservée telle quelle
+    assert (proof_dir / "keep.txt").read_text(encoding="utf-8") == "preserve"
+
+
+def test_purge_retention_never_touches_transactional_dirs(tmp_path, monkeypatch):
+    """La purge de rétention ignore .proof.new et .proof.old même porteurs
+    d'un manifeste expiré: ces répertoires appartiennent à la logique
+    transactionnelle de _generate, jamais à la rétention."""
+    monkeypatch.setattr(proof, "PROOF_DIR", tmp_path / ".proof")
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
+    expired = json.dumps({"expires_at": "2000-01-01T00:00:00+00:00"})
+    for name in (".proof.new", ".proof.old"):
+        side = tmp_path / name
+        side.mkdir()
+        (side / "artifact-manifest.json").write_text(expired, encoding="utf-8")
+
+    result = proof._purge_expired_local_proofs()
+
+    #: la purge ne revendique aucune suppression: ni run d'évidence ni .proof
+    assert result == {"evidence_runs": [], "proof_dir": False}
+    #: les répertoires transactionnels restent intacts malgré leur manifeste expiré
+    assert (tmp_path / ".proof.new" / "artifact-manifest.json").is_file()
+    assert (tmp_path / ".proof.old" / "artifact-manifest.json").is_file()
+
+
+def test_generate_survives_denied_retention_purge_with_actionable_warning(
+    tmp_path, monkeypatch, capsys
+):
+    """Une PermissionError pendant la purge de rétention (fichiers root d'un
+    run Docker interrompu) produit un avertissement stderr avec le remède
+    chown et laisse la génération aboutir: la rétention est best-effort."""
+    proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
+    store = tmp_path / ".cdpx-evidence"
+    _write_retention_manifest(store / "run-perime", "2000-01-01T00:00:00+00:00")
+    real_rmtree = proof.shutil.rmtree
+
+    def deny(path, *args, **kwargs):
+        if Path(path).name == "run-perime":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(proof.shutil, "rmtree", deny)
+
+    summary = proof.generate()
+
+    #: la génération ABOUTIT malgré la purge refusée: l'arbre complet est publié
+    assert (proof_dir / "validation-summary.json").is_file()
+    #: le run non purgeable n'est pas revendiqué comme purgé dans le summary
+    assert summary["retention"]["purged"]["evidence_runs"] == []
+    captured = capsys.readouterr()
+    #: l'avertissement nomme le store fautif et le remède chown sur stderr
+    assert ".cdpx-evidence" in captured.err
+    assert "chown" in captured.err
+
+
+def test_purge_retention_warns_when_expired_proof_dir_is_denied(tmp_path, monkeypatch, capsys):
+    """Un .proof expiré mais non supprimable (fichiers root) n'interrompt pas
+    la purge: avertissement actionnable sur stderr, preuve laissée en place et
+    jamais revendiquée comme purgée."""
+    proof_dir = tmp_path / ".proof"
+    proof_dir.mkdir()
+    (proof_dir / "artifact-manifest.json").write_text(
+        json.dumps({"expires_at": "2000-01-01T00:00:00+00:00"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
+
+    def deny(path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(proof.shutil, "rmtree", deny)
+
+    result = proof._purge_expired_local_proofs()
+
+    #: la suppression refusée n'est pas revendiquée comme purge réussie
+    assert result == {"evidence_runs": [], "proof_dir": False}
+    #: la preuve reste en place, l'avertissement nomme le dossier et le remède chown
+    assert (proof_dir / "artifact-manifest.json").is_file()
+    captured = capsys.readouterr()
+    assert ".proof" in captured.err
     assert "chown" in captured.err
 
 

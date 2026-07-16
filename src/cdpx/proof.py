@@ -36,6 +36,7 @@ from cdpx.artifacts import (
     ArtifactClassification,
     ArtifactError,
     SecureArtifactWriter,
+    purge_expired,
     scan_canaries,
 )
 from cdpx.proofing.cast import CAST_COMMANDS, collect_cast_evidence
@@ -71,6 +72,10 @@ GIT_STATUS = PROOF_DIR / "git-status.txt"
 GIT_DIFF_STAT = PROOF_DIR / "git-diff-stat.txt"
 EVIDENCE_DIR = PROOF_DIR / "evidence"
 SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
+# Store d'évidence runtime par défaut (`cdpx run-scenario`): des runs s'y
+# accumulent entre les sessions; la purge de rétention au début de chaque
+# `make proof` y applique les TTL manifestés, sans geste manuel.
+EVIDENCE_STORE_DIR = Path(".cdpx-evidence")
 SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
 
 # Génération transactionnelle: tout l'arbre est produit dans `.proof.new/`
@@ -1922,6 +1927,57 @@ def _raise_actionable_permission_error(root: Path, exc: PermissionError) -> NoRe
     ) from exc
 
 
+def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any]:
+    """Purge automatique des preuves locales expirées au début d'un run.
+
+    Applique les TTL manifestés sans geste manuel: les runs expirés du store
+    d'évidence runtime (via ``purge_expired``) et l'arbre ``.proof`` entier si
+    son manifeste global ``artifact-manifest.json`` porte un ``expires_at``
+    dépassé. Fail-open sur manifeste absent/illisible/corrompu (conservation,
+    même contrat que ``purge_expired``) et best-effort sur PermissionError
+    (avertissement actionnable sur stderr, le run continue). Les répertoires
+    transactionnels `.proof.new`/`.proof.old` ne sont jamais touchés ici: ils
+    appartiennent à la logique de bascule de ``_generate``.
+    """
+
+    current = now or datetime.now(UTC)
+    evidence_runs: list[str] = []
+    try:
+        evidence_runs = purge_expired(EVIDENCE_STORE_DIR, now=current)
+    except PermissionError as exc:
+        # Fichiers root laissés par un run Docker interrompu: la rétention est
+        # best-effort, l'avertissement nomme le remède et le run continue.
+        print(
+            f"avertissement: purge de rétention impossible dans {EVIDENCE_STORE_DIR} "
+            f"({exc}); {_docker_chown_remedy(EVIDENCE_STORE_DIR)}",
+            file=sys.stderr,
+        )
+    for name in evidence_runs:
+        print(f"rétention: run d'évidence expiré purgé: {name}", file=sys.stderr)
+
+    proof_dir_purged = False
+    expires: datetime | None
+    try:
+        payload = json.loads((PROOF_DIR / "artifact-manifest.json").read_text(encoding="utf-8"))
+        expires = datetime.fromisoformat(payload["expires_at"])
+    except (OSError, KeyError, TypeError, ValueError):
+        # Manifeste absent, illisible ou corrompu: conservation fail-open —
+        # la purge ne détruit jamais une preuve dont l'expiration est inconnue.
+        expires = None
+    if expires is not None and current >= expires:
+        try:
+            shutil.rmtree(PROOF_DIR)
+            proof_dir_purged = True
+            print(f"rétention: preuve locale expirée purgée: {PROOF_DIR}", file=sys.stderr)
+        except PermissionError as exc:
+            print(
+                f"avertissement: purge de rétention impossible de {PROOF_DIR} "
+                f"({exc}); {_docker_chown_remedy(PROOF_DIR)}",
+                file=sys.stderr,
+            )
+    return {"evidence_runs": evidence_runs, "proof_dir": proof_dir_purged}
+
+
 def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
     """Purge les artefacts d'évidence orphelins d'un pytest mort sans épilogue.
 
@@ -2056,6 +2112,12 @@ def _generate() -> dict:
     # ci-dessous détruirait la seule preuve encore valide.
     if previous.exists() and not PROOF_DIR.exists():
         os.replace(previous, PROOF_DIR)
+    # Purge de rétention automatique: les TTL manifestés s'appliquent au début
+    # de chaque run, APRÈS la récupération d'un swap interrompu (la preuve
+    # restaurée redevient éligible à sa propre expiration) et AVANT la purge
+    # des restes de staging — qui reste la propriété de la logique
+    # transactionnelle ci-dessous.
+    retention_purged = _purge_expired_local_proofs()
     # Restes d'un run précédent interrompu: le staging est jetable par contrat.
     for leftover in (staging, previous):
         if leftover.exists():
@@ -2225,6 +2287,13 @@ def _generate() -> dict:
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
+    # Observabilité de la rétention: la purge du début de run est attestée
+    # dans le summary publié (validation-summary.json), pas seulement sur
+    # stderr.
+    summary["retention"] = {
+        "retention_days": retention_seconds // (24 * 60 * 60),
+        "purged": retention_purged,
+    }
     # Publication: les chemins physiques du staging redeviennent les chemins
     # logiques .proof/… attendus par le contrat du summary, du HTML et des logs.
     summary = _rewrite_tree_paths(summary, publish_rewrites)

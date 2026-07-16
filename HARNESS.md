@@ -141,7 +141,14 @@ distributions 90 jours.
 Le TTL d'un scénario est toujours borné par le temps restant de la session. Le
 TTL inscrit dans un manifest permet la purge (`purge_expired`) mais ne crée pas
 de daemon global : le superviseur déclenche la suppression au stop, à
-l'expiration ou à la disparition du propriétaire.
+l'expiration ou à la disparition du propriétaire. Les preuves locales expirées
+sont en outre purgées automatiquement au début de chaque `make proof` : les
+runs du store d'évidence runtime et l'arbre `.proof` entier dont le manifeste
+`artifact-manifest.json` porte un `expires_at` dépassé sont supprimés avant
+régénération (manifeste absent ou illisible = conservation). Cette purge est
+best-effort : une `PermissionError` (fichiers root d'un run Docker interrompu)
+produit un avertissement stderr avec le remède `docker run … chown` et le run
+continue.
 
 ## 5. Qualité et déterminisme
 
