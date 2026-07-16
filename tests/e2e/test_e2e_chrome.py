@@ -1224,8 +1224,9 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
 )
 def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evidence_case):
     """Sur un run rouge, l'accueil ouvre par « À lire d'abord » (échecs de
-    preuve et tests failed reliés à leur scénario), la barre du haut compte les
-    gaps, et la route #/gaps détaille violations, warnings et proof failures."""
+    preuve et tests failed dont le lien mène à la fiche de leur scénario), la
+    barre du haut compte les gaps, et la route #/gaps détaille violations,
+    warnings et proof failures."""
     client, _base = page
     _open_cockpit(
         client, cockpit_report, "/features", "!!document.querySelector('#app .read-first')"
@@ -1243,18 +1244,28 @@ def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evid
         " runSup: document.querySelector('[data-route=\"/run\"] sup.sup-bad')?.textContent})",
     )
     #: le panneau « À lire d'abord » nomme la commande échouée ET le test
-    #: failed, relié à son scénario par le lien scenario_id complet
+    #: failed, avec sa pastille de statut
     assert read_first["heading"] == "À lire d'abord"
     assert any("command failed: Pytest E2E Chrome" in item for item in read_first["items"])
     assert any(COCKPIT_FAIL_NODEID in item for item in read_first["items"])
     assert read_first["failedPill"] == "failed"
-    assert read_first["failedHref"] == (
-        "#/features/demo-checkout/scenarios/demo-checkout.pay-declined"
-    )
     #: la barre du haut agrège les gaps (1 violation + 1 warning + 1 proof
     #: failure) et le nombre de tests failed sur le lien Run
     assert read_first["gapsSup"] == "3" and read_first["gapsSupBad"] is True
     assert read_first["runSup"] == "1"
+
+    _click(client, ".read-first li a")
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Paiement refusé'")
+    failed_scenario = js.evaluate(
+        client,
+        "({title: document.querySelector('#app h1').textContent,"
+        " crumbs: document.querySelector('#app .crumbs').textContent})",
+    )
+    #: le lien du test failed aboutit à la fiche de son scénario (et non à
+    #: « Vue introuvable »): titre du scénario refusé et fil d'Ariane complet
+    assert failed_scenario["title"] == "Paiement refusé"
+    assert "Achat de démonstration" in failed_scenario["crumbs"]
+    assert "Acheter un article" in failed_scenario["crumbs"]
 
     _goto_route(
         client, "/gaps", "document.querySelector('#app h1')?.textContent === 'Gaps et violations'"
@@ -1273,7 +1284,10 @@ def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evid
     assert "source path unmapped" in gaps["warnings"]
     assert "command failed: Pytest E2E Chrome" in gaps["failures"]
     if evidence_case is not None:
-        evidence_case.attach_json("read-first-et-gaps", {"read_first": read_first, "gaps": gaps})
+        evidence_case.attach_json(
+            "read-first-et-gaps",
+            {"read_first": read_first, "failed_scenario": failed_scenario, "gaps": gaps},
+        )
 
 
 @pytest.mark.scenario(

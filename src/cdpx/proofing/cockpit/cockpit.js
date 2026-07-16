@@ -675,8 +675,14 @@
     if (data.ok && !failures.length && !failed.length) return '';
     const failureItems = failures.map((item) => `<li>${esc(item)}</li>`).join('');
     const runItems = failed.map((run) => {
+      /* run.scenario_id est la forme complète "<feature>.<id court>"; les
+         routes scénario (findScenario) matchent l'id court des nœuds — on
+         retire donc le préfixe feature avant de construire le lien. */
+      const scenarioId = String(run.scenario_id || '');
+      const prefix = `${run.feature}.`;
+      const shortId = scenarioId.startsWith(prefix) ? scenarioId.slice(prefix.length) : scenarioId;
       const href = run.feature && run.scenario_id
-        ? `#/features/${esc(run.feature)}/scenarios/${esc(run.scenario_id)}`
+        ? `#/features/${esc(run.feature)}/scenarios/${esc(shortId)}`
         : '#/gaps';
       return `<li>${statusPill(run.status)} <a href="${href}"><code>${esc(run.nodeid)}</code></a> ${esc(run.message || '')}</li>`;
     }).join('');
