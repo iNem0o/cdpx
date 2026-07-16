@@ -4,6 +4,27 @@
 The report is intentionally evidence-first: every human-facing conclusion is
 derived from command exits, pytest JUnit XML, captured logs, or the CLI help
 captured during the same run.
+
+Ce module est la FAÇADE stable du pipeline de preuve. Les implémentations
+vivent dans ``cdpx.proofing.*`` (private_io, execution, junit, gitcontext,
+evidence_catalog, scenario_inline, suites, summary, artifact_policy); ici ne
+restent que:
+
+- les constantes de chemins/budgets/versions vendor (PROOF_DIR, SYMFONY_LOG,
+  EVIDENCE_DIR, EVIDENCE_STORE_DIR, timeouts, sha des bundles…);
+- le rendu cockpit (``render_html`` et ses assets vendorés vérifiés);
+- l'orchestration (``_generate``/``generate``/``main``), le staging
+  transactionnel, ``build_shareable_proof`` et la purge de rétention;
+- les ré-exports ``from cdpx.proofing.x import Y as Y`` et des WRAPPERS.
+
+Contrat de façade: les tests importent et monkeypatchent tout via
+``cdpx.proof`` (``proof.PROOF_DIR``, ``proof._run_text``,
+``proof._stream_to_private_file``, ``proof.run_evidence``…). Chaque wrapper
+résout donc ses dépendances patchables DANS les globals de ce module AU
+MOMENT DE L'APPEL et les passe en keyword-only aux implémentations
+extraites; aucun module ``cdpx.proofing`` n'importe ``cdpx.proof`` (pas de
+cycle) ni ne lit ces globals lui-même. Le Makefile (smoke-dist) importe
+``parse_help_commands`` d'ici: ce point d'entrée fait partie du contrat.
 """
 
 from __future__ import annotations
@@ -13,24 +34,15 @@ import html
 import json
 import mimetypes
 import os
-import platform
-import re
-import secrets
 import shutil
-import signal
-import subprocess
 import sys
-import time
-import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from importlib import resources
 from pathlib import Path
 from string import Template
-from typing import Any, NoReturn, cast
+from typing import Any
 
 from cdpx.artifacts import (
     ArtifactClassification,
@@ -39,23 +51,243 @@ from cdpx.artifacts import (
     purge_expired,
     scan_canaries,
 )
-from cdpx.proofing.cast import CAST_COMMANDS, collect_cast_evidence
+from cdpx.proofing.artifact_policy import (
+    _CLASSIFICATION_SEVERITY as _CLASSIFICATION_SEVERITY,
+)
+from cdpx.proofing.artifact_policy import (
+    _PIPELINE_TOP_LEVEL_FILES as _PIPELINE_TOP_LEVEL_FILES,
+)
+from cdpx.proofing.artifact_policy import (
+    _TEXTUAL_PROOF_SUFFIXES as _TEXTUAL_PROOF_SUFFIXES,
+)
+from cdpx.proofing.artifact_policy import (
+    _docker_chown_remedy as _docker_chown_remedy,
+)
+from cdpx.proofing.artifact_policy import (
+    _is_pipeline_proof_artifact as _is_pipeline_proof_artifact,
+)
+from cdpx.proofing.artifact_policy import (
+    _load_evidence_policy as _load_evidence_policy,
+)
+from cdpx.proofing.artifact_policy import (
+    _proof_artifact_policy as _proof_artifact_policy,
+)
+from cdpx.proofing.artifact_policy import (
+    _purge_unmanifested_evidence as _purge_unmanifested_evidence,
+)
+from cdpx.proofing.artifact_policy import (
+    _raise_actionable_permission_error as _raise_actionable_permission_error,
+)
+from cdpx.proofing.artifact_policy import (
+    _sanitize_text_file as _sanitize_text_file,
+)
+from cdpx.proofing.cast import CAST_COMMANDS as CAST_COMMANDS
+from cdpx.proofing.cast import collect_cast_evidence
 from cdpx.proofing.documentation import (
-    build_documentation_catalog,
-    documentation_failures,
+    build_documentation_catalog as build_documentation_catalog,
 )
-from cdpx.proofing.features import build_feature_inventory, feature_failures
+from cdpx.proofing.documentation import (
+    documentation_failures as documentation_failures,
+)
+from cdpx.proofing.evidence_catalog import (
+    VALIDATION_DOC as VALIDATION_DOC,
+)
+from cdpx.proofing.evidence_catalog import (
+    ProofPaths as ProofPaths,
+)
+from cdpx.proofing.evidence_catalog import (
+    _junit_status as _junit_status,
+)
+from cdpx.proofing.evidence_catalog import (
+    build_evidence_catalog as _build_evidence_catalog_impl,
+)
+from cdpx.proofing.evidence_catalog import (
+    collect_project_inventory as collect_project_inventory,
+)
+from cdpx.proofing.evidence_catalog import (
+    group_cases_by_module as group_cases_by_module,
+)
+from cdpx.proofing.evidence_catalog import (
+    parse_validation_matrix as parse_validation_matrix,
+)
+from cdpx.proofing.execution import (
+    PROOF_TIMEOUT_SCALE_ENV as PROOF_TIMEOUT_SCALE_ENV,
+)
+
+# Contrat de façade pour les tests: ces symboles (y compris privés) restent
+# importables ET monkeypatchables via `cdpx.proof` (forme `X as X`); les
+# fonctions restées dans ce module les résolvent par leurs globals au moment
+# de l'appel.
+from cdpx.proofing.execution import (
+    CommandEvidence as CommandEvidence,
+)
+from cdpx.proofing.execution import (
+    _kill_process_group as _kill_process_group,
+)
+from cdpx.proofing.execution import (
+    _read_json_or_fail as _read_json_or_fail,
+)
+from cdpx.proofing.execution import (
+    _repo_env as _repo_env,
+)
+from cdpx.proofing.execution import (
+    _rewrite_text_paths as _rewrite_text_paths,
+)
+from cdpx.proofing.execution import (
+    _rewrite_tree_paths as _rewrite_tree_paths,
+)
+from cdpx.proofing.execution import (
+    _run_text as _run_text,
+)
+from cdpx.proofing.execution import (
+    _sanitize_argv as _sanitize_argv,
+)
+from cdpx.proofing.execution import (
+    _stream_and_collect as _stream_and_collect_impl,
+)
+from cdpx.proofing.execution import (
+    _stream_to_private_file as _stream_to_private_file,
+)
+from cdpx.proofing.execution import (
+    proof_timeout_scale as proof_timeout_scale,
+)
+from cdpx.proofing.gitcontext import (
+    GENERATED_PREFIXES as GENERATED_PREFIXES,
+)
+from cdpx.proofing.gitcontext import (
+    PRIVATE_WORKTREE_PREFIXES as PRIVATE_WORKTREE_PREFIXES,
+)
+from cdpx.proofing.gitcontext import (
+    build_impact_map as build_impact_map,
+)
+from cdpx.proofing.gitcontext import (
+    build_project_risks_and_unknowns as build_project_risks_and_unknowns,
+)
+from cdpx.proofing.gitcontext import (
+    build_review_guide as build_review_guide,
+)
+from cdpx.proofing.gitcontext import (
+    build_risks_and_unknowns as build_risks_and_unknowns,
+)
+from cdpx.proofing.gitcontext import (
+    classify_change as classify_change,
+)
+from cdpx.proofing.gitcontext import (
+    collect_git_context as _collect_git_context_impl,
+)
+from cdpx.proofing.junit import (
+    _case_focus as _case_focus,
+)
+from cdpx.proofing.junit import (
+    _empty_suite as _empty_suite,
+)
+from cdpx.proofing.junit import (
+    _suite_for_summary as _suite_for_summary,
+)
+from cdpx.proofing.junit import (
+    _tail as _tail,
+)
+from cdpx.proofing.junit import (
+    parse_help_commands as parse_help_commands,
+)
+from cdpx.proofing.junit import (
+    parse_junit as parse_junit,
+)
+from cdpx.proofing.private_io import (
+    _harden_tree as _harden_tree,
+)
+from cdpx.proofing.private_io import (
+    _now as _now,
+)
+from cdpx.proofing.private_io import (
+    _private_umask as _private_umask,
+)
+from cdpx.proofing.private_io import (
+    _secure_dir as _secure_dir,
+)
+from cdpx.proofing.private_io import (
+    _write_private_bytes as _write_private_bytes,
+)
+from cdpx.proofing.private_io import (
+    _write_private_text as _write_private_text,
+)
+from cdpx.proofing.scenario_inline import (
+    _INLINE_TYPES as _INLINE_TYPES,
+)
+from cdpx.proofing.scenario_inline import (
+    EXCERPT_HEAD_LINES as EXCERPT_HEAD_LINES,
+)
+from cdpx.proofing.scenario_inline import (
+    EXCERPT_TAIL_LINES as EXCERPT_TAIL_LINES,
+)
+from cdpx.proofing.scenario_inline import (
+    INLINE_CAST_BUDGET as INLINE_CAST_BUDGET,
+)
+from cdpx.proofing.scenario_inline import (
+    INLINE_CAST_MAX_BYTES as INLINE_CAST_MAX_BYTES,
+)
+from cdpx.proofing.scenario_inline import (
+    INLINE_MAX_BYTES as INLINE_MAX_BYTES,
+)
+from cdpx.proofing.scenario_inline import (
+    INLINE_TOTAL_BUDGET as INLINE_TOTAL_BUDGET,
+)
+from cdpx.proofing.scenario_inline import (
+    _artifact_excerpt as _artifact_excerpt,
+)
+from cdpx.proofing.scenario_inline import (
+    _inline_artifact as _inline_artifact,
+)
+from cdpx.proofing.scenario_inline import (
+    _strip_inline_content as _strip_inline_content,
+)
+from cdpx.proofing.scenario_inline import (
+    enrich_scenario_evidence as enrich_scenario_evidence,
+)
+from cdpx.proofing.scenario_inline import (
+    inline_catalog_casts as inline_catalog_casts,
+)
+from cdpx.proofing.scenario_inline import (
+    inline_scenario_artifacts as inline_scenario_artifacts,
+)
+from cdpx.proofing.scenario_inline import (
+    load_scenario_evidence as _load_scenario_evidence_impl,
+)
+from cdpx.proofing.scenario_inline import (
+    proof_failures_from_scenarios as proof_failures_from_scenarios,
+)
+from cdpx.proofing.scenario_inline import (
+    scenario_totals as scenario_totals,
+)
+from cdpx.proofing.scenario_inline import (
+    write_scenario_evidence as write_scenario_evidence,
+)
 from cdpx.proofing.scenario_models import (
-    Scenario,
     ScenarioEvidence,
-    ScenarioTotals,
-    validated_scenario_file,
 )
-from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
+from cdpx.proofing.suites import (
+    SYMFONY_NODEID as SYMFONY_NODEID,
+)
+from cdpx.proofing.suites import (
+    _write_command_log as _write_command_log,
+)
+from cdpx.proofing.suites import (
+    run_evidence as _run_evidence_impl,
+)
+from cdpx.proofing.suites import (
+    run_symfony_evidence as _run_symfony_evidence_impl,
+)
+from cdpx.proofing.suites import (
+    write_symfony_unavailable_evidence as _write_symfony_unavailable_evidence_impl,
+)
+from cdpx.proofing.summary import (
+    build_summary as _build_summary_impl,
+)
+from cdpx.proofing.summary import (
+    cast_failures_from_entries as cast_failures_from_entries,
+)
+from cdpx.security.redaction import RedactionContext, redact_tree
 from cdpx.testing.evidence import (
-    EVIDENCE_SCHEMA,
-    PROOF_RETENTION_ENV,
-    SCENARIOS_SCHEMA,
     environment_secret_values,
     proof_retention_seconds,
     redaction_context_from_environment,
@@ -76,7 +308,6 @@ SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
 # accumulent entre les sessions; la purge de rétention au début de chaque
 # `make proof` y applique les TTL manifestés, sans geste manuel.
 EVIDENCE_STORE_DIR = Path(".cdpx-evidence")
-SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
 
 # Génération transactionnelle: tout l'arbre est produit dans `.proof.new/`
 # (même parent que `.proof`, donc même filesystem), puis publié par bascule
@@ -88,7 +319,6 @@ PROOF_PREVIOUS_SUFFIX = ".old"
 # preuve: un dépassement produit un exit 124 et un verdict rouge, jamais un
 # blocage indéfini. `CDPX_PROOF_TIMEOUT_SCALE` (flottant strictement positif,
 # ex. "2" sur machine lente) multiplie uniformément tous les budgets.
-PROOF_TIMEOUT_SCALE_ENV = "CDPX_PROOF_TIMEOUT_SCALE"
 RUFF_TIMEOUT_S = 120.0
 MYPY_TIMEOUT_S = 300.0
 UNIT_TIMEOUT_S = 600.0
@@ -97,9 +327,6 @@ SYMFONY_TIMEOUT_S = 900.0
 CLI_HELP_TIMEOUT_S = 30.0
 GIT_TIMEOUT_S = 30.0
 
-GENERATED_PREFIXES = (".proof/", ".idea/")
-PRIVATE_WORKTREE_PREFIXES = ("AGENTS.md", "article/", "presentation/")
-VALIDATION_DOC = Path("docs/VALIDATION.md")
 MERMAID_VERSION = "11.16.0"
 MERMAID_RESOURCE = f"vendor/mermaid-{MERMAID_VERSION}.min.js"
 MERMAID_SHA256 = "74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b"
@@ -108,121 +335,6 @@ XTERM_JS_RESOURCE = f"vendor/xterm-{XTERM_VERSION}.min.js"
 XTERM_CSS_RESOURCE = f"vendor/xterm-{XTERM_VERSION}.min.css"
 XTERM_JS_SHA256 = "4196e242ef1cf4c2adead8d97f4a772a69576076f70b095e004b4abbb049e7bf"
 XTERM_CSS_SHA256 = "f7f724aea2bb620a6482bfb8e4bdecfae1152b0c7facef55fbda61f3b6cfedb2"
-
-_ALLOWED_ENV_NAMES = {
-    "CI",
-    "COLORTERM",
-    "HOME",
-    "LANG",
-    "LANGUAGE",
-    "LC_ALL",
-    "LOGNAME",
-    "NO_COLOR",
-    "PATH",
-    "PYTHONHASHSEED",
-    "PYTHONIOENCODING",
-    "PYTHONUNBUFFERED",
-    PROOF_RETENTION_ENV,
-    "SHELL",
-    "TERM",
-    "TMPDIR",
-    "TZ",
-    "USER",
-    "VIRTUAL_ENV",
-    "XDG_CACHE_HOME",
-    "XDG_CONFIG_HOME",
-    "XDG_RUNTIME_DIR",
-}
-_TEXTUAL_PROOF_SUFFIXES = {
-    ".css",
-    ".html",
-    ".js",
-    ".json",
-    ".log",
-    ".md",
-    ".txt",
-    ".xml",
-    ".yml",
-    ".yaml",
-}
-
-
-@dataclass
-class CommandEvidence:
-    id: str
-    label: str
-    argv: list[str]
-    log: str
-    exit_code: int
-    duration_s: float
-    status: str
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _secure_dir(path: Path) -> None:
-    if path.is_symlink():
-        raise ArtifactError(f"dossier de preuve symbolique interdit: {path}")
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if not path.is_dir():
-        raise ArtifactError(f"dossier de preuve requis: {path}")
-    path.chmod(0o700)
-
-
-def _write_private_bytes(path: Path, data: bytes) -> None:
-    _secure_dir(path.parent)
-    if path.is_symlink():
-        raise ArtifactError(f"lien symbolique interdit: {path}")
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _write_private_text(path: Path, value: str) -> None:
-    _write_private_bytes(path, value.encode("utf-8"))
-
-
-def _harden_tree(root: Path) -> None:
-    if not root.exists():
-        return
-    for path in sorted(root.rglob("*"), reverse=True):
-        if path.is_symlink():
-            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
-        path.chmod(0o700 if path.is_dir() else 0o600)
-    root.chmod(0o700)
-
-
-@contextmanager
-def _private_umask():
-    previous = os.umask(0o077)
-    try:
-        yield
-    finally:
-        os.umask(previous)
-
-
-def _sanitize_argv(argv: list[str], context: RedactionContext) -> list[str]:
-    return [
-        redact_text(value, context=context, path=f"$.argv[{index}]")
-        for index, value in enumerate(argv)
-    ]
-
-
-def _repo_env() -> dict[str, str]:
-    env = {name: value for name, value in os.environ.items() if name in _ALLOWED_ENV_NAMES}
-    src = str(Path("src").resolve())
-    env["PYTHONPATH"] = src
-    return env
 
 
 def _staging_dir() -> Path:
@@ -233,126 +345,6 @@ def _previous_dir() -> Path:
     return PROOF_DIR.with_name(PROOF_DIR.name + PROOF_PREVIOUS_SUFFIX)
 
 
-def proof_timeout_scale(environ: dict[str, str] | None = None) -> float:
-    """Facteur d'échelle des deadlines, validé fail-closed comme la rétention."""
-
-    values = os.environ if environ is None else environ
-    raw = values.get(PROOF_TIMEOUT_SCALE_ENV)
-    if raw is None:
-        return 1.0
-    if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", raw) or float(raw) <= 0:
-        raise ValueError(f"{PROOF_TIMEOUT_SCALE_ENV} doit être un flottant strictement positif")
-    return float(raw)
-
-
-def _rewrite_text_paths(value: str, rewrites: Sequence[tuple[str, str]]) -> str:
-    """Réécrit les chemins d'une racine physique vers sa racine logique.
-
-    La réécriture est ancrée: seuls les préfixes de chemin `racine/…` et la
-    valeur exactement égale à la racine sont réécrits. Un littéral nu (ex.
-    `.proof.new` cité dans un extrait de code capturé par l'évidence) est
-    préservé tel quel — un remplacement naïf corromprait ces extraits.
-    """
-
-    for physical, logical in rewrites:
-        if value == physical:
-            value = logical
-            continue
-        value = value.replace(f"{physical}/", f"{logical}/")
-    return value
-
-
-def _read_json_or_fail(path: Path, label: str) -> Any:
-    """Lit un JSON en échouant fermé avec une erreur localisée.
-
-    Le fichier fautif et la cause sont nommés dans l'ArtifactError, plutôt
-    qu'une OSError/JSONDecodeError anonyme au milieu du pipeline de preuve.
-    """
-
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ArtifactError(f"{label}: {path}: {exc}") from exc
-
-
-def _rewrite_tree_paths(value: Any, rewrites: Sequence[tuple[str, str]]) -> Any:
-    """Applique les réécritures de chemins à toutes les chaînes d'un arbre JSON."""
-
-    if isinstance(value, str):
-        return _rewrite_text_paths(value, rewrites)
-    if isinstance(value, list):
-        return [_rewrite_tree_paths(item, rewrites) for item in value]
-    if isinstance(value, dict):
-        return {key: _rewrite_tree_paths(item, rewrites) for key, item in value.items()}
-    return value
-
-
-def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
-    """Tue le groupe de processus entier d'une commande de preuve.
-
-    ``proc.kill()`` seul ne toucherait que l'enfant direct: un Chrome ou un
-    serveur de fixtures lancé par pytest survivrait à la deadline, garderait
-    ses ports et pourrait écrire dans l'évidence après la purge.
-    """
-
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        # Groupe déjà disparu ou inaccessible: repli sur l'enfant direct.
-        proc.kill()
-    proc.wait()
-
-
-def _stream_to_private_file(
-    argv: list[str],
-    sink: Path,
-    *,
-    env: dict[str, str],
-    timeout: float | None,
-) -> tuple[int, bool]:
-    """Exécute ``argv`` en streamant stdout+stderr bruts dans ``sink`` (0600).
-
-    La sortie n'est jamais bufferisée en mémoire: le fichier grossit au fil de
-    l'exécution (observable via tail -f) et la deadline est monotone. Retourne
-    (exit_code, timed_out): 127 si le binaire est introuvable, 124 après kill
-    sur dépassement de deadline.
-    """
-
-    _secure_dir(sink.parent)
-    if sink.is_symlink():
-        raise ArtifactError(f"lien symbolique interdit: {sink}")
-    sink.unlink(missing_ok=True)
-    fd = os.open(sink, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as stream:
-        try:
-            # start_new_session isole la commande dans son propre groupe de
-            # processus: le kill de deadline atteint aussi ses descendants.
-            proc = subprocess.Popen(
-                argv,
-                cwd=Path.cwd(),
-                env=env,
-                stdout=stream,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-        except FileNotFoundError as exc:
-            stream.write((str(exc) + "\n").encode("utf-8"))
-            return 127, False
-        try:
-            exit_code = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            # Deadline dépassée: kill du groupe puis drain du statut. Ce qui a
-            # déjà été streamé dans le fichier reste disponible pour le log.
-            _kill_process_group(proc)
-            return 124, True
-        except BaseException:
-            # Exception inattendue (KeyboardInterrupt, MemoryError…): ne
-            # jamais rendre la main en laissant le groupe tourner.
-            _kill_process_group(proc)
-            raise
-    return exit_code, False
-
-
 def _stream_and_collect(
     argv: list[str],
     log_path: Path,
@@ -361,25 +353,21 @@ def _stream_and_collect(
     timeout: float | None,
     timeout_label: str,
 ) -> tuple[int, bool, str]:
-    """Streame ``argv`` dans un flux privé ``*.partial`` puis relit sa sortie.
+    """Wrapper de façade: résout ``_stream_to_private_file`` à l'appel.
 
-    Le flux brut (NON redacté) est supprimé en toutes circonstances — même si
-    la lecture, la redaction ou l'écriture finale échoue: un staging partiel
-    conservé pour diagnostic ne doit jamais contenir de sortie brute. La
-    mémoire n'est bornée que PENDANT l'exécution (streaming disque): la
-    relecture finale recharge tout le texte pour la redaction — choix assumé,
-    la deadline borne la durée du run, pas le volume de sa sortie.
+    Les tests monkeypatchent ``proof._stream_to_private_file``; passer le
+    global du module au moment de l'appel garantit que le patch intercepte
+    le streaming de l'implémentation extraite.
     """
 
-    partial = log_path.with_name(f"{log_path.name}.partial")
-    try:
-        exit_code, timed_out = _stream_to_private_file(argv, partial, env=env, timeout=timeout)
-        raw = partial.read_text(encoding="utf-8", errors="replace")
-    finally:
-        partial.unlink(missing_ok=True)
-    if timed_out:
-        raw += f"\ntimeout: {timeout_label} après {timeout}s (exit 124)\n"
-    return exit_code, timed_out, raw
+    return _stream_and_collect_impl(
+        argv,
+        log_path,
+        env=env,
+        timeout=timeout,
+        timeout_label=timeout_label,
+        stream=_stream_to_private_file,
+    )
 
 
 def run_evidence(
@@ -393,96 +381,19 @@ def run_evidence(
     redaction_context: RedactionContext | None = None,
     path_rewrites: Sequence[tuple[str, str]] = (),
 ) -> CommandEvidence:
-    context = redaction_context or redaction_context_from_environment()
-    started = _now()
-    start = time.monotonic()
-    _secure_dir(log_path.parent)
-    safe_argv = _sanitize_argv(
-        [_rewrite_text_paths(value, path_rewrites) for value in argv], context
-    )
-    header = [
-        f"$ {' '.join(safe_argv)}",
-        f"started_at: {started}",
-        "",
-        "--- output ---",
-    ]
-    # Flux brut streamé dans un fichier privé *.partial (progression
-    # observable, mémoire bornée pendant l'exécution), puis redaction du texte
-    # complet relu et écriture atomique du log final: un secret à cheval sur
-    # deux chunks ne peut pas y échapper.
-    exit_code, _timed_out, raw = _stream_and_collect(
-        argv, log_path, env=env, timeout=timeout, timeout_label="commande interrompue"
-    )
-    output = redact_text(
-        _rewrite_text_paths(raw, path_rewrites), context=context, path=f"$.commands.{id}.stdout"
-    )
-    duration = time.monotonic() - start
-    footer = ["", "--- result ---", f"exit_code: {exit_code}", f"duration_s: {duration:.3f}", ""]
-    _write_private_text(log_path, "\n".join(header) + "\n" + output + "\n".join(footer))
-    return CommandEvidence(
-        id=id,
-        label=label,
-        argv=argv,
-        log=str(log_path),
-        exit_code=exit_code,
-        duration_s=round(duration, 3),
-        status="ok" if exit_code == 0 else "failed",
-    )
+    """Wrapper de façade: le streaming passe par ``_stream_and_collect`` du
+    module, donc par ``_stream_to_private_file`` monkeypatchable des tests."""
 
-
-def _run_text(
-    argv: list[str],
-    timeout: float | None = None,
-    env: dict[str, str] | None = None,
-) -> tuple[int, str]:
-    try:
-        proc = subprocess.run(
-            argv,
-            cwd=Path.cwd(),
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-            env=env,
-        )
-    except subprocess.TimeoutExpired as exc:
-        output = exc.stdout or ""
-        if isinstance(output, bytes):
-            output = output.decode("utf-8", errors="replace")
-        return 124, output + f"\ntimeout after {timeout}s\n"
-    except FileNotFoundError as exc:
-        return 127, f"{exc}\n"
-    return proc.returncode, proc.stdout
-
-
-def _write_command_log(
-    log_path: Path,
-    argv: list[str],
-    started: str,
-    body: str,
-    result: str,
-    *,
-    redaction_context: RedactionContext | None = None,
-) -> None:
-    context = redaction_context or redaction_context_from_environment()
-    _secure_dir(log_path.parent)
-    _write_private_text(
+    return _run_evidence_impl(
+        id,
+        label,
+        argv,
         log_path,
-        "\n".join(
-            [
-                f"$ {' '.join(_sanitize_argv(argv, context))}",
-                f"started_at: {started}",
-                "",
-                "--- output ---",
-                redact_text(body, context=context, path="$.command.body").rstrip(),
-                "",
-                "--- result ---",
-                redact_text(result, context=context, path="$.command.result").rstrip(),
-                "",
-            ]
-        ),
+        env=env,
+        timeout=timeout,
+        redaction_context=redaction_context,
+        path_rewrites=path_rewrites,
+        stream_and_collect=_stream_and_collect,
     )
 
 
@@ -492,58 +403,15 @@ def write_symfony_unavailable_evidence(
     redaction_context: RedactionContext | None = None,
     proof_dir: Path | None = None,
 ) -> None:
-    context = redaction_context or redaction_context_from_environment()
-    # Même règle de dérivation que run_symfony_evidence: sans proof_dir, les
-    # globals (monkeypatchables) font foi; le pipeline passe le staging.
-    log_path = SYMFONY_LOG if proof_dir is None else proof_dir / SYMFONY_LOG.name
-    evidence_dir = EVIDENCE_DIR if proof_dir is None else proof_dir / EVIDENCE_DIR.name
-    _secure_dir(evidence_dir)
-    safe_reason = redact_text(reason, context=context, path="$.symfony.reason")
-    payload = {
-        "schema": SCENARIOS_SCHEMA,
-        "suite": "symfony",
-        "generated_at": _now(),
-        "count": 1,
-        "scenarios": [
-            {
-                "nodeid": SYMFONY_NODEID,
-                "suite": "symfony",
-                "title": "Symfony Docker portal unavailable",
-                "area": "developer diagnostics",
-                "feature": "dev-profiler-diff",
-                "journey": "read-profiler",
-                "scenario_id": "dev-profiler-diff.read-symfony-profiler",
-                "proves": [
-                    "Symfony Docker e2e was requested by proof generation.",
-                    "Docker was unavailable, so the real Symfony scenario did not run.",
-                ],
-                "intent": "",
-                "intent_line": 0,
-                "assertions": [],
-                "failed_line": 0,
-                "started_at": _now(),
-                "duration_s": 0.0,
-                "status": "unavailable",
-                "phase": "setup",
-                "message": safe_reason,
-                "stdout": "",
-                "stderr": "",
-                "artifacts": [
-                    {
-                        "type": "logs",
-                        "label": "Symfony e2e availability log",
-                        "path": str(log_path),
-                        "bytes": log_path.stat().st_size if log_path.exists() else 0,
-                        "mime": "text/plain",
-                        "created_at": _now(),
-                    }
-                ],
-            }
-        ],
-    }
-    _write_private_text(
-        evidence_dir / "symfony-scenarios.json",
-        json.dumps(redact_tree(payload, context=context), ensure_ascii=False, indent=2) + "\n",
+    """Wrapper de façade: SYMFONY_LOG et EVIDENCE_DIR (monkeypatchables) sont
+    résolus au moment de l'appel puis passés à l'implémentation extraite."""
+
+    return _write_symfony_unavailable_evidence_impl(
+        reason,
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        symfony_log=SYMFONY_LOG,
+        evidence_dir=EVIDENCE_DIR,
     )
 
 
@@ -554,132 +422,21 @@ def run_symfony_evidence(
     timeout: float | None = None,
     path_rewrites: Sequence[tuple[str, str]] = (),
 ) -> CommandEvidence:
-    context = redaction_context or redaction_context_from_environment()
-    # Résolution à l'appel: sans proof_dir explicite, les globals (donc les
-    # monkeypatchs de tests) font foi; le pipeline passe l'arbre de staging.
-    log_path = SYMFONY_LOG if proof_dir is None else proof_dir / SYMFONY_LOG.name
-    evidence_dir = EVIDENCE_DIR if proof_dir is None else proof_dir / EVIDENCE_DIR.name
-    argv = [
-        "docker",
-        "compose",
-        "-f",
-        "docker-compose.symfony-e2e.yml",
-        "up",
-        "--build",
-        "--abort-on-container-exit",
-        "--exit-code-from",
-        "cdpx",
-    ]
-    started = _now()
-    start = time.monotonic()
-    _secure_dir(evidence_dir)
-    compose_env = _repo_env()
-    compose_env["CDPX_E2E_UID"] = str(os.getuid())
-    compose_env["CDPX_E2E_GID"] = str(os.getgid())
-    # Le volume `.proof` du compose est paramétré: le conteneur monte l'arbre
-    # cible (staging pendant `make proof`, `./.proof` par défaut via Makefile).
-    compose_env["CDPX_PROOF_DIR"] = str((PROOF_DIR if proof_dir is None else proof_dir).resolve())
+    """Wrapper de façade: résout à l'appel tout ce que les tests patchent
+    (``_run_text``, ``_stream_to_private_file`` via ``_stream_and_collect``,
+    ``shutil.which``, ``SYMFONY_LOG``, ``EVIDENCE_DIR``, ``PROOF_DIR``)."""
 
-    checks: list[str] = []
-    if shutil.which("docker") is None:
-        reason = "Docker CLI not found; Symfony e2e is required for release proof."
-        _write_command_log(
-            log_path,
-            argv,
-            started,
-            reason,
-            "status: unavailable\nexit_code: 1",
-            redaction_context=context,
-        )
-        write_symfony_unavailable_evidence(reason, redaction_context=context, proof_dir=proof_dir)
-        return CommandEvidence(
-            id="symfony-e2e",
-            label="Symfony E2E Docker",
-            argv=argv,
-            log=str(log_path),
-            exit_code=1,
-            duration_s=round(time.monotonic() - start, 3),
-            status="unavailable",
-        )
-
-    for check_argv in (["docker", "compose", "version"], ["docker", "info"]):
-        code, output = _run_text(check_argv, timeout=15, env=compose_env)
-        checks.append(f"$ {' '.join(check_argv)}\n{output.rstrip()}\nexit_code: {code}")
-        if code != 0:
-            reason = (
-                "Docker is installed but unavailable; Symfony e2e is required for release proof."
-            )
-            body = "\n\n".join(checks + [reason])
-            _write_command_log(
-                log_path,
-                argv,
-                started,
-                body,
-                "status: unavailable\nexit_code: 1",
-                redaction_context=context,
-            )
-            write_symfony_unavailable_evidence(
-                reason, redaction_context=context, proof_dir=proof_dir
-            )
-            return CommandEvidence(
-                id="symfony-e2e",
-                label="Symfony E2E Docker",
-                argv=argv,
-                log=str(log_path),
-                exit_code=1,
-                duration_s=round(time.monotonic() - start, 3),
-                status="unavailable",
-            )
-
-    down_argv = [
-        "docker",
-        "compose",
-        "-f",
-        "docker-compose.symfony-e2e.yml",
-        "down",
-        "--remove-orphans",
-    ]
-    pre_code, pre_output = _run_text(down_argv, timeout=60, env=compose_env)
-    try:
-        # Le `up` est streamé dans un fichier privé (progression observable)
-        # et borné par deadline: kill du groupe sur dépassement, exit 124.
-        up_code, _up_timed_out, up_output = _stream_and_collect(
-            argv,
-            log_path,
-            env=compose_env,
-            timeout=timeout,
-            timeout_label="docker compose up interrompu",
-        )
-    finally:
-        # Même une interruption/exception/deadline pendant `up` doit rendre la
-        # main avec les conteneurs et réseaux Compose supprimés.
-        post_code, post_output = _run_text(down_argv, timeout=60, env=compose_env)
-    duration = time.monotonic() - start
-    body = "\n\n".join(
-        checks
-        + [
-            f"$ {' '.join(down_argv)}\n{pre_output.rstrip()}\nexit_code: {pre_code}",
-            f"$ {' '.join(argv)}\n{up_output.rstrip()}\nexit_code: {up_code}",
-            f"$ {' '.join(down_argv)}\n{post_output.rstrip()}\nexit_code: {post_code}",
-        ]
-    )
-    result_code = up_code if up_code != 0 else post_code
-    _write_command_log(
-        log_path,
-        argv,
-        started,
-        _rewrite_text_paths(body, path_rewrites),
-        f"exit_code: {result_code}\nduration_s: {duration:.3f}",
-        redaction_context=context,
-    )
-    return CommandEvidence(
-        id="symfony-e2e",
-        label="Symfony E2E Docker",
-        argv=argv,
-        log=str(log_path),
-        exit_code=result_code,
-        duration_s=round(duration, 3),
-        status="ok" if result_code == 0 else "failed",
+    return _run_symfony_evidence_impl(
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        timeout=timeout,
+        path_rewrites=path_rewrites,
+        run_text=_run_text,
+        stream_and_collect=_stream_and_collect,
+        which=shutil.which,
+        symfony_log=SYMFONY_LOG,
+        evidence_dir=EVIDENCE_DIR,
+        default_proof_dir=PROOF_DIR,
     )
 
 
@@ -689,235 +446,49 @@ def collect_git_context(
     status_path: Path | None = None,
     diff_stat_path: Path | None = None,
 ) -> dict:
-    context = redaction_context or redaction_context_from_environment()
-    status_path = GIT_STATUS if status_path is None else status_path
-    diff_stat_path = GIT_DIFF_STAT if diff_stat_path is None else diff_stat_path
-    branch_code, branch = _run_text(["git", "rev-parse", "--abbrev-ref", "HEAD"], GIT_TIMEOUT_S)
-    sha_code, sha = _run_text(["git", "rev-parse", "--short", "HEAD"], GIT_TIMEOUT_S)
-    status_code, status = _run_text(["git", "status", "--short"], GIT_TIMEOUT_S)
-    stat_code, stat = _run_text(
-        [
-            "git",
-            "diff",
-            "--stat",
-            "--",
-            ".",
+    """Wrapper de façade: résout ``_run_text`` et les chemins à l'appel.
+
+    Les tests monkeypatchent ``proof._run_text`` et ``proof.PROOF_DIR``:
+    les globals du module sont lus au moment de l'appel puis passés en
+    keyword-only à l'implémentation extraite.
+    """
+
+    return _collect_git_context_impl(
+        redaction_context=redaction_context,
+        status_path=GIT_STATUS if status_path is None else status_path,
+        diff_stat_path=GIT_DIFF_STAT if diff_stat_path is None else diff_stat_path,
+        run_text=_run_text,
+        timeout=GIT_TIMEOUT_S,
+        diff_excludes=(
             ":(exclude).proof/*",
             f":(exclude){PROOF_DIR.name}{PROOF_STAGING_SUFFIX}/*",
             f":(exclude){PROOF_DIR.name}{PROOF_PREVIOUS_SUFFIX}/*",
             ":(exclude).idea/*",
-        ],
-        GIT_TIMEOUT_S,
+        ),
     )
 
-    # Une sortie git en échec (timeout 124, dépôt cassé) n'est pas du
-    # porcelain: sortie partielle et annotation de timeout produiraient des
-    # entrées corrompues. On ne parse ni ne publie rien — le status_code et
-    # le diff_stat_code déjà exposés au summary suffisent au diagnostic.
-    if status_code != 0:
-        status = ""
-    if stat_code != 0:
-        stat = ""
-    safe_status_lines = []
-    for line in status.splitlines():
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.rsplit(" -> ", 1)[1]
-        if path == "AGENTS.md" or path.startswith(PRIVATE_WORKTREE_PREFIXES[1:]):
-            continue
-        safe_status_lines.append(line)
-    status = redact_text("\n".join(safe_status_lines), context=context, path="$.git.status")
-    if status:
-        status += "\n"
-    stat = redact_text(stat, context=context, path="$.git.diff_stat")
-    _write_private_text(status_path, status)
-    _write_private_text(diff_stat_path, stat)
 
-    changed_files = []
-    generated_files = []
-    for line in status.splitlines():
-        if not line.strip():
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.rsplit(" -> ", 1)[1]
-        item = {"status": line[:2].strip() or "?", "path": path}
-        if path.startswith(GENERATED_PREFIXES):
-            generated_files.append(item)
-        else:
-            changed_files.append(item)
+def _current_proof_paths() -> ProofPaths:
+    """Résout les chemins de preuve depuis les globals de la façade à l'appel.
 
-    return {
-        "branch": redact_text(branch.strip(), context=context, path="$.git.branch")
-        if branch_code == 0
-        else "unknown",
-        "sha": sha.strip() if sha_code == 0 else "unknown",
-        "status_code": status_code,
-        "diff_stat_code": stat_code,
-        "changed_files": changed_files,
-        "generated_files": generated_files,
-        "changed_count": len(changed_files),
-        "generated_count": len(generated_files),
-        "status_path": str(status_path),
-        "diff_stat_path": str(diff_stat_path),
-    }
+    PROOF_DIR, SYMFONY_LOG et EVIDENCE_DIR sont monkeypatchés par les tests:
+    la résolution tardive garantit que les implémentations extraites voient
+    les valeurs patchées.
+    """
 
-
-def classify_change(path: str) -> str:
-    if path.startswith("src/"):
-        return "Code produit"
-    if path.startswith("tests/"):
-        return "Tests"
-    if path.startswith("docs/") or path in {
-        "README.md",
-        "HARNESS.md",
-        "CLAUDE.md",
-        "CONTRIBUTING.md",
-        "SECURITY.md",
-        "CODE_OF_CONDUCT.md",
-        "SUPPORT.md",
-    }:
-        return "Documentation"
-    if path in {"Makefile", "pyproject.toml", "Dockerfile"} or path.startswith(".github/"):
-        return "Harness / CI"
-    return "Autre"
-
-
-def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> dict:
-    changed_files = git_context["changed_files"]
-    categories: dict[str, list[str]] = {}
-    for item in changed_files:
-        categories.setdefault(classify_change(item["path"]), []).append(item["path"])
-
-    paths = {item["path"] for item in changed_files}
-    entrypoints = []
-    if "Makefile" in paths:
-        entrypoints.append(
-            {
-                "name": "make proof",
-                "type": "Make target",
-                "evidence": "Makefile",
-                "review_focus": "Commande publique de génération du rapport.",
-            }
-        )
-    if "src/cdpx/proof.py" in paths:
-        entrypoints.append(
-            {
-                "name": "python -m cdpx.proof",
-                "type": "Python module",
-                "evidence": "src/cdpx/proof.py",
-                "review_focus": "Collecte, classification et rendu HTML des preuves.",
-            }
-        )
-    if "tests/test_proof.py" in paths:
-        entrypoints.append(
-            {
-                "name": "tests/test_proof.py",
-                "type": "Unit tests",
-                "evidence": "tests/test_proof.py",
-                "review_focus": "Parsing JUnit, aide CLI et résumé historique.",
-            }
-        )
-
-    change_types = []
-    if any(path.startswith("src/") for path in paths):
-        change_types.append("code")
-    if any(path.startswith("tests/") for path in paths):
-        change_types.append("tests")
-    if "Makefile" in paths or any(path.startswith(".github/") for path in paths):
-        change_types.append("harness")
-    if any(path.startswith("docs/") or path in {"README.md", "HARNESS.md"} for path in paths):
-        change_types.append("docs")
-    if help_commands:
-        change_types.append("surface-cli-verifiee")
-
-    return {
-        "change_types": change_types or ["unknown"],
-        "categories": categories,
-        "entrypoints": entrypoints,
-    }
-
-
-def build_review_guide(impact: dict) -> dict:
-    order = []
-    categories = impact["categories"]
-    if "Harness / CI" in categories:
-        order.append("Commencer par Makefile: vérifier le contrat utilisateur de `make proof`.")
-    if "Code produit" in categories:
-        order.append("Lire `src/cdpx/proof.py`: collecte, verdict, résumé JSON, rendu HTML.")
-    if "Tests" in categories:
-        order.append("Lire `tests/test_proof.py`: verrouillage du parsing et des clés historiques.")
-    if "Documentation" in categories:
-        order.append("Finir par README/HARNESS/VALIDATION: alignement du contrat public.")
-    if not order:
-        order.append(
-            "Lire les fichiers listés dans la carte d'impact, du point d'entrée vers les preuves."
-        )
-
-    watch_outs = [
-        "Le verdict doit être dérivé des commandes et des JUnit, pas d'un statut statique.",
-        "Les artefacts lourds doivent rester repliables et traçables pour éviter le bruit en PR.",
-        "Les chemins de preuves doivent rester relatifs et ouvrables depuis le dépôt.",
-        "Les preuves optionnelles absentes doivent être déclarées comme unknowns, pas simulées.",
-    ]
-    return {"order": order, "watch_outs": watch_outs}
-
-
-def build_risks_and_unknowns(git_context: dict) -> dict:
-    risks = [
-        {
-            "risk": "`make proof` devient plus strict.",
-            "mitigation": (
-                "Les outils Python passent par `python -m ...`; le rapport est écrit même "
-                "en cas d'échec."
-            ),
-            "rollback": "Revenir à l'ancienne cible Makefile si nécessaire.",
-        },
-        {
-            "risk": "Rapport trop verbeux pour une PR.",
-            "mitigation": "Résumé court; logs et détails secondaires en sections repliables.",
-            "rollback": "Réduire les sections dans `render_html` sans toucher à la collecte.",
-        },
-    ]
-    unknowns = [
-        {
-            "item": "Rendu GitHub exact du HTML",
-            "why": "Le rapport est un artefact HTML, pas une page rendue dans la PR GitHub.",
-            "how_to_verify": (
-                "Télécharger l'artefact `proof` puis ouvrir `.proof/proof-report.html`."
-            ),
-        },
-        {
-            "item": "Casts de démonstration",
-            "why": (
-                "L'enregistreur natif (pty) fait partie du portail: un cast manquant "
-                "ou dégradé fait échouer `make proof`."
-            ),
-            "how_to_verify": "Ouvrir le rapport et jouer les casts du catalogue de preuves.",
-        },
-        {
-            "item": "Screenshot produit",
-            "why": "Changement harness/rapport, pas delta UI produit.",
-            "how_to_verify": "Pour une PR UI, ajouter une capture dans `.proof/`.",
-        },
-    ]
-    if git_context["generated_count"]:
-        unknowns.append(
-            {
-                "item": "Artefacts générés versionnés",
-                "why": "Le dépôt suit déjà certains fichiers `.proof`.",
-                "how_to_verify": (
-                    "Vérifier `git status --short`; `.proof/` doit rester un artefact CI ignoré."
-                ),
-            }
-        )
-    return {"risks": risks, "unknowns": unknowns}
-
-
-def _junit_status(suite: dict) -> str:
-    if not suite.get("exists", True):
-        return "unavailable"
-    return "passed" if suite.get("failures", 0) + suite.get("errors", 0) == 0 else "failed"
+    return ProofPaths(
+        proof_dir=PROOF_DIR,
+        report_html=REPORT_HTML,
+        summary_json=SUMMARY_JSON,
+        unit_log=UNIT_LOG,
+        e2e_log=E2E_LOG,
+        symfony_log=SYMFONY_LOG,
+        cli_help=CLI_HELP,
+        git_status=GIT_STATUS,
+        git_diff_stat=GIT_DIFF_STAT,
+        evidence_dir=EVIDENCE_DIR,
+        symfony_junit=SYMFONY_JUNIT,
+    )
 
 
 def build_evidence_catalog(
@@ -928,627 +499,17 @@ def build_evidence_catalog(
     *,
     proof_dir: Path | None = None,
 ) -> list[dict]:
-    # Racine physique parcourue pour les preuves visuelles/casts; les chemins
-    # canoniques publiés restent dérivés des constantes module.
-    scan_root = PROOF_DIR if proof_dir is None else proof_dir
-    catalog = [
-        {
-            "type": "rapport-html",
-            "name": "Rapport humain projet",
-            "path": str(REPORT_HTML),
-            "status": "generated",
-            "roi": "Point d'entrée humain: verdict, périmètre, milestones et preuves repliables.",
-        },
-        {
-            "type": "resume-json",
-            "name": "Résumé machine",
-            "path": str(SUMMARY_JSON),
-            "status": "generated",
-            "roi": "Signal compact pour CI/handoff sans relire tous les logs.",
-        },
-        {
-            "type": "junit",
-            "name": "Tests unitaires JUnit",
-            "path": unit.get("path", str(PROOF_DIR / "unit-junit.xml")),
-            "status": "passed"
-            if unit.get("failures", 0) + unit.get("errors", 0) == 0
-            else "failed",
-            "roi": f"{unit.get('tests', 0)} tests unitaires structurés.",
-        },
-        {
-            "type": "junit",
-            "name": "E2E Chrome JUnit",
-            "path": e2e.get("path", str(PROOF_DIR / "e2e-junit.xml")),
-            "status": "passed" if e2e.get("failures", 0) + e2e.get("errors", 0) == 0 else "failed",
-            "roi": (
-                f"{e2e.get('tests', 0)} scénarios navigateur Chrome, "
-                f"{e2e.get('skipped', 0)} skip déclaré."
-            ),
-        },
-        {
-            "type": "junit",
-            "name": "Symfony E2E JUnit",
-            "path": symfony.get("path", str(SYMFONY_JUNIT)),
-            "status": _junit_status(symfony),
-            "roi": (
-                f"{symfony.get('tests', 0)} scénario Symfony réel, "
-                f"{symfony.get('skipped', 0)} indisponibilité/skip déclaré."
-            ),
-        },
-        {
-            "type": "logs",
-            "name": "Logs unitaires",
-            "path": str(UNIT_LOG),
-            "status": "generated",
-            "roi": "Transcript terminal reproductible.",
-        },
-        {
-            "type": "logs",
-            "name": "Logs E2E Chrome",
-            "path": str(E2E_LOG),
-            "status": "generated",
-            "roi": "Transcript navigateur réel; Chrome absent est bloquant.",
-        },
-        {
-            "type": "logs",
-            "name": "Logs Symfony E2E",
-            "path": str(SYMFONY_LOG),
-            "status": next(
-                (
-                    command.get("status", "generated")
-                    for command in summary.get("commands", [])
-                    if command.get("id") == "symfony-e2e"
-                ),
-                "generated",
-            ),
-            "roi": "Transcript Docker Compose, politique d'indisponibilité et teardown.",
-        },
-        {
-            "type": "surface-publique",
-            "name": "Aide CLI capturée",
-            "path": str(CLI_HELP),
-            "status": "generated",
-            "roi": "Contrat public exposé par le binaire.",
-        },
-        {
-            "type": "git",
-            "name": "Snapshot Git",
-            "path": str(GIT_STATUS),
-            "status": "generated",
-            "roi": "Provenance du run et état local au moment de la preuve.",
-        },
-        {
-            "type": "git",
-            "name": "Diff stat",
-            "path": str(GIT_DIFF_STAT),
-            "status": "generated",
-            "roi": "Contexte local sans ouvrir le diff complet.",
-        },
-        {
-            "type": "scenarios",
-            "name": "Scénarios pytest documentés",
-            "path": str(EVIDENCE_DIR),
-            "status": "generated",
-            "roi": "Association test par test entre statut, logs et artefacts.",
-        },
-    ]
-    for pattern, evidence_type in (
-        ("*.png", "screenshot"),
-        ("*.webm", "video"),
-        ("*.mp4", "video"),
-        ("*.cast", "asciinema"),
-    ):
-        for path in sorted(scan_root.rglob(pattern)):
-            catalog.append(
-                {
-                    "type": evidence_type,
-                    "name": path.name,
-                    "path": str(path),
-                    "status": "generated",
-                    "roi": "Preuve visuelle ou replay terminal ajouté au rapport.",
-                }
-            )
-    if not any(item["type"] == "screenshot" for item in catalog):
-        catalog.append(
-            {
-                "type": "screenshot",
-                "name": "Capture UI",
-                "path": "",
-                "status": "not-needed",
-                "roi": "Non générée automatiquement; utile seulement pour prouver un delta visuel.",
-            }
-        )
-    inline_catalog_casts(catalog)
-    return catalog
+    """Wrapper de façade: résout les chemins patchables au moment de l'appel."""
 
-
-def collect_project_inventory(help_commands: list[dict[str, str]]) -> dict:
-    fixtures = sorted(str(path) for path in Path("tests/fixtures").glob("*") if path.is_file())
-    fixture_kinds: dict[str, int] = {}
-    for path in fixtures:
-        suffix = Path(path).suffix.lstrip(".") or "none"
-        fixture_kinds[suffix] = fixture_kinds.get(suffix, 0) + 1
-
-    milestone_docs = sorted(str(path) for path in Path("docs/milestones").glob("*.md"))
-    docs = [
-        path
-        for path in (
-            "README.md",
-            "HARNESS.md",
-            "docs/CONTEXT.md",
-            "docs/PRIMITIVES.md",
-            "docs/ROADMAP.md",
-            "docs/TODO.md",
-            "docs/VALIDATION.md",
-        )
-        if Path(path).exists()
-    ]
-
-    # Source unique de version: cdpx.__version__ (pyproject la lit en dynamic).
-    from cdpx import __version__ as version
-
-    return {
-        "name": "cdpx",
-        "version": version,
-        "mission": (
-            "CLI de primitives Chrome DevTools Protocol pour agents de dev et humains "
-            "qui pilotent des audits navigateur."
-        ),
-        "cli_command_count": len(help_commands),
-        "cli_commands": [command["name"] for command in help_commands],
-        "fixture_count": len(fixtures),
-        "fixture_kinds": fixture_kinds,
-        "fixtures": fixtures,
-        "docs": docs,
-        "milestone_docs": milestone_docs,
-    }
-
-
-def parse_validation_matrix() -> list[dict[str, str]]:
-    if not VALIDATION_DOC.exists():
-        return []
-    rows = []
-    for line in VALIDATION_DOC.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("|") or "---" in line or "Milestone" in line:
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) >= 2:
-            rows.append({"milestone": cells[0], "proof": cells[1]})
-    return rows
-
-
-def group_cases_by_module(unit: dict, e2e: dict, symfony: dict | None = None) -> list[dict]:
-    groups: dict[str, dict] = {}
-    for suite_name, suite in (("unit", unit), ("e2e", e2e), ("symfony", symfony or {"cases": []})):
-        for case in suite["cases"]:
-            module = case["classname"].split(".")[-1] or suite_name
-            group = groups.setdefault(
-                module,
-                {"module": module, "suite": suite_name, "tests": 0, "failed": 0, "skipped": 0},
-            )
-            group["tests"] += 1
-            if case["status"] in {"failed", "error"}:
-                group["failed"] += 1
-            elif case["status"] == "skipped":
-                group["skipped"] += 1
-    return sorted(groups.values(), key=lambda item: (item["suite"], item["module"]))
+    return _build_evidence_catalog_impl(
+        summary, unit, e2e, symfony, paths=_current_proof_paths(), proof_dir=proof_dir
+    )
 
 
 def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> ScenarioEvidence:
-    suites: dict[str, list[Scenario]] = {"unit": [], "integration": [], "e2e": [], "symfony": []}
-    files: list[str] = []
-    if not root.exists():
-        return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
-    for path in sorted(root.glob("*-scenarios.json")):
-        # Validation localisée fail-closed: un fichier corrompu, d'un schéma
-        # inconnu ou structurellement faux est nommé ici, plutôt que d'exploser
-        # en KeyError/TypeError anonyme au calcul des totaux ou au rendu du
-        # cockpit. Les payloads legacy v1 (sans clé `schema`) restent acceptés
-        # tels quels: la tolérance des lecteurs évite tout migrateur.
-        decoded = _read_json_or_fail(path, "JSON de scénarios illisible")
-        payload = validated_scenario_file(
-            decoded, source=str(path), expected_schema=SCENARIOS_SCHEMA
-        )
-        suite = str(payload.get("suite", path.stem.removesuffix("-scenarios")))
-        suites.setdefault(suite, []).extend(payload.get("scenarios", []))
-        files.append(str(path))
-    return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
+    """Wrapper de façade: défaut lié à l'import, contrat historique conservé."""
 
-
-def scenario_totals(suites: dict[str, list[Scenario]]) -> ScenarioTotals:
-    scenarios = [scenario for items in suites.values() for scenario in items]
-    e2e = suites.get("e2e", [])
-    symfony = suites.get("symfony", [])
-    screenshots = sum(
-        1
-        for scenario in scenarios
-        for artifact in scenario.get("artifacts", [])
-        if artifact.get("type") == "screenshot"
-    )
-    missing_e2e = [
-        scenario["nodeid"]
-        for scenario in e2e
-        if scenario.get("status") != "skipped"
-        and not any(
-            artifact.get("type") == "screenshot" for artifact in scenario.get("artifacts", [])
-        )
-    ]
-    return {
-        "scenarios": len(scenarios),
-        "unit": len(suites.get("unit", [])),
-        "integration": len(suites.get("integration", [])),
-        "e2e": len(e2e),
-        "symfony": len(symfony),
-        "screenshots": screenshots,
-        "missing_e2e_screenshots": missing_e2e,
-    }
-
-
-def proof_failures_from_scenarios(scenario_evidence: ScenarioEvidence) -> list[str]:
-    failures = []
-    for nodeid in scenario_evidence["totals"]["missing_e2e_screenshots"]:
-        failures.append(f"missing e2e screenshot: {nodeid}")
-    return failures
-
-
-def enrich_scenario_evidence(
-    scenario_evidence: ScenarioEvidence, feature_inventory: dict[str, Any]
-) -> ScenarioEvidence:
-    by_suite_and_nodeid: dict[tuple[str, str], Scenario] = {}
-    for feature in feature_inventory.get("features", []):
-        for scenario in feature.get("matched_scenarios", []):
-            key = (scenario.get("suite", ""), scenario.get("nodeid", ""))
-            by_suite_and_nodeid[key] = scenario
-
-    suites: dict[str, list[Scenario]] = {}
-    for suite, scenarios in scenario_evidence.get("suites", {}).items():
-        suites[suite] = [
-            by_suite_and_nodeid.get((suite, scenario.get("nodeid", "")), scenario)
-            for scenario in scenarios
-        ]
-    return {
-        **scenario_evidence,
-        "suites": suites,
-        "totals": scenario_totals(suites),
-    }
-
-
-# L'inline ne concerne que le textuel: la CSP du rapport (connect-src 'none')
-# interdit tout fetch, donc ce que les visualiseurs affichent doit voyager
-# dans le JSON embarqué. Les binaires restent des liens locaux.
-_INLINE_TYPES = frozenset(
-    {"command", "log-excerpt", "logs", "json", "console", "network", "profiler", "asciinema"}
-)
-INLINE_MAX_BYTES = 16 * 1024
-# Les .cast sont la matière première du player: cap dédié plus large, mais
-# toujours très en deçà de MAX_CAST_BYTES pour contenir le poids du rapport.
-INLINE_CAST_MAX_BYTES = 256 * 1024
-INLINE_TOTAL_BUDGET = 2 * 1024 * 1024
-INLINE_CAST_BUDGET = 1 * 1024 * 1024
-EXCERPT_HEAD_LINES = 10
-EXCERPT_TAIL_LINES = 30
-
-
-def _artifact_excerpt(text: str) -> str:
-    lines = text.splitlines()
-    limit = EXCERPT_HEAD_LINES + EXCERPT_TAIL_LINES
-    if len(lines) <= limit:
-        return text.rstrip("\n")
-    omitted = len(lines) - limit
-    return "\n".join(
-        [
-            *lines[:EXCERPT_HEAD_LINES],
-            f"… ({omitted} lignes tronquées) …",
-            *lines[-EXCERPT_TAIL_LINES:],
-        ]
-    )
-
-
-def _inline_artifact(entry: dict, remaining: int) -> int:
-    if entry.get("type") not in _INLINE_TYPES:
-        return remaining
-    raw_path = str(entry.get("path", ""))
-    path = Path(raw_path)
-    if not raw_path or path.is_symlink() or not path.is_file():
-        entry["inline_skipped"] = "illisible"
-        return remaining
-    size = path.stat().st_size
-    unit_cap = INLINE_CAST_MAX_BYTES if entry.get("type") == "asciinema" else INLINE_MAX_BYTES
-    if size > unit_cap or size > remaining:
-        entry["inline_skipped"] = "taille" if size > unit_cap else "budget"
-        entry["truncated"] = True
-        if not entry.get("excerpt"):
-            entry["excerpt"] = _artifact_excerpt(path.read_text(encoding="utf-8", errors="replace"))
-        return remaining
-    entry["inline_content"] = path.read_text(encoding="utf-8", errors="replace")
-    entry["truncated"] = False
-    return remaining - size
-
-
-def inline_catalog_casts(catalog: list[dict], *, budget: int = INLINE_CAST_BUDGET) -> list[dict]:
-    """Inline les .cast du catalogue: le player du cockpit exige ``inline_content``.
-
-    Sans cet inline, un cast produit hors scénario pytest ne serait qu'un lien
-    de tableau — injouable sous la CSP du rapport (aucun fetch autorisé).
-    """
-
-    remaining = budget
-    for entry in catalog:
-        if entry.get("type") == "asciinema" and entry.get("path"):
-            remaining = _inline_artifact(entry, remaining)
-    return catalog
-
-
-def inline_scenario_artifacts(
-    scenario_evidence: ScenarioEvidence, *, budget: int = INLINE_TOTAL_BUDGET
-) -> ScenarioEvidence:
-    """Inline le contenu des artefacts textuels dans le payload du cockpit.
-
-    Au-delà du cap unitaire ou du budget global, l'artefact est représenté
-    par un extrait tête+queue et marqué truncated: le rendu reste honnête.
-    """
-
-    remaining = budget
-    suites: dict[str, list[Scenario]] = {}
-    for suite, scenarios in scenario_evidence.get("suites", {}).items():
-        rebuilt: list[Scenario] = []
-        for scenario in scenarios:
-            artifacts: list[dict[str, Any]] = []
-            for artifact in scenario.get("artifacts", []):
-                entry = dict(artifact)
-                remaining = _inline_artifact(entry, remaining)
-                artifacts.append(entry)
-            rebuilt.append(cast(Scenario, {**scenario, "artifacts": artifacts}))
-        suites[suite] = rebuilt
-    return {**scenario_evidence, "suites": suites}
-
-
-def _strip_inline_content(scenario_evidence: ScenarioEvidence) -> ScenarioEvidence:
-    """Retire les contenus inlinés avant réécriture disque (déjà présents en fichiers)."""
-
-    suites: dict[str, list[Scenario]] = {}
-    for suite, scenarios in scenario_evidence.get("suites", {}).items():
-        rebuilt: list[Scenario] = []
-        for scenario in scenarios:
-            artifacts = [
-                {key: value for key, value in artifact.items() if key != "inline_content"}
-                for artifact in scenario.get("artifacts", [])
-            ]
-            rebuilt.append(cast(Scenario, {**scenario, "artifacts": artifacts}))
-        suites[suite] = rebuilt
-    return {**scenario_evidence, "suites": suites}
-
-
-def write_scenario_evidence(
-    root: Path,
-    scenario_evidence: ScenarioEvidence,
-    *,
-    redaction_context: RedactionContext | None = None,
-) -> None:
-    context = redaction_context or redaction_context_from_environment()
-    _secure_dir(root)
-    for suite, scenarios in scenario_evidence.get("suites", {}).items():
-        if not scenarios:
-            continue
-        path = root / f"{suite}-scenarios.json"
-        payload = {
-            "schema": SCENARIOS_SCHEMA,
-            "suite": suite,
-            "generated_at": _now(),
-            "count": len(scenarios),
-            "scenarios": sorted(scenarios, key=lambda item: item["nodeid"]),
-        }
-        cleaned = redact_tree(payload, context=context, path=f"$.scenarios.{suite}")
-        _write_private_text(path, json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n")
-
-
-def build_project_risks_and_unknowns() -> dict:
-    risks = [
-        {
-            "risk": "Pré-requis Chrome/Chromium obligatoire.",
-            "mitigation": (
-                "Chrome/Chromium est obligatoire: `make proof` échoue si le binaire est absent."
-            ),
-            "rollback": "Installer Chrome/Chromium puis relancer `make test-e2e` ou `make proof`.",
-        },
-        {
-            "risk": "Docker/Compose est un prérequis du portail qualité complet.",
-            "mitigation": (
-                "`make check`, `make proof` et `make release` échouent si Docker ou la preuve "
-                "Symfony est indisponible; `make check-local` reste un diagnostic partiel."
-            ),
-            "rollback": "Installer Docker puis relancer `make proof` ou `make docker-symfony-e2e`.",
-        },
-    ]
-    unknowns = [
-        {
-            "item": "Dépendances réseau externes",
-            "why": "`make proof` cible les fixtures locales et Chrome local.",
-            "how_to_verify": "Vérifier les logs réseau et les fixtures sous `tests/fixtures/`.",
-        },
-        {
-            "item": "Portée des captures visuelles",
-            "why": (
-                "Les captures E2E sont conservées dans l'arbre privé `.proof/evidence/` "
-                "et exclues du staging partageable; elles ne constituent pas un diff "
-                "visuel exhaustif."
-            ),
-            "how_to_verify": (
-                "Inspecter le catalogue privé et ajouter une assertion ou une baseline dédiée "
-                "pour toute régression visuelle à contractualiser."
-            ),
-        },
-        {
-            "item": "Cast du run complet",
-            "why": (
-                "Le portail enregistre nativement les commandes de démonstration; "
-                "le run `make proof` entier n'est pas auto-enregistré (durée et poids)."
-            ),
-            "how_to_verify": (
-                "Les casts de démonstration sont générés et jugés à chaque `make proof`; "
-                "pour un enregistrement du run complet, lancer `make proof` dans un "
-                "enregistreur de terminal externe."
-            ),
-        },
-    ]
-    return {"risks": risks, "unknowns": unknowns}
-
-
-def _int_attr(node: ET.Element, name: str) -> int:
-    try:
-        return int(node.attrib.get(name, "0"))
-    except ValueError:
-        return 0
-
-
-def _float_attr(node: ET.Element, name: str) -> float:
-    try:
-        return float(node.attrib.get(name, "0"))
-    except ValueError:
-        return 0.0
-
-
-def parse_junit(path: Path) -> dict:
-    if not path.exists():
-        return {
-            "path": str(path),
-            "exists": False,
-            "tests": 0,
-            "passed": 0,
-            "failures": 0,
-            "errors": 0,
-            "skipped": 0,
-            "time_s": 0.0,
-            "cases": [],
-            "parse_error": None,
-        }
-
-    try:
-        root = ET.fromstring(path.read_text(encoding="utf-8"))
-    except (ET.ParseError, OSError) as exc:
-        return {
-            "path": str(path),
-            "exists": True,
-            "tests": 0,
-            "passed": 0,
-            "failures": 0,
-            "errors": 0,
-            "skipped": 0,
-            "time_s": 0.0,
-            "cases": [],
-            "parse_error": str(exc),
-        }
-    suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
-    tests = sum(_int_attr(suite, "tests") for suite in suites)
-    failures = sum(_int_attr(suite, "failures") for suite in suites)
-    errors = sum(_int_attr(suite, "errors") for suite in suites)
-    skipped = sum(_int_attr(suite, "skipped") for suite in suites)
-    time_s = sum(_float_attr(suite, "time") for suite in suites)
-    cases = []
-    for case in root.iter("testcase"):
-        status = "passed"
-        message = ""
-        for child_name, child_status in (
-            ("failure", "failed"),
-            ("error", "error"),
-            ("skipped", "skipped"),
-        ):
-            child = case.find(child_name)
-            if child is not None:
-                status = child_status
-                message = child.attrib.get("message", "")
-                if not message:
-                    text_lines = (child.text or "").strip().splitlines()
-                    message = text_lines[0] if text_lines else ""
-                break
-        cases.append(
-            {
-                "classname": case.attrib.get("classname", ""),
-                "name": case.attrib.get("name", ""),
-                "time_s": round(_float_attr(case, "time"), 3),
-                "status": status,
-                "message": message,
-            }
-        )
-    passed = max(tests - failures - errors - skipped, 0)
-    return {
-        "path": str(path),
-        "exists": True,
-        "tests": tests,
-        "passed": passed,
-        "failures": failures,
-        "errors": errors,
-        "skipped": skipped,
-        "time_s": round(time_s, 3),
-        "cases": cases,
-        "parse_error": None,
-    }
-
-
-def parse_help_commands(help_text: str) -> list[dict[str, str]]:
-    commands: list[dict[str, str]] = []
-    in_commands = False
-    for line in help_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("{") and "}" in stripped:
-            in_commands = True
-            continue
-        if in_commands and stripped.startswith("options:"):
-            break
-        if not in_commands:
-            continue
-        match = re.match(r"^\s{4}([a-z][a-z0-9-]*)\s{2,}(.+)$", line)
-        if match:
-            commands.append({"name": match.group(1), "help": match.group(2).strip()})
-    return commands
-
-
-def _tail(path: Path, lines: int = 24) -> str:
-    if not path.exists():
-        return ""
-    data = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    return "\n".join(data[-lines:])
-
-
-def _case_focus(cases: list[dict]) -> list[dict]:
-    non_passed = [case for case in cases if case["status"] != "passed"]
-    if non_passed:
-        return non_passed[:20]
-    return sorted(cases, key=lambda case: case["time_s"], reverse=True)[:20]
-
-
-def _suite_for_summary(suite: dict) -> dict:
-    cases = suite.get("cases", [])
-    return {
-        "path": suite.get("path", ""),
-        "exists": suite.get("exists", True),
-        "tests": suite.get("tests", 0),
-        "passed": suite.get("passed", 0),
-        "failures": suite.get("failures", 0),
-        "errors": suite.get("errors", 0),
-        "skipped": suite.get("skipped", 0),
-        "time_s": suite.get("time_s", 0.0),
-        "parse_error": suite.get("parse_error"),
-        # cases + focus embarqués: la vue Run du rapport montre chaque test et
-        # les échecs/plus lents sans rouvrir les XML JUnit.
-        "cases": cases,
-        "focus": _case_focus(cases),
-    }
-
-
-def _empty_suite(path: Path) -> dict:
-    return {
-        "path": str(path),
-        "exists": False,
-        "tests": 0,
-        "passed": 0,
-        "failures": 0,
-        "errors": 0,
-        "skipped": 0,
-        "time_s": 0.0,
-        "cases": [],
-        "parse_error": None,
-    }
+    return _load_scenario_evidence_impl(root)
 
 
 COCKPIT_SHELL_RESOURCE = "cockpit/shell.html"
@@ -1627,20 +588,6 @@ def render_html(summary: dict) -> str:
     )
 
 
-def cast_failures_from_entries(cast_entries: list[dict] | None) -> list[str]:
-    """Portail cast: chaque commande de démonstration doit avoir son .cast généré."""
-
-    by_id = {str(entry.get("id", "")): entry for entry in (cast_entries or [])}
-    failures = []
-    for cast_id, _argv in CAST_COMMANDS:
-        entry = by_id.get(cast_id)
-        if entry is None:
-            failures.append(f"cast missing: {cast_id}")
-        elif entry.get("status") != "generated":
-            failures.append(f"cast {entry.get('status', 'unknown')}: {cast_id}")
-    return failures
-
-
 def build_summary(
     commands: list[CommandEvidence],
     unit: dict,
@@ -1653,278 +600,21 @@ def build_summary(
     cast_entries: list[dict] | None = None,
     proof_dir: Path | None = None,
 ) -> dict:
-    symfony = symfony or _empty_suite(SYMFONY_JUNIT)
-    git_context = git_context or {
-        "branch": "unknown",
-        "sha": "unknown",
-        "changed_files": [],
-        "generated_files": [],
-        "changed_count": 0,
-        "generated_count": 0,
-        "status_path": str(GIT_STATUS),
-        "diff_stat_path": str(GIT_DIFF_STAT),
-    }
-    help_commands = help_commands or []
-    project = collect_project_inventory(help_commands)
-    validation_matrix = parse_validation_matrix()
-    coverage_groups = group_cases_by_module(unit, e2e, symfony)
-    scenario_evidence = scenario_evidence or load_scenario_evidence(
-        EVIDENCE_DIR if proof_dir is None else proof_dir / EVIDENCE_DIR.name
+    """Wrapper de façade: les chemins patchables (PROOF_DIR, SYMFONY_LOG,
+    EVIDENCE_DIR, …) sont résolus au moment de l'appel via ProofPaths."""
+
+    return _build_summary_impl(
+        commands,
+        unit,
+        e2e,
+        symfony,
+        git_context=git_context,
+        help_commands=help_commands,
+        scenario_evidence=scenario_evidence,
+        cast_entries=cast_entries,
+        proof_dir=proof_dir,
+        paths=_current_proof_paths(),
     )
-    feature_inventory = build_feature_inventory(help_commands, scenario_evidence, git_context)
-    documentation = build_documentation_catalog()
-    scenario_evidence = enrich_scenario_evidence(scenario_evidence, feature_inventory)
-    scenario_evidence = inline_scenario_artifacts(scenario_evidence)
-    scenario_failures = proof_failures_from_scenarios(scenario_evidence)
-    feature_inventory_failures = feature_failures(feature_inventory)
-    documentation_catalog_failures = documentation_failures(documentation)
-    risk_packet = build_project_risks_and_unknowns()
-    failed_tests = (
-        unit["failures"]
-        + unit["errors"]
-        + e2e["failures"]
-        + e2e["errors"]
-        + symfony["failures"]
-        + symfony["errors"]
-    )
-    command_failures = [
-        f"command failed: {command.label} ({command.log})"
-        for command in commands
-        if command.exit_code != 0
-    ]
-    suite_by_command = {"unit": unit, "e2e": e2e, "symfony-e2e": symfony}
-    command_ids = {command.id for command in commands}
-    suite_failures = []
-    for command_id, suite in suite_by_command.items():
-        if command_id not in command_ids:
-            continue
-        if not suite.get("exists", True):
-            suite_failures.append(f"required JUnit missing: {suite.get('path', command_id)}")
-        elif suite.get("parse_error"):
-            suite_failures.append(
-                f"required JUnit unreadable: {suite.get('path', command_id)} "
-                f"({suite['parse_error']})"
-            )
-        elif suite.get("tests", 0) == 0:
-            suite_failures.append(f"required JUnit empty: {suite.get('path', command_id)}")
-        if command_id in {"e2e", "symfony-e2e"} and suite.get("skipped", 0):
-            suite_failures.append(f"{command_id} tests skipped ({suite['skipped']})")
-    if "cli-help" in command_ids and project["cli_command_count"] != 31:
-        suite_failures.append(
-            f"CLI contract expected 31 commands, found {project['cli_command_count']}"
-        )
-    unavailable = sum(
-        1
-        for suite in scenario_evidence.get("suites", {}).values()
-        for scenario in suite
-        if scenario.get("status") == "unavailable"
-    )
-    symfony_failures = []
-    if unavailable:
-        symfony_failures.append(f"symfony evidence unavailable ({unavailable} scenarios)")
-    if symfony["skipped"]:
-        symfony_failures.append(f"symfony tests skipped ({symfony['skipped']})")
-    cast_gate_failures = cast_failures_from_entries(cast_entries)
-    ok = (
-        all(command.exit_code == 0 for command in commands)
-        and failed_tests == 0
-        and not scenario_failures
-        and not feature_inventory_failures
-        and not documentation_catalog_failures
-        and not symfony_failures
-        and not suite_failures
-        and not cast_gate_failures
-    )
-    summary = {
-        "ok": ok,
-        "generated_at": _now(),
-        "artifact_dir": str(PROOF_DIR),
-        "report_html": str(REPORT_HTML),
-        "unit_log": str(UNIT_LOG),
-        "e2e_log": str(E2E_LOG),
-        "symfony_log": str(SYMFONY_LOG),
-        "cli_help": str(CLI_HELP),
-        "environment": {
-            "python": sys.version.split()[0],
-            "platform": platform.platform(),
-            "chrome_or_chromium": bool(
-                shutil.which("chromium")
-                or shutil.which("chromium-browser")
-                or shutil.which("google-chrome")
-                or shutil.which("chrome")
-            ),
-        },
-        "commands": [
-            {**asdict(command), "log_tail": _tail(Path(command.log))} for command in commands
-        ],
-        "junit": {
-            "unit": _suite_for_summary(unit),
-            "e2e": _suite_for_summary(e2e),
-            "symfony": _suite_for_summary(symfony),
-        },
-        "totals": {
-            "tests": unit["tests"] + e2e["tests"] + symfony["tests"],
-            "passed": unit["passed"] + e2e["passed"] + symfony["passed"],
-            "skipped": unit["skipped"] + e2e["skipped"] + symfony["skipped"],
-            "failed": failed_tests,
-            "unavailable": unavailable,
-        },
-        "git": git_context,
-        "project": project,
-        "validation_matrix": validation_matrix,
-        "coverage_groups": coverage_groups,
-        "scenario_evidence": scenario_evidence,
-        "scenario_totals": scenario_evidence["totals"],
-        "feature_inventory": feature_inventory,
-        "documentation": documentation,
-        "casts": list(cast_entries or []),
-        "proof_failures": scenario_failures
-        + feature_inventory_failures
-        + documentation_catalog_failures
-        + command_failures
-        + symfony_failures
-        + suite_failures
-        + cast_gate_failures,
-        "risks": risk_packet["risks"],
-        "unknowns": risk_packet["unknowns"],
-    }
-    summary["evidence_catalog"] = build_evidence_catalog(
-        summary, unit, e2e, symfony, proof_dir=proof_dir
-    )
-    return summary
-
-
-def _sanitize_text_file(
-    path: Path,
-    context: RedactionContext,
-    path_rewrites: Sequence[tuple[str, str]] = (),
-) -> None:
-    if not path.exists() or path.is_symlink():
-        return
-    value = path.read_text(encoding="utf-8", errors="replace")
-    cleaned = redact_text(
-        _rewrite_text_paths(value, path_rewrites), context=context, path=f"$.files.{path.name}"
-    )
-    _write_private_text(path, cleaned)
-
-
-def _proof_artifact_policy(path: Path) -> tuple[ArtifactClassification, bool]:
-    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    if mime.startswith("text/") or path.suffix.lower() in _TEXTUAL_PROOF_SUFFIXES:
-        return ArtifactClassification.INTERNAL, True
-    return ArtifactClassification.OPAQUE_RESTRICTED, False
-
-
-# Allowlist explicite et bornée des fichiers produits par le pipeline de
-# preuve lui-même (hors sessions pytest): eux seuls peuvent être classés par
-# la politique MIME. Tout autre fichier doit être couvert par un manifeste
-# d'évidence, sinon le staging échoue fermé.
-_PIPELINE_TOP_LEVEL_FILES = frozenset(
-    {
-        REPORT_HTML.name,
-        SUMMARY_JSON.name,
-        UNIT_LOG.name,
-        E2E_LOG.name,
-        SYMFONY_LOG.name,
-        CLI_HELP.name,
-        GIT_STATUS.name,
-        GIT_DIFF_STAT.name,
-        SYMFONY_JUNIT.name,
-        "unit-junit.xml",
-        "e2e-junit.xml",
-        "ruff-check.log",
-        "ruff-format.log",
-        "mypy.log",
-        "artifact-manifest.json",
-    }
-)
-# Ordre de restriction croissant pour la fusion multi-manifestes.
-_CLASSIFICATION_SEVERITY: dict[ArtifactClassification, int] = {
-    ArtifactClassification.PUBLIC: 0,
-    ArtifactClassification.INTERNAL: 1,
-    ArtifactClassification.OPAQUE_RESTRICTED: 2,
-    ArtifactClassification.SECRET: 3,
-}
-
-
-def _is_pipeline_proof_artifact(relative: str) -> bool:
-    parts = Path(relative).parts
-    if len(parts) == 1:
-        return parts[0] in _PIPELINE_TOP_LEVEL_FILES or parts[0].endswith(".cast")
-    if len(parts) == 2 and parts[0] == "evidence":
-        # Les *-scenarios.json sont réécrits par _generate() après les runs
-        # (symfony-scenarios.json peut même exister sans manifeste); les
-        # manifestes eux-mêmes sont des métadonnées produites par les sessions.
-        name = parts[1]
-        return name.endswith("-scenarios.json") or (
-            name.startswith("evidence-manifest") and name.endswith(".json")
-        )
-    return False
-
-
-def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassification, bool]]:
-    """Agrège les manifestes d'évidence en une politique par chemin résolu.
-
-    Les manifestes écrits par les sessions pytest sont la seule autorité de
-    classification des artefacts d'évidence: en cas de doublon entre
-    manifestes, la classification la plus restrictive gagne et l'upload n'est
-    permis que si tous l'autorisent.
-    """
-
-    evidence_root = (proof_dir / "evidence").resolve()
-    policy: dict[Path, tuple[ArtifactClassification, bool]] = {}
-    redaction_policies: set[str] = set()
-    for manifest_path in sorted((proof_dir / "evidence").glob("evidence-manifest*.json")):
-        payload = _read_json_or_fail(manifest_path, "manifeste d'évidence illisible")
-        if not isinstance(payload, dict) or payload.get("schema") != EVIDENCE_SCHEMA:
-            raise ArtifactError(f"schéma de manifeste d'évidence inattendu: {manifest_path}")
-        redaction_policies.add(str(payload.get("redaction_policy")))
-        for entry in payload.get("artifacts", []):
-            try:
-                resolved = (evidence_root / str(entry["path"])).resolve()
-                classification = ArtifactClassification(str(entry["classification"]))
-                upload_allowed = bool(entry["upload_allowed"])
-            except (KeyError, TypeError, ValueError) as e:
-                raise ArtifactError(
-                    f"entrée de manifeste d'évidence invalide dans {manifest_path}: {e}"
-                ) from e
-            if resolved != evidence_root and evidence_root not in resolved.parents:
-                raise ArtifactError(f"chemin manifesté hors de l'évidence: {entry['path']}")
-            previous = policy.get(resolved)
-            if previous is not None:
-                if _CLASSIFICATION_SEVERITY[previous[0]] > _CLASSIFICATION_SEVERITY[classification]:
-                    classification = previous[0]
-                upload_allowed = upload_allowed and previous[1]
-            policy[resolved] = (classification, upload_allowed)
-    if len(redaction_policies) > 1:
-        raise ArtifactError(
-            "politiques de redaction hétérogènes entre manifestes d'évidence: "
-            + ", ".join(sorted(redaction_policies))
-        )
-    return policy
-
-
-def _docker_chown_remedy(root: Path) -> str:
-    """Remède standard aux fichiers root laissés par un run Docker interrompu."""
-
-    return (
-        f'réparer avec `docker run --rm -v "$PWD/{root.name}:/t" alpine '
-        'chown -R "$(id -u):$(id -g)" /t` puis relancer'
-    )
-
-
-def _raise_actionable_permission_error(root: Path, exc: PermissionError) -> NoReturn:
-    """Convertit une PermissionError du staging en erreur actionnable.
-
-    Un conteneur Symfony tué avant son chown final laisse des fichiers root
-    dans l'arbre: plutôt qu'une PermissionError brute au milieu du run, on
-    nomme le répertoire fautif et le remède.
-    """
-
-    raise ArtifactError(
-        f"staging résiduel non purgeable: {root} (fichiers appartenant "
-        f"probablement à root après un run Docker interrompu); {_docker_chown_remedy(root)}"
-    ) from exc
 
 
 def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any]:
@@ -1976,33 +666,6 @@ def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any
                 file=sys.stderr,
             )
     return {"evidence_runs": evidence_runs, "proof_dir": proof_dir_purged}
-
-
-def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
-    """Purge les artefacts d'évidence orphelins d'un pytest mort sans épilogue.
-
-    Un pytest interrompu (deadline exit 124, SIGKILL, OOM 137, segfault)
-    n'exécute pas ``pytest_sessionfinish``: ses artefacts attach_* déjà écrits
-    n'ont aucun manifeste, et le staging partageable échouerait fermé avec un
-    message trompeur. On retire ces orphelins de l'arbre — la suite tuée est
-    déjà un échec de commande visible au verdict — plutôt que de masquer la
-    cause réelle.
-    """
-
-    artifacts_root = proof_dir / "evidence" / "artifacts"
-    if not artifacts_root.is_dir():
-        return []
-    policy = _load_evidence_policy(proof_dir)
-    removed: list[str] = []
-    for path in sorted(artifacts_root.rglob("*"), reverse=True):
-        if path.is_symlink():
-            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
-        if path.is_file() and path.resolve() not in policy:
-            path.unlink()
-            removed.append(path.relative_to(proof_dir).as_posix())
-        elif path.is_dir() and not any(path.iterdir()):
-            path.rmdir()
-    return removed
 
 
 def build_shareable_proof(
