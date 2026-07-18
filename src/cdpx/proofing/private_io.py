@@ -1,7 +1,7 @@
-"""Écritures privées du pipeline de preuve (0600/0700, atomiques, fail-closed).
+"""Private writes for the proof pipeline (0600/0700, atomic, fail-closed).
 
-Aucun symbole de ce module ne lit `cdpx.proof` à l'exécution: la façade
-`cdpx.proof` ré-exporte ces primitives pour le contrat des tests.
+No symbol in this module reads `cdpx.proof` at runtime: the `cdpx.proof`
+facade re-exports these primitives for the tests contract.
 """
 
 from __future__ import annotations
@@ -22,17 +22,17 @@ def _now() -> str:
 
 def _secure_dir(path: Path) -> None:
     if path.is_symlink():
-        raise ArtifactError(f"dossier de preuve symbolique interdit: {path}")
+        raise ArtifactError(f"symbolic proof directory forbidden: {path}")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not path.is_dir():
-        raise ArtifactError(f"dossier de preuve requis: {path}")
+        raise ArtifactError(f"proof directory required: {path}")
     path.chmod(0o700)
 
 
 def _write_private_bytes(path: Path, data: bytes) -> None:
     _secure_dir(path.parent)
     if path.is_symlink():
-        raise ArtifactError(f"lien symbolique interdit: {path}")
+        raise ArtifactError(f"symlink forbidden: {path}")
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -55,7 +55,7 @@ def _harden_tree(root: Path) -> None:
         return
     for path in sorted(root.rglob("*"), reverse=True):
         if path.is_symlink():
-            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
+            raise ArtifactError(f"symlink forbidden in proofs: {path}")
         path.chmod(0o700 if path.is_dir() else 0o600)
     root.chmod(0o700)
 

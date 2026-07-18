@@ -1,10 +1,11 @@
-"""Découverte et gestion des onglets via l'API HTTP de Chrome (/json).
+"""Tab discovery and management via Chrome's HTTP API (/json).
 
-C'est la seule partie du protocole qui passe par HTTP: lister/créer/activer/
-fermer des targets, et récupérer le webSocketDebuggerUrl d'une page.
+This is the only part of the protocol that goes through HTTP: listing/
+creating/activating/closing targets, and fetching a page's
+webSocketDebuggerUrl.
 
-Note compat: depuis Chrome 111, /json/new exige un PUT. On tente PUT puis on
-retombe sur GET pour les vieux Chrome/chromium headless.
+Compat note: since Chrome 111, /json/new requires a PUT. We try PUT then
+fall back to GET for old Chrome/chromium headless.
 """
 
 from __future__ import annotations
@@ -68,7 +69,7 @@ def _response_json(host: str, port: int, path: str, *, method: str = "GET") -> A
         return json.loads(raw)
     except json.JSONDecodeError as error:
         raise DiscoveryError(
-            f"{method} {url}: JSON invalide",
+            f"{method} {url}: invalid JSON",
             method=method,
             url=url,
         ) from error
@@ -77,7 +78,7 @@ def _response_json(host: str, port: int, path: str, *, method: str = "GET") -> A
 def _json_object(value: Any, *, method: str, url: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DiscoveryError(
-            f"{method} {url}: objet JSON requis",
+            f"{method} {url}: JSON object required",
             method=method,
             url=url,
         )
@@ -87,14 +88,14 @@ def _json_object(value: Any, *, method: str, url: str) -> dict[str, Any]:
 def _target(value: Any, *, method: str, url: str, label: str = "target") -> DiscoveryTarget:
     if not isinstance(value, dict):
         raise DiscoveryError(
-            f"{method} {url}: {label}: objet JSON requis",
+            f"{method} {url}: {label}: JSON object required",
             method=method,
             url=url,
         )
     target_id = value.get("id")
     if not isinstance(target_id, str):
         raise DiscoveryError(
-            f"{method} {url}: {label} sans id valide",
+            f"{method} {url}: {label} without valid id",
             method=method,
             url=url,
         )
@@ -160,7 +161,7 @@ def _optional_string(
     item = value[field]
     if not isinstance(item, str):
         raise DiscoveryError(
-            f"{method} {url}: {label}.{field} textuel requis",
+            f"{method} {url}: {label}.{field} text required",
             method=method,
             url=url,
         )
@@ -224,7 +225,7 @@ def list_targets(host: str, port: int) -> list[DiscoveryTarget]:
     value = _response_json(host, port, path)
     if not isinstance(value, list):
         raise DiscoveryError(
-            f"GET {url}: tableau JSON requis",
+            f"GET {url}: JSON array required",
             method="GET",
             url=url,
         )
@@ -266,11 +267,11 @@ def new_tab(host: str, port: int, url: str | None = None) -> DiscoveryTarget:
 def _legacy_new_tab_method_rejection(error: DiscoveryError) -> bool:
     """Recognize explicit legacy servers that cannot dispatch PUT /json/new.
 
-    Base factuelle du prédicat: Chrome 111+ exige PUT; les serveurs DevTools
-    antérieurs répondent 405 (rejet de méthode conforme) ou ferment la
-    connexion sans réponse (RemoteDisconnected). Tout autre échec du PUT
-    (5xx, URLError réseau) n'est pas un signal de serveur legacy et ne doit
-    pas déclencher de repli GET silencieux.
+    Factual basis for the predicate: Chrome 111+ requires PUT; earlier
+    DevTools servers respond 405 (compliant method rejection) or close the
+    connection without a response (RemoteDisconnected). Any other PUT
+    failure (5xx, network URLError) is not a legacy-server signal and must
+    not trigger a silent GET fallback.
     """
     return error.status == 405 or isinstance(error.__cause__, http.client.RemoteDisconnected)
 
@@ -284,9 +285,9 @@ def close_tab(host: str, port: int, target_id: str) -> str:
 
 
 def pick_page(host: str, port: int, target_id: str) -> DiscoveryTarget:
-    """Retourne uniquement le target explicitement attribué."""
+    """Return only the explicitly assigned target."""
     targets = list_targets(host, port)
     for t in targets:
         if t.get("id") == target_id:
             return t
-    raise DiscoveryError(f"target {target_id} introuvable")
+    raise DiscoveryError(f"target {target_id} not found")

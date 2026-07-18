@@ -24,7 +24,7 @@ class OrchestrationContext:
     ) -> OrchestrationContext:
         parsed = parse_origins(origins, required=True) if isinstance(origins, str) else origins
         if not parsed:
-            raise ValueError("origine d'orchestration obligatoire")
+            raise ValueError("orchestration origin required")
         return cls(tuple(parsed), redaction or RedactionContext())
 
     @classmethod

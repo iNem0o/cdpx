@@ -1,4 +1,4 @@
-"""Primitives de sécurité partagées par le CLI, les scénarios et les preuves."""
+"""Security primitives shared by the CLI, scenarios, and proofs."""
 
 from cdpx.security.redaction import (
     MASK,

@@ -1,4 +1,4 @@
-"""Écriture privée, classification et staging explicite des artefacts cdpx."""
+"""Private writing, classification, and explicit staging of cdpx artifacts."""
 
 from __future__ import annotations
 
@@ -56,10 +56,10 @@ def _iso(value: datetime) -> str:
 
 def _secure_dir(path: Path) -> None:
     if path.is_symlink():
-        raise ArtifactError(f"dossier d'artefact symbolique interdit: {path}")
+        raise ArtifactError(f"symbolic artifact directory forbidden: {path}")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not path.is_dir():
-        raise ArtifactError(f"dossier d'artefact requis: {path}")
+        raise ArtifactError(f"artifact directory required: {path}")
     path.chmod(0o700)
 
 
@@ -85,9 +85,9 @@ def _file_flags() -> int:
 
 def _assert_private_owner(info: os.stat_result, relative: str) -> None:
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
-        raise ArtifactError(f"artefact appartenant à un autre utilisateur: {relative}")
+        raise ArtifactError(f"artifact owned by another user: {relative}")
     if stat.S_IMODE(info.st_mode) & 0o077:
-        raise ArtifactError(f"permissions trop ouvertes: {relative}")
+        raise ArtifactError(f"permissions too open: {relative}")
 
 
 def _atomic_private_write(path: Path, data: bytes) -> None:
@@ -107,9 +107,9 @@ class SecureArtifactWriter:
         redaction_context: RedactionContext | None = None,
     ) -> None:
         if not _SAFE_ID.fullmatch(run_id or ""):
-            raise ArtifactError("run-id invalide pour un chemin d'artefacts")
+            raise ArtifactError("invalid run-id for an artifacts path")
         if ttl <= 0:
-            raise ArtifactError("TTL d'artefact strictement positif requis")
+            raise ArtifactError("strictly positive artifact TTL required")
         self.root = Path(root)
         _secure_dir(self.root)
         self.run_id = run_id
@@ -194,9 +194,9 @@ class SecureArtifactWriter:
     ) -> ArtifactEntry:
         source = Path(path)
         if source.is_symlink():
-            raise ArtifactError(f"lien symbolique interdit: {source}")
+            raise ArtifactError(f"symbolic link forbidden: {source}")
         if not source.is_file():
-            raise ArtifactError(f"artefact introuvable: {source}")
+            raise ArtifactError(f"artifact not found: {source}")
         destination = name
         if destination is None:
             try:
@@ -254,7 +254,7 @@ class SecureArtifactWriter:
         staging = Path(destination)
         if staging.exists():
             if staging.is_symlink():
-                raise ArtifactError("staging symbolique interdit")
+                raise ArtifactError("symbolic staging forbidden")
             shutil.rmtree(staging)
         _secure_dir(staging)
         selected = [entry for entry in self._entries.values() if entry.upload_allowed]
@@ -275,12 +275,12 @@ class SecureArtifactWriter:
             or not path.parts
             or any(part in {"", ".", ".."} for part in path.parts)
         ):
-            raise ArtifactError(f"chemin d'artefact invalide: {name}")
+            raise ArtifactError(f"invalid artifact path: {name}")
         candidate = (self.run_dir / path).resolve()
         try:
             candidate.relative_to(self.run_dir.resolve())
         except ValueError as e:
-            raise ArtifactError(f"chemin d'artefact hors run: {name}") from e
+            raise ArtifactError(f"artifact path outside the run: {name}") from e
         return path
 
     @staticmethod
@@ -292,7 +292,7 @@ class SecureArtifactWriter:
             ArtifactClassification.SECRET,
             ArtifactClassification.OPAQUE_RESTRICTED,
         }:
-            raise ArtifactError(f"classification non partageable: {classification.value}")
+            raise ArtifactError(f"non-shareable classification: {classification.value}")
 
     def _assert_manifest_complete(self) -> None:
         expected = set(self._entries) | {self.manifest_path.name}
@@ -303,24 +303,25 @@ class SecureArtifactWriter:
         }
         unknown = sorted(actual - expected)
         if unknown:
-            raise ArtifactError(f"fichier non manifesté: {', '.join(unknown)}")
+            raise ArtifactError(f"unmanifested file: {', '.join(unknown)}")
         for relative in expected:
             path = self.run_dir / relative
             if path.is_symlink():
-                raise ArtifactError(f"lien symbolique non manifestable: {relative}")
+                raise ArtifactError(f"unmanifestable symbolic link: {relative}")
             if not path.exists():
-                raise ArtifactError(f"artefact manifesté introuvable: {relative}")
+                raise ArtifactError(f"manifested artifact not found: {relative}")
             info = path.lstat()
             if not stat.S_ISREG(info.st_mode):
-                raise ArtifactError(f"artefact régulier requis: {relative}")
+                raise ArtifactError(f"regular artifact required: {relative}")
             _assert_private_owner(info, relative)
 
     def _read_verified_entry(self, entry: ArtifactEntry) -> bytes:
-        """Lit un snapshot no-follow et vérifie les métadonnées manifestées.
+        """Read a no-follow snapshot and verify the manifested metadata.
 
-        Les descripteurs de chaque dossier sont ouverts relativement au dossier
-        de run. Un remplacement concurrent par un lien symbolique ne peut donc
-        ni sortir du run, ni changer les octets copiés après leur validation.
+        Each directory's descriptors are opened relative to the run
+        directory. A concurrent replacement by a symbolic link can therefore
+        neither escape the run nor change the bytes copied after their
+        validation.
         """
 
         relative = Path(entry.path)
@@ -339,13 +340,15 @@ class SecureArtifactWriter:
             file_fd = os.open(relative.name, _file_flags(), dir_fd=current_fd)
             info = os.fstat(file_fd)
             if not stat.S_ISREG(info.st_mode):
-                raise ArtifactError(f"artefact régulier requis: {entry.path}")
+                raise ArtifactError(f"regular artifact required: {entry.path}")
             _assert_private_owner(info, entry.path)
             with os.fdopen(file_fd, "rb") as stream:
                 file_fd = None
                 data = stream.read()
         except OSError as e:
-            raise ArtifactError(f"artefact non lisible sans suivi: {entry.path}: {e}") from e
+            raise ArtifactError(
+                f"artifact not readable without following: {entry.path}: {e}"
+            ) from e
         finally:
             if file_fd is not None:
                 os.close(file_fd)
@@ -358,7 +361,7 @@ class SecureArtifactWriter:
 
         actual_hash = hashlib.sha256(data).hexdigest()
         if len(data) != entry.bytes or actual_hash != entry.sha256:
-            raise ArtifactError(f"intégrité d'artefact invalide: {entry.path}")
+            raise ArtifactError(f"invalid artifact integrity: {entry.path}")
         return data
 
     def _manifest_payload(self, entries: list[ArtifactEntry] | None = None) -> dict[str, Any]:
@@ -422,16 +425,16 @@ def purge_expired(root: str | Path, *, now: datetime | None = None) -> list[str]
         try:
             raw = manifest.read_bytes()
         except FileNotFoundError:
-            # Répertoire sans manifeste (résidu partiel ou étranger): la purge
-            # ne juge que ce qu'un manifeste date — conservation fail-open.
+            # Directory without a manifest (partial or foreign residue): the
+            # purge only judges what a manifest dates — fail-open retention.
             continue
         except PermissionError:
-            # Fichiers root laissés par un run Docker: propagé tel quel, le
-            # consommateur (cdpx.proof) avertit avec le remède chown et
-            # poursuit son run best-effort.
+            # Root-owned files left behind by a Docker run: propagated as-is,
+            # the consumer (cdpx.proof) warns with the chown remedy and
+            # continues its run best-effort.
             raise
         except OSError as error:
-            raise ArtifactError(f"manifest d'artefacts invalide: {manifest}: {error}") from error
+            raise ArtifactError(f"invalid artifacts manifest: {manifest}: {error}") from error
         try:
             payload = json.loads(raw.decode("utf-8"))
             if not isinstance(payload, dict):
@@ -441,7 +444,7 @@ def purge_expired(root: str | Path, *, now: datetime | None = None) -> list[str]
                 raise ValueError("expires_at textuel requis")
             expires = datetime.fromisoformat(raw_expiration)
             if expires.tzinfo is None or expires.utcoffset() is None:
-                raise ValueError("expires_at avec fuseau requis")
+                raise ValueError("expires_at with timezone required")
         except (
             UnicodeError,
             KeyError,
@@ -449,7 +452,7 @@ def purge_expired(root: str | Path, *, now: datetime | None = None) -> list[str]
             ValueError,
             json.JSONDecodeError,
         ) as error:
-            raise ArtifactError(f"manifest d'artefacts invalide: {manifest}: {error}") from error
+            raise ArtifactError(f"invalid artifacts manifest: {manifest}: {error}") from error
         if current >= expires:
             shutil.rmtree(run_dir)
             removed.append(run_dir.name)

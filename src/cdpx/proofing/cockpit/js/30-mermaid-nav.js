@@ -1,4 +1,4 @@
-/* Cockpit SPA (4/6) — rendu Mermaid et navigation latérale/topbar. */
+/* Cockpit SPA (4/6) — Mermaid rendering and sidebar/topbar navigation. */
   if (window.mermaid) {
     window.mermaid.parseError = () => {};
     window.mermaid.initialize({
@@ -22,7 +22,7 @@
         node.removeAttribute('data-processed');
         const error = document.createElement('p');
         error.className = 'mermaid-error';
-        error.textContent = 'Diagramme Mermaid invalide — source conservée.';
+        error.textContent = 'Invalid Mermaid diagram — source preserved.';
         node.insertAdjacentElement('afterend', error);
       }
     }

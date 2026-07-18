@@ -84,7 +84,7 @@ def test_navigate_raises_typed_error_with_failed_result(client, monkeypatch):
 
 
 def test_navigate_rejects_unknown_wait_before_protocol(mock, client):
-    with pytest.raises(ValueError, match="attente de navigation inconnue"):
+    with pytest.raises(ValueError, match="unknown navigation wait"):
         nav.navigate(client, "http://site.test/page", wait="networkidle")  # type: ignore[arg-type]
 
     assert mock.commands == []
@@ -140,7 +140,7 @@ def test_wait_for_visible_times_out_while_element_stays_hidden(mock, client):
     mock.on_eval("__cdpx_visible", False)
 
     #: le message distingue l'invisibilité persistante d'un sélecteur introuvable
-    with pytest.raises(CDPTimeout, match="non visible"):
+    with pytest.raises(CDPTimeout, match="not visible"):
         nav.wait_for_visible(client, "#hidden", timeout=0.15, poll=0.02)
 
 
@@ -259,7 +259,7 @@ def test_click_element_not_found(mock, client):
     mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, "attached": False}))
 
     #: l'absence est signalée par une exception dédiée au message exploitable
-    with pytest.raises(inputs.ElementNotFound, match="sélecteur introuvable"):
+    with pytest.raises(inputs.ElementNotFound, match="selector not found"):
         inputs.click(client, "#ghost")
     #: fail-closed: malgré l'échec, la page n'a reçu aucun évènement souris
     assert mock.commands_for("Input.dispatchMouseEvent") == []
@@ -268,10 +268,10 @@ def test_click_element_not_found(mock, client):
 @pytest.mark.parametrize(
     ("state", "message"),
     [
-        ({"visible": False}, "non visible"),
-        ({"enabled": False}, "désactivé"),
-        ({"stable": False}, "instable"),
-        ({"receives_events": False}, "recouvert"),
+        ({"visible": False}, "not visible"),
+        ({"enabled": False}, "disabled"),
+        ({"stable": False}, "unstable"),
+        ({"receives_events": False}, "covered"),
     ],
 )
 def test_click_refuses_non_actionable_element_without_input(mock, client, state, message):
@@ -346,9 +346,9 @@ def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client)
 @pytest.mark.parametrize(
     ("state", "message"),
     [
-        ({"visible": False}, "non visible"),
-        ({"enabled": False}, "désactivé"),
-        ({"editable": False}, "non éditable"),
+        ({"visible": False}, "not visible"),
+        ({"enabled": False}, "disabled"),
+        ({"editable": False}, "not editable"),
     ],
 )
 def test_type_text_refuses_invalid_target_without_input(mock, client, state, message):
@@ -372,7 +372,7 @@ def test_type_text_refuses_missing_target_without_input(mock, client):
     mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, "attached": False}))
 
     #: l'absence est distinguée de la non-interactivité par le type d'exception
-    with pytest.raises(inputs.ElementNotFound, match="sélecteur introuvable"):
+    with pytest.raises(inputs.ElementNotFound, match="selector not found"):
         inputs.type_text(client, "#missing", "secret", clear=True)
 
     #: aucune saisie même partielle ne s'échappe vers la page
@@ -831,7 +831,7 @@ def test_profiler_rejects_requested_origin_before_navigation(mock, client):
     """Une origine hors liste blanche est refusée avant d'activer le réseau
     ou de naviguer: le garde-fou opère en amont de tout protocole."""
     #: le refus est une ValueError explicite, pas une navigation avortée en cours
-    with pytest.raises(ValueError, match="origine refusée"):
+    with pytest.raises(ValueError, match="origin rejected"):
         dev.profiler(
             client,
             "https://attacker.example/report",
@@ -857,7 +857,7 @@ def test_profiler_rejects_cross_origin_header_before_panel_fetch(mock, client):
     )
 
     #: l'en-tête forgé par le serveur déclenche le refus d'origine
-    with pytest.raises(ValueError, match="origine refusée"):
+    with pytest.raises(ValueError, match="origin rejected"):
         dev.profiler(client, url, panels=["db"])
 
     #: aucun fetch de panel n'a été tenté vers l'origine étrangère
@@ -881,7 +881,7 @@ def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
     )
 
     #: c'est l'URL finale après redirection qui est jugée, pas celle demandée
-    with pytest.raises(ValueError, match="origine refusée"):
+    with pytest.raises(ValueError, match="origin rejected"):
         dev.profiler(
             client,
             requested,
@@ -1016,7 +1016,7 @@ def test_get_storage_masks_values_by_default_with_explicit_opt_in(mock, client):
 
 
 def test_storage_rejects_unknown_kind_before_evaluation(mock, client):
-    with pytest.raises(ValueError, match="stockage inconnu"):
+    with pytest.raises(ValueError, match="unknown storage"):
         state.get_storage(client, "persistent")  # type: ignore[arg-type]
 
     assert mock.commands == []
@@ -1071,11 +1071,11 @@ def test_seo_broken_page_findings(mock, client):
     mock.on_eval("__cdpx_seo", json.dumps(SEO_BROKEN))
     res = audit.seo(client)
     #: chaque manquement est libellé en clair, directement exploitable en CLI
-    assert "title manquant" in res["findings"]
-    assert "meta description manquante" in res["findings"]
-    assert "canonical manquant" in res["findings"]
-    assert "2 h1 (attendu: 1)" in res["findings"]
-    assert "2 image(s) sans alt" in res["findings"]
+    assert "missing title" in res["findings"]
+    assert "missing meta description" in res["findings"]
+    assert "missing canonical" in res["findings"]
+    assert "2 h1 (expected: 1)" in res["findings"]
+    assert "2 image(s) without alt" in res["findings"]
 
 
 def test_seo_advanced_findings(mock, client):
@@ -1091,9 +1091,9 @@ def test_seo_advanced_findings(mock, client):
     res = audit.seo(client)
     #: les doublons sont repérés indépendamment de la casse, et le JSON-LD est
     #: jugé sur sa validité syntaxique ET sa complétude métier
-    assert "h1 dupliqué: same" in res["findings"]
-    assert "JSON-LD invalide" in res["findings"]
-    assert "Product JSON-LD incomplet (sku ou name requis)" in res["findings"]
+    assert "duplicate h1: same" in res["findings"]
+    assert "invalid JSON-LD" in res["findings"]
+    assert "incomplete Product JSON-LD (sku or name required)" in res["findings"]
 
 
 def test_seo_accepts_top_level_jsonld_arrays_and_reports_scalars(mock, client):
@@ -1112,8 +1112,8 @@ def test_seo_accepts_top_level_jsonld_arrays_and_reports_scalars(mock, client):
     #: l'objet incomplet niché dans le tableau est trouvé, et le scalaire
     #: produit un finding au lieu d'une exception
     assert res["findings"] == [
-        "Product JSON-LD incomplet (sku ou name requis)",
-        "JSON-LD scalaire non supporté",
+        "incomplete Product JSON-LD (sku or name required)",
+        "unsupported scalar JSON-LD",
     ]
 
 
@@ -1238,7 +1238,7 @@ def test_event_primitives_reject_negative_budgets_before_cdp(mock, client, opera
 
 
 def test_intercept_zero_timeout_is_immediate_and_uses_cdp_timeout(mock, client):
-    with pytest.raises(CDPTimeout, match="timeout interception"):
+    with pytest.raises(CDPTimeout, match="interception timeout"):
         interception.intercept_goto(
             client,
             "http://s.test/",
@@ -1381,7 +1381,7 @@ def test_vitals_rechecks_redirected_origin_before_click(mock, client):
     permises bloque le clic INP: la mutation est re-jugée sur l'URL réelle."""
     mock.on_eval("window.location.href", "https://prod.example/redirected")
     #: la mutation est refusée sur la destination réelle, pas sur l'URL demandée
-    with pytest.raises(ValueError, match="origine refusée"):
+    with pytest.raises(ValueError, match="origin rejected"):
         diagnostics.vitals(
             client,
             "http://allowed.test/vitals.html",
@@ -1535,7 +1535,7 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
     #: refus net: aucune action jouée sur un format d'archive sensible
     assert result["ok"] is False and result["played"] == 0
     #: le refus est motivé et la valeur secrète héritée n'apparaît nulle part
-    assert "v1 sensible" in result["divergence"]
+    assert "sensitive v1 action refused" in result["divergence"]
     assert "legacy-secret" not in json.dumps(result)
 
 
@@ -1581,7 +1581,7 @@ def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
     path.write_text('{"action":["click","#submit"],"ok":false}\n', encoding="utf-8")
     res = recording.replay(client, str(path), context=orchestration())
     #: la divergence cite l'échec journalisé sans avoir tenté de le reproduire
-    assert res["ok"] is False and res["divergence"] == "event 0: ok=false journalisé"
+    assert res["ok"] is False and res["divergence"] == "event 0: ok=false journaled"
     #: fail-closed: aucune commande CDP n'a été émise
     assert mock.commands == []  # un enregistrement en échec ne se rejoue pas
 
@@ -1600,7 +1600,7 @@ def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
     #: une entrée sans action est un journal invalide, signalé par sa ligne
     assert (
         recording.replay(client, str(path), context=orchestration())["divergence"]
-        == "line 1: action manquante"
+        == "line 1: missing action"
     )
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n' * 3, encoding="utf-8")
     #: dépasser le budget d'actions lève avant toute émission protocolaire
@@ -1662,7 +1662,7 @@ def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path
     #: la navigation interdite bloque le rejeu avant même la première action
     assert res["ok"] is False and res["played"] == 0
     #: le refus est motivé par l'origine et le clic n'est jamais parti
-    assert "origine refusée" in str(res["divergence"])
+    assert "origin rejected" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
@@ -1683,7 +1683,7 @@ def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, cli
     #: le goto s'est joué mais la mutation qui suit est refusée
     assert res["ok"] is False and res["played"] == 1
     #: origine refusée: la souris reste muette face à la page détournée
-    assert "origine refusée" in str(res["divergence"])
+    assert "origin rejected" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
     location_reads = [
         params
@@ -1711,7 +1711,7 @@ def test_replay_rejects_forbidden_goto_before_navigation(mock, client, tmp_path)
 
     #: rejeu refusé à zéro action jouée, motivé par l'origine interdite
     assert result["ok"] is False and result["played"] == 0
-    assert "origine refusée" in result["divergence"]
+    assert "origin rejected" in result["divergence"]
     #: la navigation interdite n'a jamais été émise vers le navigateur
     assert mock.commands_for("Page.navigate") == []
 
@@ -1722,7 +1722,7 @@ def test_record_rejects_forbidden_goto_before_navigation_or_journal(mock, client
     path = tmp_path / "record.ndjson"
 
     #: l'interdiction se joue en amont de tout effet de bord
-    with pytest.raises(ValueError, match="origine refusée"):
+    with pytest.raises(ValueError, match="origin rejected"):
         recording.record(
             client,
             str(path),
@@ -1761,7 +1761,7 @@ def test_replay_origin_guard_fails_closed_when_current_url_is_unknown(
     #: le rejeu s'arrête exactement là où l'URL devient nécessaire au jugement
     assert res["ok"] is False and res["played"] == played
     #: le motif est l'indétermination, et aucun clic n'est parti à l'aveugle
-    assert "URL courante indéterminable" in str(res["divergence"])
+    assert "unable to determine the current URL" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
@@ -1784,7 +1784,7 @@ def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
 
     #: le clic s'est joué puis la destination résultante a été refusée
     assert res["ok"] is False and res["played"] == 1
-    assert "destination après action: origine refusée" in str(res["divergence"])
+    assert "destination after action: origin rejected" in str(res["divergence"])
     #: la mutation avait bien eu lieu (séquence souris complète) avant détection
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
 

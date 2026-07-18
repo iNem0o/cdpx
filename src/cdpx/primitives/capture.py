@@ -1,10 +1,10 @@
-"""Primitives de capture: screenshot, PDF, console.
+"""Capture primitives: screenshot, PDF, console.
 
-Usecases agent:
-- screenshot: la "vision" brute — vérifier un rendu, un état visuel, un bug CSS.
-- pdf: archivage d'un état de page (audit SEO livrable, preuve de recette).
-- console: LE retour d'info manquant du dev front — l'agent qui ne lit pas la
-  console navigue à l'aveugle sur une app JS cassée.
+Agent usecases:
+- screenshot: raw "vision" — check a render, a visual state, a CSS bug.
+- pdf: archiving a page state (deliverable SEO audit, acceptance proof).
+- console: THE missing feedback loop for front-end dev — an agent that
+  doesn't read the console navigates blind on a broken JS app.
 """
 
 from __future__ import annotations
@@ -57,11 +57,11 @@ def console_capture(
     duration: float = 2.0,
     context: RedactionContext | None = None,
 ) -> dict:
-    """Active Runtime et collecte logs + exceptions pendant `duration` secondes.
+    """Enables Runtime and collects logs + exceptions for `duration` seconds.
 
-    Contrat de sortie stable: liste d'entrées {kind, type, text, ts}.
+    Stable output contract: list of entries {kind, type, text, ts}.
     """
-    duration = validate_time_budget(duration, "durée de capture console")
+    duration = validate_time_budget(duration, "console capture duration")
     client.send("Runtime.enable")
     events = client.collect_events(duration, CONSOLE_EVENTS)
     entries = list(console_entries(events, context=context))
@@ -107,7 +107,7 @@ def console_follow(
     max_entries: int | None = None,
     context: RedactionContext | None = None,
 ) -> Iterable[dict]:
-    """Flux d'entrées console. Le CLI le sérialise en NDJSON compact."""
+    """Stream of console entries. The CLI serializes it as compact NDJSON."""
     client.send("Runtime.enable")
     emitted = 0
     while max_entries is None or emitted < max_entries:

@@ -120,7 +120,7 @@ def test_shared_browser_client_rejects_target_websocket_drift(mock, capsys, tmp_
     code, _out, err = run_session(mock, capsys, manifest, "text")
 
     assert code == 1
-    assert "WebSocket du target différent du manifest" in err
+    assert "target WebSocket differs from manifest" in err
     assert mock.commands == []
 
 
@@ -304,7 +304,7 @@ def test_session_tabs_list_validates_real_origin_before_exposing_page_data(mock,
     #: la redirection hors origines autorisées bloque toute donnée de page:
     #: stdout reste vide et le diagnostic nomme le refus d'origine
     assert code == 1 and not out
-    assert "origine refusée" in err
+    assert "origin rejected" in err
 
 
 def test_session_tabs_list_returns_only_the_attested_allowed_target(mock, capsys, tmp_path):
@@ -330,7 +330,7 @@ def test_session_authority_refuses_eval_before_any_cdp_command(mock, capsys, tmp
     manifest, _ = session_manifest(mock, tmp_path, authority="observation")
     code, _, err = run_session(mock, capsys, manifest, "eval", "document.cookie")
     #: le diagnostic explique quel niveau d'autorité aurait été nécessaire
-    assert code == 1 and "requiert privileged" in err
+    assert code == 1 and "requires privileged" in err
     #: pas un seul message CDP: le contrôle d'autorité précède la connexion
     assert mock.commands == []
 
@@ -343,7 +343,7 @@ def test_session_vitals_click_escalates_to_interaction(mock, capsys, tmp_path):
         mock, capsys, manifest, "vitals", "http://demo.test/page", "--click", "#buy"
     )
     #: le refus nomme l'autorité que le --click exige réellement
-    assert code == 1 and "requiert interaction" in err
+    assert code == 1 and "requires interaction" in err
     #: décision locale: aucune commande n'a atteint le navigateur
     assert mock.commands == []
 
@@ -354,7 +354,7 @@ def test_session_dom_diff_eval_escalates_to_privileged(mock, capsys, tmp_path):
     manifest, _ = session_manifest(mock, tmp_path, authority="interaction")
     code, _, err = run_session(mock, capsys, manifest, "dom-diff", "--", "eval", "document.title")
     #: l'enveloppe n'abaisse jamais l'autorité de l'action transportée
-    assert code == 1 and "requiert privileged" in err
+    assert code == 1 and "requires privileged" in err
     #: le refus est décidé à vide, avant toute connexion au navigateur
     assert mock.commands == []
 
@@ -368,7 +368,7 @@ def test_session_record_eval_refused_at_preflight_before_journal(mock, capsys, t
         mock, capsys, manifest, "record", "-o", str(journal), "--", "eval", "1+1"
     )
     #: le préflight juge l'action transportée, pas la commande record elle-même
-    assert code == 1 and "requiert privileged" in err
+    assert code == 1 and "requires privileged" in err
     #: refus avant journalisation: aucun journal créé, aucun trafic CDP
     assert not journal.exists() and mock.commands == []
 
@@ -380,7 +380,7 @@ def test_session_navigation_checks_destination_before_connecting(mock, capsys, t
     code, _, err = run_session(mock, capsys, manifest, "goto", "https://prod.example/")
     #: le refus intervient à vide: aucune commande n'a atteint le navigateur,
     #: la navigation interdite n'a donc jamais pu commencer
-    assert code == 1 and "origine refusée" in err
+    assert code == 1 and "origin rejected" in err
     assert mock.commands == []
 
 
@@ -392,7 +392,7 @@ def test_session_interaction_rechecks_real_current_origin(mock, capsys, tmp_path
     code, _, err = run_session(mock, capsys, manifest, "click", "#submit")
     #: la page ayant quitté le périmètre, aucun évènement souris n'est émis:
     #: le recheck protège contre les redirections survenues entre commandes
-    assert code == 1 and "origine refusée" in err
+    assert code == 1 and "origin rejected" in err
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
@@ -427,7 +427,7 @@ def test_session_interaction_suppresses_output_if_action_leaves_allowed_origin(
 
     #: stdout est vide: la revalidation post-action supprime toute donnée
     #: issue de l'origine interdite atteinte après le clic
-    assert code == 1 and not out and "origine refusée" in err
+    assert code == 1 and not out and "origin rejected" in err
     #: la séquence souris complète (move/press/release) a pourtant été émise:
     #: c'est bien la sortie qui est confisquée, pas l'action réécrite
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
@@ -451,7 +451,7 @@ def test_session_observation_suppresses_page_data_if_origin_changes_during_read(
 
     #: le texte pourtant déjà récupéré n'apparaît nulle part: le contrôle
     #: post-lecture prime sur la donnée acquise
-    assert code == 1 and not out and "origine refusée" in err
+    assert code == 1 and not out and "origin rejected" in err
 
 
 def test_session_assignment_mismatch_is_refused(mock, capsys, tmp_path):
@@ -472,7 +472,7 @@ def test_session_assignment_mismatch_is_refused(mock, capsys, tmp_path):
     )
     #: le diagnostic nomme le défaut de propriété, pas un problème technique:
     #: l'appelant sait qu'il usurpe une session qui ne lui est pas assignée
-    assert code == 1 and "non propriétaire" in capsys.readouterr().err
+    assert code == 1 and "not the session owner" in capsys.readouterr().err
 
 
 def test_session_type_requires_env_reference_and_masks_the_value(
@@ -761,7 +761,7 @@ def test_session_record_is_preflighted_confined_and_replayable_by_secret_ref(
     )
     #: le préflight rejette la valeur secrète littérale en enseignant la forme
     #: @env, avant qu'aucune commande n'ait été enregistrée ni émise
-    assert code == 1 and "exige @env" in err
+    assert code == 1 and "requires @env" in err
     assert mock.commands == []
 
     secret = "session-record-canary-4728"

@@ -17,7 +17,7 @@ MAX_PID = 2_147_483_647
 
 def _validated_pid(pid: int) -> int:
     if not isinstance(pid, int) or isinstance(pid, bool) or not 1 <= pid <= MAX_PID:
-        raise PolicyError(f"pid entier hors plage: {pid!r}")
+        raise PolicyError(f"pid integer out of range: {pid!r}")
     return pid
 
 
@@ -41,9 +41,9 @@ def _linux_process_identity(pid: int) -> tuple[str, tuple[str, ...]]:
             if item
         )
     except (OSError, IndexError, ValueError) as error:
-        raise PolicyError(f"identité du processus {pid} invérifiable") from error
+        raise PolicyError(f"process identity {pid} unverifiable") from error
     if end < 0 or not start_ticks.isdigit() or not argv:
-        raise PolicyError(f"identité du processus {pid} invalide")
+        raise PolicyError(f"process identity {pid} invalid")
     return f"linux:{start_ticks}", argv
 
 
@@ -64,9 +64,9 @@ def _ps_process_identity(pid: int) -> tuple[str, tuple[str, ...]]:
             timeout=2,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError) as error:
-        raise PolicyError(f"identité du processus {pid} invérifiable") from error
+        raise PolicyError(f"process identity {pid} unverifiable") from error
     if not started or not command:
-        raise PolicyError(f"identité du processus {pid} invalide")
+        raise PolicyError(f"process identity {pid} invalid")
     return f"ps:{started}", (command,)
 
 

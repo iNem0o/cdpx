@@ -33,8 +33,8 @@ def supervise(bootstrap_path: Path, attestation: str) -> int:
         data = session._read_bootstrap(bootstrap_path)
         expected_attestation = session._policy_attestation(data)
         if not secrets.compare_digest(attestation, expected_attestation):
-            raise PolicyError("bootstrap de session: attestation invalide")
-    except Exception as error:  # noqa: BLE001 - aucun effet avant validation
+            raise PolicyError("session bootstrap: invalid attestation")
+    except Exception as error:  # noqa: BLE001 - no effect before validation
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 1
 
@@ -53,7 +53,7 @@ def supervise(bootstrap_path: Path, attestation: str) -> int:
         runtime = _start_runtime(runtime, data, bootstrap_path, attestation)
         _poll_runtime(runtime, lambda: stop_requested)
         return 0
-    except Exception as error:  # noqa: BLE001 - erreur transmise au parent
+    except Exception as error:  # noqa: BLE001 - error forwarded to the parent
         diagnostics = session._startup_diagnostic_tails(runtime.session_dir)
         session._write_private(
             runtime.error_path,
@@ -111,7 +111,7 @@ def _start_runtime(
         browser_argv,
         session._browser_markers(data.browser_kind, profile_dir),
     ):
-        raise PolicyError("navigateur démarré sans les marqueurs attribués")
+        raise PolicyError("browser started without the assigned markers")
     supervisor_start_time, supervisor_argv = session._process_identity(os.getpid())
     expected_supervisor_markers = (
         "-m",
@@ -121,7 +121,7 @@ def _start_runtime(
         f"--attestation={attestation}",
     )
     if not session._argv_has_markers(supervisor_argv, expected_supervisor_markers):
-        raise PolicyError("supervisor sans marqueur bootstrap attribué")
+        raise PolicyError("supervisor without assigned bootstrap marker")
     runtime.manifest = session.SessionManifest(
         session_id=data.session_id,
         run_id=data.run_id,
@@ -165,7 +165,7 @@ def _poll_runtime(runtime: SupervisorRuntime, stop_requested: Callable[[], bool]
     chrome = runtime.chrome
     manifest = runtime.manifest
     if chrome is None or manifest is None:
-        raise RuntimeError("runtime superviseur non démarré")
+        raise RuntimeError("supervisor runtime not started")
     expires = session._aware_timestamp(manifest.expires_at, "expires_at")
     while True:
         if stop_requested() or chrome.poll() is not None:
@@ -214,6 +214,6 @@ def _teardown_runtime(runtime: SupervisorRuntime) -> None:
     except OSError as cleanup_error:
         session._write_private(
             runtime.error_path,
-            f"{type(cleanup_error).__name__}: cleanup session échoué: {cleanup_error}\n",
+            f"{type(cleanup_error).__name__}: session cleanup failed: {cleanup_error}\n",
         )
         raise

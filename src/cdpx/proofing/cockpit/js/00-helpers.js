@@ -1,6 +1,6 @@
-/* Cockpit SPA (1/6) — helpers partagés: payload du rapport, routes, formatage.
-   Les six parties js/ sont concaténées dans une IIFE unique par proof.py
-   (COCKPIT_JS_PARTS): elles partagent la même portée de closure. */
+/* Cockpit SPA (1/6) — shared helpers: report payload, routes, formatting.
+   The six js/ parts are concatenated into a single IIFE by proof.py
+   (COCKPIT_JS_PARTS): they share the same closure scope. */
   const data = JSON.parse(document.getElementById('report-data').textContent);
   const app = document.getElementById('app');
   const featureNav = document.getElementById('featureNav');
@@ -60,7 +60,7 @@
     return {};
   };
   const list = (items, formatter) => {
-    if (!items || !items.length) return '<div class="empty">Aucune donnée.</div>';
+    if (!items || !items.length) return '<div class="empty">No data.</div>';
     return '<ul class="list">' + items.map(formatter).join('') + '</ul>';
   };
   const crumbs = (items) => '<div class="crumbs">' + items.map((item, index) => {

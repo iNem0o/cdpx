@@ -53,9 +53,9 @@ def test_loopback_discovery_ignores_environment_proxy(mock, monkeypatch):
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        ('{"not": "a list"}', "tableau JSON requis"),
-        ('[{"type": "page"}]', "sans id valide"),
-        ("not-json", "JSON invalide"),
+        ('{"not": "a list"}', "JSON array required"),
+        ('[{"type": "page"}]', "without valid id"),
+        ("not-json", "invalid JSON"),
     ],
 )
 def test_list_targets_rejects_malformed_discovery_shapes(monkeypatch, payload, message):
@@ -68,10 +68,10 @@ def test_list_targets_rejects_malformed_discovery_shapes(monkeypatch, payload, m
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        ('[{"id":"T1","url":3}]', "target\\[0\\]\\.url textuel requis"),
+        ('[{"id":"T1","url":3}]', "target\\[0\\]\\.url text required"),
         (
             '[{"id":"T1","webSocketDebuggerUrl":false}]',
-            "webSocketDebuggerUrl textuel requis",
+            "webSocketDebuggerUrl text required",
         ),
     ],
 )
@@ -85,14 +85,14 @@ def test_list_targets_rejects_non_string_declared_fields(monkeypatch, payload, m
 def test_version_rejects_non_string_declared_fields(monkeypatch):
     monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: '{"Browser":3}')
 
-    with pytest.raises(discovery.DiscoveryError, match="version\\.Browser textuel requis"):
+    with pytest.raises(discovery.DiscoveryError, match="version\\.Browser text required"):
         discovery.version("127.0.0.1", 9222)
 
 
 def test_version_decode_error_keeps_http_context(monkeypatch):
     monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: "not-json")
 
-    with pytest.raises(discovery.DiscoveryError, match="JSON invalide") as error:
+    with pytest.raises(discovery.DiscoveryError, match="invalid JSON") as error:
         discovery.version("127.0.0.1", 9222)
 
     assert error.value.method == "GET"
@@ -103,7 +103,7 @@ def test_version_decode_error_keeps_http_context(monkeypatch):
 def test_list_decode_error_keeps_http_context(monkeypatch):
     monkeypatch.setattr(discovery, "_http", lambda *_args, **_kwargs: "not-json")
 
-    with pytest.raises(discovery.DiscoveryError, match="JSON invalide") as error:
+    with pytest.raises(discovery.DiscoveryError, match="invalid JSON") as error:
         discovery.list_targets("127.0.0.1", 9222)
 
     assert error.value.method == "GET"
@@ -164,7 +164,7 @@ def test_new_tab_malformed_put_response_does_not_trigger_legacy_fallback(monkeyp
 
     monkeypatch.setattr(discovery, "_http", malformed_http)
 
-    with pytest.raises(discovery.DiscoveryError, match="JSON invalide") as error:
+    with pytest.raises(discovery.DiscoveryError, match="invalid JSON") as error:
         discovery.new_tab("127.0.0.1", 9222)
 
     assert calls == ["PUT"]
@@ -242,7 +242,7 @@ def test_connection_failure_is_wrapped_with_endpoint_context(monkeypatch):
 
     monkeypatch.setattr(client_module, "connect", fail_connect)
 
-    with pytest.raises(CDPTransportError, match="connexion CDP impossible.*ws://x.test") as error:
+    with pytest.raises(CDPTransportError, match="CDP connection failed.*ws://x.test") as error:
         CDPClient("ws://x.test/devtools/page/T1")
 
     assert isinstance(error.value.__cause__, OSError)
@@ -261,7 +261,7 @@ def test_send_failure_is_wrapped_with_method_context():
     client._responses = {}
     client._ws = BrokenSocket()
 
-    with pytest.raises(CDPTransportError, match="envoi Page.enable") as error:
+    with pytest.raises(CDPTransportError, match="sending Page.enable") as error:
         client.send_nowait("Page.enable")
 
     assert isinstance(error.value.__cause__, OSError)
@@ -414,7 +414,7 @@ def test_collect_events_rejects_negative_duration_without_draining(mock):
     with _connect(mock) as client:
         client.events = [{"method": "Runtime.consoleAPICalled", "params": {}}]
 
-        with pytest.raises(ValueError, match="durée de collecte"):
+        with pytest.raises(ValueError, match="collection duration"):
             client.collect_events(-0.1)
 
         assert len(client.events) == 1
@@ -423,9 +423,9 @@ def test_collect_events_rejects_negative_duration_without_draining(mock):
 @pytest.mark.parametrize(
     ("received", "message"),
     [
-        (OSError("connection closed"), "transport interrompu"),
-        ("not-json", "message CDP invalide"),
-        ("[]", "objet CDP requis"),
+        (OSError("connection closed"), "transport interrupted"),
+        ("not-json", "invalid CDP message"),
+        ("[]", "CDP object required"),
     ],
 )
 def test_collect_events_surfaces_transport_and_frame_failures(received, message):
@@ -450,24 +450,24 @@ def test_collect_events_surfaces_transport_and_frame_failures(received, message)
 @pytest.mark.parametrize(
     ("received", "message"),
     [
-        ('{"method":3,"params":{}}', "évènement CDP invalide"),
+        ('{"method":3,"params":{}}', "invalid CDP event"),
         (
             '{"method":"Page.loadEventFired","params":[]}',
-            "params CDP invalides",
+            "invalid CDP params",
         ),
-        ('{"id":"1","result":{}}', "réponse CDP sans id valide"),
-        ('{"id":1,"result":[]}', "result CDP invalide"),
+        ('{"id":"1","result":{}}', "CDP response without valid id"),
+        ('{"id":1,"result":[]}', "invalid CDP result"),
         (
             '{"id":1,"error":{"code":"x","message":3}}',
-            "error CDP mal formée",
+            "malformed CDP error",
         ),
         (
             '{"id":1,"result":{},"error":{"code":1,"message":"x"}}',
-            "réponse CDP ambiguë",
+            "ambiguous CDP response",
         ),
         (
             '{"method":"Page.loadEventFired","result":{}}',
-            "évènement CDP invalide",
+            "invalid CDP event",
         ),
     ],
 )

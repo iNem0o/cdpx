@@ -88,7 +88,7 @@ def test_catalog_rejects_paths_outside_repository(tmp_path):
     #: rien n'est publié et la violation explicite le motif du rejet
     #: (chemin échappant à la racine du dépôt)
     assert catalog["documents"] == []
-    assert "hors dépôt" in catalog["violations"][0]
+    assert "path outside repository forbidden" in catalog["violations"][0]
 
 
 def test_catalog_rejects_empty_glob(tmp_path):
@@ -101,7 +101,7 @@ def test_catalog_rejects_empty_glob(tmp_path):
     #: le catalogue reste vide et la violation dénonce le motif sans
     #: résultat au lieu de publier un sous-ensemble trompeur
     assert catalog["documents"] == []
-    assert "sans résultat" in catalog["violations"][0]
+    assert "include with no results" in catalog["violations"][0]
 
 
 def test_catalog_rejects_symlinked_document(tmp_path):
@@ -119,4 +119,4 @@ def test_catalog_rejects_symlinked_document(tmp_path):
     #: le symlink est rejeté avec un message exigeant un fichier régulier,
     #: même si sa cible vit dans le dépôt
     assert catalog["documents"] == []
-    assert "régulier requis" in catalog["violations"][0]
+    assert "regular document required" in catalog["violations"][0]

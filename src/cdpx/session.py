@@ -1,8 +1,8 @@
-"""Sessions navigateur jetables, attestées et exclusives.
+"""Disposable, attested, and exclusive browser sessions.
 
-Le manifest est la capacité locale attribuée à un run. Il lie un profil,
-un target et un niveau d'autorité. Les fichiers privés restent sous un dossier
-0700 et chaque commande prend un verrou non bloquant sur la session.
+The manifest is the local capability assigned to a run. It binds a profile,
+a target and an authority level. Private files stay under a 0700 directory
+and each command takes a non-blocking lock on the session.
 """
 
 from __future__ import annotations
@@ -116,10 +116,10 @@ def _iso(value: datetime) -> str:
 
 def _secure_mkdir(path: Path) -> None:
     if path.is_symlink():
-        raise PolicyError(f"dossier de session symbolique interdit: {path}")
+        raise PolicyError(f"symbolic session directory forbidden: {path}")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not path.is_dir():
-        raise PolicyError(f"dossier de session requis: {path}")
+        raise PolicyError(f"session directory required: {path}")
     path.chmod(0o700)
 
 
@@ -186,10 +186,10 @@ class SessionManifest:
 
 
 def export_lines(manifest: SessionManifest, manifest_path: str | Path) -> list[str]:
-    """Lignes ``export`` shell installant la triple identité d'une session.
+    """Shell ``export`` lines installing a session's identity triple.
 
-    La sortie est destinée à ``eval`` : uniquement des affectations quotées,
-    aucune donnée au-delà de ce que la vue publique du manifest expose déjà.
+    The output is meant for ``eval``: only quoted assignments, no data beyond
+    what the manifest's public view already exposes.
     """
     values = (
         ("CDPX_SESSION", str(manifest_path)),
@@ -271,28 +271,26 @@ def load_manifest(
     try:
         info = manifest_path.lstat()
     except OSError as e:
-        raise PolicyError(f"manifest de session illisible: {manifest_path}: {e}") from e
+        raise PolicyError(f"unreadable session manifest: {manifest_path}: {e}") from e
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise PolicyError("manifest de session régulier requis")
+        raise PolicyError("regular session manifest required")
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
-        raise PolicyError("manifest de session appartenant à un autre utilisateur")
+        raise PolicyError("session manifest owned by another user")
     if stat.S_IMODE(info.st_mode) & 0o077:
-        raise PolicyError("permissions du manifest trop ouvertes; 0600 requis")
+        raise PolicyError("manifest permissions too open; 0600 required")
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        raise PolicyError(f"manifest de session invalide: {e}") from e
+        raise PolicyError(f"invalid session manifest: {e}") from e
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
-        raise PolicyError("schema de session inconnu")
+        raise PolicyError("unknown session schema")
     manifest = _manifest_from_payload(payload)
     _validate_manifest_paths(manifest_path, manifest)
     if run_id is not None and manifest.run_id != run_id:
-        raise PolicyError(
-            f"run non propriétaire de la session: attendu {manifest.run_id}, reçu {run_id}"
-        )
+        raise PolicyError(f"run not the session owner: expected {manifest.run_id}, got {run_id}")
     if target_id is not None and manifest.target_id != target_id:
         raise PolicyError(
-            f"target non attribué à la session: attendu {manifest.target_id}, reçu {target_id}"
+            f"target not assigned to the session: expected {manifest.target_id}, got {target_id}"
         )
     assert_loopback_endpoint(manifest.host, manifest.websocket_url)
     return manifest
@@ -305,46 +303,46 @@ def _manifest_from_payload(payload: dict[str, Any]) -> SessionManifest:
         or not origins
         or not all(isinstance(item, str) and item for item in origins)
     ):
-        raise PolicyError("manifest de session: origins doit être une liste non vide de chaînes")
+        raise PolicyError("session manifest: origins must be a non-empty list of strings")
     normalized = {**payload, "origins": tuple(origins)}
     try:
         manifest = SessionManifest(**normalized)
     except (TypeError, ValueError) as e:
-        raise PolicyError(f"manifest de session incomplet: {e}") from e
+        raise PolicyError(f"incomplete session manifest: {e}") from e
     _validate_manifest_fields(manifest)
     return manifest
 
 
 def _strict_int(value: Any, label: str, *, minimum: int = 1, maximum: int) -> int:
     if type(value) is not int or not minimum <= value <= maximum:
-        raise PolicyError(f"manifest de session: {label} entier invalide")
+        raise PolicyError(f"session manifest: invalid {label} integer")
     return value
 
 
 def _aware_timestamp(value: Any, label: str) -> datetime:
     if not isinstance(value, str):
-        raise PolicyError(f"manifest de session: {label} doit être une date")
+        raise PolicyError(f"session manifest: {label} must be a date")
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as e:
-        raise PolicyError(f"manifest de session: {label} invalide") from e
+        raise PolicyError(f"session manifest: invalid {label}") from e
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise PolicyError(f"manifest de session: {label} doit inclure un fuseau")
+        raise PolicyError(f"session manifest: {label} must include a timezone")
     return parsed
 
 
 def _validate_manifest_fields(manifest: SessionManifest) -> None:
     _validate_manifest_identity(manifest)
     if manifest.schema != SCHEMA:
-        raise PolicyError("schema de session inconnu")
+        raise PolicyError("unknown session schema")
     if not isinstance(manifest.run_id, str) or not isinstance(manifest.target_id, str):
-        raise PolicyError("manifest de session: run/target doivent être des chaînes")
+        raise PolicyError("session manifest: run/target must be strings")
     if not _TARGET_ID_RE.fullmatch(manifest.target_id):
-        raise PolicyError("manifest de session: target invalide")
+        raise PolicyError("session manifest: invalid target")
     if not isinstance(manifest.authority, str) or not isinstance(manifest.origins, tuple):
-        raise PolicyError("manifest de session: autorité/origines invalides")
+        raise PolicyError("session manifest: invalid authority/origins")
     if manifest.browser_kind not in {"chrome", "mock"}:
-        raise PolicyError("manifest de session: browser_kind invalide")
+        raise PolicyError("session manifest: invalid browser_kind")
     context = ExecutionContext.create(
         run_id=manifest.run_id,
         target_id=manifest.target_id,
@@ -353,22 +351,22 @@ def _validate_manifest_fields(manifest: SessionManifest) -> None:
         session_id=manifest.session_id,
     )
     if context.origins != manifest.origins:
-        raise PolicyError("manifest de session: origins non canoniques")
+        raise PolicyError("session manifest: non-canonical origins")
     if not isinstance(manifest.host, str) or not is_loopback_host(manifest.host):
-        raise PolicyError("manifest de session: host loopback requis")
+        raise PolicyError("session manifest: loopback host required")
     _strict_int(manifest.port, "port", maximum=65535)
     _strict_int(manifest.browser_pid, "browser_pid", maximum=_MAX_PID)
     _strict_int(manifest.supervisor_pid, "supervisor_pid", maximum=_MAX_PID)
     if not isinstance(manifest.browser_start_time, str) or not manifest.browser_start_time:
-        raise PolicyError("manifest de session: browser_start_time invalide")
+        raise PolicyError("session manifest: invalid browser_start_time")
     if not isinstance(manifest.supervisor_start_time, str) or not manifest.supervisor_start_time:
-        raise PolicyError("manifest de session: supervisor_start_time invalide")
+        raise PolicyError("session manifest: invalid supervisor_start_time")
     if (manifest.owner_pid is None) != (manifest.owner_start_time is None):
-        raise PolicyError("manifest de session: owner_pid/start_time doivent être fournis ensemble")
+        raise PolicyError("session manifest: owner_pid/start_time must be provided together")
     if manifest.owner_pid is not None:
         _strict_int(manifest.owner_pid, "owner_pid", maximum=_MAX_PID)
         if not isinstance(manifest.owner_start_time, str) or not manifest.owner_start_time:
-            raise PolicyError("manifest de session: owner_start_time invalide")
+            raise PolicyError("session manifest: invalid owner_start_time")
     for label, value in (
         ("session_dir", manifest.session_dir),
         ("profile_dir", manifest.profile_dir),
@@ -376,11 +374,11 @@ def _validate_manifest_fields(manifest: SessionManifest) -> None:
         ("websocket_url", manifest.websocket_url),
     ):
         if not isinstance(value, str) or not value or "\x00" in value:
-            raise PolicyError(f"manifest de session: {label} invalide")
+            raise PolicyError(f"session manifest: invalid {label}")
     created = _aware_timestamp(manifest.created_at, "created_at")
     expires = _aware_timestamp(manifest.expires_at, "expires_at")
     if expires <= created:
-        raise PolicyError("manifest de session: expires_at doit suivre created_at")
+        raise PolicyError("session manifest: expires_at must follow created_at")
     _validate_websocket_binding(manifest.websocket_url, manifest.port, manifest.target_id)
 
 
@@ -390,26 +388,26 @@ def _validate_websocket_binding(websocket_url: str, port: int, target_id: str) -
         parsed = urllib.parse.urlsplit(websocket_url)
         actual_port = parsed.port
     except ValueError as e:
-        raise PolicyError("manifest de session: WebSocket CDP invalide") from e
+        raise PolicyError("session manifest: invalid CDP WebSocket") from e
     if parsed.username is not None or parsed.password is not None:
-        raise PolicyError("manifest de session: credentials WebSocket interdits")
+        raise PolicyError("session manifest: WebSocket credentials forbidden")
     if actual_port != port or parsed.path != f"/devtools/page/{target_id}":
-        raise PolicyError("manifest de session: WebSocket non lié au port/target attribué")
+        raise PolicyError("session manifest: WebSocket not bound to the assigned port/target")
 
 
 def _validate_manifest_paths(path: Path, manifest: SessionManifest) -> None:
     raw_session_dir = Path(manifest.session_dir)
     if not raw_session_dir.is_absolute() or not path.is_absolute():
-        raise PolicyError("chemins de session absolus requis")
+        raise PolicyError("absolute session paths required")
     if raw_session_dir.is_symlink() or path.parent.is_symlink():
-        raise PolicyError("dossier de session symbolique interdit")
+        raise PolicyError("symbolic session directory forbidden")
     session_dir = raw_session_dir.resolve()
     if path.resolve().parent != session_dir or raw_session_dir.name != manifest.session_id:
-        raise PolicyError("manifest hors du dossier de session déclaré")
+        raise PolicyError("manifest outside the declared session directory")
     if hasattr(os, "getuid") and raw_session_dir.stat().st_uid != os.getuid():
-        raise PolicyError("dossier de session appartenant à un autre utilisateur")
+        raise PolicyError("session directory owned by another user")
     if stat.S_IMODE(raw_session_dir.stat().st_mode) & 0o077:
-        raise PolicyError("permissions du dossier de session trop ouvertes; 0700 requis")
+        raise PolicyError("session directory permissions too open; 0700 required")
     expected = {
         Path(manifest.profile_dir): raw_session_dir / "profile",
         Path(manifest.artifacts_dir): raw_session_dir / "artifacts",
@@ -420,32 +418,32 @@ def _validate_manifest_paths(path: Path, manifest: SessionManifest) -> None:
             or candidate.is_symlink()
             or candidate.resolve().parent != session_dir
         ):
-            raise PolicyError("chemin de session hors du dossier attribué")
+            raise PolicyError("session path outside the assigned directory")
         try:
             info = candidate.stat()
         except OSError as e:
-            raise PolicyError(f"dossier de session introuvable: {candidate}") from e
+            raise PolicyError(f"session directory not found: {candidate}") from e
         if not stat.S_ISDIR(info.st_mode):
-            raise PolicyError(f"dossier de session requis: {candidate}")
+            raise PolicyError(f"session directory required: {candidate}")
         if hasattr(os, "getuid") and info.st_uid != os.getuid():
-            raise PolicyError("dossier de session appartenant à un autre utilisateur")
+            raise PolicyError("session directory owned by another user")
         if stat.S_IMODE(info.st_mode) & 0o077:
-            raise PolicyError("permissions du dossier de session trop ouvertes; 0700 requis")
+            raise PolicyError("session directory permissions too open; 0700 required")
 
 
 def _validate_manifest_identity(manifest: SessionManifest) -> None:
     if not isinstance(manifest.session_id, str) or not _SESSION_ID_RE.fullmatch(
         manifest.session_id
     ):
-        raise PolicyError("identifiant de session invalide")
+        raise PolicyError("invalid session identifier")
     if not isinstance(manifest.profile_id, str) or not _PROFILE_ID_RE.fullmatch(
         manifest.profile_id
     ):
-        raise PolicyError("identifiant de profil invalide")
+        raise PolicyError("invalid profile identifier")
 
 
 class SessionLease:
-    """Verrou de commande exclusif, fail-fast, lié au run et au target."""
+    """Exclusive, fail-fast command lock, bound to the run and target."""
 
     def __init__(
         self,
@@ -477,10 +475,10 @@ class SessionLease:
         try:
             fd = os.open(lock_path, flags, 0o600)
         except OSError as e:
-            raise PolicyError(f"verrou de session non ouvrable: {lock_path}") from e
+            raise PolicyError(f"session lock not openable: {lock_path}") from e
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             os.close(fd)
-            raise PolicyError(f"verrou de session régulier requis: {lock_path}")
+            raise PolicyError(f"regular session lock required: {lock_path}")
         os.fchmod(fd, 0o600)
         stream = os.fdopen(fd, "r+")
         try:
@@ -488,7 +486,7 @@ class SessionLease:
         except BlockingIOError as e:
             stream.close()
             raise PolicyError(
-                f"session déjà utilisée par une autre commande: {manifest.session_id}"
+                f"session already in use by another command: {manifest.session_id}"
             ) from e
         stream.seek(0)
         stream.truncate()
@@ -527,11 +525,11 @@ def find_chrome(explicit: str | None = None) -> str:
         resolved = shutil.which(explicit) if os.sep not in explicit else explicit
         if resolved and Path(resolved).is_file():
             return str(Path(resolved).resolve())
-        raise PolicyError(f"Chrome/Chromium introuvable: {explicit}")
+        raise PolicyError(f"Chrome/Chromium not found: {explicit}")
     for candidate in CHROME_CANDIDATES:
         if resolved := shutil.which(candidate):
             return str(Path(resolved).resolve())
-    raise PolicyError("Chrome/Chromium obligatoire pour cdpx session start")
+    raise PolicyError("Chrome/Chromium required for cdpx session start")
 
 
 def _ci_environment() -> bool:
@@ -559,9 +557,9 @@ def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
     if _sandbox_must_be_disabled():
         command.insert(-2, "--no-sandbox")
     if _ci_environment():
-        # Les runners et conteneurs exposent souvent un /dev/shm très borné.
-        # Utiliser le profil privé sur disque évite qu'un cold start Chrome
-        # reste vivant sans jamais publier DevToolsActivePort.
+        # Runners and containers often expose a very bounded /dev/shm.
+        # Using the private on-disk profile avoids a Chrome cold start
+        # staying alive without ever publishing DevToolsActivePort.
         command.insert(-2, "--disable-dev-shm-usage")
     return command
 
@@ -585,10 +583,10 @@ def _browser_markers(browser_kind: str, profile_dir: str | Path) -> tuple[str, .
 
 def _positive_finite(value: float, label: str) -> float:
     if not isinstance(value, int | float) or isinstance(value, bool):
-        raise PolicyError(f"{label} numérique requis")
+        raise PolicyError(f"{label} numeric value required")
     rendered = float(value)
     if not math.isfinite(rendered) or rendered <= 0:
-        raise PolicyError(f"{label} fini et strictement positif requis")
+        raise PolicyError(f"{label} finite and strictly positive value required")
     return rendered
 
 
@@ -605,8 +603,8 @@ def start_session(
     timeout: float = DEFAULT_STARTUP_TIMEOUT,
 ) -> tuple[SessionManifest, Path]:
     if browser_kind not in BROWSER_KINDS:
-        raise PolicyError(f"backend navigateur inconnu: {browser_kind}")
-    # Valide les grants avant de créer le moindre fichier/processus.
+        raise PolicyError(f"unknown browser backend: {browser_kind}")
+    # Validate grants before creating any file/process.
     preliminary = ExecutionContext.create(
         run_id=run_id,
         target_id="pending",
@@ -614,10 +612,10 @@ def start_session(
         origins=origins,
         session_id="pending",
     )
-    ttl = _positive_finite(ttl, "TTL de session")
-    timeout = _positive_finite(timeout, "timeout de démarrage")
+    ttl = _positive_finite(ttl, "session TTL")
+    timeout = _positive_finite(timeout, "startup timeout")
     if timeout > MAX_STARTUP_TIMEOUT:
-        raise PolicyError(f"timeout de démarrage hors plage; maximum={MAX_STARTUP_TIMEOUT:g}s")
+        raise PolicyError(f"startup timeout out of range; maximum={MAX_STARTUP_TIMEOUT:g}s")
     owner = owner_pid
     owner_start_time: str | None = None
     if owner is not None:
@@ -625,15 +623,15 @@ def start_session(
         try:
             owner_start_time, _ = _process_identity(owner)
         except PolicyError as e:
-            raise PolicyError(f"owner-pid introuvable ou invérifiable: {owner}") from e
+            raise PolicyError(f"owner-pid not found or unverifiable: {owner}") from e
     if browser_kind == "mock" and chrome_bin is not None:
-        raise PolicyError("le backend mock n'accepte pas --chrome")
+        raise PolicyError("the mock backend does not accept --chrome")
     chrome = find_chrome(chrome_bin) if browser_kind == "chrome" else sys.executable
     created = _now()
     try:
         expires = created + timedelta(seconds=ttl)
     except (OverflowError, ValueError) as e:
-        raise PolicyError("TTL de session hors plage") from e
+        raise PolicyError("session TTL out of range") from e
     parent = (Path(root) if root is not None else runtime_root()).resolve()
     _secure_mkdir(parent)
     session_id = secrets.token_hex(12)
@@ -684,9 +682,9 @@ def start_session(
             )
         manifest_path = session_dir / MANIFEST_NAME
         error_path = parent / f"{session_id}.error"
-        # Le superviseur possède le budget `timeout`. Le parent garde une
-        # courte marge uniquement pour lire son manifest ou son erreur, afin
-        # d'éviter la course où les deux expirent à la même microseconde.
+        # The supervisor owns the `timeout` budget. The parent keeps a
+        # short margin only to read its manifest or its error, to avoid
+        # the race where both expire at the same microsecond.
         deadline = time.monotonic() + timeout + _STARTUP_RESULT_GRACE
         while time.monotonic() < deadline:
             if manifest_path.exists():
@@ -695,13 +693,13 @@ def start_session(
             if error_path.exists():
                 message = error_path.read_text(encoding="utf-8", errors="replace").strip()
                 error_path.unlink(missing_ok=True)
-                raise PolicyError(f"démarrage de session échoué: {message}")
+                raise PolicyError(f"session startup failed: {message}")
             if supervisor.poll() is not None:
                 detail = _startup_diagnostic_tails(session_dir)
-                raise PolicyError(f"supervisor de session arrêté prématurément: {detail}")
+                raise PolicyError(f"session supervisor stopped prematurely: {detail}")
             time.sleep(0.05)
         detail = _startup_diagnostic_tails(session_dir)
-        raise PolicyError(f"session navigateur non prête après {timeout}s\n{detail}")
+        raise PolicyError(f"browser session not ready after {timeout}s\n{detail}")
     except Exception:
         if supervisor is not None:
             _abort_supervisor(supervisor, session_dir)
@@ -717,7 +715,7 @@ def stop_session(
     target_id: str | None = None,
     timeout: float = 10,
 ) -> dict[str, Any]:
-    timeout = _positive_finite(timeout, "timeout d'arrêt")
+    timeout = _positive_finite(timeout, "stop timeout")
     manifest = load_manifest(manifest_path, run_id=run_id, target_id=target_id)
     with SessionLease(
         manifest_path,
@@ -771,12 +769,12 @@ def session_status(
 def assert_session_active(manifest: SessionManifest) -> None:
     expires = _aware_timestamp(manifest.expires_at, "expires_at")
     if _now() >= expires:
-        raise PolicyError(f"session expirée: {manifest.session_id}")
+        raise PolicyError(f"expired session: {manifest.session_id}")
     _assert_process_identity(
         manifest.browser_pid,
         manifest.browser_start_time,
         _browser_markers(manifest.browser_kind, manifest.profile_dir),
-        "navigateur",
+        "browser",
     )
     _assert_process_identity(
         manifest.supervisor_pid,
@@ -805,7 +803,7 @@ def assert_manifest_target_binding(
     websocket_url = validated.get("webSocketDebuggerUrl")
     assert_loopback_endpoint(manifest.host, websocket_url)
     if websocket_url != manifest.websocket_url:
-        raise PolicyError("session: WebSocket du target différent du manifest")
+        raise PolicyError("session: target WebSocket differs from manifest")
     _validate_websocket_binding(manifest.websocket_url, manifest.port, manifest.target_id)
     return validated
 
@@ -816,10 +814,10 @@ def _assert_devtools_port_binding(manifest: SessionManifest) -> None:
         lines = active_port.read_text(encoding="utf-8").splitlines()
         port = int(lines[0])
     except (OSError, IndexError, ValueError) as e:
-        raise PolicyError("profil de session: DevToolsActivePort invalide") from e
+        raise PolicyError("session profile: invalid DevToolsActivePort") from e
     if port != manifest.port:
         raise PolicyError(
-            f"profil de session non lié au port attribué: attendu={manifest.port}, reçu={port}"
+            f"session profile not bound to the assigned port: expected={manifest.port}, got={port}"
         )
 
 
@@ -827,14 +825,14 @@ def remove_session_files(manifest_path: str | Path) -> None:
     manifest = load_manifest(manifest_path)
     session_dir = Path(manifest.session_dir).resolve()
     if session_dir != Path(manifest_path).resolve().parent:
-        raise PolicyError("refus de supprimer un dossier hors session")
+        raise PolicyError("refusing to remove a directory outside the session")
     shutil.rmtree(session_dir)
 
 
-# Implémentations vivantes de l'identité/terminaison de processus: les tests
-# les monkeypatchent via ce namespace (session._process_identity, ...) et le
-# superviseur les consomme via la façade. sessions/process.py ne doit pas en
-# porter de doublon.
+# Live implementations of process identity/termination: tests monkeypatch
+# them through this namespace (session._process_identity, ...) and the
+# supervisor consumes them through the facade. sessions/process.py must not
+# carry a duplicate.
 def _assert_process_identity(
     pid: int,
     expected_start_time: str,
@@ -843,9 +841,9 @@ def _assert_process_identity(
 ) -> None:
     actual_start_time, argv = _process_identity(pid)
     if actual_start_time != expected_start_time:
-        raise PolicyError(f"{label} de session réutilisé ou non attribué: pid={pid}")
+        raise PolicyError(f"session {label} reused or not assigned: pid={pid}")
     if marker is not None and not _argv_has_markers(argv, marker):
-        raise PolicyError(f"{label} de session sans marqueur attendu: pid={pid}")
+        raise PolicyError(f"session {label} without expected marker: pid={pid}")
 
 
 def _process_matches(
@@ -854,7 +852,7 @@ def _process_matches(
     marker: str | tuple[str, ...] | None,
 ) -> bool:
     try:
-        _assert_process_identity(pid, start_time, marker, "processus")
+        _assert_process_identity(pid, start_time, marker, "process")
     except PolicyError:
         return False
     return True
@@ -885,14 +883,14 @@ def _terminate_owned_pid(
 
 
 def _startup_diagnostic_tails(session_dir: Path) -> str:
-    """Retourne des tails bornés et nettoyés avant le teardown privé."""
+    """Return bounded, cleaned tails before the private teardown."""
 
     context = RedactionContext.from_secrets(secret_values_from_environment())
     sections = []
     for filename in ("supervisor.log", "chrome-stderr.log"):
         path = session_dir / filename
         raw = _read_private_diagnostic_tail(path)
-        tail = raw[-_DIAGNOSTIC_TAIL_BYTES:].strip() or "<vide ou indisponible>"
+        tail = raw[-_DIAGNOSTIC_TAIL_BYTES:].strip() or "<empty or unavailable>"
         cleaned = redact_text(
             tail,
             context=context,
@@ -903,7 +901,7 @@ def _startup_diagnostic_tails(session_dir: Path) -> str:
 
 
 def _read_private_diagnostic_tail(path: Path) -> str:
-    """Lit au plus le tail autorisé sans suivre de lien ni course de chemin."""
+    """Read at most the allowed tail without following a link or a path race."""
 
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
@@ -930,7 +928,7 @@ def _read_private_diagnostic_tail(path: Path) -> str:
 def _remaining_startup_timeout(deadline: float, stage: str) -> float:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise PolicyError(f"timeout de démarrage pendant {stage}")
+        raise PolicyError(f"startup timeout during {stage}")
     return remaining
 
 
@@ -939,7 +937,7 @@ def _read_devtools_port(profile_dir: Path, proc: subprocess.Popen[Any], timeout:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise PolicyError(f"Chrome arrêté avant readiness (exit {proc.returncode})")
+            raise PolicyError(f"Chrome stopped before readiness (exit {proc.returncode})")
         try:
             first = active_port.read_text(encoding="utf-8").splitlines()[0]
             port = int(first)
@@ -948,7 +946,7 @@ def _read_devtools_port(profile_dir: Path, proc: subprocess.Popen[Any], timeout:
         except (OSError, IndexError, ValueError):
             pass
         time.sleep(0.05)
-    raise PolicyError("DevToolsActivePort introuvable")
+    raise PolicyError("DevToolsActivePort not found")
 
 
 def _wait_discovery(port: int, proc: subprocess.Popen[Any], timeout: float = 30) -> None:
@@ -956,7 +954,7 @@ def _wait_discovery(port: int, proc: subprocess.Popen[Any], timeout: float = 30)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise PolicyError(f"Chrome arrêté avant discovery (exit {proc.returncode})")
+            raise PolicyError(f"Chrome stopped before discovery (exit {proc.returncode})")
         try:
             with opener.open(f"http://127.0.0.1:{port}/json/version", timeout=0.5) as response:
                 if response.status == 200:
@@ -964,16 +962,16 @@ def _wait_discovery(port: int, proc: subprocess.Popen[Any], timeout: float = 30)
         except (OSError, urllib.error.URLError):
             pass
         time.sleep(0.05)
-    raise PolicyError("endpoint discovery Chrome indisponible")
+    raise PolicyError("Chrome discovery endpoint unavailable")
 
 
 def _page_targets(host: str, port: int) -> list[DiscoveryTarget]:
     try:
         targets = discovery.list_targets(host, port)
     except discovery.DiscoveryError as e:
-        raise PolicyError(f"discovery de session indisponible: {e}") from e
+        raise PolicyError(f"session discovery unavailable: {e}") from e
     if not isinstance(targets, list):
-        raise PolicyError("discovery de session: liste de targets requise")
+        raise PolicyError("session discovery: list of targets required")
     return [target for target in targets if target.get("type") == "page"]
 
 
@@ -981,7 +979,7 @@ def _assert_exact_target(manifest: SessionManifest) -> DiscoveryTarget:
     pages = _page_targets(manifest.host, manifest.port)
     if len(pages) != 1:
         raise PolicyError(
-            f"session {manifest.session_id}: un seul target page requis, trouvé={len(pages)}"
+            f"session {manifest.session_id}: exactly one page target required, found={len(pages)}"
         )
     return assert_manifest_target_binding(manifest, pages[0])
 
@@ -996,14 +994,14 @@ def _enforce_single_page_target(
         target_id = target.get("id")
         if target_id != manifest.target_id:
             if not isinstance(target_id, str) or not target_id:
-                raise PolicyError("target page supplémentaire sans identifiant")
+                raise PolicyError("extra page target without identifier")
             try:
                 discovery.close_tab(manifest.host, manifest.port, target_id)
             except discovery.DiscoveryError as e:
-                raise PolicyError(f"fermeture du target supplémentaire échouée: {target_id}") from e
-    # Chrome répond avant que /json/list cesse toujours d'exposer le target en
-    # cours de fermeture. Attendre cette transition de façon bornée évite un
-    # faux refus tout en échouant fermé si un target supplémentaire persiste.
+                raise PolicyError(f"closing the extra target failed: {target_id}") from e
+    # Chrome responds before /json/list always stops exposing the target
+    # being closed. Waiting for this transition in a bounded way avoids a
+    # false rejection while still failing closed if an extra target persists.
     deadline = time.monotonic() + close_timeout
     while True:
         pages = _page_targets(manifest.host, manifest.port)
@@ -1019,13 +1017,13 @@ def _secure_regular_file(path: Path, label: str) -> os.stat_result:
     try:
         info = path.lstat()
     except OSError as e:
-        raise PolicyError(f"{label} illisible: {path}") from e
+        raise PolicyError(f"unreadable {label}: {path}") from e
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise PolicyError(f"{label} régulier non symbolique requis")
+        raise PolicyError(f"regular, non-symbolic {label} required")
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
-        raise PolicyError(f"{label} appartenant à un autre utilisateur")
+        raise PolicyError(f"{label} owned by another user")
     if stat.S_IMODE(info.st_mode) & 0o077:
-        raise PolicyError(f"permissions de {label} trop ouvertes; 0600 requis")
+        raise PolicyError(f"{label} permissions too open; 0600 required")
     return info
 
 
@@ -1033,13 +1031,13 @@ def _secure_directory(path: Path, label: str) -> os.stat_result:
     try:
         info = path.lstat()
     except OSError as e:
-        raise PolicyError(f"{label} illisible: {path}") from e
+        raise PolicyError(f"unreadable {label}: {path}") from e
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-        raise PolicyError(f"{label} régulier non symbolique requis")
+        raise PolicyError(f"regular, non-symbolic {label} required")
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
-        raise PolicyError(f"{label} appartenant à un autre utilisateur")
+        raise PolicyError(f"{label} owned by another user")
     if stat.S_IMODE(info.st_mode) & 0o077:
-        raise PolicyError(f"permissions de {label} trop ouvertes; 0700 requis")
+        raise PolicyError(f"{label} permissions too open; 0700 required")
     return info
 
 
@@ -1047,35 +1045,35 @@ def _read_bootstrap(bootstrap_path: Path) -> SupervisorBootstrap:
     if not bootstrap_path.is_absolute():
         bootstrap_path = Path.cwd() / bootstrap_path
     if bootstrap_path.name != "bootstrap.json":
-        raise PolicyError("bootstrap de session: nom bootstrap.json requis")
+        raise PolicyError("session bootstrap: name bootstrap.json required")
     session_dir = bootstrap_path.parent
     if not _SESSION_ID_RE.fullmatch(session_dir.name):
-        raise PolicyError("bootstrap de session: dossier de session invalide")
-    _secure_directory(session_dir, "dossier bootstrap")
-    expected = _secure_regular_file(bootstrap_path, "bootstrap de session")
+        raise PolicyError("session bootstrap: invalid session directory")
+    _secure_directory(session_dir, "bootstrap directory")
+    expected = _secure_regular_file(bootstrap_path, "session bootstrap")
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
         fd = os.open(bootstrap_path, flags)
     except OSError as e:
-        raise PolicyError("bootstrap de session non ouvrable") from e
+        raise PolicyError("session bootstrap not openable") from e
     try:
         actual = os.fstat(fd)
         if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
-            raise PolicyError("bootstrap de session remplacé pendant la validation")
+            raise PolicyError("session bootstrap replaced during validation")
         if actual.st_size > 64 * 1024:
-            raise PolicyError("bootstrap de session trop volumineux")
+            raise PolicyError("session bootstrap too large")
         with os.fdopen(fd, "r", encoding="utf-8") as stream:
             fd = -1
             payload = json.load(stream)
     except (OSError, UnicodeError, json.JSONDecodeError) as e:
-        raise PolicyError(f"bootstrap de session invalide: {e}") from e
+        raise PolicyError(f"invalid session bootstrap: {e}") from e
     finally:
         if fd >= 0:
             os.close(fd)
     if not isinstance(payload, dict) or set(payload) != _BOOTSTRAP_FIELDS:
-        raise PolicyError("bootstrap de session: champs stricts invalides")
+        raise PolicyError("session bootstrap: invalid strict fields")
     return _validate_bootstrap_payload(payload, bootstrap_path)
 
 
@@ -1086,22 +1084,22 @@ def _validate_bootstrap_payload(
     session_id = payload["session_id"]
     profile_id = payload["profile_id"]
     if not isinstance(session_id, str) or not _SESSION_ID_RE.fullmatch(session_id):
-        raise PolicyError("bootstrap de session: session_id invalide")
+        raise PolicyError("session bootstrap: invalid session_id")
     if session_id != bootstrap_path.parent.name:
-        raise PolicyError("bootstrap de session: session_id non lié au dossier")
+        raise PolicyError("session bootstrap: session_id not bound to directory")
     if not isinstance(profile_id, str) or not _PROFILE_ID_RE.fullmatch(profile_id):
-        raise PolicyError("bootstrap de session: profile_id invalide")
+        raise PolicyError("session bootstrap: invalid profile_id")
     origins = payload["origins"]
     if (
         not isinstance(origins, list)
         or not origins
         or not all(isinstance(item, str) and item for item in origins)
     ):
-        raise PolicyError("bootstrap de session: origins invalides")
+        raise PolicyError("session bootstrap: invalid origins")
     if not all(isinstance(payload[key], str) for key in ("run_id", "authority", "browser_kind")):
-        raise PolicyError("bootstrap de session: run/authority/browser_kind invalides")
+        raise PolicyError("session bootstrap: invalid run/authority/browser_kind")
     if payload["browser_kind"] not in BROWSER_KINDS:
-        raise PolicyError("bootstrap de session: browser_kind invalide")
+        raise PolicyError("session bootstrap: invalid browser_kind")
     context = ExecutionContext.create(
         run_id=payload["run_id"],
         target_id="pending",
@@ -1110,7 +1108,7 @@ def _validate_bootstrap_payload(
         session_id=session_id,
     )
     if tuple(origins) != context.origins:
-        raise PolicyError("bootstrap de session: origins non canoniques")
+        raise PolicyError("session bootstrap: non-canonical origins")
     session_dir = bootstrap_path.parent.resolve()
     expected_paths = {
         "session_dir": session_dir,
@@ -1120,30 +1118,30 @@ def _validate_bootstrap_payload(
     for key, expected in expected_paths.items():
         raw = payload[key]
         if not isinstance(raw, str) or not Path(raw).is_absolute() or Path(raw) != expected:
-            raise PolicyError(f"bootstrap de session: {key} hors session")
-    _secure_directory(expected_paths["profile_dir"], "profil de session")
-    _secure_directory(expected_paths["artifacts_dir"], "artefacts de session")
+            raise PolicyError(f"session bootstrap: {key} outside session")
+    _secure_directory(expected_paths["profile_dir"], "session profile")
+    _secure_directory(expected_paths["artifacts_dir"], "session artifacts")
     chrome_bin = payload["chrome_bin"]
     if not isinstance(chrome_bin, str) or not chrome_bin or "\x00" in chrome_bin:
-        raise PolicyError("bootstrap de session: chrome_bin invalide")
+        raise PolicyError("session bootstrap: invalid chrome_bin")
     startup_timeout = _positive_finite(
         payload["startup_timeout"],
-        "bootstrap de session: startup_timeout",
+        "session bootstrap: startup_timeout",
     )
     if startup_timeout > MAX_STARTUP_TIMEOUT:
-        raise PolicyError("bootstrap de session: startup_timeout hors plage")
+        raise PolicyError("session bootstrap: startup_timeout out of range")
     created = _aware_timestamp(payload["created_at"], "created_at")
     expires = _aware_timestamp(payload["expires_at"], "expires_at")
     if expires <= created:
-        raise PolicyError("bootstrap de session: expiration invalide")
+        raise PolicyError("session bootstrap: invalid expiration")
     owner_pid = payload["owner_pid"]
     owner_start_time = payload["owner_start_time"]
     if (owner_pid is None) != (owner_start_time is None):
-        raise PolicyError("bootstrap de session: owner incomplet")
+        raise PolicyError("session bootstrap: incomplete owner")
     if owner_pid is not None:
         _strict_int(owner_pid, "owner_pid", maximum=_MAX_PID)
         if not isinstance(owner_start_time, str) or not owner_start_time:
-            raise PolicyError("bootstrap de session: owner_start_time invalide")
+            raise PolicyError("session bootstrap: invalid owner_start_time")
         _assert_process_identity(owner_pid, owner_start_time, None, "owner")
     return SupervisorBootstrap(
         session_id=session_id,

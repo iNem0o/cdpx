@@ -38,7 +38,7 @@ def test_type_literal_is_redacted_and_not_replayable():
     }
     assert "super-secret" not in json.dumps(stored)
     #: rejouer une action amputée de sa valeur serait un mensonge: refus net
-    with pytest.raises(JournalError, match="non rejouable"):
+    with pytest.raises(JournalError, match="not replayable"):
         materialize_action(stored)
 
 
@@ -107,9 +107,9 @@ def test_v1_sensitive_actions_are_always_rejected():
     anodines passent."""
     #: type et eval au format v1 sont irrécupérables sans risque de rejouer
     #: une valeur qui aurait dû rester secrète
-    with pytest.raises(JournalError, match="v1 sensible"):
+    with pytest.raises(JournalError, match="sensitive v1"):
         materialize_action(["type", "#password", "raw"])
-    with pytest.raises(JournalError, match="v1 sensible"):
+    with pytest.raises(JournalError, match="sensitive v1"):
         materialize_action(["eval", "1 + 1"])
     #: une action v1 sans donnée sensible reste rejouable telle quelle
     assert materialize_action(["click", "#go"]) == ClickAction("#go")
@@ -136,7 +136,7 @@ def test_secure_append_refuses_a_symbolic_journal(tmp_path):
     link.symlink_to(sensitive)
 
     #: le lien est détecté et refusé avant toute écriture
-    with pytest.raises(JournalError, match="symbolique"):
+    with pytest.raises(JournalError, match="symbolic"):
         append_event(link, {"ok": True})
 
     #: le fichier visé par le lien n'a pas été touché

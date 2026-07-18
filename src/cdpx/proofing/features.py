@@ -32,14 +32,13 @@ IGNORED_PATH_PARTS = {
 }
 FEATURE_STATUSES = {"planned", "active", "validated", "deprecated"}
 
-# Ratchet : nombre maximal de tests rattachés seulement par le test_globs large
-# d'une feature, sans scénario documenté. Il ne peut que BAISSER — un
-# dépassement est une violation bloquante, pour que la dette narrative ne
-# recroisse jamais.
+# Ratchet: maximum number of tests attached only by a feature's broad
+# test_globs, without a documented scenario. It can only GO DOWN — an
+# overrun is a blocking violation, so narrative debt never grows back.
 UNDOCUMENTED_SCENARIO_WARNING_BUDGET = 0
 
-# Sections obligatoires du corps Markdown (affichées telles quelles dans
-# le rapport de preuve). "Usage" porte la doc utilisateur par entrypoint.
+# Mandatory sections of the Markdown body (displayed as-is in the proof
+# report). "Usage" carries the user documentation per entrypoint.
 REQUIRED_SECTIONS = (
     "Intent",
     "Usage",
@@ -231,7 +230,7 @@ def build_feature_inventory(
         violations.append(
             "undocumented scenario warnings over budget: "
             f"{undocumented_count} > {UNDOCUMENTED_SCENARIO_WARNING_BUDGET} "
-            "(documenter les scénarios ou élargir les specs, pas le budget)"
+            "(document the scenarios or widen the specs, not the budget)"
         )
 
     changed_paths = [item["path"] for item in git_context.get("changed_files", [])]
@@ -348,8 +347,8 @@ def parse_feature_doc(path: Path) -> FeatureSpec:
 
 
 def _require_usage_headings(path: Path, body: str, entrypoints: list[str]) -> None:
-    """Garde-fou doc utilisateur: chaque entrypoint déclaré a son `### <id>`
-    dans la section Usage. Une commande sans doc casse `make proof`."""
+    """User doc guard: every declared entrypoint has its `### <id>`
+    heading in the Usage section. A command without doc breaks `make proof`."""
     usage = re.search(r"^##\s+Usage\s*$(.*?)(?=^##\s|\Z)", body, re.M | re.S)
     usage_body = usage.group(1) if usage else ""
     headings = {
@@ -359,8 +358,7 @@ def _require_usage_headings(path: Path, body: str, entrypoints: list[str]) -> No
     missing = [entry for entry in entrypoints if entry not in headings]
     if missing:
         raise ValueError(
-            f"{path}: entrypoints sans doc utilisateur (### manquant dans ## Usage): "
-            + ", ".join(missing)
+            f"{path}: entrypoints without user doc (### missing in ## Usage): " + ", ".join(missing)
         )
 
 

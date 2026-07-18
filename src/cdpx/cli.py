@@ -1,13 +1,13 @@
-"""CLI cdpx — interface agent/humain vers les primitives CDP.
+"""cdpx CLI — agent/human interface to CDP primitives.
 
-Contrat de sortie (voir HARNESS.md):
-- stdout = UN objet JSON compact par défaut (parsable machine, sobre en tokens).
-- --pretty = JSON indenté pour lecture humaine.
-- stderr = diagnostics humains.
-- exit 0 = succès, 1 = erreur d'exécution (CDP/JS/timeout), 2 = erreur d'usage.
+Output contract (see HARNESS.md):
+- stdout = ONE compact JSON object by default (machine-parsable, token-frugal).
+- --pretty = indented JSON for human reading.
+- stderr = human diagnostics.
+- exit 0 = success, 1 = execution error (CDP/JS/timeout), 2 = usage error.
 
-Connexion: chaque commande navigateur utilise un manifest de session supervisée,
-un run et un target explicitement attribués.
+Connection: each browser command uses a supervised session manifest, an
+explicitly assigned run and target.
 """
 
 from __future__ import annotations
@@ -38,25 +38,25 @@ from cdpx.primitives import (
 )
 from cdpx.security import redact_text
 
-# -- commandes -----------------------------------------------------------------
-# -- parseur ---------------------------------------------------------------------
+# -- commands -----------------------------------------------------------------
+# -- parser ---------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="cdpx", description=__doc__)
     p.add_argument("--version", action="version", version=f"cdpx {__version__}")
-    p.add_argument("--target", default=None, help="id du target attribué (CDPX_TARGET)")
-    p.add_argument("--session", default=None, help="manifest de session (CDPX_SESSION)")
-    p.add_argument("--run-id", default=None, help="run propriétaire (CDPX_RUN_ID)")
+    p.add_argument("--target", default=None, help="assigned target id (CDPX_TARGET)")
+    p.add_argument("--session", default=None, help="session manifest (CDPX_SESSION)")
+    p.add_argument("--run-id", default=None, help="owning run (CDPX_RUN_ID)")
     p.add_argument("--timeout", type=float, default=15.0)
-    p.add_argument("--pretty", action="store_true", help="JSON indenté pour lecture humaine")
-    p.add_argument("--full", action="store_true", help="ne pas borner les sorties volumineuses")
-    p.add_argument("--max-actions", type=int, default=None, help="budget d'actions agentiques")
+    p.add_argument("--pretty", action="store_true", help="indented JSON for human reading")
+    p.add_argument("--full", action="store_true", help="do not bound large outputs")
+    p.add_argument("--max-actions", type=int, default=None, help="agentic action budget")
     p.add_argument(
         "--limit",
         type=int,
         default=output.DEFAULT_LIMIT,
-        help="nombre max d'items par liste volumineuse (défaut: 50)",
+        help="max number of items per large list (default: 50)",
     )
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -77,7 +77,7 @@ def _require_session_values(values: tuple[tuple[str, str | None], ...]) -> None:
     missing = [label for label, value in values if not value]
     if missing:
         raise scenarios.ScenarioUsageError(
-            f"session: {', '.join(missing)} requis via argument ou environnement"
+            f"session: {', '.join(missing)} required via argument or environment"
         )
 
 
@@ -89,7 +89,7 @@ def _prepare_args(args: CommandInvocation) -> CommandInvocation:
             or args.options.target is not None
         ):
             raise scenarios.ScenarioUsageError(
-                "session start/status/stop utilise ses options propres après la sous-commande"
+                "session start/status/stop uses its own options after the subcommand"
             )
         args = args.with_session_run_id(
             _argument_or_environment(
@@ -100,7 +100,7 @@ def _prepare_args(args: CommandInvocation) -> CommandInvocation:
         if args.options.session_action == "start":
             _require_session_values((("--run-id/CDPX_RUN_ID", args.options.session_run_id),))
             if args.options.full and args.options.authority is not Authority.PRIVILEGED:
-                raise PolicyError("session: --full requiert privileged")
+                raise PolicyError("session: --full requires privileged")
             return args
         args = args.with_lifecycle_identity(
             path=_argument_or_environment(args.options.session_path, "CDPX_SESSION"),
@@ -117,14 +117,14 @@ def _prepare_args(args: CommandInvocation) -> CommandInvocation:
         run_id = args.options.session_run_id
         target_id = args.options.session_target
         if session_path is None or run_id is None or target_id is None:
-            raise RuntimeError("identité de session non préparée")
+            raise RuntimeError("session identity not prepared")
         manifest = session.load_manifest(
             session_path,
             run_id=run_id,
             target_id=target_id,
         )
         if args.options.full and manifest.authority != "privileged":
-            raise PolicyError("session: --full requiert privileged")
+            raise PolicyError("session: --full requires privileged")
         return args.with_session(manifest)
 
     args = args.with_browser_identity(
@@ -143,7 +143,7 @@ def _prepare_args(args: CommandInvocation) -> CommandInvocation:
     run_id = args.options.run_id
     target_id = args.options.target
     if session_path is None or run_id is None or target_id is None:
-        raise RuntimeError("identité de session non préparée")
+        raise RuntimeError("session identity not prepared")
     manifest = session.load_manifest(session_path, run_id=run_id, target_id=target_id)
     session.assert_session_active(manifest)
     evidence_dir = (
@@ -152,7 +152,7 @@ def _prepare_args(args: CommandInvocation) -> CommandInvocation:
         else ""
     )
     if args.options.full and manifest.authority != "privileged":
-        raise PolicyError("session: --full requiert privileged")
+        raise PolicyError("session: --full requires privileged")
     return args.with_runtime_endpoint(
         host=manifest.host,
         port=manifest.port,

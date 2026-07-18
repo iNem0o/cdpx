@@ -1,9 +1,9 @@
-"""Rendu CommonMark sûr pour la documentation du cockpit.
+"""Safe CommonMark rendering for the cockpit documentation.
 
-Le HTML source reste désactivé. Les seules balises injectées par cdpx sont
-produites par des règles de rendu contrôlées, notamment pour Mermaid. Les liens
-internes sont résolus contre le catalogue documentaire afin qu'un rapport
-ouvert hors ligne ne pointe jamais vers un faux chemin sous ``.proof/``.
+Source HTML stays disabled. The only tags injected by cdpx are produced by
+controlled rendering rules, notably for Mermaid. Internal links are resolved
+against the documentation catalog so a report opened offline never points
+to a fake path under ``.proof/``.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _render_link_open(
             token.attrs.pop("href", None)
             token.attrSet("class", "doc-link-unavailable")
             token.attrSet("aria-disabled", "true")
-            token.attrSet("title", "Document non publié dans le cockpit")
+            token.attrSet("title", "Document not published in the cockpit")
     return renderer.renderToken(tokens, idx, options, env)
 
 
@@ -145,7 +145,7 @@ def render_markdown(
     source_path: str = "",
     catalog_paths: Collection[str] = (),
 ) -> str:
-    """Rend un document Markdown avec un contexte de navigation optionnel."""
+    """Render a Markdown document with an optional navigation context."""
 
     env = {
         "source_path": source_path,
@@ -155,7 +155,7 @@ def render_markdown(
 
 
 def markdown_title(text: str) -> str | None:
-    """Retourne le texte du premier H1 sans accepter de HTML source."""
+    """Return the text of the first H1 without accepting source HTML."""
 
     tokens = _MARKDOWN.parse(text)
     for index, token in enumerate(tokens[:-1]):
@@ -167,6 +167,6 @@ def markdown_title(text: str) -> str | None:
 
 
 def escape_mermaid_source(value: str) -> str:
-    """Helper public testé pour rappeler que Mermaid reçoit du texte échappé."""
+    """Public, tested helper to remind that Mermaid receives escaped text."""
 
     return escapeHtml(value)

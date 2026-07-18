@@ -18,15 +18,15 @@
     const scenario = context?.scenario;
     const run = context?.run;
     if (scenario) {
-      rows.push(['Scénario', esc(scenario.title || scenario.id || '')]);
+      rows.push(['Scenario', esc(scenario.title || scenario.id || '')]);
       const wording = scenario.report_text || scenario.ui_text;
-      if (wording) rows.push(['', `<em>« ${esc(wording)} »</em>`]);
+      if (wording) rows.push(['', `<em>“${esc(wording)}”</em>`]);
     }
     const step = artifact.step || (artifact.meta && artifact.meta.step) || '';
-    if (step) rows.push(['Étape', `<code>${esc(step)}</code>`]);
+    if (step) rows.push(['Step', `<code>${esc(step)}</code>`]);
     if (run && run.nodeid) rows.push(['Test', `<code>${esc(run.nodeid)}</code>`]);
-    if (run && run.intent) rows.push(['Intention', esc(run.intent)]);
-    if (artifact.created_at) rows.push(['Capturé', esc(relativeCapture(artifact, run))]);
+    if (run && run.intent) rows.push(['Intent', esc(run.intent)]);
+    if (artifact.created_at) rows.push(['Captured', esc(relativeCapture(artifact, run))]);
     if (artifact.bytes) rows.push(['Taille', esc(`${artifact.bytes} octets`)]);
     rows.push(['', fileLink(artifact)]);
     return rows

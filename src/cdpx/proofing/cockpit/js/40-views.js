@@ -1,23 +1,23 @@
-/* Cockpit SPA (5/6) — vues: features, docs, scénarios, gaps, run, CLI, validation. */
+/* Cockpit SPA (5/6) — views: features, docs, scenarios, gaps, run, CLI, validation. */
   function renderMetrics() {
     const totals = data.totals || {};
     const featureTotals = data.feature_inventory.totals || {};
     const scenarioTotals = data.scenario_totals || {};
     const okFeatures = features().filter((feature) => featureStatus(feature) === 'ok').length;
     return `<div class="metrics">
-      <div class="metric"><strong>${data.ok ? 'OK' : 'ECHEC'}</strong><span>Verdict global</span></div>
-      <div class="metric"><strong>${esc(totals.passed || 0)}/${esc(totals.tests || 0)}</strong><span>Tests passés</span></div>
-      <div class="metric"><strong>${okFeatures}/${features().length}</strong><span>Features sans gap</span></div>
-      <div class="metric"><strong>${esc(featureTotals.documented_scenarios || 0)}</strong><span>Scénarios documentés</span></div>
-      <div class="metric"><strong>${esc(featureTotals.scenarios || 0)}</strong><span>Tests scénarisés</span></div>
+      <div class="metric"><strong>${data.ok ? 'OK' : 'FAILED'}</strong><span>Overall verdict</span></div>
+      <div class="metric"><strong>${esc(totals.passed || 0)}/${esc(totals.tests || 0)}</strong><span>Tests passed</span></div>
+      <div class="metric"><strong>${okFeatures}/${features().length}</strong><span>Features without gaps</span></div>
+      <div class="metric"><strong>${esc(featureTotals.documented_scenarios || 0)}</strong><span>Documented scenarios</span></div>
+      <div class="metric"><strong>${esc(featureTotals.scenarios || 0)}</strong><span>Scenario-mapped tests</span></div>
       <div class="metric"><strong>${esc(scenarioTotals.screenshots || 0)}</strong><span>Screenshots</span></div>
       <div class="metric"><strong>${esc((featureTotals.violations || 0) + (featureTotals.warnings || 0))}</strong><span>Gaps catalogue</span></div>
-      <div class="metric"><strong>${esc(featureTotals.mapped_entrypoints || 0)}/${esc(featureTotals.entrypoints || 0)}</strong><span>Entrypoints rattachés</span></div>
-      <div class="metric${(totals.unavailable || 0) ? ' warning' : ''}"><strong>${esc(totals.unavailable || 0)}</strong><span>Preuves indisponibles</span></div>
+      <div class="metric"><strong>${esc(featureTotals.mapped_entrypoints || 0)}/${esc(featureTotals.entrypoints || 0)}</strong><span>Attached entrypoints</span></div>
+      <div class="metric${(totals.unavailable || 0) ? ' warning' : ''}"><strong>${esc(totals.unavailable || 0)}</strong><span>Unavailable proofs</span></div>
     </div>`;
   }
 
-  /* === Ordre de lecture guidé: verdict -> échecs -> features -> run === */
+  /* === Guided reading order: verdict -> failures -> features -> run === */
 
   const scenarioArtifacts = (runs) => (runs || []).flatMap((run) => run.artifacts || []);
 
@@ -38,9 +38,9 @@
     if (data.ok && !failures.length && !failed.length) return '';
     const failureItems = failures.map((item) => `<li>${esc(item)}</li>`).join('');
     const runItems = failed.map((run) => {
-      /* run.scenario_id est la forme complète "<feature>.<id court>"; les
-         routes scénario (findScenario) matchent l'id court des nœuds — on
-         retire donc le préfixe feature avant de construire le lien. */
+      /* run.scenario_id is the full form "<feature>.<short id>"; the
+         scenario routes (findScenario) match the nodes' short id — so the
+         feature prefix is stripped before building the link. */
       const scenarioId = String(run.scenario_id || '');
       const prefix = `${run.feature}.`;
       const shortId = scenarioId.startsWith(prefix) ? scenarioId.slice(prefix.length) : scenarioId;
@@ -49,15 +49,15 @@
         : '#/gaps';
       return `<li>${statusPill(run.status)} <a href="${href}"><code>${esc(run.nodeid)}</code></a> ${esc(run.message || '')}</li>`;
     }).join('');
-    return `<section class="panel read-first"><h2>À lire d'abord</h2>
+    return `<section class="panel read-first"><h2>Read first</h2>
       <ul class="list">${failureItems}${runItems}</ul></section>`;
   }
 
   function renderReadingPath() {
     return `<div class="reading-path">Parcours de lecture — <strong>1.</strong> Verdict
-      · <strong>2.</strong> <a href="#/gaps">Échecs &amp; gaps</a>
+      · <strong>2.</strong> <a href="#/gaps">Failures &amp; gaps</a>
       · <strong>3.</strong> Features ci-dessous
-      · <strong>4.</strong> <a href="#/run">Preuves du run</a></div>`;
+      · <strong>4.</strong> <a href="#/run">Run proofs</a></div>`;
   }
 
   function decorateTopbar() {
@@ -82,16 +82,16 @@
         <p>${esc(feature.summary)}</p>
         <div class="meta">
           <span>${(feature.journeys || []).length} journeys</span>
-          <span>${(feature.scenarios || []).length} scénarios docs</span>
+          <span>${(feature.scenarios || []).length} documented scenarios</span>
           <span>${(feature.matched_tests || []).length} tests</span>
-          <span>${(feature.proofs || []).length} preuves</span>
+          <span>${(feature.proofs || []).length} proofs</span>
         </div>
         <div class="badges">${typeBadges(scenarioArtifacts(feature.matched_scenarios))}</div>
       </article>`;
     }).join('');
     app.innerHTML = `${crumbs([{label: 'Features'}])}
       <h1>Features</h1>
-      <p>Navigation produit par feature, journey et scénario. Les textes affichés viennent des docs feature.</p>
+      <p>Product navigation by feature, journey and scenario. The displayed texts come from the feature docs.</p>
       ${renderReadFirst()}${renderMetrics()}${renderReadingPath()}<div class="grid">${cards}</div>`;
   }
 
@@ -99,17 +99,17 @@
     const cards = documents().map((document) => `<article class="card">
       <div class="meta"><span class="pill ${document.kind === 'feature' ? 'ok' : 'warning'}">${esc(document.kind)}</span><code>${esc(document.path)}</code></div>
       <h2><a href="${docHref(document.path)}">${esc(document.title)}</a></h2>
-      <p>${esc(document.summary || (document.kind === 'feature' ? 'Spécification fonctionnelle liée au harness.' : 'Référence produit rendue depuis le dépôt.'))}</p>
+      <p>${esc(document.summary || (document.kind === 'feature' ? 'Feature specification tied to the harness.' : 'Product reference rendered from the repository.'))}</p>
     </article>`).join('');
     app.innerHTML = `${crumbs([{label: 'Documentation'}])}
-      <h1>Documentation produit</h1>
-      <p>Guides, références et spécifications fonctionnelles rendus depuis les sources Markdown du dépôt. Les fiches features restent également reliées aux tests et preuves.</p>
-      <div class="grid">${cards || '<div class="empty">Aucun document publié.</div>'}</div>`;
+      <h1>Product documentation</h1>
+      <p>Guides, references and feature specifications rendered from the repository's Markdown sources. The feature sheets also stay linked to tests and proofs.</p>
+      <div class="grid">${cards || '<div class="empty">No published document.</div>'}</div>`;
   }
 
   function renderDocument(document) {
     const featureLink = document.feature_id
-      ? `<a class="button" href="#/features/${esc(document.feature_id)}">Voir le harness et les preuves</a>`
+      ? `<a class="button" href="#/features/${esc(document.feature_id)}">See the harness and proofs</a>`
       : '';
     app.innerHTML = `${crumbs([{label: 'Documentation', href: '#/docs'}, {label: document.title}])}
       <div class="meta"><code>${esc(document.path)}</code>${featureLink}</div>
@@ -122,7 +122,7 @@
       return `<article class="card">
         <h3><a href="#/features/${esc(feature.id)}/journeys/${esc(journey.id)}">${esc(journey.title || journey.id)}</a></h3>
         <p><code>${esc(journey.entrypoint || '')}</code></p>
-        <div class="meta"><span>${(journey.scenarios || []).length} scénarios</span><span>${c.passed} passed</span><span>${c.failed} failed</span></div>
+        <div class="meta"><span>${(journey.scenarios || []).length} scenarios</span><span>${c.passed} passed</span><span>${c.failed} failed</span></div>
         <div class="badges">${typeBadges(scenarioArtifacts(journey.matched_scenarios))}</div>
       </article>`;
     }).join('');
@@ -139,10 +139,10 @@
       </div>
       <section class="panel doc"><h2>Documentation utilisateur</h2>${feature.doc_html || '<div class="empty">Aucune documentation.</div>'}</section>
       <h2>User journeys</h2><div class="grid">${journeys}</div>
-      <h2>Tests et preuves</h2>
+      <h2>Tests and proofs</h2>
       <div class="two">
         <section class="panel"><h3>Tests</h3>${list(feature.matched_tests || [], (test) => `<li><code>${esc(test)}</code></li>`)}</section>
-        <section class="panel"><h3>Preuves</h3>${renderProofLinks(feature.proofs || [])}</section>
+        <section class="panel"><h3>Proofs</h3>${renderProofLinks(feature.proofs || [])}</section>
       </div>`;
   }
 
@@ -155,9 +155,9 @@
     ])}
       <h1>${esc(journey.title || journey.id)}</h1>
       <p><code>${esc(journey.entrypoint || '')}</code></p>
-      <div class="meta"><span>${(journey.matched_tests || []).length} tests</span><span>${(journey.proofs || []).length} preuves</span></div>
-      <h2>Scénarios</h2><div class="scenario-list">${scenarios || '<div class="empty">Aucun scénario documenté.</div>'}</div>
-      <h2>Preuves du journey</h2>${renderProofLinks(journey.proofs || [])}`;
+      <div class="meta"><span>${(journey.matched_tests || []).length} tests</span><span>${(journey.proofs || []).length} proofs</span></div>
+      <h2>Scenarios</h2><div class="scenario-list">${scenarios || '<div class="empty">No documented scenario.</div>'}</div>
+      <h2>Journey proofs</h2>${renderProofLinks(journey.proofs || [])}`;
   }
 
   function renderScenarioRow(feature, journey, scenario) {
@@ -170,7 +170,7 @@
         <p>${esc(scenario.ui_text)}</p>
         <code>${esc(scenario.scenario_id)}</code>
       </div>
-      <div class="muted">${(scenario.matched_tests || []).length} tests<br>${(scenario.proofs || []).length} preuves<div class="badges">${typeBadges(scenarioArtifacts(scenario.matched_scenarios))}</div></div>
+      <div class="muted">${(scenario.matched_tests || []).length} tests<br>${(scenario.proofs || []).length} proofs<div class="badges">${typeBadges(scenarioArtifacts(scenario.matched_scenarios))}</div></div>
     </article>`;
   }
 
@@ -189,13 +189,13 @@
         <div><h3>When</h3><p>${esc(scenario.when)}</p></div>
         <div><h3>Then</h3><p>${esc(scenario.then)}</p></div>
       </section>
-      <h2>Tests liés</h2>${renderScenarioRuns(scenario.matched_scenarios || [], scenario.tests || [], scenario)}
-      <h2>Preuves</h2>${renderProofLinks(scenario.proofs || [])}`;
+      <h2>Linked tests</h2>${renderScenarioRuns(scenario.matched_scenarios || [], scenario.tests || [], scenario)}
+      <h2>Proofs</h2>${renderProofLinks(scenario.proofs || [])}`;
   }
 
-  /* === Cartes de test: intention -> assertions -> preuves ===
-     Statuts d'assertion honnêtes: on ne peint en vert que ce que la ligne
-     d'échec permet d'affirmer; sans corrélation, marqueur neutre. */
+  /* === Test cards: intent -> assertions -> proofs ===
+     Honest assertion statuses: only what the failure line allows to
+     assert is painted green; without correlation, a neutral marker. */
 
   function assertionRows(run) {
     const assertions = run.assertions || [];
@@ -223,7 +223,7 @@
         <span class="assertion-text">${esc(assertion.text)}${noteTag}${failNote}</span>
       </div>`;
     }).join('');
-    return `<div class="assertion-list"><h4>Déroulé annoté (#: dans le test)</h4>${rows}</div>`;
+    return `<div class="assertion-list"><h4>Annotated walkthrough (#: in the test)</h4>${rows}</div>`;
   }
 
   function typeBadges(artifacts) {
@@ -250,7 +250,7 @@
       }
       return `<div class="timeline-row"><span class="timeline-time">${esc(offset)}</span>${artifactChip(artifact, group, index)}</div>`;
     }).join('');
-    return `<div class="artifact-timeline"><h4>Preuves (chronologie)</h4>${rows}</div>`;
+    return `<div class="artifact-timeline"><h4>Proofs (timeline)</h4>${rows}</div>`;
   }
 
   function renderTestCard(run, scenario) {
@@ -270,9 +270,9 @@
 
   function renderScenarioRuns(runs, declaredTests, scenario) {
     const declared = list(declaredTests, (test) => `<li><code>${esc(test)}</code></li>`);
-    if (!runs.length) return `<div class="two"><section class="panel"><h3>Déclarés</h3>${declared}</section><section class="panel"><h3>Exécutés</h3><div class="empty">Aucun test exécuté.</div></section></div>`;
+    if (!runs.length) return `<div class="two"><section class="panel"><h3>Declared</h3>${declared}</section><section class="panel"><h3>Executed</h3><div class="empty">No executed test.</div></section></div>`;
     const cards = runs.map((run) => renderTestCard(run, scenario)).join('');
-    return `<details class="panel declared-tests"><summary>Tests déclarés (${(declaredTests || []).length})</summary>${declared}</details>
+    return `<details class="panel declared-tests"><summary>Declared tests (${(declaredTests || []).length})</summary>${declared}</details>
       <div class="test-cards">${cards}</div>`;
   }
 
@@ -291,13 +291,13 @@
   }
 
   function renderArtifacts(artifacts, ctx) {
-    if (!artifacts.length) return '<span class="muted">Aucun artefact</span>';
+    if (!artifacts.length) return '<span class="muted">No artifact</span>';
     const group = artifactGroups.push({artifacts, ctx: ctx || null}) - 1;
     return artifacts.map((artifact, index) => artifactChip(artifact, group, index)).join('');
   }
 
   function renderProofLinks(proofs) {
-    if (!proofs.length) return '<div class="empty">Aucune preuve collectée.</div>';
+    if (!proofs.length) return '<div class="empty">No collected proof.</div>';
     return list(proofs, (proof) => `<li><a href="${esc(hrefFor(proof.path))}">${esc(proof.label || proof.type || 'preuve')}</a> <code>${esc(proof.scenario_id || proof.scenario || '')}</code></li>`);
   }
 
@@ -325,19 +325,19 @@
       (suite.focus || []).map((tc) => `<tr><td>${esc(name)}</td><td>${statusPill(tc.status)}</td><td><code>${esc(tc.classname)}.${esc(tc.name)}</code></td><td>${esc(tc.time_s)}s</td></tr>`)
     ).join('');
     const tails = commands.map((command) => `<details><summary>${esc(command.label)} — <code>${esc(command.log)}</code></summary><pre>${esc(command.log_tail || '(log vide)')}</pre></details>`).join('');
-    app.innerHTML = `${crumbs([{label: 'Run'}])}<h1>Preuves du run</h1>${renderMetrics()}
+    app.innerHTML = `${crumbs([{label: 'Run'}])}<h1>Run proofs</h1>${renderMetrics()}
       <h2>Chronologie</h2>${renderCommandTimeline(commands)}
-      <h2>Commandes</h2><div class="table-wrap"><table><thead><tr><th>Statut</th><th>Preuve</th><th>Commande</th><th>Durée</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <h2>Suites JUnit</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Tests</th><th>Passés</th><th>Échecs</th><th>Skips</th><th>Durée</th><th>XML</th></tr></thead><tbody>${suiteRows}</tbody></table></div>
-      <details class="panel secondary-table"><summary>Focus (échecs ou plus lents)</summary><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Statut</th><th>Test</th><th>Durée</th></tr></thead><tbody>${focusRows}</tbody></table></div></details>
+      <h2>Commands</h2><div class="table-wrap"><table><thead><tr><th>Status</th><th>Proof</th><th>Command</th><th>Duration</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h2>JUnit suites</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Tests</th><th>Passed</th><th>Failures</th><th>Skips</th><th>Duration</th><th>XML</th></tr></thead><tbody>${suiteRows}</tbody></table></div>
+      <details class="panel secondary-table"><summary>Focus (failures or slowest)</summary><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Status</th><th>Test</th><th>Duration</th></tr></thead><tbody>${focusRows}</tbody></table></div></details>
       ${renderCastSection()}
       <details class="panel secondary-table"><summary>Fins de logs</summary>${tails}</details>
-      <details class="panel secondary-table"><summary>Catalogue des preuves</summary>${renderEvidenceCatalog()}</details>`;
+      <details class="panel secondary-table"><summary>Proof catalog</summary>${renderEvidenceCatalog()}</details>`;
   }
 
   function renderCastSection() {
-    // Portail cast: chaque commande de démonstration doit avoir son .cast
-    // "generated"; les versions inlinées du catalogue s'ouvrent dans le player.
+    // Cast gate: every demo command must have its .cast
+    // "generated"; the inlined catalog versions open in the player.
     const casts = data.casts || [];
     if (!casts.length) return '';
     const playable = (data.evidence_catalog || [])
@@ -345,27 +345,27 @@
       .map((item) => ({...item, label: item.name}));
     const chips = playable.length
       ? renderArtifacts(playable, null)
-      : '<span class="muted">Aucun cast jouable embarqué dans ce rapport.</span>';
+      : '<span class="muted">No playable cast embedded in this report.</span>';
     const rows = casts.map((cast) => `<tr>
       <td>${statusPill(cast.status === 'generated' ? 'ok' : 'failed')}</td>
       <td><code>${esc(cast.id)}</code></td>
       <td><code>${esc(cast.path || '—')}</code></td>
       <td>${esc(cast.bytes || 0)}</td>
     </tr>`).join('');
-    return `<h2>Casts de démonstration</h2>
+    return `<h2>Demo casts</h2>
       <div class="badges">${chips}</div>
       <div class="table-wrap"><table><thead><tr><th>Statut</th><th>Cast</th><th>Fichier</th><th>Octets</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderCommandTimeline(commands) {
     const total = commands.reduce((sum, command) => sum + (Number(command.duration_s) || 0), 0);
-    if (!total) return '<div class="empty">Aucune durée mesurée.</div>';
+    if (!total) return '<div class="empty">No measured duration.</div>';
     const bars = commands.map((command) => {
       const share = Math.max(((Number(command.duration_s) || 0) / total) * 100, 1.5);
       return `<div class="tl-bar ${command.status === 'ok' ? 'tl-ok' : 'tl-bad'}" style="width:${share.toFixed(1)}%" title="${esc(command.label)} — ${esc(command.duration_s)}s"><span>${esc(command.id)}</span></div>`;
     }).join('');
     return `<div class="run-timeline">${bars}</div>
-      <p class="muted">Où est passé le temps: largeur ∝ durée (total ${total.toFixed(1)}s), rouge = échec. Survoler pour le détail.</p>`;
+      <p class="muted">Where the time went: width ∝ duration (total ${total.toFixed(1)}s), red = failure. Hover for details.</p>`;
   }
 
   function renderCli() {
@@ -373,11 +373,11 @@
     const byEp = inv.feature_by_entrypoint || {};
     const rows = (inv.entrypoints || []).map((ep) => {
       const featureId = byEp[ep.id] || '';
-      const link = featureId ? `<a href="#/features/${esc(featureId)}">${esc(featureId)}</a>` : '<span class="muted">non rattaché</span>';
+      const link = featureId ? `<a href="#/features/${esc(featureId)}">${esc(featureId)}</a>` : '<span class="muted">unattached</span>';
       return `<tr><td><code>${esc(ep.id)}</code></td><td>${esc(ep.type)}</td><td>${esc(ep.label || '')}</td><td>${link}</td></tr>`;
     }).join('');
     app.innerHTML = `${crumbs([{label: 'CLI'}])}<h1>Surface CLI et entrypoints</h1>
-      <p>${esc((data.project || {}).cli_command_count || 0)} sous-commandes cdpx. Chaque entrypoint public est rattaché à exactement une feature (sinon la preuve échoue). Aide complète capturée: <code>${esc(data.cli_help || '')}</code></p>
+      <p>${esc((data.project || {}).cli_command_count || 0)} cdpx subcommands. Every public entrypoint is attached to exactly one feature (otherwise the proof fails). Full help captured: <code>${esc(data.cli_help || '')}</code></p>
       <div class="table-wrap"><table><thead><tr><th>Entrypoint</th><th>Type</th><th>Description</th><th>Feature</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
@@ -387,10 +387,10 @@
     const riskRows = (data.risks || []).map((risk) => `<tr><td>${esc(risk.risk)}</td><td>${esc(risk.mitigation)}</td><td>${esc(risk.rollback)}</td></tr>`).join('');
     const unknownRows = (data.unknowns || []).map((item) => `<tr><td>${esc(item.item)}</td><td>${esc(item.why)}</td><td>${esc(item.how_to_verify)}</td></tr>`).join('');
     app.innerHTML = `${crumbs([{label: 'Validation'}])}<h1>Matrice de validation</h1>
-      <h2>Preuve par milestone</h2><div class="table-wrap"><table><thead><tr><th>Milestone</th><th>Preuve</th></tr></thead><tbody>${matrixRows}</tbody></table></div>
-      <h2>Tests par module</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Module</th><th>Tests</th><th>Échecs</th><th>Skips</th></tr></thead><tbody>${coverageRows}</tbody></table></div>
-      <h2>Risques et mitigations</h2><div class="table-wrap"><table><thead><tr><th>Risque</th><th>Mitigation</th><th>Rollback</th></tr></thead><tbody>${riskRows}</tbody></table></div>
-      <h2>Inconnues assumées</h2><div class="table-wrap"><table><thead><tr><th>Sujet</th><th>Pourquoi</th><th>Comment vérifier</th></tr></thead><tbody>${unknownRows}</tbody></table></div>`;
+      <h2>Proof by milestone</h2><div class="table-wrap"><table><thead><tr><th>Milestone</th><th>Proof</th></tr></thead><tbody>${matrixRows}</tbody></table></div>
+      <h2>Tests by module</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Module</th><th>Tests</th><th>Failures</th><th>Skips</th></tr></thead><tbody>${coverageRows}</tbody></table></div>
+      <h2>Risks and mitigations</h2><div class="table-wrap"><table><thead><tr><th>Risk</th><th>Mitigation</th><th>Rollback</th></tr></thead><tbody>${riskRows}</tbody></table></div>
+      <h2>Accepted unknowns</h2><div class="table-wrap"><table><thead><tr><th>Subject</th><th>Why</th><th>How to verify</th></tr></thead><tbody>${unknownRows}</tbody></table></div>`;
   }
 
   function renderEvidenceCatalog() {
@@ -403,7 +403,7 @@
     const env = data.environment || {};
     app.innerHTML = `${crumbs([{label: 'Projet'}])}<h1>Contexte projet</h1>
       <section class="panel"><h2>Mission</h2><p>${esc(project.mission || '')}</p><p>Version <code>${esc(project.version || 'unknown')}</code>, branche <code>${esc(data.git?.branch || 'unknown')}</code> @ <code>${esc(data.git?.sha || 'unknown')}</code>.</p>
-      <p>Environnement du run: Python <code>${esc(env.python || '?')}</code>, <code>${esc(env.platform || '?')}</code>, Chrome/Chromium ${env.chrome_or_chromium ? 'présent' : 'absent'}.</p></section>
+      <p>Run environment: Python <code>${esc(env.python || '?')}</code>, <code>${esc(env.platform || '?')}</code>, Chrome/Chromium ${env.chrome_or_chromium ? 'present' : 'absent'}.</p></section>
       <div class="two">
         <section class="panel"><h2>Docs</h2>${list(project.docs || [], (doc) => `<li><code>${esc(doc)}</code></li>`)}</section>
         <section class="panel"><h2>Fixtures</h2>${list(project.fixtures || [], (fixture) => `<li><code>${esc(fixture)}</code></li>`)}</section>
@@ -411,5 +411,5 @@
   }
 
   function renderNotFound() {
-    app.innerHTML = `${crumbs([{label: 'Introuvable'}])}<h1>Vue introuvable</h1><p>La route <code>${esc(route())}</code> ne correspond à aucune vue.</p>`;
+    app.innerHTML = `${crumbs([{label: 'Not found'}])}<h1>View not found</h1><p>La route <code>${esc(route())}</code> matches no view.</p>`;
   }

@@ -19,7 +19,7 @@ PROOF_BANNER_ID = "cdpx-proof-banner"
 
 
 def banner_inject_script(text: str) -> str:
-    """JS d'injection du bandeau de preuve (fixed bottom: n'altère pas le layout)."""
+    """Proof-banner injection JS (fixed bottom: does not alter the layout)."""
     return (
         "(() => {"
         f"const previous = document.getElementById({json.dumps(PROOF_BANNER_ID)});"
@@ -158,11 +158,11 @@ def attach_screenshot(
     full_page: bool = False,
     banner: str | None = None,
 ) -> dict | None:
-    """Capture d'écran de preuve, avec bandeau de wording éphémère opt-in.
+    """Proof screenshot, with an opt-in ephemeral wording banner.
 
-    Le bandeau est injecté juste avant la capture et retiré dans le finally:
-    la page n'est modifiée que pendant le screenshot. Ne pas combiner banner
-    et assertions DOM (comptage de nœuds) dans la même fenêtre de capture.
+    The banner is injected right before the capture and removed in the
+    finally: the page is only modified during the screenshot. Do not combine
+    banner and DOM assertions (node counting) within the same capture window.
     """
     if evidence_case is None:
         return None

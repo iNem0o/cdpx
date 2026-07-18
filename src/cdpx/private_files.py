@@ -14,13 +14,13 @@ class PrivateFileError(ValueError):
 def _secure_parent(path: Path) -> None:
     parent = path.parent
     if parent.is_symlink():
-        raise PrivateFileError(f"dossier privé symbolique interdit: {parent}")
+        raise PrivateFileError(f"symbolic private directory forbidden: {parent}")
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not parent.is_dir():
-        raise PrivateFileError(f"dossier privé requis: {parent}")
+        raise PrivateFileError(f"private directory required: {parent}")
     parent.chmod(0o700)
     if path.is_symlink():
-        raise PrivateFileError(f"fichier privé symbolique interdit: {path}")
+        raise PrivateFileError(f"symbolic private file forbidden: {path}")
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:

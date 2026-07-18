@@ -1,11 +1,11 @@
-"""Modèles typés des fichiers ``*-scenarios.json`` (schéma ``cdpx.scenarios/v2``).
+"""Typed models for ``*-scenarios.json`` files (schema ``cdpx.scenarios/v2``).
 
-Ces TypedDict décrivent le contrat de données partagé entre le plugin
-d'évidence pytest (écrivain), ``cdpx.proof`` (lecteur/réécrivain) et le
-cockpit HTML (consommateur du payload embarqué). La plupart des champs sont
-optionnels (``total=False``): les payloads legacy v1 et les scénarios
-synthétiques (ex. Symfony ``unavailable``) n'en portent qu'un sous-ensemble.
-Seul ``nodeid`` est requis — c'est la clé de corrélation de tout le pipeline.
+These TypedDicts describe the data contract shared between the pytest
+evidence plugin (writer), ``cdpx.proof`` (reader/rewriter), and the HTML
+cockpit (consumer of the embedded payload). Most fields are optional
+(``total=False``): legacy v1 payloads and synthetic scenarios (e.g. Symfony
+``unavailable``) only carry a subset. Only ``nodeid`` is required — it is
+the correlation key of the entire pipeline.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from cdpx.artifacts import ArtifactError
 
 
 class ScenarioAssertion(TypedDict, total=False):
-    """Assertion annotée ``#:`` extraite du code du test."""
+    """``#:``-annotated assertion extracted from the test code."""
 
     line: int
     end_line: int
@@ -27,7 +27,7 @@ class ScenarioAssertion(TypedDict, total=False):
 
 
 class ScenarioArtifact(TypedDict, total=False):
-    """Artefact attaché à un scénario (capture, log, json, cast, …)."""
+    """Artifact attached to a scenario (capture, log, json, cast, …)."""
 
     type: str
     label: str
@@ -36,15 +36,15 @@ class ScenarioArtifact(TypedDict, total=False):
     mime: str
     created_at: str
     excerpt: str
-    # Champs d'inline ajoutés au rendu (inline_scenario_artifacts): le contenu
-    # voyage dans le payload HTML, jamais dans les JSON réécrits sur disque.
+    # Inline fields added at render time (inline_scenario_artifacts): the
+    # content travels in the HTML payload, never in the JSON rewritten to disk.
     inline_content: str
     inline_skipped: str
     truncated: bool
 
 
 class Scenario(TypedDict, total=False):
-    """Scénario documenté d'un run pytest (ou synthétique, ex. Symfony)."""
+    """Documented scenario from a pytest run (or synthetic, e.g. Symfony)."""
 
     nodeid: Required[str]
     suite: str
@@ -76,10 +76,10 @@ class Scenario(TypedDict, total=False):
 
 
 class ScenarioFile(TypedDict, total=False):
-    """Racine versionnée d'un fichier ``*-scenarios.json``.
+    """Versioned root of a ``*-scenarios.json`` file.
 
-    ``schema`` est absent des payloads legacy v1, tolérés tels quels par les
-    lecteurs; toute autre valeur que ``cdpx.scenarios/v2`` est une erreur.
+    ``schema`` is absent from legacy v1 payloads, tolerated as-is by readers;
+    any value other than ``cdpx.scenarios/v2`` is an error.
     """
 
     schema: str
@@ -90,7 +90,7 @@ class ScenarioFile(TypedDict, total=False):
 
 
 class ScenarioTotals(TypedDict):
-    """Totaux agrégés par ``scenario_totals`` pour le hero du cockpit."""
+    """Totals aggregated by ``scenario_totals`` for the cockpit hero."""
 
     scenarios: int
     unit: int
@@ -102,7 +102,7 @@ class ScenarioTotals(TypedDict):
 
 
 class ScenarioEvidence(TypedDict):
-    """Évidence agrégée retournée par ``load_scenario_evidence``."""
+    """Aggregated evidence returned by ``load_scenario_evidence``."""
 
     suites: dict[str, list[Scenario]]
     files: list[str]
@@ -150,18 +150,16 @@ def validated_scenario_file(payload: Any, *, source: str, expected_schema: str) 
     """Validate raw JSON and construct a fresh strict ``ScenarioFile``."""
 
     if not isinstance(payload, dict):
-        raise ArtifactError(
-            f"{source}: racine attendue comme objet JSON, reçu {type(payload).__name__}"
-        )
+        raise ArtifactError(f"{source}: root expected as JSON object, got {type(payload).__name__}")
     schema = payload.get("schema")
     if schema is not None and schema != expected_schema:
         raise ArtifactError(
-            f"{source}: schéma de scénarios inattendu: attendu={expected_schema}, reçu={schema}"
+            f"{source}: unexpected scenarios schema: expected={expected_schema}, got={schema}"
         )
     raw_scenarios = payload.get("scenarios", [])
     if not isinstance(raw_scenarios, list):
         raise ArtifactError(
-            f"{source}: `scenarios` doit être une liste, reçu {type(raw_scenarios).__name__}"
+            f"{source}: `scenarios` must be a list, got {type(raw_scenarios).__name__}"
         )
     normalized: dict[str, Any] = {
         "scenarios": [
@@ -179,17 +177,17 @@ def validated_scenario_file(payload: Any, *, source: str, expected_schema: str) 
 def _validated_scenario(value: Any, *, source: str, index: int) -> Scenario:
     where = f"{source}: scenarios[{index}]"
     if not isinstance(value, dict):
-        raise ArtifactError(f"{where} doit être un objet JSON")
+        raise ArtifactError(f"{where} must be a JSON object")
     nodeid = value.get("nodeid")
     if not isinstance(nodeid, str) or not nodeid:
-        raise ArtifactError(f"{where} sans `nodeid` textuel non vide")
+        raise ArtifactError(f"{where} without a non-empty textual `nodeid`")
     normalized: dict[str, Any] = {"nodeid": nodeid}
     _copy_optional_scalars(value, normalized, _SCENARIO_STRINGS, str, where)
     _copy_optional_scalars(value, normalized, _SCENARIO_INTS, int, where)
     if "duration_s" in value:
         duration = value["duration_s"]
         if isinstance(duration, bool) or not isinstance(duration, int | float):
-            raise ArtifactError(f"{where}: `duration_s` doit être numérique")
+            raise ArtifactError(f"{where}: `duration_s` must be numeric")
         normalized["duration_s"] = float(duration)
     for field in _SCENARIO_STRING_LISTS:
         if field in value:
@@ -203,12 +201,12 @@ def _validated_scenario(value: Any, *, source: str, index: int) -> Scenario:
 
 def _validated_assertions(value: Any, where: str) -> list[ScenarioAssertion]:
     if not isinstance(value, list):
-        raise ArtifactError(f"{where}: `assertions` doit être une liste")
+        raise ArtifactError(f"{where}: `assertions` must be a list")
     assertions: list[ScenarioAssertion] = []
     for index, raw in enumerate(value):
         item_where = f"{where}: assertions[{index}]"
         if not isinstance(raw, dict):
-            raise ArtifactError(f"{item_where} doit être un objet")
+            raise ArtifactError(f"{item_where} must be an object")
         normalized: dict[str, Any] = {}
         _copy_optional_scalars(raw, normalized, _ASSERTION_STRINGS, str, item_where)
         _copy_optional_scalars(raw, normalized, _ASSERTION_INTS, int, item_where)
@@ -218,12 +216,12 @@ def _validated_assertions(value: Any, where: str) -> list[ScenarioAssertion]:
 
 def _validated_artifacts(value: Any, where: str) -> list[ScenarioArtifact]:
     if not isinstance(value, list):
-        raise ArtifactError(f"{where}: `artifacts` doit être une liste")
+        raise ArtifactError(f"{where}: `artifacts` must be a list")
     artifacts: list[ScenarioArtifact] = []
     for index, raw in enumerate(value):
         item_where = f"{where}: artifacts[{index}]"
         if not isinstance(raw, dict):
-            raise ArtifactError(f"{item_where} doit être un objet")
+            raise ArtifactError(f"{item_where} must be an object")
         normalized: dict[str, Any] = {}
         _copy_optional_scalars(raw, normalized, _ARTIFACT_STRINGS, str, item_where)
         _copy_optional_scalars(raw, normalized, ("bytes",), int, item_where)
@@ -248,11 +246,11 @@ def _copy_optional_scalars(
         else:
             valid = isinstance(value, expected_type)
         if not valid:
-            raise ArtifactError(f"{where}: `{field}` doit être de type {expected_type.__name__}")
+            raise ArtifactError(f"{where}: `{field}` must be of type {expected_type.__name__}")
         target[field] = value
 
 
 def _string_list(value: Any, where: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ArtifactError(f"{where} doit être une liste de textes")
+        raise ArtifactError(f"{where} must be a list of strings")
     return list(value)

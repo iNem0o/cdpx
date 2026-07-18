@@ -6,7 +6,7 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
-# -- extracteurs génériques -----------------------------------------------------
+# -- generic extractors -----------------------------------------------------
 
 _VOID_TAGS = frozenset(
     {
@@ -36,12 +36,12 @@ def _classes(attrs: list[tuple[str, str | None]]) -> set[str]:
 
 
 class _MetricsParser(HTMLParser):
-    """Blocs `class="metric"` du WebProfilerBundle.
+    """`class="metric"` blocks from the WebProfilerBundle.
 
-    C'est le markup le plus stable des panels (div.metric > span.value +
-    span.label, unité éventuelle en span.unit imbriqué). Chaque metric mémorise
-    les derniers h2/h3/h4 vus (le panel cache range ses pools sous des onglets
-    h3, avec des sous-titres h4). Les contenus <script>/<style> sont ignorés.
+    It's the most stable markup across panels (div.metric > span.value +
+    span.label, with an optional unit in a nested span.unit). Each metric
+    records the last h2/h3/h4 seen (the cache panel arranges its pools under
+    h3 tabs, with h4 subtitles). <script>/<style> contents are ignored.
     """
 
     def __init__(self) -> None:
@@ -140,12 +140,12 @@ class _MetricsParser(HTMLParser):
 
 
 class _TablesParser(HTMLParser):
-    """Tables associées au dernier heading h2/h3/h4 rencontré.
+    """Tables associated with the last h2/h3/h4 heading encountered.
 
-    Une rangée n'est un en-tête QUE si toutes ses cellules sont des <th>: les
-    panels request/messenger utilisent des rangées mixtes <th>clé</th>
-    <td>valeur</td> qui sont des données. Les contenus <script>/<style> (dumps
-    Sfdump embarqués dans les cellules) sont ignorés.
+    A row is a header row ONLY if all its cells are <th>: the request/
+    messenger panels use mixed rows <th>key</th><td>value</td> that are
+    data. <script>/<style> contents (Sfdump dumps embedded in cells) are
+    ignored.
     """
 
     def __init__(self) -> None:
@@ -243,7 +243,7 @@ def _tables(html: str) -> list[dict[str, Any]]:
 
 
 def _menu(html: str) -> set[str]:
-    """Panels annoncés par la sidebar (liens ?panel=X). Recoupement best-effort."""
+    """Panels advertised by the sidebar (?panel=X links). Best-effort cross-check."""
     return set(re.findall(r'href="[^"]*[?&](?:amp;)?panel=([a-zA-Z_]+)"', html))
 
 
@@ -277,7 +277,7 @@ def _float(text: str | None) -> float | None:
 
 
 def _ms(metric: dict[str, str] | None) -> float | None:
-    """Valeur d'un metric temporel convertie en millisecondes."""
+    """A time metric's value converted to milliseconds."""
     if metric is None:
         return None
     value = _float(metric["value"])
@@ -298,7 +298,7 @@ def _metric_int(metrics: list[dict[str, str]], *needles: str, heading: str | Non
 
 
 def _find_table(tables: list[dict[str, Any]], *needles: str) -> dict[str, Any] | None:
-    """Première table dont un header ou le heading contient tous les fragments."""
+    """First table whose header or heading contains all the fragments."""
     for table in tables:
         haystack = " ".join(table["headers"] + [table["heading"]]).lower()
         if all(needle in haystack for needle in needles):

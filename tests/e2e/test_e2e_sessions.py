@@ -306,7 +306,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         #: le clic est refusé en exit 1 avec un diagnostic qui nomme
         #: l'autorité manquante — le refus est explicable, pas muet
         assert denied_interaction.returncode == 1
-        assert "requiert interaction" in denied_interaction.stderr
+        assert "requires interaction" in denied_interaction.stderr
         attach_cli_run(evidence_case, "Denied click (observation authority)", denied_interaction)
 
         clicked = successful_session_json(*interaction, "click", "#submit-btn")
@@ -318,7 +318,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         #: l'évaluation JS arbitraire reste hors de portée d'interaction:
         #: refus explicite qui nomme le niveau privileged requis
         assert denied_privileged.returncode == 1
-        assert "requiert privileged" in denied_privileged.stderr
+        assert "requires privileged" in denied_privileged.stderr
         attach_cli_run(evidence_case, "Denied eval (interaction authority)", denied_privileged)
 
         evaluated = successful_session_json(*privileged, "eval", "document.title")
@@ -363,7 +363,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
         #: tant que le bail exclusif est détenu ailleurs, la commande est
         #: refusée avec un diagnostic qui explique la contention
         assert contended.returncode == 1
-        assert "session déjà utilisée" in contended.stderr
+        assert "session already in use" in contended.stderr
         attach_cli_run(evidence_case, "Contended command (lease held elsewhere)", contended)
         #: le bail relâché, la même commande repasse aussitôt: le refus
         #: venait bien du verrou, pas d'un état cassé

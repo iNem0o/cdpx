@@ -1,4 +1,4 @@
-"""Lance une session mock supervisée en foreground pour ``make mock``."""
+"""Launch a supervised mock session in the foreground for ``make mock``."""
 
 from __future__ import annotations
 
@@ -37,12 +37,12 @@ def main(argv: list[str] | None = None) -> int:
         owner_pid=os.getpid(),
         browser_kind="mock",
     )
-    print("Session mock supervisée prête. Copiez ces exports :", flush=True)
+    print("Supervised mock session ready. Copy these exports:", flush=True)
     for line in export_lines(manifest, path):
         print(line, flush=True)
     print("cdpx goto http://demo.test/", flush=True)
     print("cdpx tabs list", flush=True)
-    print("Ctrl-C arrête la session et supprime ses fichiers.", flush=True)
+    print("Ctrl-C stops the session and removes its files.", flush=True)
 
     stopped = threading.Event()
 

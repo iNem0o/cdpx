@@ -1,4 +1,4 @@
-"""Lecture bornée du contenu de frames same-origin."""
+"""Bounded reading of same-origin frame content."""
 
 from __future__ import annotations
 

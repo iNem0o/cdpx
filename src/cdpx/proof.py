@@ -5,26 +5,26 @@ The report is intentionally evidence-first: every human-facing conclusion is
 derived from command exits, pytest JUnit XML, captured logs, or the CLI help
 captured during the same run.
 
-Ce module est la FAÇADE stable du pipeline de preuve. Les implémentations
-vivent dans ``cdpx.proofing.*`` (private_io, execution, junit, gitcontext,
-evidence_catalog, scenario_inline, suites, summary, artifact_policy); ici ne
-restent que:
+This module is the stable FACADE of the proof pipeline. Implementations
+live in ``cdpx.proofing.*`` (private_io, execution, junit, gitcontext,
+evidence_catalog, scenario_inline, suites, summary, artifact_policy); only
+the following remain here:
 
-- les constantes de chemins/budgets/versions vendor (PROOF_DIR, SYMFONY_LOG,
-  EVIDENCE_DIR, EVIDENCE_STORE_DIR, timeouts, sha des bundles…);
-- le rendu cockpit (``render_html`` et ses assets vendorés vérifiés);
-- l'orchestration (``_generate``/``generate``/``main``), le staging
-  transactionnel, ``build_shareable_proof`` et la purge de rétention;
-- les ré-exports ``from cdpx.proofing.x import Y as Y`` et des WRAPPERS.
+- path/budget/vendor version constants (PROOF_DIR, SYMFONY_LOG,
+  EVIDENCE_DIR, EVIDENCE_STORE_DIR, timeouts, bundle shas…);
+- cockpit rendering (``render_html`` and its verified vendored assets);
+- orchestration (``_generate``/``generate``/``main``), transactional
+  staging, ``build_shareable_proof`` and retention purge;
+- the ``from cdpx.proofing.x import Y as Y`` re-exports and the WRAPPERS.
 
-Contrat de façade: les tests importent et monkeypatchent tout via
-``cdpx.proof`` (``proof.PROOF_DIR``, ``proof._run_text``,
-``proof._stream_to_private_file``, ``proof.run_evidence``…). Chaque wrapper
-résout donc ses dépendances patchables DANS les globals de ce module AU
-MOMENT DE L'APPEL et les passe en keyword-only aux implémentations
-extraites; aucun module ``cdpx.proofing`` n'importe ``cdpx.proof`` (pas de
-cycle) ni ne lit ces globals lui-même. Le Makefile (smoke-dist) importe
-``parse_help_commands`` d'ici: ce point d'entrée fait partie du contrat.
+Facade contract: tests import and monkeypatch everything via ``cdpx.proof``
+(``proof.PROOF_DIR``, ``proof._run_text``, ``proof._stream_to_private_file``,
+``proof.run_evidence``…). Every wrapper therefore resolves its patchable
+dependencies FROM this module's globals AT CALL TIME and passes them
+keyword-only to the extracted implementations; no ``cdpx.proofing`` module
+imports ``cdpx.proof`` (no cycle) nor reads these globals itself. The
+Makefile (smoke-dist) imports ``parse_help_commands`` from here: this
+entrypoint is part of the contract.
 """
 
 from __future__ import annotations
@@ -119,10 +119,10 @@ from cdpx.proofing.execution import (
     PROOF_TIMEOUT_SCALE_ENV as PROOF_TIMEOUT_SCALE_ENV,
 )
 
-# Contrat de façade pour les tests: ces symboles (y compris privés) restent
-# importables ET monkeypatchables via `cdpx.proof` (forme `X as X`); les
-# fonctions restées dans ce module les résolvent par leurs globals au moment
-# de l'appel.
+# Facade contract for the tests: these symbols (including private ones)
+# remain importable AND monkeypatchable via `cdpx.proof` (`X as X` form);
+# the functions that stay in this module resolve them through their globals
+# at call time.
 from cdpx.proofing.execution import (
     CommandEvidence as CommandEvidence,
 )
@@ -304,21 +304,22 @@ GIT_STATUS = PROOF_DIR / "git-status.txt"
 GIT_DIFF_STAT = PROOF_DIR / "git-diff-stat.txt"
 EVIDENCE_DIR = PROOF_DIR / "evidence"
 SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
-# Store d'évidence runtime par défaut (`cdpx run-scenario`): des runs s'y
-# accumulent entre les sessions; la purge de rétention au début de chaque
-# `make proof` y applique les TTL manifestés, sans geste manuel.
+# Default runtime evidence store (`cdpx run-scenario`): runs accumulate
+# there between sessions; the retention purge at the start of every
+# `make proof` applies the manifested TTLs there, with no manual step.
 EVIDENCE_STORE_DIR = Path(".cdpx-evidence")
 
-# Génération transactionnelle: tout l'arbre est produit dans `.proof.new/`
-# (même parent que `.proof`, donc même filesystem), puis publié par bascule
-# atomique en fin de run réussi. `.proof.old/` ne vit que le temps du swap.
+# Transactional generation: the whole tree is produced in `.proof.new/`
+# (same parent as `.proof`, so same filesystem), then published via an
+# atomic swap at the end of a successful run. `.proof.old/` only lives for
+# the duration of the swap.
 PROOF_STAGING_SUFFIX = ".new"
 PROOF_PREVIOUS_SUFFIX = ".old"
 
-# Budgets de deadline par étape (secondes). Ils bornent chaque commande de
-# preuve: un dépassement produit un exit 124 et un verdict rouge, jamais un
-# blocage indéfini. `CDPX_PROOF_TIMEOUT_SCALE` (flottant strictement positif,
-# ex. "2" sur machine lente) multiplie uniformément tous les budgets.
+# Per-step deadline budgets (seconds). They bound every proof command: an
+# overrun produces an exit 124 and a red verdict, never an indefinite
+# block. `CDPX_PROOF_TIMEOUT_SCALE` (strictly positive float, e.g. "2" on a
+# slow machine) uniformly multiplies every budget.
 RUFF_TIMEOUT_S = 120.0
 MYPY_TIMEOUT_S = 300.0
 UNIT_TIMEOUT_S = 600.0
@@ -353,11 +354,11 @@ def _stream_and_collect(
     timeout: float | None,
     timeout_label: str,
 ) -> tuple[int, bool, str]:
-    """Wrapper de façade: résout ``_stream_to_private_file`` à l'appel.
+    """Facade wrapper: resolves ``_stream_to_private_file`` at call time.
 
-    Les tests monkeypatchent ``proof._stream_to_private_file``; passer le
-    global du module au moment de l'appel garantit que le patch intercepte
-    le streaming de l'implémentation extraite.
+    Tests monkeypatch ``proof._stream_to_private_file``; passing the
+    module's global at call time guarantees the patch intercepts the
+    streaming of the extracted implementation.
     """
 
     return _stream_and_collect_impl(
@@ -381,8 +382,9 @@ def run_evidence(
     redaction_context: RedactionContext | None = None,
     path_rewrites: Sequence[tuple[str, str]] = (),
 ) -> CommandEvidence:
-    """Wrapper de façade: le streaming passe par ``_stream_and_collect`` du
-    module, donc par ``_stream_to_private_file`` monkeypatchable des tests."""
+    """Facade wrapper: streaming goes through the module's
+    ``_stream_and_collect``, hence through the tests' monkeypatchable
+    ``_stream_to_private_file``."""
 
     return _run_evidence_impl(
         id,
@@ -403,8 +405,8 @@ def write_symfony_unavailable_evidence(
     redaction_context: RedactionContext | None = None,
     proof_dir: Path | None = None,
 ) -> None:
-    """Wrapper de façade: SYMFONY_LOG et EVIDENCE_DIR (monkeypatchables) sont
-    résolus au moment de l'appel puis passés à l'implémentation extraite."""
+    """Facade wrapper: SYMFONY_LOG and EVIDENCE_DIR (monkeypatchable) are
+    resolved at call time then passed to the extracted implementation."""
 
     return _write_symfony_unavailable_evidence_impl(
         reason,
@@ -422,7 +424,7 @@ def run_symfony_evidence(
     timeout: float | None = None,
     path_rewrites: Sequence[tuple[str, str]] = (),
 ) -> CommandEvidence:
-    """Wrapper de façade: résout à l'appel tout ce que les tests patchent
+    """Facade wrapper: resolves at call time everything the tests patch
     (``_run_text``, ``_stream_to_private_file`` via ``_stream_and_collect``,
     ``shutil.which``, ``SYMFONY_LOG``, ``EVIDENCE_DIR``, ``PROOF_DIR``)."""
 
@@ -446,11 +448,11 @@ def collect_git_context(
     status_path: Path | None = None,
     diff_stat_path: Path | None = None,
 ) -> dict:
-    """Wrapper de façade: résout ``_run_text`` et les chemins à l'appel.
+    """Facade wrapper: resolves ``_run_text`` and the paths at call time.
 
-    Les tests monkeypatchent ``proof._run_text`` et ``proof.PROOF_DIR``:
-    les globals du module sont lus au moment de l'appel puis passés en
-    keyword-only à l'implémentation extraite.
+    Tests monkeypatch ``proof._run_text`` and ``proof.PROOF_DIR``: the
+    module's globals are read at call time then passed keyword-only to the
+    extracted implementation.
     """
 
     return _collect_git_context_impl(
@@ -469,11 +471,11 @@ def collect_git_context(
 
 
 def _current_proof_paths() -> ProofPaths:
-    """Résout les chemins de preuve depuis les globals de la façade à l'appel.
+    """Resolve proof paths from the facade's globals at call time.
 
-    PROOF_DIR, SYMFONY_LOG et EVIDENCE_DIR sont monkeypatchés par les tests:
-    la résolution tardive garantit que les implémentations extraites voient
-    les valeurs patchées.
+    PROOF_DIR, SYMFONY_LOG and EVIDENCE_DIR are monkeypatched by the tests:
+    late resolution guarantees the extracted implementations see the
+    patched values.
     """
 
     return ProofPaths(
@@ -499,7 +501,7 @@ def build_evidence_catalog(
     *,
     proof_dir: Path | None = None,
 ) -> list[dict]:
-    """Wrapper de façade: résout les chemins patchables au moment de l'appel."""
+    """Facade wrapper: resolves the patchable paths at call time."""
 
     return _build_evidence_catalog_impl(
         summary, unit, e2e, symfony, paths=_current_proof_paths(), proof_dir=proof_dir
@@ -507,17 +509,17 @@ def build_evidence_catalog(
 
 
 def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> ScenarioEvidence:
-    """Wrapper de façade: défaut lié à l'import, contrat historique conservé."""
+    """Facade wrapper: default bound at import time, historical contract preserved."""
 
     return _load_scenario_evidence_impl(root)
 
 
 COCKPIT_SHELL_RESOURCE = "cockpit/shell.html"
 COCKPIT_CSS_RESOURCE = "cockpit/cockpit.css"
-# Le JS du cockpit est découpé en parties ordonnées, concaténées dans une IIFE
-# unique: l'ordre est codé en dur (pas de glob) pour rester déterministe, et
-# chaque partie passe individuellement la garde anti-</script> de
-# _cockpit_asset. La concaténation restaure la portée de closure historique.
+# The cockpit JS is split into ordered parts, concatenated into a single
+# IIFE: the order is hardcoded (no glob) to stay deterministic, and each
+# part individually passes _cockpit_asset's anti-</script> guard. The
+# concatenation restores the historical closure scope.
 COCKPIT_JS_PARTS = (
     "cockpit/js/00-helpers.js",
     "cockpit/js/10-viewers.js",
@@ -533,25 +535,25 @@ COCKPIT_RESOURCES = (COCKPIT_SHELL_RESOURCE, COCKPIT_CSS_RESOURCE, *COCKPIT_JS_P
 def _cockpit_asset(name: str) -> str:
     source = resources.files("cdpx.proofing").joinpath(name).read_text("utf-8")
     if not source.strip():
-        raise ValueError(f"asset cockpit vide: {name}")
+        raise ValueError(f"empty cockpit asset: {name}")
     if name != COCKPIT_SHELL_RESOURCE and "</script" in source.lower():
-        raise ValueError(f"asset cockpit {name} impropre à une inclusion inline")
+        raise ValueError(f"cockpit asset {name} unsuitable for inline inclusion")
     return source
 
 
 @cache
 def cockpit_stylesheet() -> str:
-    """Feuille de style SPA, lue (et validée) au premier rendu seulement."""
+    """SPA stylesheet, read (and validated) only on first render."""
     return _cockpit_asset(COCKPIT_CSS_RESOURCE)
 
 
 @cache
 def cockpit_javascript() -> str:
-    """Bundle JS SPA assemblé paresseusement: aucune I/O de ressources à
-    l'import de cdpx.proof, la validation fail-fast se joue au premier appel.
+    """SPA JS bundle assembled lazily: no resource I/O at cdpx.proof import
+    time, fail-fast validation happens on the first call.
 
-    Chaque partie se termine par un saut de ligne: le join laisse une ligne
-    vide entre les parties, comme dans l'ancien fichier monolithique.
+    Each part ends with a newline: the join leaves a blank line between
+    parts, like in the former monolithic file.
     """
     return "(function () {\n" + "\n".join(_cockpit_asset(p) for p in COCKPIT_JS_PARTS) + "})();\n"
 
@@ -564,10 +566,10 @@ def _verified_vendor_bundle(resource: str, expected_sha256: str, *, forbidden: s
     bundle = resources.files("cdpx.proofing").joinpath(resource).read_bytes()
     digest = hashlib.sha256(bundle).hexdigest()
     if digest != expected_sha256:
-        raise ValueError(f"bundle {resource} invalide: attendu={expected_sha256}, reçu={digest}")
+        raise ValueError(f"invalid bundle {resource}: expected={expected_sha256}, got={digest}")
     source = bundle.decode("utf-8")
     if forbidden in source.lower():
-        raise ValueError(f"bundle {resource} impropre à une inclusion inline")
+        raise ValueError(f"bundle {resource} unsuitable for inline inclusion")
     return source
 
 
@@ -587,7 +589,7 @@ def _xterm_css() -> str:
 
 
 def render_html(summary: dict) -> str:
-    verdict = "OK" if summary["ok"] else "ECHEC"
+    verdict = "OK" if summary["ok"] else "FAILED"
     generated = html.escape(summary["generated_at"])
     payload = _json_for_html_script(summary)
     mermaid_bundle = _mermaid_bundle()
@@ -624,8 +626,8 @@ def build_summary(
     cast_entries: list[dict] | None = None,
     proof_dir: Path | None = None,
 ) -> dict:
-    """Wrapper de façade: les chemins patchables (PROOF_DIR, SYMFONY_LOG,
-    EVIDENCE_DIR, …) sont résolus au moment de l'appel via ProofPaths."""
+    """Facade wrapper: the patchable paths (PROOF_DIR, SYMFONY_LOG,
+    EVIDENCE_DIR, …) are resolved at call time via ProofPaths."""
 
     return _build_summary_impl(
         commands,
@@ -642,16 +644,16 @@ def build_summary(
 
 
 def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any]:
-    """Purge automatique des preuves locales expirées au début d'un run.
+    """Automatic purge of expired local proofs at the start of a run.
 
-    Applique les TTL manifestés sans geste manuel: les runs expirés du store
-    d'évidence runtime (via ``purge_expired``) et l'arbre ``.proof`` entier si
-    son manifeste global ``artifact-manifest.json`` porte un ``expires_at``
-    dépassé. Fail-open sur manifeste absent/illisible/corrompu (conservation,
-    même contrat que ``purge_expired``) et best-effort sur PermissionError
-    (avertissement actionnable sur stderr, le run continue). Les répertoires
-    transactionnels `.proof.new`/`.proof.old` ne sont jamais touchés ici: ils
-    appartiennent à la logique de bascule de ``_generate``.
+    Applies the manifested TTLs with no manual step: expired runs from the
+    runtime evidence store (via ``purge_expired``) and the whole ``.proof``
+    tree if its global manifest ``artifact-manifest.json`` carries an
+    overdue ``expires_at``. Fail-open on a missing/unreadable/corrupted
+    manifest (kept, same contract as ``purge_expired``) and best-effort on
+    PermissionError (actionable warning on stderr, the run continues). The
+    transactional directories `.proof.new`/`.proof.old` are never touched
+    here: they belong to ``_generate``'s swap logic.
     """
 
     current = now or datetime.now(UTC)
@@ -659,15 +661,15 @@ def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any
     try:
         evidence_runs = purge_expired(EVIDENCE_STORE_DIR, now=current)
     except PermissionError as exc:
-        # Fichiers root laissés par un run Docker interrompu: la rétention est
-        # best-effort, l'avertissement nomme le remède et le run continue.
+        # Root-owned files left by an interrupted Docker run: retention is
+        # best-effort, the warning names the remedy and the run continues.
         print(
-            f"avertissement: purge de rétention impossible dans {EVIDENCE_STORE_DIR} "
+            f"warning: retention purge impossible in {EVIDENCE_STORE_DIR} "
             f"({exc}); {_docker_chown_remedy(EVIDENCE_STORE_DIR)}",
             file=sys.stderr,
         )
     for name in evidence_runs:
-        print(f"rétention: run d'évidence expiré purgé: {name}", file=sys.stderr)
+        print(f"retention: expired evidence run purged: {name}", file=sys.stderr)
 
     proof_dir_purged = False
     expires: datetime | None
@@ -675,17 +677,17 @@ def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any
         payload = json.loads((PROOF_DIR / "artifact-manifest.json").read_text(encoding="utf-8"))
         expires = datetime.fromisoformat(payload["expires_at"])
     except (OSError, KeyError, TypeError, ValueError):
-        # Manifeste absent, illisible ou corrompu: conservation fail-open —
-        # la purge ne détruit jamais une preuve dont l'expiration est inconnue.
+        # Missing, unreadable or corrupted manifest: fail-open retention —
+        # the purge never destroys a proof whose expiration is unknown.
         expires = None
     if expires is not None and current >= expires:
         try:
             shutil.rmtree(PROOF_DIR)
             proof_dir_purged = True
-            print(f"rétention: preuve locale expirée purgée: {PROOF_DIR}", file=sys.stderr)
+            print(f"retention: expired local proof purged: {PROOF_DIR}", file=sys.stderr)
         except PermissionError as exc:
             print(
-                f"avertissement: purge de rétention impossible de {PROOF_DIR} "
+                f"warning: retention purge impossible for {PROOF_DIR} "
                 f"({exc}); {_docker_chown_remedy(PROOF_DIR)}",
                 file=sys.stderr,
             )
@@ -714,9 +716,9 @@ def build_shareable_proof(
     selected_ttl = proof_retention_seconds() if ttl is None else ttl
     preserved = pre_redacted_paths or set()
     if selected_ttl <= 0:
-        raise ArtifactError("TTL de proof strictement positif requis")
+        raise ArtifactError("strictly positive proof TTL required")
     if proof_dir.is_symlink() or not proof_dir.is_dir():
-        raise ArtifactError(f"répertoire de preuve invalide: {proof_dir}")
+        raise ArtifactError(f"invalid proof directory: {proof_dir}")
     staging = proof_dir / "shareable"
     store_root = proof_dir / ".artifact-store"
     excluded_roots = {staging.resolve(), store_root.resolve()}
@@ -726,7 +728,7 @@ def build_shareable_proof(
         if any(resolved == root or root in resolved.parents for root in excluded_roots):
             continue
         if path.is_symlink():
-            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
+            raise ArtifactError(f"symlink forbidden in proofs: {path}")
         if path.is_file():
             source_paths.append(path)
 
@@ -738,19 +740,18 @@ def build_shareable_proof(
         relative = source.relative_to(proof_dir).as_posix()
         manifested = evidence_policy.get(source.resolve())
         if manifested is not None:
-            # Le manifeste d'évidence est la seule autorité: la politique MIME
-            # ne peut jamais abaisser une classification déclarée par un test.
+            # The evidence manifest is the sole authority: the MIME policy
+            # can never lower a classification declared by a test.
             classification, upload_allowed = manifested
         elif _is_pipeline_proof_artifact(relative):
             classification, upload_allowed = _proof_artifact_policy(source)
         else:
-            raise ArtifactError(f"artefact de preuve non manifesté: {relative}")
+            raise ArtifactError(f"unmanifested proof artifact: {relative}")
         artifact_name = f".proof/{relative}"
         if relative in preserved:
-            # Ces fichiers ont déjà été construits exclusivement depuis des
-            # structures redacted. Ne pas repasser du JavaScript de confiance
-            # dans les regex de texte libre; le scan de canaris final demeure
-            # le verrou de publication.
+            # These files were already built exclusively from redacted
+            # structures. Do not re-run trusted JavaScript through free-text
+            # regexes; the final canary scan remains the publication lock.
             writer.write_bytes(
                 artifact_name,
                 source.read_bytes(),
@@ -781,56 +782,60 @@ def build_shareable_proof(
     matches = scan_canaries(staging, canaries or [])
     if matches:
         shutil.rmtree(staging)
-        raise ArtifactError(f"canary détecté dans le staging partageable: {', '.join(matches)}")
+        raise ArtifactError(f"canary detected in shareable staging: {', '.join(matches)}")
     _harden_tree(proof_dir)
     return staging
 
 
 def _generate() -> dict:
-    # Validations d'environnement AVANT toute écriture/destruction: une
-    # configuration invalide ne coûte jamais la preuve précédente.
+    # Environment validations BEFORE any write/destroy: an invalid
+    # configuration never costs the previous proof.
     retention_seconds = proof_retention_seconds()
     timeout_scale = proof_timeout_scale()
     staging = _staging_dir()
     previous = _previous_dir()
-    # Récupération d'un swap interrompu: un crash entre les deux os.replace de
-    # la bascule finale laisse la dernière bonne preuve dans `.proof.old` sans
-    # `.proof`. La restaurer AVANT la purge des restes, sinon le rmtree
-    # ci-dessous détruirait la seule preuve encore valide.
+    # Recovery of an interrupted swap: a crash between the two os.replace
+    # calls of the final swap leaves the last good proof in `.proof.old`
+    # with no `.proof`. Restore it BEFORE purging leftovers, otherwise the
+    # rmtree below would destroy the only still-valid proof.
     if previous.exists() and not PROOF_DIR.exists():
         os.replace(previous, PROOF_DIR)
-    # Purge de rétention automatique: les TTL manifestés s'appliquent au début
-    # de chaque run, APRÈS la récupération d'un swap interrompu (la preuve
-    # restaurée redevient éligible à sa propre expiration) et AVANT la purge
-    # des restes de staging — qui reste la propriété de la logique
-    # transactionnelle ci-dessous.
+    # Automatic retention purge: the manifested TTLs apply at the start of
+    # every run, AFTER recovering an interrupted swap (the restored proof
+    # becomes eligible again for its own expiration) and BEFORE purging
+    # staging leftovers — which remains the property of the transactional
+    # logic below.
     retention_purged = _purge_expired_local_proofs()
-    # Restes d'un run précédent interrompu: le staging est jetable par contrat.
+    # Leftovers from a previous interrupted run: staging is disposable by
+    # contract.
     for leftover in (staging, previous):
         if leftover.exists():
             try:
                 shutil.rmtree(leftover)
             except PermissionError as exc:
-                # Fichiers root laissés par un run Docker interrompu avant son
-                # chown final: erreur actionnable plutôt que PermissionError brute.
+                # Root-owned files left by an interrupted Docker run before
+                # its final chown: actionable error rather than a raw
+                # PermissionError.
                 _raise_actionable_permission_error(leftover, exc)
     _secure_dir(staging)
     context = redaction_context_from_environment()
     env = _repo_env()
 
-    # Séparation chemin physique (écrit dans le staging) / chemin logique
-    # publié (.proof/...): tout ce qui entre au summary, au rapport HTML et
-    # aux logs est réécrit du premier vers le second avant publication. Les
-    # racines sont passées SANS slash: _rewrite_text_paths les ancre lui-même
-    # (préfixe `racine/` ou valeur exactement égale), ce qui préserve les
-    # littéraux `.proof.new` cités dans les extraits de code capturés.
+    # Separation of physical path (written into staging) / published
+    # logical path (.proof/...): everything entering the summary, the HTML
+    # report and the logs is rewritten from the former to the latter before
+    # publication. The roots are passed WITHOUT a trailing slash:
+    # _rewrite_text_paths anchors them itself (`root/` prefix or exact
+    # equality), which preserves the `.proof.new` literals quoted in
+    # captured code excerpts.
     publish_rewrites: tuple[tuple[str, str], ...] = (
         (str(staging.resolve()), str(PROOF_DIR.resolve())),
         (str(staging), str(PROOF_DIR)),
     )
-    # Les preuves écrites DANS le conteneur Symfony parlent déjà en `.proof/…`
-    # (montage /workspace/.proof): on les ramène au chemin physique du staging
-    # pour pouvoir les lire pendant la génération, avant réécriture inverse.
+    # Proofs written INSIDE the Symfony container already speak in
+    # `.proof/…` (mounted at /workspace/.proof): we bring them back to
+    # staging's physical path so they can be read during generation, before
+    # the reverse rewrite.
     ingest_rewrites: tuple[tuple[str, str], ...] = ((str(PROOF_DIR), str(staging)),)
 
     def scaled(seconds: float) -> float:
@@ -865,7 +870,7 @@ def _generate() -> dict:
         ),
         run_evidence(
             "mypy",
-            "Mypy typage",
+            "Mypy typing",
             [sys.executable, "-m", "mypy", "src/cdpx"],
             staging / "mypy.log",
             env=env,
@@ -875,7 +880,7 @@ def _generate() -> dict:
         ),
         run_evidence(
             "unit",
-            "Pytest unitaires",
+            "Pytest unit tests",
             [
                 sys.executable,
                 "-m",
@@ -918,7 +923,7 @@ def _generate() -> dict:
         ),
         run_evidence(
             "cli-help",
-            "Aide CLI",
+            "CLI help",
             [sys.executable, "-m", "cdpx.cli", "--help"],
             cli_help,
             env=env,
@@ -928,13 +933,13 @@ def _generate() -> dict:
         ),
     ]
 
-    # Un pytest mort sans exécuter pytest_sessionfinish n'a pas écrit ses
-    # manifestes d'évidence: ses artefacts orphelins feraient échouer le
-    # staging fail-closed avec un message trompeur, alors que la cause réelle
-    # est déjà rouge au verdict. Un run à échec normal (exit 1) a écrit ses
-    # manifestes — la purge y est alors un no-op; tout autre code non nul
-    # (124 deadline, 137 OOM, returncode négatif d'un signal, segfault) peut
-    # signifier une mort sans épilogue, donc on purge dès que l'exit ≠ 0.
+    # A pytest run killed without running pytest_sessionfinish did not write
+    # its evidence manifests: its orphaned artifacts would fail staging
+    # closed with a misleading message, even though the real cause is
+    # already red in the verdict. A normal failing run (exit 1) wrote its
+    # manifests — the purge is then a no-op there; any other non-zero code
+    # (124 deadline, 137 OOM, negative returncode from a signal, segfault)
+    # can mean death without an epilogue, so we purge as soon as exit ≠ 0.
     if any(
         command.id in {"unit", "e2e", "symfony-e2e"} and command.exit_code != 0
         for command in commands
@@ -944,9 +949,9 @@ def _generate() -> dict:
         except PermissionError as exc:
             _raise_actionable_permission_error(staging, exc)
 
-    # Preuve secondaire native (pty, aucune dépendance): les .cast atterrissent
-    # dans le staging et entrent au rapport via le catalogue (rglob). Le portail
-    # exige un statut "generated" pour chaque commande de démonstration.
+    # Native secondary proof (pty, no dependency): .cast files land in
+    # staging and enter the report via the catalog (rglob). The gate
+    # requires a "generated" status for every demonstration command.
     cast_entries = collect_cast_evidence(staging, env=env, redaction_context=context)
 
     for path in (unit_xml, e2e_xml, symfony_xml):
@@ -974,19 +979,19 @@ def _generate() -> dict:
     )
     summary["cli_commands"] = [command["name"] for command in help_commands]
     summary["cli_command_count"] = len(help_commands)
-    # Observabilité de la rétention: la purge du début de run est attestée
-    # dans le summary publié (validation-summary.json), pas seulement sur
-    # stderr.
+    # Retention observability: the purge at the start of the run is
+    # attested in the published summary (validation-summary.json), not
+    # just on stderr.
     summary["retention"] = {
         "retention_days": retention_seconds // (24 * 60 * 60),
         "purged": retention_purged,
     }
-    # Publication: les chemins physiques du staging redeviennent les chemins
-    # logiques .proof/… attendus par le contrat du summary, du HTML et des logs.
+    # Publication: staging's physical paths become the logical .proof/…
+    # paths expected by the summary, HTML and logs contract again.
     summary = _rewrite_tree_paths(summary, publish_rewrites)
     summary = redact_tree(summary, context=context, path="$.summary")
-    # Les contenus inlinés n'existent que dans le payload HTML: les JSON disque
-    # pointent vers les fichiers d'artefacts, sans duplication.
+    # Inlined content only exists in the HTML payload: the on-disk JSON
+    # points to artifact files, without duplication.
     lean_evidence = _strip_inline_content(summary["scenario_evidence"])
     write_scenario_evidence(
         evidence_dir,
@@ -1020,10 +1025,10 @@ def _generate() -> dict:
         ttl=retention_seconds,
         pre_redacted_paths={REPORT_HTML.name},
     )
-    # Bascule transactionnelle: la preuve précédente n'est remplacée qu'après
-    # un staging complet et partageable. Toute exception avant ce point laisse
-    # `.proof` intact (le staging partiel reste pour diagnostic et sera purgé
-    # au prochain run).
+    # Transactional swap: the previous proof is only replaced after a
+    # complete and shareable staging. Any exception before this point
+    # leaves `.proof` intact (the partial staging remains for diagnostics
+    # and will be purged at the next run).
     if PROOF_DIR.exists():
         os.replace(PROOF_DIR, previous)
     os.replace(staging, PROOF_DIR)
@@ -1031,11 +1036,11 @@ def _generate() -> dict:
         try:
             shutil.rmtree(previous)
         except PermissionError as exc:
-            # La preuve est déjà publiée: un `.proof.old` non supprimable
-            # (fichiers root) ne doit pas rougir le run, mais l'erreur doit
-            # surfacer maintenant plutôt qu'au run suivant.
+            # The proof is already published: an undeletable `.proof.old`
+            # (root-owned files) must not turn the run red, but the error
+            # must surface now rather than at the next run.
             print(
-                f"avertissement: nettoyage impossible de {previous} ({exc}); "
+                f"warning: cleanup impossible for {previous} ({exc}); "
                 f"{_docker_chown_remedy(previous)}",
                 file=sys.stderr,
             )

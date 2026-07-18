@@ -75,10 +75,10 @@ def test_session_origins_apply_to_observation_and_interaction():
     assert_url_allowed("http://shop.test/page?token=secret", patterns)
     assert_url_allowed("http://127.0.0.1:8899/", patterns)
     #: un hôte hors liste est bloqué avant tout accès réseau
-    with pytest.raises(PolicyError, match="origine refusée"):
+    with pytest.raises(PolicyError, match="origin rejected"):
         assert_url_allowed("https://prod.example/", patterns)
     #: les schémas non HTTP n'ont pas d'origine comparable: refus explicite
-    with pytest.raises(PolicyError, match="origine HTTP"):
+    with pytest.raises(PolicyError, match="HTTP"):
         assert_url_allowed("about:blank", patterns)
 
 
@@ -91,7 +91,7 @@ def test_origin_matching_is_structured_for_ipv6_and_wildcard_ports():
     assert_url_allowed("http://[::1]:9222/page", ipv6)
     assert_url_allowed("http://[::1]/default-port", ipv6)
     #: une autre adresse IPv6 est refusée malgré sa ressemblance textuelle
-    with pytest.raises(PolicyError, match="origine refusée"):
+    with pytest.raises(PolicyError, match="origin rejected"):
         assert_url_allowed("http://[::2]:9222/page", ipv6)
 
     subdomains = parse_origins("https://*.example.test")
@@ -99,7 +99,7 @@ def test_origin_matching_is_structured_for_ipv6_and_wildcard_ports():
     assert_url_allowed("https://shop.example.test/path", subdomains)
     assert_url_allowed("https://deep.shop.example.test/path", subdomains)
     #: mais jamais le domaine nu: le joker n'inclut pas l'apex
-    with pytest.raises(PolicyError, match="origine refusée"):
+    with pytest.raises(PolicyError, match="origin rejected"):
         assert_url_allowed("https://example.test/path", subdomains)
 
 
@@ -129,7 +129,7 @@ def test_target_must_be_the_owned_page_target():
     #: la cible attribuée et conforme est retournée telle quelle
     assert validate_target(target, "T1") == target
     #: un autre identifiant que celui attribué est refusé: pas de saut d'onglet
-    with pytest.raises(PolicyError, match="attribué"):
+    with pytest.raises(PolicyError, match="not assigned"):
         validate_target(target, "T2")
     #: un target non-page (worker, extension) est hors périmètre de pilotage
     with pytest.raises(PolicyError, match="type page"):
@@ -188,7 +188,7 @@ def test_unknown_commands_and_insufficient_grants_fail_closed():
     """Une commande inconnue n'a pas d'autorité implicite et un grant
     insuffisant bloque avant exécution: la politique échoue fermé."""
     #: une commande non classée est refusée au lieu d'hériter d'un défaut
-    with pytest.raises(PolicyError, match="non classée"):
+    with pytest.raises(PolicyError, match="not classified"):
         authority_for("future-command")
     context = ExecutionContext.create(
         run_id="R1",
@@ -201,9 +201,9 @@ def test_unknown_commands_and_insufficient_grants_fail_closed():
     assert_authorized(context, "text")
     #: interaction et privileged exigent chacun une élévation explicite,
     #: nommée dans l'erreur pour guider le superviseur
-    with pytest.raises(PolicyError, match="requiert interaction"):
+    with pytest.raises(PolicyError, match="requires interaction"):
         assert_authorized(context, "click")
-    with pytest.raises(PolicyError, match="requiert privileged"):
+    with pytest.raises(PolicyError, match="requires privileged"):
         assert_authorized(context, "eval")
 
 
@@ -211,5 +211,5 @@ def test_session_lifecycle_is_outside_browser_authority_matrix():
     """Le lifecycle possède sa propre frontière de capacité: ``start`` crée
     le grant navigateur, tandis que ``status`` et ``stop`` exigent l'identité
     exacte du manifest au lieu de simuler une commande CDP privileged."""
-    with pytest.raises(PolicyError, match="cycle de vie hors matrice"):
+    with pytest.raises(PolicyError, match="lifecycle command outside"):
         command_semantics("session")

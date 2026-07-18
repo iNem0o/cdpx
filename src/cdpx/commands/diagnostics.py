@@ -82,7 +82,7 @@ def cmd_dom_diff(args) -> None:
 def cmd_intercept(args) -> None:
     action = _require_action(args)
     if not isinstance(action, GotoAction):
-        raise ValueError("intercept supporte: -- goto <url>")
+        raise ValueError("intercept supports: -- goto <url>")
     with _client(args) as c:
         result = interception.intercept_goto(
             c,
@@ -100,8 +100,8 @@ def cmd_emulate(args) -> None:
     with _client(args) as c:
         res = emulation.emulate(c, preset=args.options.preset, reset=args.options.reset)
         if action:
-            # Les overrides meurent avec la connexion: agir sous émulation
-            # exige d'exécuter l'action DANS cette connexion (cf. e2e).
+            # Overrides die with the connection: acting under emulation
+            # requires running the action WITHIN this connection (see e2e).
             res["action"] = {
                 "argv": action_argv(action),
                 "result": actions.run_action(c, action, timeout=args.options.timeout),
@@ -147,7 +147,7 @@ def cmd_frame(args) -> None:
 
 
 def _panels_arg(value: str) -> list[str] | None:
-    """--panels: all (défaut) -> tous, none -> sonde token seule, sinon liste CSV."""
+    """--panels: all (default) -> all, none -> token probe only, otherwise CSV list."""
     if value == "all":
         return None
     if value == "none":
@@ -170,30 +170,28 @@ def _intercept_rule_arg(value: str) -> str:
 def register_commands(
     sub: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    parser = sub.add_parser("seo", help="audit SEO on-page du DOM rendu")
-    parser.add_argument("url", nargs="?", default=None, help="naviguer d'abord (optionnel)")
+    parser = sub.add_parser("seo", help="on-page SEO audit of the rendered DOM")
+    parser.add_argument("url", nargs="?", default=None, help="navigate first (optional)")
     parser.set_defaults(func=cmd_seo)
 
-    sub.add_parser("metrics", help="métriques de performance du renderer").set_defaults(
-        func=cmd_metrics
-    )
+    sub.add_parser("metrics", help="renderer performance metrics").set_defaults(func=cmd_metrics)
 
-    parser = sub.add_parser("profiler", help="parser les panels du Web Profiler Symfony")
+    parser = sub.add_parser("profiler", help="parse Symfony Web Profiler panels")
     parser.add_argument("url")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument(
         "--panels",
         type=_panels_arg,
         default="all",
-        help=f"all | none | liste: {','.join(profiler.ALL_PANELS)}",
+        help=f"all | none | list: {','.join(profiler.ALL_PANELS)}",
     )
     parser.set_defaults(func=cmd_profiler)
 
-    parser = sub.add_parser("dom-diff", help="diff DOM stable autour d'une action")
+    parser = sub.add_parser("dom-diff", help="stable DOM diff around an action")
     parser.add_argument("action", nargs=argparse.REMAINDER)
     parser.set_defaults(func=cmd_dom_diff)
 
-    parser = sub.add_parser("intercept", help="intercepter des requêtes pendant une commande")
+    parser = sub.add_parser("intercept", help="intercept requests during a command")
     parser.add_argument(
         "--rule",
         action="append",
@@ -205,7 +203,7 @@ def register_commands(
     parser.add_argument("action", nargs=argparse.REMAINDER)
     parser.set_defaults(func=cmd_intercept)
 
-    parser = sub.add_parser("emulate", help="émulation mobile/réseau/CPU (+ action composée)")
+    parser = sub.add_parser("emulate", help="mobile/network/CPU emulation (+ composed action)")
     parser.add_argument("preset", nargs="?", choices=["mobile", "slow-3g", "cpu-4x"])
     parser.add_argument("--reset", action="store_true")
     parser.add_argument(
@@ -213,16 +211,16 @@ def register_commands(
     )
     parser.set_defaults(func=cmd_emulate)
 
-    parser = sub.add_parser("vitals", help="Core Web Vitals basiques")
+    parser = sub.add_parser("vitals", help="basic Core Web Vitals")
     parser.add_argument("url")
-    parser.add_argument("--click", default=None, help="sélecteur à cliquer pour mesurer INP")
+    parser.add_argument("--click", default=None, help="selector to click to measure INP")
     parser.add_argument("--settle", type=float, default=0.5)
     parser.set_defaults(func=cmd_vitals)
 
-    sub.add_parser("a11y", help="arbre d'accessibilité compact").set_defaults(func=cmd_a11y)
-    parser = sub.add_parser("coverage", help="coverage JS par fichier")
+    sub.add_parser("a11y", help="compact accessibility tree").set_defaults(func=cmd_a11y)
+    parser = sub.add_parser("coverage", help="JS coverage by file")
     parser.add_argument("url")
     parser.set_defaults(func=cmd_coverage)
-    parser = sub.add_parser("frame", help="lire du texte dans une iframe")
+    parser = sub.add_parser("frame", help="read text inside an iframe")
     parser.add_argument("selector")
     parser.set_defaults(func=cmd_frame)

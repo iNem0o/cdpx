@@ -1,10 +1,10 @@
-"""Interpréteur d'actions composées.
+"""Composed action interpreter.
 
-Une "action" est un argv compact (["click", "#sel"]) exécuté dans une
-connexion CDP déjà ouverte. C'est le langage commun des commandes composées
-(dom-diff, record, replay, emulate): une action = une primitive nommée,
-jamais d'échappatoire shell. La politique centralisée classe ensuite le verbe
-pour fixer l'autorité et les origines autorisées.
+An "action" is a compact argv (["click", "#sel"]) executed on an
+already-open CDP connection. It's the common language of composed commands
+(dom-diff, record, replay, emulate): one action = one named primitive,
+never a shell escape hatch. The centralized policy then classifies the verb
+to set the authority and the allowed origins.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def run_action_argv(client: CDPClient, argv: list[str], timeout: float = 30.0) -
 
 
 def run_action(client: CDPClient, action: BrowserAction, timeout: float = 30.0) -> dict:
-    """Exécute une action et retourne la sortie de la primitive sous-jacente."""
+    """Executes an action and returns the output of the underlying primitive."""
     if isinstance(action, GotoAction):
         return nav.navigate(client, action.url, timeout=timeout)
     if isinstance(action, WaitAction):
@@ -44,22 +44,22 @@ def run_action(client: CDPClient, action: BrowserAction, timeout: float = 30.0) 
         return inputs.press_key(client, action.key)
     if isinstance(action, EvalAction):
         return {"value": js.evaluate(client, action.expression, await_promise=True)}
-    raise AssertionError(f"action non gérée: {action!r}")
+    raise AssertionError(f"unhandled action: {action!r}")
 
 
 def current_http_url(client: CDPClient) -> str | None:
-    """Retourne l'URL HTTP(S) réelle de la page, sinon ``None``."""
+    """Returns the page's real HTTP(S) URL, or ``None`` otherwise."""
     value = js.evaluate(client, "window.location.href")
     parsed = urllib.parse.urlparse(value if isinstance(value, str) else "")
     return value if parsed.scheme in {"http", "https"} and parsed.netloc else None
 
 
 def require_current_http_url(client: CDPClient, phase: str) -> str:
-    """Lit l'URL courante et échoue fermé si le navigateur ne peut la fournir."""
+    """Reads the current URL and fails closed if the browser cannot provide it."""
     try:
         current_url = current_http_url(client)
     except (ValueError, CDPError, CDPTimeout, js.JSException) as error:
-        raise ValueError(f"URL courante indéterminable {phase}: {error}") from error
+        raise ValueError(f"unable to determine the current URL {phase}: {error}") from error
     if current_url is None:
-        raise ValueError(f"URL courante indéterminable {phase}")
+        raise ValueError(f"unable to determine the current URL {phase}")
     return current_url

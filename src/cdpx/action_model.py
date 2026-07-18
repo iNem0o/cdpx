@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 USAGE = (
-    "action supportée: goto <url>, wait <selector>, click <selector>, "
-    "type <selector> <texte> [--clear], key <touche>, eval <js>"
+    "supported action: goto <url>, wait <selector>, click <selector>, "
+    "type <selector> <text> [--clear], key <key>, eval <js>"
 )
 
 
@@ -57,7 +57,7 @@ BrowserAction: TypeAlias = (
 def parse_action(argv: list[str]) -> BrowserAction:
     """Parse and validate the positional CLI/journal representation once."""
     if not argv or not all(isinstance(item, str) for item in argv):
-        raise ValueError(f"action manquante ({USAGE})" if not argv else USAGE)
+        raise ValueError(f"missing action ({USAGE})" if not argv else USAGE)
     verb, arguments = argv[0], argv[1:]
     if verb == "goto" and len(arguments) == 1:
         return GotoAction(arguments[0])

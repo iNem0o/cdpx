@@ -98,7 +98,7 @@ def test_command_options_reject_invalid_domain_values(field, value):
     namespace = build_parser().parse_args(["version"])
     setattr(namespace, field, value)
 
-    with pytest.raises(RuntimeError, match="CLI invalide"):
+    with pytest.raises(RuntimeError, match="invalid CLI"):
         CommandOptions.from_namespace(namespace)
 
 
@@ -356,7 +356,7 @@ def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
     (exit 2) avec un motif explicite, avant toute découverte ou commande CDP."""
     code, _, err = run(mock, capsys, *argv)
     #: l'usage invalide sort en 2 avec un diagnostic actionnable
-    assert code == 2 and ("requis" in err or "non support" in err)
+    assert code == 2 and ("required" in err or "not supported" in err)
     #: le refus précède le protocole: rien n'a été émis vers Chrome
     assert mock.commands == []
 
@@ -387,7 +387,7 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
         code, _, err = run(mock, capsys, *argv)
         #: chaque variante mutante est refusée avec le motif d'origine,
         #: aucune ne contourne le garde configuré
-        assert code == 1 and "origine refusée" in err
+        assert code == 1 and "origin rejected" in err
 
 
 @pytest.mark.scenario(
@@ -415,7 +415,7 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
     )
     #: la destination interdite est refusée malgré l'onglet permis, et
     #: le refus tombe avant la moindre commande CDP
-    assert code == 1 and "origine refusée" in err
+    assert code == 1 and "origin rejected" in err
     assert mock.commands == []
 
 
@@ -433,7 +433,7 @@ def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
     code, _, err = run(mock, capsys, "click", "#submit")
     #: le refus est une erreur runtime motivée sur stderr
     assert code == 1
-    assert "origine refusée" in err
+    assert "origin rejected" in err
     #: aucun évènement souris n'a été dispatché vers la page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
@@ -447,7 +447,7 @@ def test_origin_guard_blocks_dom_diff(mock, capsys, monkeypatch):
     code, _, err = run(mock, capsys, "dom-diff", "--", "click", "#x")
     #: envelopper la mutation dans dom-diff n'offre aucun contournement
     assert code == 1
-    assert "origine refusée" in err
+    assert "origin rejected" in err
     #: le click enveloppé n'a jamais atteint la page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
@@ -696,7 +696,7 @@ def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
         run(mock, capsys, "profiler", "http://s.test/", "--panels", "doctrine")
     assert exc.value.code == 2
     #: le diagnostic nomme la cause pour corriger l'invocation
-    assert "panel(s) inconnu(s)" in capsys.readouterr().err
+    assert "unknown panel(s)" in capsys.readouterr().err
 
 
 def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
@@ -737,7 +737,7 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
     mock.commands.clear()
     code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "click", "#x")
     #: l'action non supportée est refusée sans émettre de commande
-    assert code == 1 and "intercept supporte" in err and mock.commands == []
+    assert code == 1 and "intercept supports" in err and mock.commands == []
 
 
 def test_emulate_requires_preset_or_reset(mock, capsys):
@@ -745,7 +745,7 @@ def test_emulate_requires_preset_or_reset(mock, capsys):
     d'émulation implicite silencieuse."""
     code, _, err = run(mock, capsys, "emulate")
     #: l'absence de preset est un échec runtime explicite, pas un no-op
-    assert code == 1 and "preset inconnu" in err
+    assert code == 1 and "unknown preset" in err
 
 
 def test_record_cli_executes_and_journals(mock, capsys, tmp_path):
@@ -829,7 +829,7 @@ def test_origin_guard_composed_commands_follow_action_verb(mock, capsys, monkeyp
     # record avec verbe mutant: refusé (aucune commande CDP émise)
     code, _, err = run(mock, capsys, "record", "-o", str(journal), "--", "click", "#x")
     #: le verbe mutant enveloppé est refusé avant d'atteindre la page
-    assert code == 1 and "origine refusée" in err
+    assert code == 1 and "origin rejected" in err
     assert mock.commands_for("Input.dispatchMouseEvent") == []
     # replay est gardé séquentiellement: une navigation de lecture vers une
     # origine permise n'est plus refusée à cause de l'onglet initial about:blank.

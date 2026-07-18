@@ -16,7 +16,7 @@ from cdpx.security import redact_headers, redact_text, redact_url
 from .catalog import ALL_PANELS, PANEL_SOURCES
 from .parsers import parse_panel
 
-# Le marqueur __cdpx_profiler_panels sert au scripting du mock CDP (on_eval).
+# The __cdpx_profiler_panels marker is used for scripting the mock CDP (on_eval).
 PANEL_FETCH_JS = """
 (async () => { const __cdpx_profiler_panels = 1;
   const targets = %s;
@@ -39,13 +39,13 @@ PANEL_FETCH_JS = """
 
 
 def normalize_panels(panels: Sequence[str] | None) -> list[str]:
-    """Valide une liste de panels demandés (None -> tous)."""
+    """Validates a list of requested panels (None -> all)."""
     if panels is None:
         return list(ALL_PANELS)
     unknown = [p for p in panels if p not in PANEL_SOURCES]
     if unknown:
         raise ValueError(
-            f"panel(s) inconnu(s): {', '.join(unknown)} (choix: {', '.join(ALL_PANELS)})"
+            f"unknown panel(s): {', '.join(unknown)} (choices: {', '.join(ALL_PANELS)})"
         )
     return list(panels)
 
@@ -53,7 +53,7 @@ def normalize_panels(panels: Sequence[str] | None) -> list[str]:
 def fetch_panels(
     client: CDPClient, profiler_url: str, panels: list[str], timeout: float = 30.0
 ) -> list[dict[str, Any]]:
-    """Récupère le HTML des panels demandés via fetch() dans la page."""
+    """Fetches the HTML of the requested panels via fetch() in the page."""
     base = profiler_url.split("?", 1)[0].split("#", 1)[0]
     targets = [[key, f"{base}?panel={PANEL_SOURCES[key]}"] for key in panels]
     expr = PANEL_FETCH_JS % (json.dumps(targets), int(timeout * 1000))
@@ -73,9 +73,9 @@ def collect_profiler_report(
     timeout: float = 30.0,
     page_url: str | None = None,
 ) -> dict[str, Any]:
-    """Contrat complet de `cdpx profiler` à partir d'un hit X-Debug-Token(-Link).
+    """Complete `cdpx profiler` contract built from an X-Debug-Token(-Link) hit.
 
-    `hit` vient de dev.find_profiler_hit: {url, status, link, headers}.
+    `hit` comes from dev.find_profiler_hit: {url, status, link, headers}.
     """
     keys = normalize_panels(panels)
     link = _validated_profiler_link(
@@ -132,11 +132,11 @@ def _validated_profiler_link(
 ) -> str:
     raw_link = hit.get("link")
     if not isinstance(raw_link, str) or not raw_link.strip():
-        raise ValueError("lien profiler absent ou invalide")
+        raise ValueError("missing or invalid profiler link")
     hit_url = hit.get("url")
     base_url = hit_url if isinstance(hit_url, str) and hit_url else page_url
     if not isinstance(base_url, str) or not base_url:
-        raise ValueError("origine de confiance du profiler indéterminable")
+        raise ValueError("unable to determine the profiler's trusted origin")
     trust_url = page_url or base_url
     origins = allowed_origins or (origin_from_url(trust_url),)
     assert_url_allowed(trust_url, origins)

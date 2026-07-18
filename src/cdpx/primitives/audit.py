@@ -1,10 +1,10 @@
-"""Primitives d'audit: SEO on-page et métriques de performance.
+"""Audit primitives: on-page SEO and performance metrics.
 
-Usecase direct (audits e-commerce et SEO): extraire en un appel le
-contrat SEO d'une page TELLE QUE RENDUE par le navigateur — pas telle que
-servie en HTML brut. C'est toute la différence sur les fronts JS: canonical
-injecté, JSON-LD posé par GTM, hreflang réécrits... seul le DOM final fait foi
-pour Googlebot rendering.
+Direct usecase (e-commerce and SEO audits): extract in one call the
+SEO contract of a page AS RENDERED by the browser — not as served
+as raw HTML. That's the whole difference on JS frontends: canonical
+injected, JSON-LD dropped by GTM, hreflang rewritten... only the final DOM
+is authoritative for Googlebot rendering.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import json
 from cdpx.client import CDPClient
 from cdpx.primitives.js import evaluate
 
-# Marqueur __cdpx_seo: identifie l'expression (utile aux tests et au debug).
+# __cdpx_seo marker: identifies the expression (useful for tests and debugging).
 SEO_JS = r"""
 (() => { const __cdpx_seo = 1;
   const attr = (sel, a) => {
@@ -67,33 +67,33 @@ def seo(client: CDPClient) -> dict:
     data["title_px_estimate"] = _px_estimate(title)
     data["description_px_estimate"] = _px_estimate(description)
     if not data.get("title"):
-        findings.append("title manquant")
+        findings.append("missing title")
     if not data.get("metas", {}).get("description"):
-        findings.append("meta description manquante")
+        findings.append("missing meta description")
     if not data.get("canonical"):
-        findings.append("canonical manquant")
+        findings.append("missing canonical")
     if len(data.get("h1", [])) != 1:
-        findings.append(f"{len(data.get('h1', []))} h1 (attendu: 1)")
+        findings.append(f"{len(data.get('h1', []))} h1 (expected: 1)")
     if data.get("images_without_alt"):
-        findings.append(f"{data['images_without_alt']} image(s) sans alt")
+        findings.append(f"{data['images_without_alt']} image(s) without alt")
     h1_norm = [_norm(h) for h in data.get("h1", [])]
     duplicated_h1 = sorted({h for h in h1_norm if h and h1_norm.count(h) > 1})
     if duplicated_h1:
-        findings.append(f"h1 dupliqué: {', '.join(duplicated_h1)}")
+        findings.append(f"duplicate h1: {', '.join(duplicated_h1)}")
     for item in _jsonld_items(data.get("jsonld", [])):
         if not isinstance(item, dict):
-            findings.append("JSON-LD scalaire non supporté")
+            findings.append("unsupported scalar JSON-LD")
             continue
         if item.get("__parse_error"):
-            findings.append("JSON-LD invalide")
+            findings.append("invalid JSON-LD")
         if item.get("@type") == "Product" and not (item.get("sku") or item.get("name")):
-            findings.append("Product JSON-LD incomplet (sku ou name requis)")
+            findings.append("incomplete Product JSON-LD (sku or name required)")
     data["findings"] = findings
     return data
 
 
 def _jsonld_items(value):
-    """Aplatit les tableaux JSON-LD valides sans supposer que chaque racine est un objet."""
+    """Flattens valid JSON-LD arrays without assuming every root is an object."""
     if isinstance(value, list):
         for item in value:
             yield from _jsonld_items(item)
@@ -102,7 +102,7 @@ def _jsonld_items(value):
 
 
 def _px_estimate(text: str) -> int:
-    # Approximation stable pour agent/CI: largeur moyenne SERP desktop.
+    # Stable approximation for agent/CI: average desktop SERP width.
     return round(len(text) * 7.2)
 
 
@@ -111,7 +111,7 @@ def _norm(text: str) -> str:
 
 
 def metrics(client: CDPClient) -> dict:
-    """Performance.getMetrics: heap, nodes, layout count, timings navigateur."""
+    """Performance.getMetrics: heap, nodes, layout count, browser timings."""
     client.send("Performance.enable")
     res = client.send("Performance.getMetrics")
     return {m["name"]: m["value"] for m in res.get("metrics", [])}

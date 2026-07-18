@@ -1,9 +1,9 @@
-"""Construction du résumé de preuve (verdict, totaux, catalogue, portails).
+"""Building the proof summary (verdict, totals, catalog, gates).
 
-``build_summary`` reçoit via ``ProofPaths`` les chemins que la façade
-`cdpx.proof` laisse monkeypatcher (PROOF_DIR, SYMFONY_LOG, EVIDENCE_DIR, …),
-résolus par elle au moment de l'appel. Aucun symbole de ce module ne lit
-`cdpx.proof` à l'exécution.
+``build_summary`` receives via ``ProofPaths`` the paths that the
+`cdpx.proof` facade lets tests monkeypatch (PROOF_DIR, SYMFONY_LOG,
+EVIDENCE_DIR, …), resolved by it at call time. No symbol in this module
+reads `cdpx.proof` at runtime.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from cdpx.proofing.scenario_models import ScenarioEvidence
 
 
 def cast_failures_from_entries(cast_entries: list[dict] | None) -> list[str]:
-    """Portail cast: chaque commande de démonstration doit avoir son .cast généré."""
+    """Cast gate: every demonstration command must have its .cast generated."""
 
     by_id = {str(entry.get("id", "")): entry for entry in (cast_entries or [])}
     failures = []

@@ -14,9 +14,9 @@ from cdpx.security import redact_text
 def register_commands(
     sub: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    parser = sub.add_parser("session", help="profil Chrome jetable et exclusif pour un run")
+    parser = sub.add_parser("session", help="disposable, exclusive Chrome profile for a run")
     session_sub = parser.add_subparsers(dest="session_action", required=True)
-    start = session_sub.add_parser("start", help="démarrer une session Chrome supervisée")
+    start = session_sub.add_parser("start", help="start a supervised Chrome session")
     start.add_argument("--run-id", dest="session_run_id", default=None)
     start.add_argument(
         "--authority",
@@ -30,21 +30,21 @@ def register_commands(
     start.add_argument(
         "--export",
         action="store_true",
-        help="émettre des lignes `export` eval-ables au lieu du JSON de démarrage",
+        help="emit eval-able `export` lines instead of the startup JSON",
     )
     start.add_argument(
         "--startup-timeout",
         type=float,
         default=session.DEFAULT_STARTUP_TIMEOUT,
         help=(
-            "budget total du cold start Chrome en secondes "
-            f"(défaut: {session.DEFAULT_STARTUP_TIMEOUT:g}, "
+            "total Chrome cold start budget in seconds "
+            f"(default: {session.DEFAULT_STARTUP_TIMEOUT:g}, "
             f"maximum: {session.MAX_STARTUP_TIMEOUT:g})"
         ),
     )
     start.set_defaults(func=cmd_session)
     for action_name in ("status", "stop"):
-        child = session_sub.add_parser(action_name, help=f"{action_name} une session gérée")
+        child = session_sub.add_parser(action_name, help=f"{action_name} a managed session")
         child.add_argument("--session", dest="session_path", default=None)
         child.add_argument("--run-id", dest="session_run_id", default=None)
         child.add_argument("--target", dest="session_target", default=None)
@@ -56,7 +56,7 @@ def cmd_session(args: CommandInvocation) -> None:
         run_id = args.options.session_run_id
         authority = args.options.authority
         if run_id is None or authority is None:
-            raise RuntimeError("identité de démarrage de session non préparée")
+            raise RuntimeError("session startup identity not prepared")
         manifest, path = session.start_session(
             run_id=run_id,
             authority=authority,
@@ -68,7 +68,7 @@ def cmd_session(args: CommandInvocation) -> None:
         )
         started = args.with_session(manifest)
         if args.options.export:
-            # exception documentée au contrat stdout-JSON: lignes eval-ables
+            # documented exception to the stdout-JSON contract: eval-able lines
             for line in session.export_lines(manifest, path):
                 print(redact_text(line, context=started.redaction))
             return
@@ -82,7 +82,7 @@ def cmd_session(args: CommandInvocation) -> None:
         run_id = args.options.session_run_id
         target_id = args.options.session_target
         if session_path is None or run_id is None or target_id is None:
-            raise RuntimeError("identité de session non préparée")
+            raise RuntimeError("session identity not prepared")
         emit_json(
             args,
             session.session_status(
@@ -97,7 +97,7 @@ def cmd_session(args: CommandInvocation) -> None:
         run_id = args.options.session_run_id
         target_id = args.options.session_target
         if session_path is None or run_id is None or target_id is None:
-            raise RuntimeError("identité de session non préparée")
+            raise RuntimeError("session identity not prepared")
         emit_json(
             args,
             session.stop_session(
@@ -108,4 +108,4 @@ def cmd_session(args: CommandInvocation) -> None:
             ),
         )
         return
-    raise scenarios.ScenarioUsageError("session supporte: start, status, stop")
+    raise scenarios.ScenarioUsageError("session supports: start, status, stop")

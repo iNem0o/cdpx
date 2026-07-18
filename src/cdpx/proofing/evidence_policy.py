@@ -15,8 +15,8 @@ DEFAULT_PROOF_RETENTION_DAYS = 14
 MIN_PROOF_RETENTION_DAYS = 1
 MAX_PROOF_RETENTION_DAYS = 90
 DEFAULT_EVIDENCE_TTL = DEFAULT_PROOF_RETENTION_DAYS * 24 * 60 * 60
-# Taxonomie fermée: chaque type connu a une politique de classification et un
-# visualiseur dédié dans le cockpit; une chaîne libre laisserait dériver les deux.
+# Closed taxonomy: every known type has a classification policy and a
+# dedicated viewer in the cockpit; a free-form string would let both drift.
 ARTIFACT_TYPES = frozenset(
     {
         "screenshot",
@@ -52,19 +52,19 @@ def environment_secret_values(environ: Mapping[str, str] | None = None) -> list[
 
 
 def proof_retention_days(environ: Mapping[str, str] | None = None) -> int:
-    """Retourne la rétention du proof, avec validation stricte fail-closed."""
+    """Return the proof retention, with strict fail-closed validation."""
 
     values = os.environ if environ is None else environ
     raw = values.get(PROOF_RETENTION_ENV)
     if raw is None:
         return DEFAULT_PROOF_RETENTION_DAYS
     if not re.fullmatch(r"[1-9][0-9]*", raw):
-        raise ValueError(f"{PROOF_RETENTION_ENV} doit être un entier positif")
+        raise ValueError(f"{PROOF_RETENTION_ENV} must be a positive integer")
     days = int(raw)
     if not MIN_PROOF_RETENTION_DAYS <= days <= MAX_PROOF_RETENTION_DAYS:
         raise ValueError(
-            f"{PROOF_RETENTION_ENV} doit être compris entre "
-            f"{MIN_PROOF_RETENTION_DAYS} et {MAX_PROOF_RETENTION_DAYS}"
+            f"{PROOF_RETENTION_ENV} must be between "
+            f"{MIN_PROOF_RETENTION_DAYS} and {MAX_PROOF_RETENTION_DAYS}"
         )
     return days
 

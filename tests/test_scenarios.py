@@ -55,7 +55,7 @@ def test_parse_rejects_unknown_field():
     une faute de frappe ne peut pas désactiver silencieusement une étape ou
     une assertion."""
     #: le rejet nomme le champ fautif avant tout contact avec un navigateur
-    with pytest.raises(scenarios.ScenarioUsageError, match="champ"):
+    with pytest.raises(scenarios.ScenarioUsageError, match="unknown field"):
         scenarios.parse(
             {
                 "name": "bad",
@@ -72,7 +72,7 @@ def test_parse_rejects_cleartext_type_pair():
     l'appui, avant toute préparation ou connexion."""
     #: le refus arrive au parsing, localisé, et nomme l'exigence secret_ref
     with pytest.raises(
-        scenarios.ScenarioUsageError, match=r"steps\[0\]\.type exige un objet avec secret_ref"
+        scenarios.ScenarioUsageError, match=r"steps\[0\]\.type requires an object with secret_ref"
     ):
         scenarios.parse(
             {
@@ -722,4 +722,4 @@ def test_scenario_cli_invalid_file_exits_2(mock, cli_manifest, capsys, tmp_path)
     #: le code 2 réserve la sortie aux erreurs d'usage, et l'explication
     #: part sur le canal diagnostic
     assert code == 2
-    assert "scénario doit être un objet" in err
+    assert "scenario must be a YAML object" in err

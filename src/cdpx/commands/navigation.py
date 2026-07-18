@@ -42,7 +42,7 @@ def cmd_tabs(args) -> None:
         targets = discovery.list_targets(args.options.host, args.options.port)
         assigned = [target for target in targets if target.get("id") == context.target_id]
         if len(assigned) != 1:
-            raise PolicyError("session: target attribué unique introuvable")
+            raise PolicyError("session: unique assigned target not found")
         target = session.assert_manifest_target_binding(manifest, assigned[0])
         with CDPClient(target["webSocketDebuggerUrl"], timeout=args.options.timeout) as client:
             current_url = _current_http_url(client)
@@ -145,50 +145,50 @@ def cmd_key(args) -> None:
 def register_commands(
     sub: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    parser = sub.add_parser("tabs", help="inspection du target attribué")
+    parser = sub.add_parser("tabs", help="inspection of the assigned target")
     parser.add_argument("action", choices=["list"])
     parser.set_defaults(func=cmd_tabs)
-    sub.add_parser("version", help="infos du navigateur").set_defaults(func=cmd_version)
+    sub.add_parser("version", help="browser info").set_defaults(func=cmd_version)
 
-    parser = sub.add_parser("goto", help="naviguer vers une URL")
+    parser = sub.add_parser("goto", help="navigate to a URL")
     parser.add_argument("url")
     parser.add_argument("--wait", choices=["load", "domcontentloaded", "none"], default="load")
     parser.set_defaults(func=cmd_goto)
 
-    parser = sub.add_parser("wait", help="attendre un sélecteur CSS")
+    parser = sub.add_parser("wait", help="wait for a CSS selector")
     parser.add_argument("selector")
     parser.set_defaults(func=cmd_wait)
 
-    parser = sub.add_parser("eval", help="évaluer du JS dans la page")
+    parser = sub.add_parser("eval", help="evaluate JS in the page")
     parser.add_argument("expression")
     parser.add_argument("--await", dest="await_promise", action="store_true")
     parser.set_defaults(func=cmd_eval)
 
-    parser = sub.add_parser("text", help="innerText (élément ou body)")
+    parser = sub.add_parser("text", help="innerText (element or body)")
     parser.add_argument("selector", nargs="?", default=None)
     parser.set_defaults(func=cmd_text)
 
-    parser = sub.add_parser("html", help="outerHTML (élément ou document)")
+    parser = sub.add_parser("html", help="outerHTML (element or document)")
     parser.add_argument("selector", nargs="?", default=None)
     parser.set_defaults(func=cmd_html)
 
-    parser = sub.add_parser("count", help="compter les éléments d'un sélecteur")
+    parser = sub.add_parser("count", help="count elements matching a selector")
     parser.add_argument("selector")
     parser.set_defaults(func=cmd_count)
 
-    parser = sub.add_parser("click", help="cliquer un élément (Input domain)")
+    parser = sub.add_parser("click", help="click an element (Input domain)")
     parser.add_argument("selector")
     parser.set_defaults(func=cmd_click)
 
-    parser = sub.add_parser("type", help="taper du texte dans un champ")
+    parser = sub.add_parser("type", help="type text into a field")
     parser.add_argument("selector")
-    parser.add_argument("--secret-env", required=True, help="lire le texte depuis cette variable")
-    parser.add_argument("--clear", action="store_true", help="vider le champ avant")
+    parser.add_argument("--secret-env", required=True, help="read the text from this variable")
+    parser.add_argument("--clear", action="store_true", help="clear the field first")
     parser.set_defaults(func=cmd_type)
 
     parser = sub.add_parser(
         "key",
-        help="presser une touche nommée (navigation, édition, Enter/Tab/Escape/Space)",
+        help="press a named key (navigation, editing, Enter/Tab/Escape/Space)",
     )
     parser.add_argument("key")
     parser.set_defaults(func=cmd_key)

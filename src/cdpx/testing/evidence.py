@@ -85,10 +85,10 @@ _TEXT_MIMES = {
 
 def _secure_dir(path: Path) -> None:
     if path.is_symlink():
-        raise ValueError(f"dossier de preuve symbolique interdit: {path}")
+        raise ValueError(f"symbolic proof directory forbidden: {path}")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not path.is_dir():
-        raise ValueError(f"dossier de preuve requis: {path}")
+        raise ValueError(f"proof directory required: {path}")
     path.chmod(0o700)
 
 
@@ -126,7 +126,7 @@ def _is_textual(mime: str, path: Path) -> bool:
 def _attachment_name(value: str) -> str:
     path = Path(value)
     if path.is_absolute() or len(path.parts) != 1 or path.name in {"", ".", ".."}:
-        raise ValueError(f"nom de preuve invalide: {value}")
+        raise ValueError(f"invalid proof name: {value}")
     return path.name
 
 
@@ -240,13 +240,13 @@ class EvidenceCase:
     ) -> dict[str, Any]:
         src = Path(path)
         if src.is_symlink() or not src.is_file():
-            raise ValueError(f"fichier de preuve invalide: {src}")
+            raise ValueError(f"invalid proof file: {src}")
         _secure_dir(self.artifact_dir)
         safe_stem = slugify(redact_text(src.stem, context=self.redaction_context, path="$.name"))
         dest = self.artifact_dir / f"{safe_stem}{src.suffix.lower()}"
         artifact_type = type or _TYPE_BY_SUFFIX.get(src.suffix.lower(), "file")
         if artifact_type not in ARTIFACT_TYPES:
-            raise ValueError(f"type d'artefact de preuve inconnu: {artifact_type}")
+            raise ValueError(f"unknown proof artifact type: {artifact_type}")
         mime = mimetypes.guess_type(dest.name)[0] or "application/octet-stream"
         textual = _is_textual(mime, src)
         selected_classification = classification or (
@@ -363,7 +363,7 @@ class EvidenceCase:
         excerpt_lines: int = 40,
         filename: str | None = None,
     ) -> dict[str, Any]:
-        """Preuve secondaire: transcript complet d'une commande + extrait lisible."""
+        """Secondary proof: full command transcript + readable excerpt."""
 
         name = _attachment_name(filename or f"{slugify(label)}.txt")
         _secure_dir(self.artifact_dir)
@@ -406,17 +406,17 @@ class EvidenceCase:
         context: int = 3,
         max_lines: int = 120,
     ) -> dict[str, Any]:
-        """Preuve secondaire: extrait ciblé d'un log (motif ou plage de lignes).
+        """Secondary proof: targeted excerpt of a log (pattern or line range).
 
-        Sans correspondance, l'artefact est quand même produit ("aucune
-        correspondance"): l'absence d'un motif est une preuve en soi.
+        Without a match, the artifact is still produced ("no match"): the
+        absence of a pattern is itself proof.
         """
 
         if pattern is not None and line_range is not None:
-            raise ValueError("pattern et line_range sont mutuellement exclusifs")
+            raise ValueError("pattern and line_range are mutually exclusive")
         src = Path(path)
         if src.is_symlink() or not src.is_file():
-            raise ValueError(f"fichier de preuve invalide: {src}")
+            raise ValueError(f"invalid proof file: {src}")
         lines = src.read_text(encoding="utf-8", errors="replace").splitlines()
         matched: list[int] = []
         if pattern is not None:
@@ -442,9 +442,9 @@ class EvidenceCase:
             rendered.append(f"{src.name}:{lineno}: {lines[lineno - 1]}")
             previous = lineno
         if omitted:
-            rendered.append(f"… ({omitted} lignes omises) …")
+            rendered.append(f"… ({omitted} lines omitted) …")
         if not rendered:
-            rendered = [f"aucune correspondance pour {pattern!r} dans {src.name}"]
+            rendered = [f"no match for {pattern!r} in {src.name}"]
         content = "\n".join(rendered)
 
         name = _attachment_name(f"{slugify(label)}.txt")
@@ -475,10 +475,10 @@ class EvidenceCase:
         path: str | Path,
         label: str = "Terminal record",
     ) -> dict[str, Any]:
-        """Preuve secondaire: enregistrement terminal (.cast v2), joué par xterm.js.
+        """Secondary proof: terminal recording (.cast v2), played by xterm.js.
 
-        Le .cast est textuel donc redacté, mais jamais uploadable: un secret
-        peut être fragmenté entre événements ndjson et échapper au scan.
+        The .cast is textual and therefore redacted, but never uploadable: a
+        secret can be fragmented across ndjson events and escape the scan.
         """
 
         return self.attach_file(
@@ -564,7 +564,7 @@ class EvidenceSession:
     ):
         selected_ttl = proof_retention_seconds() if ttl is None else ttl
         if selected_ttl <= 0:
-            raise ValueError("TTL de preuve strictement positif requis")
+            raise ValueError("strictly positive proof TTL required")
         self.root = Path(root)
         self.suite_override = suite_override
         self.cases: dict[str, EvidenceCase] = {}
@@ -600,8 +600,8 @@ class EvidenceSession:
         return case
 
     def _intent_for_item(self, item: Any) -> TestIntent | None:
-        # Les tests paramétrés partagent la même fonction: extraction unique,
-        # chaque case reçoit ses propres dicts (as_dict) pour la corrélation.
+        # Parametrized tests share the same function: extraction happens
+        # once, each case gets its own dicts (as_dict) for correlation.
         func = getattr(item, "function", None)
         if func is None:
             return None
@@ -646,7 +646,7 @@ class EvidenceSession:
         entries = []
         for path in sorted(scenario_paths + artifact_paths):
             if path.is_symlink() or not path.is_file():
-                raise ValueError(f"preuve non manifestable: {path}")
+                raise ValueError(f"proof cannot be manifested: {path}")
             relative = path.resolve().relative_to(self.root.resolve()).as_posix()
             metadata = metadata_by_path.get(path.resolve())
             data = path.read_bytes()
@@ -680,13 +680,13 @@ class EvidenceSession:
             "artifacts": entries,
             "redaction": self.redaction_context.report.as_dict(),
         }
-        # Nom dérivé du jeu de suites: les sessions pytest successives d'une
-        # même génération de preuve (unit/integration, e2e, symfony) écrivent
-        # des manifestes distincts au lieu de s'écraser, et un re-run de la
-        # même session remplace le sien (déterminisme, pas d'accumulation).
+        # Name derived from the suite set: successive pytest sessions of the
+        # same proof generation (unit/integration, e2e, symfony) write
+        # distinct manifests instead of overwriting each other, and a re-run
+        # of the same session replaces its own (determinism, no accumulation).
         suites = sorted({case.suite for case in self.cases.values()})
-        # Repli déterministe "session": un manifeste sans cas garde un nom
-        # stable entre runs standalone au lieu d'accumuler des noms aléatoires.
+        # Deterministic "session" fallback: a manifest with no cases keeps a
+        # stable name across standalone runs instead of accumulating random names.
         stem = slugify("-".join(suites)) if suites else "session"
         _write_private_text(
             self.root / f"evidence-manifest-{stem}.json",
@@ -695,14 +695,14 @@ class EvidenceSession:
 
 
 def head_tail_excerpt(text: str, max_lines: int, head: int = 10) -> str:
-    """Extrait tête+queue d'un texte long, avec marqueur d'omission honnête."""
+    """Head+tail excerpt of a long text, with an honest omission marker."""
 
     lines = text.splitlines()
     if len(lines) <= max_lines:
         return text.rstrip("\n")
     tail = max(max_lines - head, 1)
     omitted = len(lines) - head - tail
-    return "\n".join([*lines[:head], f"… ({omitted} lignes omises) …", *lines[-tail:]])
+    return "\n".join([*lines[:head], f"… ({omitted} lines omitted) …", *lines[-tail:]])
 
 
 def start_timer() -> float:

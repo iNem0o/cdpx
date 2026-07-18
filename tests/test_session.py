@@ -155,9 +155,9 @@ def test_manifest_refuses_permissions_and_assignment_mismatch(tmp_path):
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("authority", "admin", "autorité"),
+        ("authority", "admin", "unknown authority level"),
         ("origins", "http://demo.test", "origins"),
-        ("created_at", "2026-07-12T00:00:00", "fuseau"),
+        ("created_at", "2026-07-12T00:00:00", "timezone"),
         ("browser_pid", True, "browser_pid"),
         (
             "websocket_url",
@@ -197,7 +197,7 @@ def test_manifest_rejects_tampered_session_paths(tmp_path):
     path.write_text(json.dumps(payload), encoding="utf-8")
     path.chmod(0o600)
     #: le profil déplacé hors de l'arbre de session bloque le chargement
-    with pytest.raises(PolicyError, match="hors du dossier"):
+    with pytest.raises(PolicyError, match="outside the assigned directory"):
         load_manifest(path, run_id="R1", target_id="T1")
 
 
@@ -210,7 +210,7 @@ def test_session_lease_is_non_blocking_and_owned_by_run(tmp_path):
     with SessionLease(path, run_id="R1", target_id="T1", require_active=False):
         #: la deuxième acquisition échoue tout de suite plutôt que de bloquer
         #: la commande concurrente
-        with pytest.raises(PolicyError, match="déjà utilisée"):
+        with pytest.raises(PolicyError, match="already in use by another command"):
             with SessionLease(path, run_id="R1", target_id="T1", require_active=False):
                 pass
 
@@ -364,7 +364,7 @@ def test_manifest_cannot_name_an_arbitrary_parent_as_its_session(tmp_path):
     path.chmod(0o600)
 
     #: la forge est refusée: le dossier visé n'appartient pas au runtime cdpx
-    with pytest.raises(PolicyError, match="hors du dossier"):
+    with pytest.raises(PolicyError, match="outside the declared session directory"):
         load_manifest(path)
     #: le répertoire ciblé par la forge n'a subi aucune destruction
     assert project.exists()
@@ -385,7 +385,7 @@ def test_stop_refuses_to_signal_a_reused_or_forged_pid(tmp_path):
 
     #: le processus courant, réel mais sans marqueur Chrome, est refusé avant
     #: l'envoi du moindre signal
-    with pytest.raises(PolicyError, match="marqueur"):
+    with pytest.raises(PolicyError, match="marker"):
         stop_session(path, run_id=forged.run_id, target_id=forged.target_id, timeout=0.001)
 
     #: le refus laisse le manifest en place pour diagnostic
@@ -406,7 +406,7 @@ def test_stop_respects_the_exclusive_command_lease(tmp_path):
     ):
         #: l'arrêt concurrent échoue-fermé tant que le bail est détenu par la
         #: commande en cours
-        with pytest.raises(PolicyError, match="déjà utilisée"):
+        with pytest.raises(PolicyError, match="already in use by another command"):
             stop_session(
                 path,
                 run_id=manifest.run_id,
@@ -422,7 +422,7 @@ def test_stop_rejects_invalid_timeout_before_writing_stop_file(tmp_path):
     path = write_manifest(manifest)
 
     #: la validation du paramètre précède toute écriture dans la session
-    with pytest.raises(PolicyError, match="fini et strictement positif"):
+    with pytest.raises(PolicyError, match="finite and strictly positive value required"):
         stop_session(
             path,
             run_id=manifest.run_id,
@@ -556,7 +556,7 @@ def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, mon
     assert aborted and not (tmp_path / f"{SESSION_ID}.error").exists()
 
     #: un TTL nul est refusé d'emblée, sans même tenter un lancement
-    with pytest.raises(PolicyError, match="strictement positif"):
+    with pytest.raises(PolicyError, match="finite and strictly positive value required"):
         start_session(
             run_id="run-timeout",
             authority="observation",
@@ -641,7 +641,7 @@ def test_start_session_timeout_reports_redacted_log_tails_before_cleanup(
     message = str(caught.value)
     #: le diagnostic nomme l'échec de readiness et cite les deux logs avec
     #: l'étape de démarrage atteinte, de quoi investiguer sans la session
-    assert "session navigateur non prête" in message
+    assert "browser session not ready" in message
     assert "supervisor.log" in message and "chrome-stderr.log" in message
     assert "startup_stage=wait_devtools" in message
     #: la valeur secrète issue de l'environnement n'atteint jamais le message,
@@ -676,7 +676,7 @@ def test_startup_diagnostics_refuse_symlinked_logs(tmp_path):
     #: le contenu du fichier extérieur n'a pas été exfiltré via le symlink
     assert "must-not-be-read" not in diagnostics
     #: le log détourné est présenté comme indisponible, pas comme une erreur
-    assert "supervisor.log:\n<vide ou indisponible>" in diagnostics
+    assert "supervisor.log:\n<empty or unavailable>" in diagnostics
 
 
 @pytest.mark.parametrize(
@@ -695,7 +695,7 @@ def test_start_session_rejects_non_finite_limits_before_creating_files(
     """TTL et timeout non finis ou nuls sont rejetés avant toute création de
     fichier: le runtime reste vierge quelle que soit la limite fautive."""
     #: chaque limite invalide déclenche le même refus de politique explicite
-    with pytest.raises(PolicyError, match="fini et strictement positif"):
+    with pytest.raises(PolicyError, match="finite and strictly positive value required"):
         start_session(
             run_id="run-invalid-limits",
             authority="observation",
@@ -711,7 +711,7 @@ def test_start_session_rejects_unbounded_startup_timeout(tmp_path):
     """Le timeout de démarrage est aussi borné par le haut: une attente
     au-delà du plafond est refusée avant tout effet sur le disque."""
     #: dépasser le plafond est un refus de politique, pas une attente infinie
-    with pytest.raises(PolicyError, match="timeout de démarrage hors plage"):
+    with pytest.raises(PolicyError, match="startup timeout out of range"):
         start_session(
             run_id="run-invalid-timeout",
             authority="observation",
@@ -1082,7 +1082,7 @@ def test_single_target_enforcement_fails_closed_when_popup_cannot_close(
 
     #: le refus de fermeture devient une erreur de politique explicite, pas
     #: un silence qui laisserait une page non supervisée ouverte
-    with pytest.raises(PolicyError, match="fermeture.*échouée"):
+    with pytest.raises(PolicyError, match="closing.*failed"):
         session_mod._enforce_single_page_target(manifest)
 
 
@@ -1146,7 +1146,7 @@ def test_exact_target_attestation_rejects_extra_page(tmp_path, monkeypatch):
 
     #: la présence d'une deuxième page viole le contrat d'exclusivité de la
     #: cible et invalide l'attestation
-    with pytest.raises(PolicyError, match="un seul target page"):
+    with pytest.raises(PolicyError, match="exactly one page target"):
         session_mod._assert_exact_target(manifest)
 
 
@@ -1204,31 +1204,31 @@ def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, mon
     active_port.write_text("1\n/devtools/browser/id\n", encoding="utf-8")
     #: un DevToolsActivePort divergent prouve que le profil n'est plus servi
     #: par le port du manifest
-    with pytest.raises(PolicyError, match="non lié au port"):
+    with pytest.raises(PolicyError, match="not bound to the assigned port"):
         assert_session_active(active)
     active_port.write_text(f"{active.port}\n/devtools/browser/id\n", encoding="utf-8")
     #: un start_time différent trahit un PID recyclé par un autre processus
-    with pytest.raises(PolicyError, match="réutilisé"):
+    with pytest.raises(PolicyError, match="reused"):
         assert_session_active(replace(active, browser_start_time="stale-start"))
     #: un profil déplacé ne porte plus le marqueur user-data-dir attendu
-    with pytest.raises(PolicyError, match="marqueur"):
+    with pytest.raises(PolicyError, match="marker"):
         assert_session_active(
             replace(active, profile_dir=str(Path(active.session_dir) / "other-profile"))
         )
     #: modifier l'autorité casse les marqueurs attestés du superviseur
-    with pytest.raises(PolicyError, match="supervisor.*marqueur"):
+    with pytest.raises(PolicyError, match="supervisor.*marker"):
         assert_session_active(replace(active, authority="privileged"))
     #: une expiration illisible est un refus, jamais une session éternelle
     with pytest.raises(PolicyError, match="expires_at"):
         assert_session_active(replace(active, expires_at="invalid"))
     #: une session expirée est refusée même si tous les processus tournent
-    with pytest.raises(PolicyError, match="expirée"):
+    with pytest.raises(PolicyError, match="expired"):
         assert_session_active(
             replace(active, expires_at=(datetime.now(UTC) - timedelta(seconds=1)).isoformat())
         )
     #: la disparition du navigateur ou du superviseur suffit, chacune, à
     #: invalider la session
-    with pytest.raises(PolicyError, match="navigateur"):
+    with pytest.raises(PolicyError, match="browser"):
         assert_session_active(replace(active, browser_pid=999_999))
     with pytest.raises(PolicyError, match="supervisor"):
         assert_session_active(replace(active, supervisor_pid=999_998))
@@ -1242,7 +1242,7 @@ def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, mon
     #: un binaire explicite existant est accepté tel quel, un chemin
     #: manquant est une erreur de politique et non un fallback silencieux
     assert find_chrome(str(executable)) == str(executable)
-    with pytest.raises(PolicyError, match="introuvable"):
+    with pytest.raises(PolicyError, match="not found"):
         find_chrome(str(tmp_path / "missing"))
 
 
@@ -1274,7 +1274,7 @@ def test_devtools_port_and_discovery_readiness_are_bounded(tmp_path, monkeypatch
     monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(session_mod.time, "sleep", lambda _delay: None)
     #: un contenu invalide épuise le timeout sans jamais retourner de port
-    with pytest.raises(PolicyError, match="introuvable"):
+    with pytest.raises(PolicyError, match="not found"):
         session_mod._read_devtools_port(profile, Running(), timeout=0.5)
     ticks = iter((0.0, 0.0))
     #: un Chrome déjà terminé court-circuite l'attente au lieu de la vider

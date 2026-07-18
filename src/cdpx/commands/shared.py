@@ -62,7 +62,7 @@ def orchestration(args: CommandInvocation) -> OrchestrationContext:
 def current_http_url(client: CDPClient) -> str:
     current = js.evaluate(client, "window.location.href")
     if not isinstance(current, str):
-        raise PolicyError("session: URL courante indéterminable")
+        raise PolicyError("session: current URL undeterminable")
     return current
 
 
@@ -133,7 +133,7 @@ def browser_client(
     run_id = args.options.run_id
     target_id = args.options.target
     if session_path is None or run_id is None or target_id is None:
-        raise RuntimeError("identité de session non préparée")
+        raise RuntimeError("session identity not prepared")
     lease: Any = session.SessionLease(
         session_path,
         run_id=run_id,
@@ -155,9 +155,9 @@ def build_redaction_context(args: CommandOptions) -> RedactionContext:
     try:
         parsed = action(args)
     except ValueError:
-        # Construit avant le try de main(): un argv d'action invalide doit
-        # rester diagnostiqué par le préflight de la commande (exit 1/2 +
-        # message cdpx), jamais par un traceback à la construction du contexte.
+        # Built before main()'s try: an invalid action argv must
+        # remain diagnosed by the command's preflight (exit 1/2 +
+        # cdpx message), never by a traceback at context construction.
         return context
     if isinstance(parsed, TypeAction):
         context.register_secret(parsed.text)
@@ -197,10 +197,10 @@ def preflight_actions(args: CommandInvocation, actions: list[BrowserAction]) -> 
             if args.options.command == "record":
                 stored, replayable = journal.serialize_action(parsed, context=args.redaction)
                 if not replayable:
-                    raise PolicyError("session: record type exige @env:NOM")
+                    raise PolicyError("session: record type requires @env:NAME")
                 materialized = journal.materialize_action(stored)
                 if not isinstance(materialized, TypeAction):
-                    raise PolicyError("session: record type invalide")
+                    raise PolicyError("session: invalid record type")
                 args.redaction.register_secret(materialized.text)
             else:
                 args.redaction.register_secret(parsed.text)
@@ -213,23 +213,23 @@ def preflight_replay(args: CommandInvocation, path: str) -> Authority:
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
     except OSError as error:
-        raise PolicyError(f"journal replay illisible: {error}") from error
+        raise PolicyError(f"unreadable replay journal: {error}") from error
     for lineno, line in enumerate(lines, start=1):
         if not line:
             continue
         try:
             event = json.loads(line)
         except json.JSONDecodeError as error:
-            raise PolicyError(f"journal replay invalide ligne {lineno}: {error.msg}") from error
+            raise PolicyError(f"invalid replay journal at line {lineno}: {error.msg}") from error
         stored_action = event.get("action") if isinstance(event, dict) else None
         if not isinstance(stored_action, list | dict):
-            raise PolicyError(f"journal replay invalide ligne {lineno}: action requise")
+            raise PolicyError(f"invalid replay journal at line {lineno}: action required")
         if event.get("replayable") is False:
-            raise PolicyError(f"journal replay non rejouable ligne {lineno}")
+            raise PolicyError(f"non-replayable replay journal at line {lineno}")
         try:
             parsed = journal.materialize_action(stored_action)
         except journal.JournalError as error:
-            raise PolicyError(f"journal replay invalide ligne {lineno}: {error}") from error
+            raise PolicyError(f"invalid replay journal at line {lineno}: {error}") from error
         if isinstance(parsed, TypeAction):
             args.redaction.register_secret(parsed.text)
         parsed_actions.append(parsed)
@@ -262,13 +262,15 @@ def resolve_sensitive_value(
     label: str,
 ) -> str:
     if literal is not None and env_name is not None:
-        raise scenarios.ScenarioUsageError(f"{label}: valeur littérale et référence env exclusives")
+        raise scenarios.ScenarioUsageError(
+            f"{label}: literal value and env reference are mutually exclusive"
+        )
     if literal is None and env_name is None:
-        raise scenarios.ScenarioUsageError(f"{label}: --value/texte ou référence env requis")
+        raise scenarios.ScenarioUsageError(f"{label}: --value/text or env reference required")
     if literal is not None:
-        raise PolicyError(f"session: {label} exige une référence de secret en environnement")
+        raise PolicyError(f"session: {label} requires an environment secret reference")
     if not env_name or env_name not in os.environ:
-        raise PolicyError(f"{label}: variable de secret introuvable: {env_name}")
+        raise PolicyError(f"{label}: secret variable not found: {env_name}")
     value = os.environ[env_name]
     args.redaction.register_secret(value)
     return value

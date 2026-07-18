@@ -1,7 +1,8 @@
-"""Primitives de boucle dev Symfony/Shopware.
+"""Symfony/Shopware dev loop primitives.
 
-Ces commandes ferment la boucle agentique côté dev: lire le profiler Symfony,
-suivre la console en stream et comparer un DOM avant/après action.
+These commands close the agentic loop on the dev side: reading the Symfony
+profiler, following the console as a stream, and comparing a DOM before/after
+an action.
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ from cdpx.primitives import profiler as profiler_api
 
 PROFILER_HEADER = "x-debug-token-link"
 TOKEN_HEADER = "x-debug-token"
-# requestWillBeSent est nécessaire pour les redirections: Chrome n'émet PAS de
-# responseReceived pour une 302, elle n'existe que dans redirectResponse.
+# requestWillBeSent is needed for redirects: Chrome does NOT emit
+# responseReceived for a 302, it only exists in redirectResponse.
 NET_EVENTS = ("Network.responseReceived", "Network.requestWillBeSent")
 
 DOM_SNAPSHOT_JS = r"""
@@ -56,12 +57,11 @@ DOM_SNAPSHOT_JS = r"""
 
 
 def find_profiler_hit(events: list[CDPEvent], fallback_url: str) -> dict | None:
-    """Première réponse réseau portant X-Debug-Token-Link (ou repli
-    X-Debug-Token, dont on reconstruit le lien /_profiler/{token}).
+    """First network response carrying X-Debug-Token-Link (or falling back
+    to X-Debug-Token, from which the /_profiler/{token} link is rebuilt).
 
-    Couvre les réponses normales (Network.responseReceived) ET les
-    redirections (Network.requestWillBeSent.redirectResponse), invisibles
-    autrement.
+    Covers normal responses (Network.responseReceived) AND redirects
+    (Network.requestWillBeSent.redirectResponse), otherwise invisible.
     """
     for ev in events:
         params = ev.get("params", {})
@@ -90,9 +90,9 @@ def profiler(
     panels: list[str] | None = None,
     context: OrchestrationContext | None = None,
 ) -> dict:
-    """Navigue, trouve X-Debug-Token-Link et parse les panels du Web Profiler.
+    """Navigates, finds X-Debug-Token-Link and parses the Web Profiler panels.
 
-    `panels=None` = tous les panels connus; `panels=[]` = sonde token seule.
+    `panels=None` = all known panels; `panels=[]` = token probe only.
     """
     timeout = validate_time_budget(timeout, "timeout profiler")
     settle = validate_time_budget(settle, "stabilisation profiler")
@@ -108,12 +108,12 @@ def profiler(
 
     final_url = js.evaluate(client, "window.location.href")
     if not isinstance(final_url, str):
-        raise ValueError("URL finale du profiler indéterminable")
+        raise ValueError("unable to determine the final profiler URL")
     assert_url_allowed(final_url, policy.origins)
 
     hit = find_profiler_hit(events, url)
     if not hit:
-        raise ValueError("header X-Debug-Token-Link/X-Debug-Token introuvable")
+        raise ValueError("X-Debug-Token-Link/X-Debug-Token header not found")
     return profiler_api.collect_profiler_report(
         client,
         hit,

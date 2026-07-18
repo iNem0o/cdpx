@@ -1,10 +1,9 @@
-"""Redaction déterministe des sorties cdpx avant sérialisation ou persistance.
+"""Deterministic redaction of cdpx outputs before serialization or persistence.
 
-Le module ne tente pas de deviner toute donnée personnelle. Il traite les
-secrets explicitement enregistrés et quelques formes à haute confiance
-(Authorization Bearer, JWT, URL et en-têtes structurés). Les contenus libres ou
-binaires doivent rester classés comme artefacts non fiables même après ce
-nettoyage.
+The module does not try to guess every piece of personal data. It handles
+explicitly registered secrets and a few high-confidence forms (Authorization
+Bearer, JWT, URL, and structured headers). Free-form or binary content must
+stay classified as untrusted artifacts even after this cleanup.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ _DATA_REDACTED_MARKER = ";cdpx-redacted,"
 
 _MEDIA_TYPE_RE = re.compile(r"[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+")
 _BEARER_RE = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", flags=re.IGNORECASE)
-# Un JWT à haute confiance: header JSON encodé (`eyJ`), payload et signature.
+# A high-confidence JWT: encoded JSON header (`eyJ`), payload, and signature.
 _JWT_RE = re.compile(
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{8,}\."
     r"[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
@@ -87,11 +86,11 @@ _SECRET_ENV_RE = re.compile(
 
 
 class SecretRegistry:
-    """Registre mémoire de valeurs exactes à ne jamais sérialiser.
+    """In-memory registry of exact values that must never be serialized.
 
-    Le registre ne propose volontairement aucune méthode de sérialisation et
-    son ``repr`` n'inclut jamais les valeurs. Les remplacements sont ordonnés du
-    secret le plus long au plus court pour éviter les fuites par préfixe.
+    The registry deliberately offers no serialization method and its
+    ``repr`` never includes the values. Replacements are ordered from the
+    longest secret to the shortest to avoid prefix leaks.
     """
 
     __slots__ = ("_values",)
@@ -103,7 +102,7 @@ class SecretRegistry:
 
     def register(self, value: str) -> None:
         if not isinstance(value, str):
-            raise TypeError("un secret doit être une chaîne")
+            raise TypeError("a secret must be a string")
         if value and value != MASK:
             self._values.add(value)
 
@@ -119,7 +118,7 @@ class SecretRegistry:
 
 @dataclass(frozen=True, slots=True)
 class RedactionReport:
-    """Rapport immuable des chemins effectivement modifiés."""
+    """Immutable report of the paths actually modified."""
 
     fields: tuple[str, ...] = ()
 
@@ -141,7 +140,7 @@ class RedactionReport:
 
 @dataclass(slots=True)
 class RedactionContext:
-    """État d'un run de redaction: secrets connus et rapport cumulatif."""
+    """State of a redaction run: known secrets and cumulative report."""
 
     secrets: SecretRegistry = field(default_factory=SecretRegistry)
     _redacted_fields: set[str] = field(default_factory=set, init=False, repr=False)
@@ -166,10 +165,10 @@ def secret_values_from_environment(
     *,
     minimum_length: int = 4,
 ) -> list[str]:
-    """Retourne les valeurs de variables nommées comme secrets, jamais leurs noms.
+    """Return the values of variables named as secrets, never their names.
 
-    Une longueur minimale évite qu'une variable de test comme ``KEY=x`` ne
-    supprime arbitrairement toutes les lettres ``x`` d'une observation.
+    A minimum length avoids a test variable like ``KEY=x`` arbitrarily
+    stripping every ``x`` letter from an observation.
     """
     values = os.environ if environ is None else environ
     return [
@@ -185,16 +184,16 @@ def redact_url(
     context: RedactionContext | None = None,
     path: str = "$",
 ) -> str:
-    """Nettoie une URL sans exposer userinfo, fragment ni valeur de query.
+    """Clean a URL without exposing userinfo, fragment, or query values.
 
-    Les noms et l'ordre des paramètres, y compris les répétitions, sont gardés
-    pour préserver leur valeur diagnostique. Un ``data:`` ne conserve que son
-    media type et un marqueur stable.
+    Parameter names and order, including repetitions, are kept to preserve
+    their diagnostic value. A ``data:`` URL only keeps its media type and a
+    stable marker.
     """
 
     ctx = context or RedactionContext()
     if not isinstance(value, str):
-        raise TypeError("redact_url attend une chaîne")
+        raise TypeError("redact_url expects a string")
     if value.lower().startswith("data:"):
         return _redact_data_url(value, ctx, path)
 
@@ -259,7 +258,7 @@ def redact_headers(
     context: RedactionContext | None = None,
     path: str = "$",
 ) -> dict[str, Any]:
-    """Masque les credentials HTTP et nettoie les URL de redirection."""
+    """Mask HTTP credentials and clean redirect URLs."""
 
     ctx = context or RedactionContext()
     redacted: dict[str, Any] = {}
@@ -288,11 +287,11 @@ def redact_text(
     context: RedactionContext | None = None,
     path: str = "$",
 ) -> str:
-    """Nettoie un texte libre avec des détecteurs volontairement conservateurs."""
+    """Clean free text with deliberately conservative detectors."""
 
     ctx = context or RedactionContext()
     if not isinstance(value, str):
-        raise TypeError("redact_text attend une chaîne")
+        raise TypeError("redact_text expects a string")
     redacted = value
     for secret in ctx.secrets._values_longest_first():
         redacted = redacted.replace(secret, MASK)
@@ -311,13 +310,13 @@ def redact_action(
     context: RedactionContext | None = None,
     path: str = "$",
 ) -> list[Any] | dict[str, Any]:
-    """Masque une action argv ou structurée sans modifier l'entrée."""
+    """Mask an argv or structured action without modifying the input."""
 
     ctx = context or RedactionContext()
     if isinstance(action, Mapping):
         return _redact_structured_action(action, ctx, path)
     if isinstance(action, str | bytes):
-        raise TypeError("une action doit être une séquence ou un objet")
+        raise TypeError("an action must be a sequence or an object")
 
     items = list(action)
     if not items:
@@ -352,7 +351,7 @@ def redact_tree(
     context: RedactionContext | None = None,
     path: str = "$",
 ) -> Any:
-    """Redaction récursive guidée par les clés des contrats JSON cdpx."""
+    """Recursive redaction guided by cdpx JSON contract keys."""
 
     ctx = context or RedactionContext()
     if isinstance(value, Mapping):
@@ -510,7 +509,7 @@ def _redact_url_component(
     path: str,
     safe: str,
 ) -> str:
-    """Masque un secret brut ou percent-encoded sans conserver le composant décodé."""
+    """Mask a raw or percent-encoded secret without keeping the decoded component."""
     redacted = _redact_known_text(value, context, path)
     decoded = urllib.parse.unquote(redacted)
     decoded_redacted = _redact_known_text(decoded, context, path)

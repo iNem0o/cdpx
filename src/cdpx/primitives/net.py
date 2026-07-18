@@ -1,8 +1,9 @@
-"""Primitive réseau: observer ce que la page charge réellement.
+"""Network primitive: observe what the page actually loads.
 
-Usecase agent (dev Symfony/e-commerce): repérer immédiatement les XHR en 500,
-les assets 404, les appels API inattendus, le poids transféré — sans ouvrir
-DevTools. C'est le pendant réseau de `console`: le feedback loop complet.
+Agent usecase (Symfony/e-commerce dev): immediately spot 500 XHRs,
+404 assets, unexpected API calls, transferred weight — without opening
+DevTools. It's the network counterpart of `console`: the complete
+feedback loop.
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ def capture(
     settle: float = 0.5,
     context: RedactionContext | None = None,
 ) -> dict:
-    """Navigue vers `url` en capturant l'activité réseau jusqu'à load + settle."""
-    timeout = validate_time_budget(timeout, "timeout réseau")
-    settle = validate_time_budget(settle, "stabilisation réseau")
+    """Navigates to `url` while capturing network activity until load + settle."""
+    timeout = validate_time_budget(timeout, "network timeout")
+    settle = validate_time_budget(settle, "network settle")
     redaction = context or RedactionContext()
     client.send("Network.enable")
     client.send("Page.enable")

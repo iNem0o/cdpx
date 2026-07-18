@@ -24,18 +24,19 @@ from .html import (
 
 
 def parse_panel(key: str, status: int, html: str) -> dict[str, Any]:
-    """Parse un panel connu; capture les erreurs de contenu dans ``parse_error``.
+    """Parses a known panel; captures content errors into ``parse_error``.
 
-    Une clé absente du catalogue reste une erreur d'appel et lève ValueError.
+    A key missing from the catalog remains a call error and raises
+    ValueError.
     """
     if key not in PANEL_SOURCES:
-        raise ValueError(f"panel inconnu: {key}")
+        raise ValueError(f"unknown panel: {key}")
     if status != 200 or not html:
         return {"available": False, "status": status}
     parser = _PARSERS[key]
     try:
         parsed = parser(html)
-    except Exception as e:  # noqa: BLE001 - contrat: jamais d'exception de parse
+    except Exception as e:  # noqa: BLE001 - contract: never a parse exception
         return {
             "available": True,
             "parse_error": redact_text(f"{type(e).__name__}: {e}"),
@@ -46,7 +47,7 @@ def parse_panel(key: str, status: int, html: str) -> dict[str, Any]:
 _FQCN_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]*(?:\\[A-Z][A-Za-z0-9_]*)+\b")
 
 
-# -- parseurs par panel -----------------------------------------------------------
+# -- per-panel parsers -----------------------------------------------------------
 
 
 def _parse_db(html: str) -> dict[str, Any]:
@@ -67,7 +68,7 @@ def _parse_db(html: str) -> dict[str, Any]:
         for row in table["rows"][:LIST_LIMIT]:
             if sql_col is None or sql_col >= len(row):
                 continue
-            # La cellule Info contient le SQL puis le dump des paramètres.
+            # The Info cell contains the SQL followed by the parameter dump.
             sql = re.split(r"\s+Parameters\b", row[sql_col])[0].strip()
             entry: dict[str, Any] = {"sql": redact_text(sql)}
             if time_col is not None and time_col < len(row):
@@ -89,7 +90,7 @@ def _parse_twig(html: str) -> dict[str, Any]:
     if table:
         for row in table["rows"][:LIST_LIMIT]:
             if row and row[0]:
-                # La cellule concatène nom + chemin: garder le premier token.
+                # The cell concatenates name + path: keep the first token.
                 out["list"].append(row[0].split()[0])
     return out
 
@@ -109,8 +110,8 @@ def _parse_cache(html: str) -> dict[str, Any]:
         "pools": {},
     }
     for metric in metrics:
-        # Les pools sont des onglets h3 sous le h2 "Pools"; le titre h3 porte
-        # le nom du service suivi d'un badge numérique ("app.scenario_pool 5").
+        # Pools are h3 tabs under the "Pools" h2; the h3 title carries
+        # the service name followed by a numeric badge ("app.scenario_pool 5").
         name = re.sub(r"\s+\d+$", "", metric["h3"]).strip()
         if metric in totals or not name or "." not in name:
             continue
@@ -118,8 +119,8 @@ def _parse_cache(html: str) -> dict[str, Any]:
             name,
             {"calls": 0, "reads": 0, "hits": 0, "misses": 0, "writes": 0, "deletes": 0},
         )
-        # Correspondance exacte: le metric ratio "Hits/reads" ne doit écraser
-        # ni hits ni reads.
+        # Exact match: the "Hits/reads" ratio metric must not overwrite
+        # either hits or reads.
         label = metric["label"].lower()
         if label in pool:
             value = _int(metric["value"])
@@ -136,8 +137,8 @@ def _parse_exception(html: str) -> dict[str, Any]:
     match = re.search(r'class="[^"]*exception-message[^"]*"[^>]*>(.*?)</', html, flags=re.DOTALL)
     if match:
         message = redact_text(_norm(re.sub(r"<[^>]+>", " ", match.group(1))))
-    # Classe: abbr[title] de la hiérarchie d'exception. Attention aux classes
-    # globales (\RuntimeException): pas de backslash, donc pas un FQCN.
+    # Class: abbr[title] from the exception hierarchy. Watch out for global
+    # classes (\RuntimeException): no backslash, so not an FQCN.
     exception_class = None
     abbr_titles = [
         title.strip()
@@ -160,7 +161,7 @@ def _parse_exception(html: str) -> dict[str, Any]:
 
 # Statut HTTP rendu par le profiler: <span class="...status-response-status-code...">200</span>
 _STATUS_SPAN_RE = re.compile(r'class="[^"]*status-response-status-code[^"]*"[^>]*>\s*(\d{3})')
-# En-tête d'une trace http_client: <th><span class="http-method">GET</span></th><th>url</th>
+# Header of an http_client trace: <th><span class="http-method">GET</span></th><th>url</th>
 _HTTP_TRACE_RE = re.compile(
     r'<span class="http-method">\s*([A-Z]+)\s*</span>\s*</th>\s*<th[^>]*>\s*([^<\s][^<]*?)\s*<',
     flags=re.DOTALL,
@@ -176,10 +177,10 @@ def _parse_http_client(html: str) -> dict[str, Any]:
         "errors": 0,
         "list": [],
     }
-    # Statut cherché DANS le segment de chaque trace (entre deux en-têtes de
-    # trace): le bandeau #summary de la page porte lui aussi un
-    # status-response-status-code (celui de la requête profilée) et une trace
-    # en timeout n'a pas de statut du tout.
+    # Status looked up WITHIN each trace's segment (between two trace
+    # headers): the page's #summary banner also carries a
+    # status-response-status-code (that of the profiled request), and a
+    # trace that timed out has no status at all.
     traces = list(_HTTP_TRACE_RE.finditer(html))[:LIST_LIMIT]
     for idx, match in enumerate(traces):
         entry: dict[str, Any] = {
@@ -203,9 +204,9 @@ def _parse_http_client(html: str) -> dict[str, Any]:
 
 
 def _parse_messenger(html: str) -> dict[str, Any]:
-    # Un message dispatché = une <table class="message-item">. À l'intérieur,
-    # les onglets Message/Envelope répètent la rangée Bus: ne compter que la
-    # première par bloc.
+    # A dispatched message = one <table class="message-item">. Inside it,
+    # the Message/Envelope tabs repeat the Bus row: count only the first
+    # one per block.
     buses: dict[str, int] = {}
     classes: list[str] = []
     chunks = re.split(r'<table class="message-item"', html)[1:]
@@ -214,8 +215,8 @@ def _parse_messenger(html: str) -> dict[str, Any]:
         if bus_match:
             bus = bus_match.group(1)
             buses[bus] = buses.get(bus, 0) + 1
-        # FQCN du message: attribut title du dump ("App\Message\X NN characters"),
-        # repli sur le premier FQCN du bloc.
+        # Message FQCN: title attribute of the dump ("App\Message\X NN characters"),
+        # fall back to the first FQCN in the block.
         title = re.search(r'title="((?:[A-Za-z_]\w*\\)+\w+) \d+ characters"', chunk)
         fqcn = title.group(1) if title else None
         if fqcn is None:
@@ -234,7 +235,7 @@ def _parse_messenger(html: str) -> dict[str, Any]:
 
 
 def _strip_dump(value: str) -> str:
-    """Nettoie une valeur dumpée par Sfdump: guillemets et bruit de dump."""
+    """Cleans up a value dumped by Sfdump: quotes and dump noise."""
     return value.strip().strip('"').strip()
 
 
@@ -258,7 +259,7 @@ def _parse_router(html: str) -> dict[str, Any]:
             method = re.search(r'"(\w+)"', controller_cell[fqcn.end() :])
             if "::" not in controller_cell and method:
                 controller = f"{controller}::{method.group(1)}"
-    # Statut: bandeau #summary du profiler (présent sur chaque page panel).
+    # Status: profiler #summary banner (present on every panel page).
     status_match = _STATUS_SPAN_RE.search(html)
     status_code = _int(status_match.group(1)) if status_match else None
     return {
@@ -280,7 +281,7 @@ def _parse_time(html: str) -> dict[str, Any]:
 
 
 def _timeline_events(html: str) -> list[dict[str, Any]]:
-    """Timeline embarquée en JS dans le panel time. Best-effort explicite."""
+    """Timeline embedded as JS in the time panel. Explicit best-effort."""
     decoder = json.JSONDecoder()
     for match in list(re.finditer(r"\[\s*\{", html))[:20]:
         try:
@@ -316,8 +317,8 @@ def _timeline_events(html: str) -> list[dict[str, Any]]:
 
 
 def _parse_logger(html: str) -> dict[str, Any]:
-    # Le panel logger n'a pas de blocs metric: les comptes vivent dans les
-    # libellés de filtres, ex. `Errors <span class="badge ...">2</span>`.
+    # The logger panel has no metric blocks: the counts live in the filter
+    # labels, e.g. `Errors <span class="badge ...">2</span>`.
     counts = {"errors": 0, "warnings": 0, "deprecations": 0}
     for label, key in (
         ("Errors", "errors"),

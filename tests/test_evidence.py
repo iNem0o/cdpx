@@ -278,7 +278,7 @@ def test_attachment_filename_cannot_escape_private_case_dir(tmp_path):
     )
 
     #: le nom traversant est rejeté avant toute écriture
-    with pytest.raises(ValueError, match="nom de preuve invalide"):
+    with pytest.raises(ValueError, match="invalid proof name"):
         case.attach_text("unsafe", "value", "../escape.txt")
 
     #: la cible hors du dossier privé n'a jamais été créée
@@ -319,7 +319,7 @@ def test_attach_file_enforces_closed_artifact_taxonomy(tmp_path):
     source.write_bytes(b"\x00\x01")
 
     #: un type hors taxonomie est une erreur explicite, pas un fourre-tout
-    with pytest.raises(ValueError, match="type d'artefact de preuve inconnu"):
+    with pytest.raises(ValueError, match="unknown proof artifact type"):
         case.attach_file(source, "libre", "banane")
 
     #: un suffixe inconnu retombe sur le type générique "file"
@@ -426,7 +426,7 @@ def test_attach_command_output_builds_redacted_transcript_with_excerpt(tmp_path)
     assert "canary-value" not in transcript
 
     #: l'extrait tête+queue annonce honnêtement l'omission
-    assert "lignes omises" in entry["excerpt"]
+    assert "lines omitted" in entry["excerpt"]
     assert entry["excerpt"].startswith("line-0")
     assert "canary-value" not in json.dumps(entry, ensure_ascii=False)
 
@@ -460,14 +460,14 @@ def test_attach_log_excerpt_selects_pattern_range_and_absence(tmp_path):
 
     #: l'absence de correspondance est une preuve, pas une erreur
     absent = case.attach_log_excerpt(log, "absent", pattern="FATAL")
-    assert "aucune correspondance" in absent["excerpt"]
+    assert "no match for" in absent["excerpt"]
 
     truncated = case.attach_log_excerpt(log, "tronque", max_lines=5)
     #: la troncature dit combien de lignes manquent, la preuve reste honnête
-    assert "(55 lignes omises)" in truncated["excerpt"]
+    assert "(55 lines omitted)" in truncated["excerpt"]
 
     #: motif et plage sont deux modes exclusifs: l'ambiguïté est refusée
-    with pytest.raises(ValueError, match="mutuellement exclusifs"):
+    with pytest.raises(ValueError, match="mutually exclusive"):
         case.attach_log_excerpt(log, "conflit", pattern="x", line_range=(1, 2))
 
 

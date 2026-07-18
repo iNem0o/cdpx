@@ -1,14 +1,14 @@
 /* Cockpit SPA (2/6) — visualiseurs d'artefacts et registre VIEWERS. */
   /* === Visualiseurs d'artefacts ===
      Chaque type de la taxonomie (cdpx.testing.evidence.ARTIFACT_TYPES) doit
-     avoir une entrée VIEWERS: le test "calculé => rendu" échoue sinon.
+     have a VIEWERS entry: the "computed => rendered" test fails otherwise.
      Contrat payload: inline_content / excerpt / truncated / inline_skipped
-     sont optionnels — tout viewer dégrade en lien de téléchargement. */
+     are optional — every viewer degrades into a download link. */
 
-  /* feature_inventory porte des copies d'artefacts jamais inlinées (l'inliner
+  /* feature_inventory carries artifact copies that are never inlined (the inliner
      Python ne visite que scenario_evidence.suites, la source unique — inliner
-     chaque copie multiplierait le poids du rapport). Le modal résout donc le
-     contenu embarqué par path avant de choisir le visualiseur. */
+     each copy would multiply the report weight). The modal therefore resolves the
+     embedded content by path before picking the viewer. */
   const inlineByPath = (() => {
     const index = {};
     const suites = (data.scenario_evidence || {}).suites || {};
@@ -49,14 +49,14 @@
 
   function downloadFallback(artifact) {
     const reason = artifact.inline_skipped
-      ? `Contenu non embarqué (${esc(artifact.inline_skipped)}).`
-      : 'Contenu non embarqué dans le rapport.';
+      ? `Content not embedded (${esc(artifact.inline_skipped)}).`
+      : 'Content not embedded in the report.';
     return `<div class="viewer-fallback"><p>${reason}</p><p>${fileLink(artifact)}</p></div>`;
   }
 
   function truncationNote(artifact) {
     if (!artifact.truncated) return '';
-    return `<p class="viewer-note">Extrait tronqué — ${fileLink(artifact, 'fichier complet')}</p>`;
+    return `<p class="viewer-note">Excerpt truncated — ${fileLink(artifact, 'full file')}</p>`;
   }
 
   function screenshotViewer(artifact) {
@@ -84,7 +84,7 @@
     const payload = parseInline(artifact);
     if (!payload || !Array.isArray(payload.entries)) return basicTextViewer(artifact);
     if (!payload.entries.length) {
-      return `<div class="viewer-fallback"><p>Console vide — aucun message émis pendant la capture.</p><p>${fileLink(artifact)}</p></div>`;
+      return `<div class="viewer-fallback"><p>Empty console — no message emitted during the capture.</p><p>${fileLink(artifact)}</p></div>`;
     }
     const levelOf = (entry) => {
       if (entry.kind === 'exception' || entry.type === 'error' || entry.type === 'assert') return 'error';
@@ -115,7 +115,7 @@
     };
     const rows = payload.requests.map((request) => {
       const status = Number(request.status) || 0;
-      const shownStatus = request.failed ? `échec: ${request.failed}` : (request.status ?? '—');
+      const shownStatus = request.failed ? `failed: ${request.failed}` : (request.status ?? '—');
       return `<tr>
         <td><code>${esc(request.method || '')}</code></td>
         <td class="net-url" title="${esc(request.url || '')}"><code>${esc(request.url || '')}</code></td>
@@ -124,8 +124,8 @@
         <td>${esc(request.encodedBytes ?? '')}</td>
       </tr>`;
     }).join('');
-    const head = `<p class="viewer-summary">${esc(summary.total ?? payload.requests.length)} requêtes · ${esc(summary.errors_4xx_5xx || 0)} erreurs 4xx/5xx · ${esc(summary.failed || 0)} échecs réseau · ${esc(summary.bytes || 0)} octets</p>`;
-    return `${head}<div class="table-wrap"><table><thead><tr><th>Méthode</th><th>URL</th><th>Statut</th><th>Type</th><th>Octets</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const head = `<p class="viewer-summary">${esc(summary.total ?? payload.requests.length)} requests · ${esc(summary.errors_4xx_5xx || 0)} 4xx/5xx errors · ${esc(summary.failed || 0)} network failures · ${esc(summary.bytes || 0)} bytes</p>`;
+    return `${head}<div class="table-wrap"><table><thead><tr><th>Method</th><th>URL</th><th>Status</th><th>Type</th><th>Bytes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   const JSON_NODE_BUDGET = 2000;
@@ -154,7 +154,7 @@
     const state = {nodes: 0, truncated: false};
     const tree = jsonTree(payload, 0, state);
     const note = state.truncated
-      ? `<p class="viewer-note">Affichage tronqué (${JSON_NODE_BUDGET} nœuds) — ${fileLink(artifact, 'fichier complet')}</p>`
+      ? `<p class="viewer-note">Display truncated (${JSON_NODE_BUDGET} nodes) — ${fileLink(artifact, 'full file')}</p>`
       : '';
     return `${note}<div class="json-view">${tree}</div>`;
   }
@@ -226,10 +226,10 @@
   }
 
   /* === Player asciinema (.cast v2) sur xterm.js ===
-     Émulation terminal complète via le bundle xterm.js vendoré (MIT —
-     asciinema-player officiel est GPL-3.0, incompatible avec le paquet).
-     La toolbar maison (lecture, scrub, vitesses) écrit dans xterm; le
-     rembobinage = reset + rejeu (xterm n'a pas d'état réversible). */
+     Full terminal emulation via the vendored xterm.js bundle (MIT —
+     the official asciinema-player is GPL-3.0, incompatible with the package).
+     The in-house toolbar (play, scrub, speeds) writes into xterm; the
+     rewind = reset + replay (xterm has no reversible state). */
 
   const ANSI_RE = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g;
 
@@ -246,7 +246,7 @@
         if (Array.isArray(event) && event[1] === 'o') {
           events.push({t: Number(event[0]) || 0, data: String(event[2] ?? '')});
         }
-      } catch (error) { /* événement corrompu ignoré */ }
+      } catch (error) { /* corrupted event ignored */ }
     }
     return {header, events};
   }
@@ -307,7 +307,7 @@
       player.clock = Math.min(Math.max(clock, 0), duration);
       let target = 0;
       while (target < player.events.length && player.events[target].t <= player.clock) target += 1;
-      // Avance: on n'écrit que le delta. Recul: reset + rejeu depuis zéro.
+      // Forward: only the delta is written. Backward: reset + replay from zero.
       let start = player.written;
       if (target < player.written) { terminal.reset(); start = 0; }
       for (let index = start; index < target; index += 1) terminal.write(player.events[index].data);

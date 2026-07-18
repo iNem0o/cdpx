@@ -18,7 +18,7 @@ from cdpx.primitives import capture
 def cmd_screenshot(args: CommandInvocation) -> None:
     output = args.options.output
     if output is None:
-        raise RuntimeError("sortie de capture non préparée")
+        raise RuntimeError("screenshot output not prepared")
     with browser_client(args) as client:
         path = artifact_path(args, output, "captures")
         result = capture.screenshot(
@@ -31,7 +31,7 @@ def cmd_screenshot(args: CommandInvocation) -> None:
 def cmd_pdf(args: CommandInvocation) -> None:
     output = args.options.output
     if output is None:
-        raise RuntimeError("sortie PDF non préparée")
+        raise RuntimeError("PDF output not prepared")
     with browser_client(args) as client:
         path = artifact_path(args, output, "captures")
         result = capture.pdf(client, path)

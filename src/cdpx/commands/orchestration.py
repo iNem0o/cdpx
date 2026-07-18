@@ -26,16 +26,16 @@ from cdpx.primitives import recording
 def register_commands(
     sub: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    parser = sub.add_parser("record", help="exécuter une action et la journaliser en NDJSON")
+    parser = sub.add_parser("record", help="run an action and log it as NDJSON")
     parser.add_argument("-o", "--output", default="cdpx-record.ndjson")
     parser.add_argument("action", nargs=argparse.REMAINDER)
     parser.set_defaults(func=cmd_record)
-    parser = sub.add_parser("replay", help="rejouer un journal NDJSON, stop à la divergence")
+    parser = sub.add_parser("replay", help="replay an NDJSON journal, stop at divergence")
     parser.add_argument("path")
     parser.set_defaults(func=cmd_replay)
-    parser = sub.add_parser("scenario", help="exécuter un scénario métier déclaratif")
+    parser = sub.add_parser("scenario", help="run a declarative business scenario")
     scenario_sub = parser.add_subparsers(dest="scenario_action", required=True)
-    run = scenario_sub.add_parser("run", help="exécuter un fichier scénario YAML")
+    run = scenario_sub.add_parser("run", help="run a YAML scenario file")
     run.add_argument("path")
     run.add_argument("--settle", type=float, default=0.5)
     run.set_defaults(func=cmd_scenario)
@@ -46,7 +46,7 @@ def cmd_record(args: CommandInvocation) -> None:
     required = preflight_actions(args, [action])
     output = args.options.output
     if output is None:
-        raise RuntimeError("sortie de journal non préparée")
+        raise RuntimeError("journal output not prepared")
     with browser_client(args, required_authority=required) as client:
         path = artifact_path(args, output, "journals")
         result = recording.record(
@@ -62,7 +62,7 @@ def cmd_record(args: CommandInvocation) -> None:
 def cmd_replay(args: CommandInvocation) -> int:
     requested_path = args.options.path
     if requested_path is None:
-        raise RuntimeError("journal à rejouer non préparé")
+        raise RuntimeError("journal to replay not prepared")
     path = artifact_path(args, requested_path, "journals", must_exist=True)
     required = preflight_replay(args, path)
     with browser_client(args, required_authority=required) as client:
@@ -78,10 +78,10 @@ def cmd_replay(args: CommandInvocation) -> int:
 
 def cmd_scenario(args: CommandInvocation) -> int:
     if args.options.scenario_action != "run":
-        raise scenarios.ScenarioUsageError("scenario supporte: run <path>")
+        raise scenarios.ScenarioUsageError("scenario supports: run <path>")
     path = args.options.path
     if path is None:
-        raise RuntimeError("scénario à exécuter non préparé")
+        raise RuntimeError("scenario to run not prepared")
     scenario = scenarios.load(path)
     try:
         prepared = scenarios.prepare(scenario, orchestration(args))

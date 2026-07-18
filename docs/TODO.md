@@ -108,15 +108,16 @@ translation commits (never mixed with a refactor), exact ratchet
       RELEASE-PLAN, GITHUB, leverage-log, milestones, CONTRIBUTING,
       SECURITY, SUPPORT, CODE_OF_CONDUCT, CHANGELOG). LICENSE and
       THIRD_PARTY_NOTICES were already in English.
-- [ ] Phase 2 — docs coupled to the guards (PRIMITIVES, feature sheets,
+- [x] Phase 2 — docs coupled to the guards (PRIMITIVES, feature sheets,
       TODO, VALIDATION, SESSION-LIFECYCLE) then HARNESS/AGENTS
-      (reinforced review: operational rules). Refresh the
-      `#preuve-dans-github-actions` anchor referenced by CONTRIBUTING.
-- [ ] Phase 3 — code strings (CLI help, error messages, docstrings) in
-      tandem with the tests that assert them. Switch the `@env:NOM` →
-      `@env:NAME` placeholder everywhere in a single commit; translate
-      the UI string « Contenu non embarqué » (cockpit js/10-viewers.js +
-      e2e + quote in M9).
+      (reinforced review: operational rules), with the tandem code/test
+      switches (REQUIRED_SECTIONS, cockpit labels, asserted anchors and
+      titles).
+- [x] Phase 3 — code strings (CLI help, error messages, docstrings,
+      cockpit SPA) in tandem with the tests that assert them; `@env:NOM`
+      switched to `@env:NAME` everywhere; the cockpit UI strings ("Read
+      first", "Content not embedded", "FAILED" verdict) aligned with the
+      e2e and unit assertions.
 - [ ] Phase 4 — test intention docstrings, in waves.
 - [ ] Phase 5 — regenerate the artifacts (casts via `make site-casts`,
       proof, homepage) and aim for a ratchet at 0.

@@ -1,9 +1,8 @@
-"""Exécution bornée des commandes de preuve et utilitaires de réécriture.
+"""Bounded execution of proof commands and rewrite utilities.
 
-Les fonctions dont la façade `cdpx.proof` permet le monkeypatch dans les tests
-(`_stream_to_private_file` notamment) sont reçues ici en paramètre keyword-only
-par leurs consommateurs: aucun symbole de ce module ne lit `cdpx.proof` à
-l'exécution.
+Functions the `cdpx.proof` facade allows tests to monkeypatch (notably
+`_stream_to_private_file`) are received here as keyword-only parameters by
+their consumers: no symbol in this module reads `cdpx.proof` at runtime.
 """
 
 from __future__ import annotations
@@ -23,8 +22,8 @@ from cdpx.proofing.evidence_policy import PROOF_RETENTION_ENV
 from cdpx.proofing.private_io import _secure_dir
 from cdpx.security.redaction import RedactionContext, redact_text
 
-# `CDPX_PROOF_TIMEOUT_SCALE` (flottant strictement positif, ex. "2" sur machine
-# lente) multiplie uniformément tous les budgets de deadline de la preuve.
+# `CDPX_PROOF_TIMEOUT_SCALE` (strictly positive float, e.g. "2" on a slow
+# machine) uniformly multiplies every deadline budget of the proof.
 PROOF_TIMEOUT_SCALE_ENV = "CDPX_PROOF_TIMEOUT_SCALE"
 
 _ALLOWED_ENV_NAMES = {
@@ -67,14 +66,14 @@ class CommandEvidence:
 
 
 def proof_timeout_scale(environ: dict[str, str] | None = None) -> float:
-    """Facteur d'échelle des deadlines, validé fail-closed comme la rétention."""
+    """Deadline scale factor, validated fail-closed like the retention."""
 
     values = os.environ if environ is None else environ
     raw = values.get(PROOF_TIMEOUT_SCALE_ENV)
     if raw is None:
         return 1.0
     if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", raw) or float(raw) <= 0:
-        raise ValueError(f"{PROOF_TIMEOUT_SCALE_ENV} doit être un flottant strictement positif")
+        raise ValueError(f"{PROOF_TIMEOUT_SCALE_ENV} must be a strictly positive float")
     return float(raw)
 
 
@@ -93,12 +92,12 @@ def _repo_env() -> dict[str, str]:
 
 
 def _rewrite_text_paths(value: str, rewrites: Sequence[tuple[str, str]]) -> str:
-    """Réécrit les chemins d'une racine physique vers sa racine logique.
+    """Rewrite paths from a physical root to their logical root.
 
-    La réécriture est ancrée: seuls les préfixes de chemin `racine/…` et la
-    valeur exactement égale à la racine sont réécrits. Un littéral nu (ex.
-    `.proof.new` cité dans un extrait de code capturé par l'évidence) est
-    préservé tel quel — un remplacement naïf corromprait ces extraits.
+    The rewrite is anchored: only `root/…` path prefixes and the value
+    exactly equal to the root are rewritten. A bare literal (e.g.
+    `.proof.new` quoted in a code excerpt captured by evidence) is preserved
+    as-is — a naive replacement would corrupt these excerpts.
     """
 
     for physical, logical in rewrites:
@@ -110,10 +109,11 @@ def _rewrite_text_paths(value: str, rewrites: Sequence[tuple[str, str]]) -> str:
 
 
 def _read_json_or_fail(path: Path, label: str) -> Any:
-    """Lit un JSON en échouant fermé avec une erreur localisée.
+    """Read JSON, failing closed with a localized error.
 
-    Le fichier fautif et la cause sont nommés dans l'ArtifactError, plutôt
-    qu'une OSError/JSONDecodeError anonyme au milieu du pipeline de preuve.
+    The offending file and cause are named in the ArtifactError, rather
+    than an anonymous OSError/JSONDecodeError in the middle of the proof
+    pipeline.
     """
 
     try:
@@ -123,7 +123,7 @@ def _read_json_or_fail(path: Path, label: str) -> Any:
 
 
 def _rewrite_tree_paths(value: Any, rewrites: Sequence[tuple[str, str]]) -> Any:
-    """Applique les réécritures de chemins à toutes les chaînes d'un arbre JSON."""
+    """Apply path rewrites to every string in a JSON tree."""
 
     if isinstance(value, str):
         return _rewrite_text_paths(value, rewrites)
@@ -135,17 +135,17 @@ def _rewrite_tree_paths(value: Any, rewrites: Sequence[tuple[str, str]]) -> Any:
 
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
-    """Tue le groupe de processus entier d'une commande de preuve.
+    """Kill the entire process group of a proof command.
 
-    ``proc.kill()`` seul ne toucherait que l'enfant direct: un Chrome ou un
-    serveur de fixtures lancé par pytest survivrait à la deadline, garderait
-    ses ports et pourrait écrire dans l'évidence après la purge.
+    ``proc.kill()`` alone would only reach the direct child: a Chrome or
+    fixtures server launched by pytest would survive the deadline, keep its
+    ports, and could write to evidence after the purge.
     """
 
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
-        # Groupe déjà disparu ou inaccessible: repli sur l'enfant direct.
+        # Group already gone or inaccessible: fall back to the direct child.
         proc.kill()
     proc.wait()
 
@@ -157,12 +157,12 @@ def _stream_to_private_file(
     env: dict[str, str],
     timeout: float | None,
 ) -> tuple[int, bool]:
-    """Exécute ``argv`` en streamant stdout+stderr bruts dans ``sink`` (0600).
+    """Run ``argv``, streaming raw stdout+stderr into ``sink`` (0600).
 
-    La sortie n'est jamais bufferisée en mémoire: le fichier grossit au fil de
-    l'exécution (observable via tail -f) et la deadline est monotone. Retourne
-    (exit_code, timed_out): 127 si le binaire est introuvable, 124 après kill
-    sur dépassement de deadline.
+    Output is never buffered in memory: the file grows as execution
+    progresses (observable via tail -f) and the deadline is monotonic.
+    Returns (exit_code, timed_out): 127 if the binary is not found, 124
+    after a kill on deadline overrun.
     """
 
     _secure_dir(sink.parent)
@@ -172,8 +172,8 @@ def _stream_to_private_file(
     fd = os.open(sink, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as stream:
         try:
-            # start_new_session isole la commande dans son propre groupe de
-            # processus: le kill de deadline atteint aussi ses descendants.
+            # start_new_session isolates the command in its own process
+            # group: the deadline kill also reaches its descendants.
             proc = subprocess.Popen(
                 argv,
                 cwd=Path.cwd(),
@@ -188,13 +188,14 @@ def _stream_to_private_file(
         try:
             exit_code = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Deadline dépassée: kill du groupe puis drain du statut. Ce qui a
-            # déjà été streamé dans le fichier reste disponible pour le log.
+            # Deadline exceeded: kill the group then drain the status. What
+            # was already streamed into the file remains available for the
+            # log.
             _kill_process_group(proc)
             return 124, True
         except BaseException:
-            # Exception inattendue (KeyboardInterrupt, MemoryError…): ne
-            # jamais rendre la main en laissant le groupe tourner.
+            # Unexpected exception (KeyboardInterrupt, MemoryError…): never
+            # return control while leaving the group running.
             _kill_process_group(proc)
             raise
     return exit_code, False
@@ -209,18 +210,18 @@ def _stream_and_collect(
     timeout_label: str,
     stream: StreamToPrivateFile | None = None,
 ) -> tuple[int, bool, str]:
-    """Streame ``argv`` dans un flux privé ``*.partial`` puis relit sa sortie.
+    """Stream ``argv`` into a private ``*.partial`` file then re-read its output.
 
-    Le flux brut (NON redacté) est supprimé en toutes circonstances — même si
-    la lecture, la redaction ou l'écriture finale échoue: un staging partiel
-    conservé pour diagnostic ne doit jamais contenir de sortie brute. La
-    mémoire n'est bornée que PENDANT l'exécution (streaming disque): la
-    relecture finale recharge tout le texte pour la redaction — choix assumé,
-    la deadline borne la durée du run, pas le volume de sa sortie.
+    The raw (NOT redacted) stream is removed under all circumstances — even
+    if reading, redaction, or the final write fails: a partial staging kept
+    for diagnostics must never contain raw output. Memory is bounded only
+    WHILE running (disk streaming): the final re-read reloads the whole text
+    for redaction — a deliberate choice, the deadline bounds the run's
+    duration, not the volume of its output.
 
-    ``stream`` reçoit l'implémentation de streaming (contrat de façade: la
-    façade `cdpx.proof` la résout au moment de l'appel pour rester
-    monkeypatchable dans les tests).
+    ``stream`` receives the streaming implementation (facade contract: the
+    `cdpx.proof` facade resolves it at call time to stay monkeypatchable in
+    tests).
     """
 
     stream_impl = _stream_to_private_file if stream is None else stream
@@ -231,7 +232,7 @@ def _stream_and_collect(
     finally:
         partial.unlink(missing_ok=True)
     if timed_out:
-        raw += f"\ntimeout: {timeout_label} après {timeout}s (exit 124)\n"
+        raw += f"\ntimeout: {timeout_label} after {timeout}s (exit 124)\n"
     return exit_code, timed_out, raw
 
 

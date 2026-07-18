@@ -1,1 +1,1 @@
-"""Outils de test: mock CDP et serveur de fixtures (importables et exécutables)."""
+"""Test tools: mock CDP and fixture server (importable and executable)."""

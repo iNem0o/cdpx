@@ -41,5 +41,5 @@ def test_action_model_round_trips_cli_argv(argv, expected):
     [[], ["shell", "rm", "-rf"], ["click"], ["type", "#field", "value", "--unknown"]],
 )
 def test_action_model_rejects_ambiguous_or_unknown_argv(argv):
-    with pytest.raises(ValueError, match="action supportée|action manquante"):
+    with pytest.raises(ValueError, match="supported action|missing action"):
         parse_action(argv)

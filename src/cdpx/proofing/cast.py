@@ -1,11 +1,10 @@
-"""Enregistrements de terminal natifs pour la preuve (asciicast v2).
+"""Native terminal recordings for the proof (asciicast v2).
 
-Producteur stdlib (pty + select): aucune dépendance asciinema/agg. Les
-commandes enregistrées sont des preuves secondaires de démonstration bon
-marché — jamais les commandes de verdict (pytest/ruff/mypy), dont doubler
-l'exécution serait prohibitif. L'enregistrement est systématique et fait
-partie du portail: un cast manquant ou dégradé fait échouer ``make proof``
-(voir ``cast_failures`` dans ``cdpx.proof``).
+Stdlib producer (pty + select): no asciinema/agg dependency. Recorded
+commands are cheap secondary demonstration proofs — never the verdict
+commands (pytest/ruff/mypy), whose duplicated execution would be
+prohibitive. Recording is systematic and part of the gate: a missing or
+degraded cast fails ``make proof`` (see ``cast_failures`` in ``cdpx.proof``).
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ CAST_COMMANDS: tuple[tuple[str, list[str]], ...] = (
 
 
 def _spawn_on_pty(argv: list[str], env: dict[str, str]) -> tuple[subprocess.Popen[bytes], int]:
-    """Démarre ``argv`` attaché à un pseudo-terminal dimensionné pour le player."""
+    """Start ``argv`` attached to a pseudo-terminal sized for the player."""
 
     master, slave = pty.openpty()
     try:
@@ -67,7 +66,7 @@ def record_cast(
     timeout: float = 120.0,
     redaction_context: RedactionContext | None = None,
 ) -> dict[str, Any]:
-    """Enregistre ``argv`` en .cast redacté, ou un statut dégradé sans lever."""
+    """Record ``argv`` as a redacted .cast, or a degraded status without raising."""
 
     context = redaction_context or RedactionContext()
     cast_path.unlink(missing_ok=True)
@@ -91,7 +90,7 @@ def record_cast(
                 try:
                     chunk = os.read(master, 65536)
                 except OSError:
-                    break  # esclave fermé et tampon vidé: fin de l'enregistrement
+                    break  # slave closed and buffer drained: end of recording
                 if not chunk:
                     break
                 total_bytes += len(chunk)
@@ -121,9 +120,9 @@ def record_cast(
     }
     lines = [json.dumps(header, ensure_ascii=False)]
     for offset, text in events:
-        # Redaction par évènement (avant l'encodage JSON) puis sur le contenu
-        # final: un secret fragmenté entre évènements reste la limite connue —
-        # d'où upload_allowed=False sur tout artefact cast.
+        # Redaction per event (before JSON encoding) then on the final
+        # content: a secret fragmented across events remains the known
+        # limit — hence upload_allowed=False on every cast artifact.
         clean = redact_text(text, context=context, path=f"$.casts.{id}")
         lines.append(json.dumps([round(offset, 6), "o", clean], ensure_ascii=False))
     content = redact_text("\n".join(lines) + "\n", context=context, path=f"$.casts.{id}")
@@ -144,7 +143,7 @@ def collect_cast_evidence(
     env: dict[str, str],
     redaction_context: RedactionContext | None = None,
 ) -> list[dict[str, Any]]:
-    """Enregistre chaque commande de démonstration; le portail juge les statuts."""
+    """Record each demonstration command; the gate judges the statuses."""
 
     return [
         record_cast(

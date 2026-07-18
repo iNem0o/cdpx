@@ -50,7 +50,7 @@ JSON (permissions, signatures, sizes) for the cockpit trace.
 `make check-local` green after each batch; `make test-e2e` green on the
 Chrome batches; `make docker-symfony-e2e` green on the Symfony batch (7/7);
 `make check` and `make proof` green at closing, new proofs visible on the
-feature pages (content inlined in the modal, no « Contenu non embarqué »
+feature pages (content inlined in the modal, no "Content not embedded"
 fallback for text).
 
 ## Definition of Done

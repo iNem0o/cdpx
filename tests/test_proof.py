@@ -37,7 +37,7 @@ def test_cast_private_write_creates_private_parent_and_refuses_symlink(tmp_path)
     link = tmp_path / "linked.cast"
     link.symlink_to(outside)
     #: un lien symbolique à la place du cast est refusé sans suivre la cible
-    with pytest.raises(ArtifactError, match="symbolique"):
+    with pytest.raises(ArtifactError, match="symlink forbidden"):
         proof_cast._write_private_text(link, "replace")
     assert outside.read_text(encoding="utf-8") == "preserve"
 
@@ -278,7 +278,7 @@ def test_unmanifested_evidence_file_fails_closed(tmp_path):
     proof._write_private_text(proof_dir / "evidence" / "artifacts" / "rogue.txt", "dump\n")
 
     #: le fichier non manifesté est nommé dans l'erreur fail-closed
-    with pytest.raises(ArtifactError, match="non manifesté"):
+    with pytest.raises(ArtifactError, match="unmanifested proof artifact"):
         proof.build_shareable_proof(proof_dir, ttl=3600)
 
     #: échec fermé: aucun staging résiduel n'a été produit
@@ -321,7 +321,7 @@ def test_evidence_manifest_with_unexpected_schema_fails_closed(tmp_path):
     _write_evidence_manifest(proof_dir, [], schema="cdpx.evidence/v1")
 
     #: le schéma inattendu est refusé avant toute décision de staging
-    with pytest.raises(ArtifactError, match="schéma de manifeste d'évidence inattendu"):
+    with pytest.raises(ArtifactError, match="unexpected evidence manifest schema"):
         proof.build_shareable_proof(proof_dir, ttl=3600)
 
     #: échec fermé: aucun staging résiduel n'a été produit
@@ -338,7 +338,7 @@ def test_evidence_manifests_with_mixed_redaction_policies_fail_closed(tmp_path):
     _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="2")
 
     #: l'hétérogénéité des politiques de redaction est une erreur nommée, pas un merge silencieux
-    with pytest.raises(ArtifactError, match="redaction hétérogènes"):
+    with pytest.raises(ArtifactError, match="heterogeneous redaction policies"):
         proof.build_shareable_proof(proof_dir, ttl=3600)
 
     #: échec fermé: aucun staging résiduel n'a été produit
@@ -484,7 +484,7 @@ def test_generate_reports_unpurgeable_staging_with_actionable_error(tmp_path, mo
     monkeypatch.setattr(proof.shutil, "rmtree", deny)
 
     #: la purge impossible échoue fermé avec le remède (chown via conteneur jetable)
-    with pytest.raises(ArtifactError, match="staging résiduel non purgeable"):
+    with pytest.raises(ArtifactError, match="leftover staging cannot be purged"):
         proof.generate()
 
     #: la preuve précédente reste intacte malgré le run avorté
@@ -609,7 +609,7 @@ def test_generate_completes_with_red_verdict_when_a_command_fails(tmp_path, monk
     assert summary["ok"] is False
     #: la cause est nommée: la commande fautive et son log sont dans proof_failures
     assert any(
-        failure.startswith("command failed: Pytest unitaires")
+        failure.startswith("command failed: Pytest unit tests")
         for failure in summary["proof_failures"]
     )
     #: la génération ABOUTIT malgré le rouge: l'arbre complet est publié dans .proof
@@ -643,7 +643,7 @@ def test_generate_purges_orphans_when_pytest_dies_without_sessionfinish(tmp_path
     assert summary["ok"] is False
     #: la cause visible reste l'échec de la commande, jamais un faux « non manifesté »
     assert any(
-        failure.startswith("command failed: Pytest unitaires")
+        failure.startswith("command failed: Pytest unit tests")
         for failure in summary["proof_failures"]
     )
     #: l'orphelin sans manifeste a été purgé avant le staging partageable
@@ -727,7 +727,7 @@ def test_generate_purges_expired_proof_dir_before_regeneration(tmp_path, monkeyp
     assert summary["retention"]["purged"]["proof_dir"] is True
     assert (proof_dir / "validation-summary.json").is_file()
     #: la purge de la preuve expirée est tracée sur stderr avant régénération
-    assert "preuve locale expirée purgée" in capsys.readouterr().err
+    assert "retention: expired local proof purged" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("corruption", ["absent", "invalide"])
@@ -798,7 +798,7 @@ def test_purge_retention_warns_and_continues_on_unreadable_evidence_manifest(
     assert protected.exists()
     #: l'avertissement actionnable nomme le store et le remède d'appropriation
     err = capsys.readouterr().err
-    assert "purge de rétention impossible" in err and "chown" in err
+    assert "warning: retention purge impossible" in err and "chown" in err
 
 
 def test_purge_retention_never_touches_transactional_dirs(tmp_path, monkeypatch):
@@ -999,7 +999,7 @@ def test_generate_converts_hardening_permission_error_into_actionable_error(tmp_
     monkeypatch.setattr(proof, "_harden_tree", deny)
 
     #: la PermissionError brute est convertie en erreur actionnable
-    with pytest.raises(ArtifactError, match="staging résiduel non purgeable") as excinfo:
+    with pytest.raises(ArtifactError, match="leftover staging cannot be purged") as excinfo:
         proof.generate()
     #: le remède (chown via conteneur jetable) est nommé dans le message
     assert "chown" in str(excinfo.value)
@@ -1190,7 +1190,7 @@ def test_pytest_timeout_orphans_are_purged_before_shareable_staging(tmp_path):
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
 
     #: sans purge, l'orphelin fait toujours échouer le staging fermé (fail-closed conservé)
-    with pytest.raises(ArtifactError, match="non manifesté"):
+    with pytest.raises(ArtifactError, match="unmanifested proof artifact"):
         proof.build_shareable_proof(proof_dir)
 
     removed = proof._purge_unmanifested_evidence(proof_dir)
@@ -1217,13 +1217,13 @@ def test_project_unknowns_describe_private_screenshot_scope():
     pas conservées."""
     packet = proof.build_project_risks_and_unknowns()
     screenshot = next(
-        item for item in packet["unknowns"] if item["item"] == "Portée des captures visuelles"
+        item for item in packet["unknowns"] if item["item"] == "Scope of visual captures"
     )
 
     #: le texte situe les captures, affirme leur exclusion du partage et évite
     #: la formulation trompeuse sur leur non-conservation
     assert ".proof/evidence/" in screenshot["why"]
-    assert "exclues du staging partageable" in screenshot["why"]
+    assert "excluded from shareable staging" in screenshot["why"]
     assert "sans le conserver" not in screenshot["why"]
 
 
@@ -1288,7 +1288,7 @@ def test_inline_scenario_artifacts_inlines_small_text_and_excerpts_large(tmp_pat
     assert logs["inline_skipped"] == "taille"
     assert logs["truncated"] is True
     assert logs["excerpt"].startswith("line-0")
-    assert "lignes tronquées" in logs["excerpt"]
+    assert "lines truncated" in logs["excerpt"]
 
     #: le binaire n'est jamais inliné (il resterait dans le HTML partageable)
     assert "inline_content" not in screenshot and "inline_skipped" not in screenshot
@@ -1392,7 +1392,7 @@ def test_load_scenario_evidence_rejects_invalid_json(tmp_path):
     path.write_text('{"suite": "unit", scenarios', encoding="utf-8")
 
     #: l'erreur localise le fichier illisible et qualifie le problème
-    with pytest.raises(ArtifactError, match="JSON de scénarios illisible") as excinfo:
+    with pytest.raises(ArtifactError, match="unreadable scenarios JSON") as excinfo:
         proof.load_scenario_evidence(tmp_path)
     assert str(path) in str(excinfo.value)
 
@@ -1408,7 +1408,7 @@ def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
     )
 
     #: le message d'erreur porte le fichier, la version attendue et la version reçue
-    with pytest.raises(ArtifactError, match="schéma de scénarios inattendu") as excinfo:
+    with pytest.raises(ArtifactError, match="unexpected scenarios schema") as excinfo:
         proof.load_scenario_evidence(tmp_path)
     message = str(excinfo.value)
     assert str(path) in message
@@ -1424,19 +1424,21 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
 
     #: une racine non-objet est nommée comme telle
     path.write_text(json.dumps(["pas", "un", "objet"]), encoding="utf-8")
-    with pytest.raises(ArtifactError, match="racine attendue comme objet JSON"):
+    with pytest.raises(ArtifactError, match="root expected as JSON object"):
         proof.load_scenario_evidence(tmp_path)
 
     #: un champ scenarios non-liste est refusé avant tout parcours
     path.write_text(json.dumps({"suite": "unit", "scenarios": {"oops": 1}}), encoding="utf-8")
-    with pytest.raises(ArtifactError, match="`scenarios` doit être une liste"):
+    with pytest.raises(ArtifactError, match="`scenarios` must be a list"):
         proof.load_scenario_evidence(tmp_path)
 
     #: un scénario sans nodeid textuel est localisé par son index et le fichier
     path.write_text(
         json.dumps({"suite": "unit", "scenarios": [{"status": "passed"}]}), encoding="utf-8"
     )
-    with pytest.raises(ArtifactError, match=r"scenarios\[0\] sans `nodeid`") as excinfo:
+    with pytest.raises(
+        ArtifactError, match=r"scenarios\[0\] without a non-empty textual"
+    ) as excinfo:
         proof.load_scenario_evidence(tmp_path)
     assert str(path) in str(excinfo.value)
 
@@ -1447,7 +1449,7 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
         ),
         encoding="utf-8",
     )
-    with pytest.raises(ArtifactError, match="`artifacts` doit être une liste"):
+    with pytest.raises(ArtifactError, match="`artifacts` must be a list"):
         proof.load_scenario_evidence(tmp_path)
 
     #: les champs imbriqués sont validés avant le cast vers les modèles stricts
@@ -1465,7 +1467,7 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
         ),
         encoding="utf-8",
     )
-    with pytest.raises(ArtifactError, match="`proves`.*liste de textes"):
+    with pytest.raises(ArtifactError, match="`proves` must be a list of strings"):
         proof.load_scenario_evidence(tmp_path)
 
     path.write_text(
@@ -1482,7 +1484,7 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
         ),
         encoding="utf-8",
     )
-    with pytest.raises(ArtifactError, match="`bytes` doit être de type int"):
+    with pytest.raises(ArtifactError, match="`bytes` must be of type int"):
         proof.load_scenario_evidence(tmp_path)
 
 
@@ -2203,7 +2205,7 @@ def test_reading_order_timeline_and_badges_guide_the_review():
     #: chaque dispositif de guidage (à lire d'abord, parcours, timeline, badges) est câblé
     for marker in (
         "function renderReadFirst",
-        "À lire d'abord",
+        "Read first",
         "function renderReadingPath",
         "function renderCommandTimeline",
         "tl-bad",
@@ -2400,14 +2402,14 @@ def test_classify_change_categorizes_repository_paths():
     """La classification des chemins modifiés route chaque famille de fichier
     vers sa catégorie de relecture (code, tests, docs, harness, autre)."""
     #: chaque famille de chemin part vers la catégorie attendue par la carte d'impact
-    assert proof.classify_change("src/cdpx/proof.py") == "Code produit"
+    assert proof.classify_change("src/cdpx/proof.py") == "Product code"
     assert proof.classify_change("tests/test_proof.py") == "Tests"
     assert proof.classify_change("docs/TODO.md") == "Documentation"
     assert proof.classify_change("README.md") == "Documentation"
     assert proof.classify_change("Makefile") == "Harness / CI"
     assert proof.classify_change(".github/workflows/ci.yml") == "Harness / CI"
     #: un chemin hors des familles connues reste honnêtement « Autre »
-    assert proof.classify_change("article/post.md") == "Autre"
+    assert proof.classify_change("article/post.md") == "Other"
 
 
 def _impact_git_context(paths):
@@ -2430,7 +2432,7 @@ def test_build_impact_map_derives_entrypoints_and_change_types():
     impact = proof.build_impact_map(git_context, [{"name": "goto", "help": "ouvre une page"}])
 
     #: chaque fichier modifié alimente sa catégorie de relecture
-    assert set(impact["categories"]) == {"Harness / CI", "Code produit", "Tests", "Documentation"}
+    assert set(impact["categories"]) == {"Harness / CI", "Product code", "Tests", "Documentation"}
     #: les points d'entrée connus (make proof, module, tests) sont tous déclarés
     assert [entry["name"] for entry in impact["entrypoints"]] == [
         "make proof",
@@ -2438,7 +2440,7 @@ def test_build_impact_map_derives_entrypoints_and_change_types():
         "tests/test_proof.py",
     ]
     #: les types de changement incluent le marqueur de surface CLI vérifiée
-    assert impact["change_types"] == ["code", "tests", "harness", "docs", "surface-cli-verifiee"]
+    assert impact["change_types"] == ["code", "tests", "harness", "docs", "verified-cli-surface"]
 
     empty = proof.build_impact_map(_impact_git_context([]), [])
     #: sans changement ni aide capturée, le type est explicitement unknown
@@ -2457,7 +2459,7 @@ def test_build_review_guide_orders_reading_by_category():
     guide = proof.build_review_guide(impact)
 
     #: le parcours commence par le contrat utilisateur (Makefile) puis suit les couches
-    assert guide["order"][0].startswith("Commencer par Makefile")
+    assert guide["order"][0].startswith("Start with the Makefile")
     assert len(guide["order"]) == 4
     #: les points de vigilance du reviewer sont toujours fournis
     assert guide["watch_outs"]
@@ -2478,7 +2480,7 @@ def test_build_risks_and_unknowns_flags_versioned_generated_artifacts():
 
     tracked = proof.build_risks_and_unknowns({"generated_count": 2})
     #: des artefacts générés versionnés déclenchent une inconnue supplémentaire nommée
-    assert any(item["item"] == "Artefacts générés versionnés" for item in tracked["unknowns"])
+    assert any(item["item"] == "Versioned generated artifacts" for item in tracked["unknowns"])
 
 
 def test_collect_git_context_filters_private_paths_and_splits_generated(tmp_path, monkeypatch):
@@ -2631,7 +2633,7 @@ def test_run_symfony_evidence_converts_deadline_into_exit_124(tmp_path, monkeypa
     assert calls["down"] == 2
     log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
     #: le log nomme l'interruption et sa deadline
-    assert "interrompu après 5s" in log
+    assert "docker compose up interrupted after 5s" in log
 
 
 def test_run_symfony_evidence_reports_unavailable_docker_daemon(tmp_path, monkeypatch):
@@ -2744,10 +2746,10 @@ def test_build_shareable_proof_guards_reject_bad_ttl_root_and_symlinks(tmp_path)
         proof.build_shareable_proof(proof_dir, ttl=0)
 
     #: une racine inexistante est un répertoire de preuve invalide
-    with pytest.raises(ArtifactError, match="répertoire de preuve invalide"):
+    with pytest.raises(ArtifactError, match="invalid proof directory"):
         proof.build_shareable_proof(tmp_path / "absent", ttl=3600)
 
     (proof_dir / "evil.log").symlink_to(proof_dir / "proof-report.html")
     #: un lien symbolique dans les preuves bloque le staging fermé
-    with pytest.raises(ArtifactError, match="lien symbolique interdit"):
+    with pytest.raises(ArtifactError, match="symlink forbidden in proofs"):
         proof.build_shareable_proof(proof_dir, ttl=3600)

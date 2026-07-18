@@ -1,10 +1,10 @@
-"""Extraction statique de l'intention des tests (docstring + commentaires `#:`).
+"""Static extraction of test intent (docstring + `#:` comments).
 
-La docstring d'un test décrit l'intention de la méthode; les commentaires
-`#: <texte>` annotent les assertions ou étapes qu'ils précèdent. L'extraction
-est purement statique (``ast`` + ``tokenize``): aucun impact sur l'exécution
-des tests, et tout échec d'analyse est silencieux (fail-open) — une intention
-absente ne doit jamais faire échouer la collecte de preuve.
+A test's docstring describes the method's intent; `#: <text>` comments
+annotate the assertions or steps they precede. Extraction is purely
+static (``ast`` + ``tokenize``): zero impact on test execution, and any
+analysis failure is silent (fail-open) — a missing intent must never
+fail proof collection.
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ INTENT_COMMENT_PREFIX = "#:"
 MAX_DOCSTRING_CHARS = 2000
 MAX_CODE_EXCERPT_CHARS = 200
 
-# assert = l'instruction prouve quelque chose; step = étape préparatoire
-# annotée; note = commentaire orphelin (sans instruction suivante), conservé
-# pour ne perdre aucune intention écrite.
+# assert = the statement proves something; step = annotated preparatory
+# step; note = orphan comment (no following statement), kept so no
+# written intent is lost.
 ASSERTION_KINDS = ("assert", "step", "note")
 
 
@@ -69,7 +69,7 @@ def _statement_kind(node: ast.stmt) -> str:
 
 
 def _intent_comment_groups(source: str) -> list[tuple[int, int, str]]:
-    """Groupes de commentaires `#:` consécutifs: (première ligne, dernière ligne, texte)."""
+    """Groups of consecutive `#:` comments: (first line, last line, text)."""
 
     comments: dict[int, str] = {}
     try:
@@ -113,7 +113,7 @@ def _candidate_statements(func_node: ast.AST) -> list[ast.stmt]:
 
 
 def extract_intent(func: Any) -> TestIntent | None:
-    """Extrait docstring et commentaires `#:` du source de ``func``, ou None."""
+    """Extract docstring and `#:` comments from ``func``'s source, or None."""
 
     try:
         target = inspect.unwrap(func)
@@ -138,8 +138,8 @@ def extract_intent(func: Any) -> TestIntent | None:
 
     assertions: list[AssertionIntent] = []
     for first, last, text in _intent_comment_groups(source):
-        # Commentaire en fin de ligne d'une instruction: annoter l'instruction
-        # englobante la plus proche (lineno maximal parmi celles qui couvrent).
+        # Trailing comment on a statement's line: annotate the closest
+        # enclosing statement (highest lineno among those that cover it).
         inline = [
             node for node in statements if node.lineno <= first <= (node.end_lineno or node.lineno)
         ]
@@ -176,10 +176,10 @@ def extract_intent(func: Any) -> TestIntent | None:
 
 
 def failure_location(report: Any, test_path: str) -> int:
-    """Ligne d'échec dans le fichier de test, ou 0 si elle est ailleurs.
+    """Failure line in the test file, or 0 if it is elsewhere.
 
-    Un échec levé dans un helper ou une fixture retourne 0: mieux vaut une
-    corrélation muette qu'une assertion faussement incriminée.
+    A failure raised in a helper or a fixture returns 0: a silent
+    correlation is better than a falsely incriminated assertion.
     """
 
     longrepr = getattr(report, "longrepr", None)
@@ -201,7 +201,7 @@ def failure_location(report: Any, test_path: str) -> int:
 
 
 def mark_failed_assertion(assertions: list[dict[str, Any]], failed_line: int) -> None:
-    """Marque status="failed" sur l'annotation couvrant la ligne d'échec."""
+    """Mark status="failed" on the annotation covering the failure line."""
 
     if not failed_line:
         return

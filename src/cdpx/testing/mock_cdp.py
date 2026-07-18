@@ -1,21 +1,21 @@
-"""Mock CDP: un faux Chrome, déterministe, pour tester cdpx sans navigateur.
+"""Mock CDP: a fake, deterministic Chrome, for testing cdpx without a browser.
 
-Ce que ça simule:
-- l'API HTTP de découverte (/json/list, /json/new, /json/activate, /json/close,
+What it simulates:
+- the HTTP discovery API (/json/list, /json/new, /json/activate, /json/close,
   /json/version),
-- l'endpoint WebSocket par target (ws://.../devtools/page/{id}),
-- un port loopback unique comme Chrome, afin que le mock puisse être attesté
-  par le supervisor de session.
+- the per-target WebSocket endpoint (ws://.../devtools/page/{id}),
+- a single loopback port like Chrome, so the mock can be attested by the
+  session supervisor.
 
-Ce que ça garantit:
-- chaque commande reçue est ENREGISTRÉE (self.commands) -> les tests valident
-  le protocole exact émis par cdpx (méthodes, params, ordre),
-- les réponses et les évènements sont SCRIPTÉS -> zéro aléa, zéro réseau
-  externe, exécutable dans n'importe quel CI.
+What it guarantees:
+- every command received is RECORDED (self.commands) -> tests validate the
+  exact protocol emitted by cdpx (methods, params, order),
+- responses and events are SCRIPTED -> zero randomness, zero external
+  network, runnable in any CI.
 
-Ce que ça ne teste PAS (et c'est assumé): le comportement réel de Blink/V8.
-C'est le rôle du e2e Chrome réel (milestone M1) qui réutilise les mêmes
-fixtures HTML.
+What it does NOT test (and this is intentional): the real behavior of
+Blink/V8. That is the role of the real-Chrome e2e (milestone M1), which
+reuses the same HTML fixtures.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 from websockets.sync.server import Server, serve
 
-# PNG 1x1 transparent, valide. PDF minimal, valide en signature.
+# 1x1 transparent PNG, valid. Minimal PDF, valid signature.
 TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
     "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -65,15 +65,15 @@ DEFAULT_COOKIES = [
 
 
 class MockCDP:
-    """Faux Chrome scriptable. Voir tests/conftest.py pour l'usage type."""
+    """Scriptable fake Chrome. See tests/conftest.py for typical usage."""
 
     def __init__(self, port: int = 0) -> None:
         self.targets: dict[str, dict] = {}
         self.commands: list[tuple[str, str, dict]] = []  # (target_id, method, params)
-        self.eval_rules: list[tuple[str, deque]] = []  # (substring, valeurs successives)
-        self.console_script: list[dict] = []  # évènements émis après Runtime.enable
-        self.network_script: list[dict] = []  # évènements émis après Page.navigate
-        self.error_methods: set[str] = set()  # méthodes qui répondent une erreur CDP
+        self.eval_rules: list[tuple[str, deque]] = []  # (substring, successive values)
+        self.console_script: list[dict] = []  # events emitted after Runtime.enable
+        self.network_script: list[dict] = []  # events emitted after Page.navigate
+        self.error_methods: set[str] = set()  # methods that respond with a CDP error
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._server: Server | None = None
         self._requested_port = port
@@ -84,8 +84,8 @@ class MockCDP:
 
     # -- scripting -------------------------------------------------------------
     def on_eval(self, substring: str, *values: Any) -> None:
-        """Quand Runtime.evaluate contient `substring`, répondre ces valeurs en séquence
-        (la dernière se répète)."""
+        """When Runtime.evaluate contains `substring`, reply with these values in
+        sequence (the last one repeats)."""
         self.eval_rules.append((substring, deque(values)))
 
     def script_console(self, entries: list[dict]) -> None:
@@ -98,10 +98,10 @@ class MockCDP:
         return [p for (_t, m, p) in self.commands if m == method]
 
     def fail_on(self, method: str) -> None:
-        """Scripter une erreur CDP pour cette méthode (tester les chemins de repli)."""
+        """Script a CDP error for this method (to test fallback paths)."""
         self.error_methods.add(method)
 
-    # -- cycle de vie ------------------------------------------------------------
+    # -- lifecycle -----------------------------------------------------------------
     def start(self) -> MockCDP:
         self._start_server()
         return self
@@ -127,7 +127,7 @@ class MockCDP:
         t["webSocketDebuggerUrl"] = f"ws://127.0.0.1:{self.port}/devtools/page/{tid}"
         return t
 
-    # -- serveur discovery + WebSocket CDP ------------------------------------------
+    # -- discovery + WebSocket CDP server --------------------------------------------
     def _start_server(self) -> None:
         mock = self
 
@@ -203,7 +203,7 @@ class MockCDP:
         self.ws_port = self.port
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    # -- protocole scripté --------------------------------------------------------
+    # -- scripted protocol ----------------------------------------------------------
     def _respond(self, tid: str, method: str, params: dict):
         events: list[dict] = []
         if method in self.error_methods:
@@ -319,7 +319,7 @@ class MockCDP:
         return None, {"code": -32601, "message": f"'{method}' wasn't found"}, events
 
 
-def main(argv: list[str] | None = None) -> int:  # pragma: no cover - processus supervisé
+def main(argv: list[str] | None = None) -> int:  # pragma: no cover - supervised process
     parser = argparse.ArgumentParser(prog="python -m cdpx.testing.mock_cdp")
     parser.add_argument("--remote-debugging-port", type=int, default=0)
     parser.add_argument("--user-data-dir", type=Path, required=True)

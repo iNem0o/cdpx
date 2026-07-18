@@ -1,9 +1,9 @@
-"""Contexte git du run de preuve et packs de revue dérivés.
+"""Git context of the proof run and derived review packs.
 
-``collect_git_context`` reçoit en keyword-only ce que la façade `cdpx.proof`
-laisse monkeypatcher (``run_text``) ou dérive de ses constantes patchables
-(chemins, excludes): aucun symbole de ce module ne lit `cdpx.proof` à
-l'exécution.
+``collect_git_context`` receives as keyword-only what the `cdpx.proof`
+facade lets tests monkeypatch (``run_text``) or derives from its patchable
+constants (paths, excludes): no symbol in this module reads `cdpx.proof` at
+runtime.
 """
 
 from __future__ import annotations
@@ -42,10 +42,11 @@ def collect_git_context(
         timeout,
     )
 
-    # Une sortie git en échec (timeout 124, dépôt cassé) n'est pas du
-    # porcelain: sortie partielle et annotation de timeout produiraient des
-    # entrées corrompues. On ne parse ni ne publie rien — le status_code et
-    # le diff_stat_code déjà exposés au summary suffisent au diagnostic.
+    # A failed git output (timeout 124, broken repository) is not
+    # porcelain: partial output and a timeout annotation would produce
+    # corrupted entries. We neither parse nor publish anything — the
+    # status_code and diff_stat_code already exposed in the summary are
+    # enough for diagnostics.
     if status_code != 0:
         status = ""
     if stat_code != 0:
@@ -97,7 +98,7 @@ def collect_git_context(
 
 def classify_change(path: str) -> str:
     if path.startswith("src/"):
-        return "Code produit"
+        return "Product code"
     if path.startswith("tests/"):
         return "Tests"
     if path.startswith("docs/") or path in {
@@ -112,7 +113,7 @@ def classify_change(path: str) -> str:
         return "Documentation"
     if path in {"Makefile", "pyproject.toml", "Dockerfile"} or path.startswith(".github/"):
         return "Harness / CI"
-    return "Autre"
+    return "Other"
 
 
 def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> dict:
@@ -129,7 +130,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
                 "name": "make proof",
                 "type": "Make target",
                 "evidence": "Makefile",
-                "review_focus": "Commande publique de génération du rapport.",
+                "review_focus": "Public command that generates the report.",
             }
         )
     if "src/cdpx/proof.py" in paths:
@@ -138,7 +139,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
                 "name": "python -m cdpx.proof",
                 "type": "Python module",
                 "evidence": "src/cdpx/proof.py",
-                "review_focus": "Collecte, classification et rendu HTML des preuves.",
+                "review_focus": "Collection, classification and HTML rendering of proofs.",
             }
         )
     if "tests/test_proof.py" in paths:
@@ -147,7 +148,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
                 "name": "tests/test_proof.py",
                 "type": "Unit tests",
                 "evidence": "tests/test_proof.py",
-                "review_focus": "Parsing JUnit, aide CLI et résumé historique.",
+                "review_focus": "JUnit parsing, CLI help and historical summary.",
             }
         )
 
@@ -161,7 +162,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
     if any(path.startswith("docs/") or path in {"README.md", "HARNESS.md"} for path in paths):
         change_types.append("docs")
     if help_commands:
-        change_types.append("surface-cli-verifiee")
+        change_types.append("verified-cli-surface")
 
     return {
         "change_types": change_types or ["unknown"],
@@ -174,23 +175,21 @@ def build_review_guide(impact: dict) -> dict:
     order = []
     categories = impact["categories"]
     if "Harness / CI" in categories:
-        order.append("Commencer par Makefile: vérifier le contrat utilisateur de `make proof`.")
-    if "Code produit" in categories:
-        order.append("Lire `src/cdpx/proof.py`: collecte, verdict, résumé JSON, rendu HTML.")
+        order.append("Start with the Makefile: check the user contract of `make proof`.")
+    if "Product code" in categories:
+        order.append("Read `src/cdpx/proof.py`: collection, verdict, JSON summary, HTML rendering.")
     if "Tests" in categories:
-        order.append("Lire `tests/test_proof.py`: verrouillage du parsing et des clés historiques.")
+        order.append("Read `tests/test_proof.py`: locking of parsing and historical keys.")
     if "Documentation" in categories:
-        order.append("Finir par README/HARNESS/VALIDATION: alignement du contrat public.")
+        order.append("Finish with README/HARNESS/VALIDATION: alignment of the public contract.")
     if not order:
-        order.append(
-            "Lire les fichiers listés dans la carte d'impact, du point d'entrée vers les preuves."
-        )
+        order.append("Read the files listed in the impact map, from entrypoint to proofs.")
 
     watch_outs = [
-        "Le verdict doit être dérivé des commandes et des JUnit, pas d'un statut statique.",
-        "Les artefacts lourds doivent rester repliables et traçables pour éviter le bruit en PR.",
-        "Les chemins de preuves doivent rester relatifs et ouvrables depuis le dépôt.",
-        "Les preuves optionnelles absentes doivent être déclarées comme unknowns, pas simulées.",
+        "The verdict must be derived from commands and JUnit, not a static status.",
+        "Heavy artifacts must remain collapsible and traceable to avoid PR noise.",
+        "Proof paths must remain relative and openable from the repository.",
+        "Missing optional proofs must be declared as unknowns, not simulated.",
     ]
     return {"order": order, "watch_outs": watch_outs}
 
@@ -198,48 +197,47 @@ def build_review_guide(impact: dict) -> dict:
 def build_risks_and_unknowns(git_context: dict) -> dict:
     risks = [
         {
-            "risk": "`make proof` devient plus strict.",
+            "risk": "`make proof` becomes stricter.",
             "mitigation": (
-                "Les outils Python passent par `python -m ...`; le rapport est écrit même "
-                "en cas d'échec."
+                "Python tools go through `python -m ...`; the report is written even on failure."
             ),
-            "rollback": "Revenir à l'ancienne cible Makefile si nécessaire.",
+            "rollback": "Revert to the previous Makefile target if needed.",
         },
         {
-            "risk": "Rapport trop verbeux pour une PR.",
-            "mitigation": "Résumé court; logs et détails secondaires en sections repliables.",
-            "rollback": "Réduire les sections dans `render_html` sans toucher à la collecte.",
+            "risk": "Report too verbose for a PR.",
+            "mitigation": "Short summary; logs and secondary details in collapsible sections.",
+            "rollback": "Reduce the sections in `render_html` without touching the collection.",
         },
     ]
     unknowns = [
         {
-            "item": "Rendu GitHub exact du HTML",
-            "why": "Le rapport est un artefact HTML, pas une page rendue dans la PR GitHub.",
+            "item": "Exact GitHub rendering of the HTML",
+            "why": "The report is an HTML artifact, not a page rendered in the GitHub PR.",
             "how_to_verify": (
-                "Télécharger l'artefact `proof` puis ouvrir `.proof/proof-report.html`."
+                "Download the `proof` artifact then open `.proof/proof-report.html`."
             ),
         },
         {
-            "item": "Casts de démonstration",
+            "item": "Demonstration casts",
             "why": (
-                "L'enregistreur natif (pty) fait partie du portail: un cast manquant "
-                "ou dégradé fait échouer `make proof`."
+                "The native recorder (pty) is part of the gate: a missing "
+                "or degraded cast fails `make proof`."
             ),
-            "how_to_verify": "Ouvrir le rapport et jouer les casts du catalogue de preuves.",
+            "how_to_verify": "Open the report and play the casts from the proof catalog.",
         },
         {
-            "item": "Screenshot produit",
-            "why": "Changement harness/rapport, pas delta UI produit.",
-            "how_to_verify": "Pour une PR UI, ajouter une capture dans `.proof/`.",
+            "item": "Product screenshot",
+            "why": "Harness/report change, not a product UI delta.",
+            "how_to_verify": "For a UI PR, add a capture in `.proof/`.",
         },
     ]
     if git_context["generated_count"]:
         unknowns.append(
             {
-                "item": "Artefacts générés versionnés",
-                "why": "Le dépôt suit déjà certains fichiers `.proof`.",
+                "item": "Versioned generated artifacts",
+                "why": "The repository already tracks some `.proof` files.",
                 "how_to_verify": (
-                    "Vérifier `git status --short`; `.proof/` doit rester un artefact CI ignoré."
+                    "Check `git status --short`; `.proof/` must remain a gitignored CI artifact."
                 ),
             }
         )
@@ -249,49 +247,49 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
 def build_project_risks_and_unknowns() -> dict:
     risks = [
         {
-            "risk": "Pré-requis Chrome/Chromium obligatoire.",
+            "risk": "Chrome/Chromium prerequisite mandatory.",
             "mitigation": (
-                "Chrome/Chromium est obligatoire: `make proof` échoue si le binaire est absent."
+                "Chrome/Chromium is mandatory: `make proof` fails if the binary is missing."
             ),
-            "rollback": "Installer Chrome/Chromium puis relancer `make test-e2e` ou `make proof`.",
+            "rollback": "Install Chrome/Chromium then re-run `make test-e2e` or `make proof`.",
         },
         {
-            "risk": "Docker/Compose est un prérequis du portail qualité complet.",
+            "risk": "Docker/Compose is a prerequisite of the full quality gate.",
             "mitigation": (
-                "`make check`, `make proof` et `make release` échouent si Docker ou la preuve "
-                "Symfony est indisponible; `make check-local` reste un diagnostic partiel."
+                "`make check`, `make proof` and `make release` fail if Docker or the Symfony "
+                "proof is unavailable; `make check-local` remains a partial diagnostic."
             ),
-            "rollback": "Installer Docker puis relancer `make proof` ou `make docker-symfony-e2e`.",
+            "rollback": "Install Docker then re-run `make proof` or `make docker-symfony-e2e`.",
         },
     ]
     unknowns = [
         {
-            "item": "Dépendances réseau externes",
-            "why": "`make proof` cible les fixtures locales et Chrome local.",
-            "how_to_verify": "Vérifier les logs réseau et les fixtures sous `tests/fixtures/`.",
+            "item": "External network dependencies",
+            "why": "`make proof` targets local fixtures and local Chrome.",
+            "how_to_verify": "Check the network logs and fixtures under `tests/fixtures/`.",
         },
         {
-            "item": "Portée des captures visuelles",
+            "item": "Scope of visual captures",
             "why": (
-                "Les captures E2E sont conservées dans l'arbre privé `.proof/evidence/` "
-                "et exclues du staging partageable; elles ne constituent pas un diff "
-                "visuel exhaustif."
+                "E2E captures are kept in the private `.proof/evidence/` tree "
+                "and excluded from shareable staging; they do not constitute an "
+                "exhaustive visual diff."
             ),
             "how_to_verify": (
-                "Inspecter le catalogue privé et ajouter une assertion ou une baseline dédiée "
-                "pour toute régression visuelle à contractualiser."
+                "Inspect the private catalog and add a dedicated assertion or baseline "
+                "for any visual regression to be contracted."
             ),
         },
         {
-            "item": "Cast du run complet",
+            "item": "Full run cast",
             "why": (
-                "Le portail enregistre nativement les commandes de démonstration; "
-                "le run `make proof` entier n'est pas auto-enregistré (durée et poids)."
+                "The gate natively records the demonstration commands; "
+                "the entire `make proof` run is not auto-recorded (duration and weight)."
             ),
             "how_to_verify": (
-                "Les casts de démonstration sont générés et jugés à chaque `make proof`; "
-                "pour un enregistrement du run complet, lancer `make proof` dans un "
-                "enregistreur de terminal externe."
+                "Demonstration casts are generated and judged at every `make proof`; "
+                "to record the full run, launch `make proof` inside an "
+                "external terminal recorder."
             ),
         },
     ]

@@ -80,7 +80,7 @@ class CommandOptions:
         values = vars(namespace)
         func = values.get("func")
         if not callable(func):
-            raise RuntimeError("commande CLI sans gestionnaire")
+            raise RuntimeError("CLI command without handler")
         return cls(
             command=cast(str, values["command"]),
             func=cast(CommandHandler, func),
@@ -158,7 +158,7 @@ def _navigation_wait(value: Any) -> NavigationWait:
         return "domcontentloaded"
     if value == "none":
         return "none"
-    raise RuntimeError(f"attente de navigation CLI invalide: {value!r}")
+    raise RuntimeError(f"invalid CLI navigation wait: {value!r}")
 
 
 def _storage_kind(value: Any) -> StorageKind:
@@ -166,18 +166,18 @@ def _storage_kind(value: Any) -> StorageKind:
         return "local"
     if value == "session":
         return "session"
-    raise RuntimeError(f"stockage CLI invalide: {value!r}")
+    raise RuntimeError(f"invalid CLI storage: {value!r}")
 
 
 def _authority(value: Any) -> Authority | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise RuntimeError(f"autorité CLI invalide: {value!r}")
+        raise RuntimeError(f"invalid CLI authority: {value!r}")
     try:
         return Authority(value)
     except ValueError as error:
-        raise RuntimeError(f"autorité CLI invalide: {value!r}") from error
+        raise RuntimeError(f"invalid CLI authority: {value!r}") from error
 
 
 @dataclass(frozen=True)
@@ -195,15 +195,15 @@ class SessionArtifactPolicy:
             or not name[0].isalnum()
             or any(not char.isascii() or not (char.isalnum() or char in "._-") for char in name)
         ):
-            raise PolicyError(f"session: nom d'artefact invalide: {name or requested}")
+            raise PolicyError(f"session: invalid artifact name: {name or requested}")
         root = Path(self.manifest.artifacts_dir) / category
         if root.is_symlink():
-            raise PolicyError(f"session: dossier d'artefact symbolique interdit: {root}")
+            raise PolicyError(f"session: symbolic artifact directory forbidden: {root}")
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         root.chmod(0o700)
         destination = root / name
         if destination.is_symlink():
-            raise PolicyError(f"session: artefact symbolique interdit: {destination}")
+            raise PolicyError(f"session: symbolic artifact forbidden: {destination}")
         if must_exist:
             self._assert_existing_private_file(destination)
         return str(destination)
@@ -213,13 +213,13 @@ class SessionArtifactPolicy:
         try:
             info = destination.lstat()
         except OSError as error:
-            raise PolicyError(f"session: artefact introuvable: {destination}") from error
+            raise PolicyError(f"session: artifact not found: {destination}") from error
         if not stat.S_ISREG(info.st_mode):
-            raise PolicyError(f"session: artefact régulier requis: {destination}")
+            raise PolicyError(f"session: regular artifact required: {destination}")
         if hasattr(os, "getuid") and info.st_uid != os.getuid():
-            raise PolicyError("session: artefact appartenant à un autre utilisateur")
+            raise PolicyError("session: artifact owned by another user")
         if stat.S_IMODE(info.st_mode) & 0o077:
-            raise PolicyError("session: permissions d'artefact trop ouvertes; 0600 requis")
+            raise PolicyError("session: artifact permissions too open; 0600 required")
 
     @staticmethod
     def metadata(data: dict[str, Any], classification: str) -> dict[str, Any]:
@@ -236,9 +236,9 @@ class SessionArtifactPolicy:
                 datetime.fromisoformat(self.manifest.expires_at) - datetime.now(UTC)
             ).total_seconds()
         except ValueError as error:
-            raise PolicyError("session: expiration de session invalide") from error
+            raise PolicyError("session: invalid session expiration") from error
         if remaining <= 0:
-            raise PolicyError(f"session expirée: {self.manifest.session_id}")
+            raise PolicyError(f"session expired: {self.manifest.session_id}")
         return remaining
 
 
@@ -295,10 +295,10 @@ class CommandInvocation:
 
     def require_execution(self) -> ExecutionContext:
         if self.execution is None:
-            raise RuntimeError("contexte d'exécution non préparé")
+            raise RuntimeError("execution context not prepared")
         return self.execution
 
     def require_artifacts(self) -> SessionArtifactPolicy:
         if self.artifacts is None:
-            raise PolicyError("session: manifest requis pour les artefacts")
+            raise PolicyError("session: manifest required for artifacts")
         return self.artifacts

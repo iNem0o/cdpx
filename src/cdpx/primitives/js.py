@@ -1,9 +1,9 @@
-"""Primitives JS / lecture DOM.
+"""JS primitives / DOM reading.
 
-`evaluate` est LA primitive racine: tout ce que l'agent ne sait pas faire en
-protocole pur, il peut le faire en JS. Les autres primitives de ce module sont
-des raccourcis stables (contrat de sortie fixe) pour éviter que l'agent
-réinvente du JS fragile à chaque session.
+`evaluate` is THE root primitive: anything the agent can't do in pure
+protocol, it can do in JS. The other primitives in this module are
+stable shortcuts (fixed output contract) to keep the agent from
+reinventing fragile JS every session.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def evaluate(
 
 
 def get_text(client: CDPClient, selector: str | None = None) -> dict:
-    """innerText d'un élément (ou du body). Vision 'sémantique' low-cost de la page."""
+    """innerText of an element (or the body). Low-cost 'semantic' view of the page."""
     if selector:
         expr = (
             f"(() => {{ const el = document.querySelector({json.dumps(selector)});"
@@ -53,7 +53,7 @@ def get_text(client: CDPClient, selector: str | None = None) -> dict:
 
 
 def get_html(client: CDPClient, selector: str | None = None) -> dict:
-    """outerHTML d'un élément (ou du document). Pour inspection structurelle fine."""
+    """outerHTML of an element (or the document). For fine-grained structural inspection."""
     if selector:
         expr = (
             f"(() => {{ const el = document.querySelector({json.dumps(selector)});"
@@ -66,6 +66,6 @@ def get_html(client: CDPClient, selector: str | None = None) -> dict:
 
 
 def count(client: CDPClient, selector: str) -> dict:
-    """Nombre d'éléments matchant un sélecteur. Assertion cheap pour l'agent."""
+    """Number of elements matching a selector. Cheap assertion for the agent."""
     expr = f"document.querySelectorAll({json.dumps(selector)}).length"
     return {"selector": selector, "count": evaluate(client, expr)}

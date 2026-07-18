@@ -1,10 +1,10 @@
-"""Collecte d'évidence des suites: commandes de preuve et portail Symfony.
+"""Suite evidence collection: proof commands and the Symfony gate.
 
-Toutes les dépendances que la façade `cdpx.proof` laisse monkeypatcher
+All dependencies the `cdpx.proof` facade lets tests monkeypatch
 (``_run_text``, ``_stream_to_private_file`` via ``_stream_and_collect``,
-``shutil.which``, ``SYMFONY_LOG``, ``EVIDENCE_DIR``, ``PROOF_DIR``) sont
-reçues ici en keyword-only: la façade les résout depuis ses globals au moment
-de l'appel. Aucun symbole de ce module ne lit `cdpx.proof` à l'exécution.
+``shutil.which``, ``SYMFONY_LOG``, ``EVIDENCE_DIR``, ``PROOF_DIR``) are
+received here as keyword-only: the facade resolves them from its globals at
+call time. No symbol in this module reads `cdpx.proof` at runtime.
 """
 
 from __future__ import annotations
@@ -63,12 +63,12 @@ def run_evidence(
         "",
         "--- output ---",
     ]
-    # Flux brut streamé dans un fichier privé *.partial (progression
-    # observable, mémoire bornée pendant l'exécution), puis redaction du texte
-    # complet relu et écriture atomique du log final: un secret à cheval sur
-    # deux chunks ne peut pas y échapper.
+    # Raw stream streamed into a private *.partial file (observable
+    # progress, bounded memory during execution), then redaction of the
+    # full re-read text and atomic write of the final log: a secret
+    # straddling two chunks cannot escape it.
     exit_code, _timed_out, raw = collect(
-        argv, log_path, env=env, timeout=timeout, timeout_label="commande interrompue"
+        argv, log_path, env=env, timeout=timeout, timeout_label="command interrupted"
     )
     output = redact_text(
         _rewrite_text_paths(raw, path_rewrites), context=context, path=f"$.commands.{id}.stdout"
@@ -125,9 +125,9 @@ def write_symfony_unavailable_evidence(
     evidence_dir: Path,
 ) -> None:
     context = redaction_context or redaction_context_from_environment()
-    # Même règle de dérivation que run_symfony_evidence: sans proof_dir, les
-    # chemins résolus par la façade (monkeypatchables) font foi; le pipeline
-    # passe le staging.
+    # Same derivation rule as run_symfony_evidence: without proof_dir, the
+    # paths resolved by the facade (monkeypatchable) are authoritative; the
+    # pipeline passes the staging.
     log_path = symfony_log if proof_dir is None else proof_dir / symfony_log.name
     evidence_root = evidence_dir if proof_dir is None else proof_dir / evidence_dir.name
     _secure_dir(evidence_root)
@@ -194,8 +194,9 @@ def run_symfony_evidence(
     default_proof_dir: Path,
 ) -> CommandEvidence:
     context = redaction_context or redaction_context_from_environment()
-    # Résolution à l'appel (côté façade): sans proof_dir explicite, les
-    # chemins patchés par les tests font foi; le pipeline passe le staging.
+    # Resolution at call time (facade side): without an explicit proof_dir,
+    # the paths patched by the tests are authoritative; the pipeline passes
+    # the staging.
     log_path = symfony_log if proof_dir is None else proof_dir / symfony_log.name
     evidence_root = evidence_dir if proof_dir is None else proof_dir / evidence_dir.name
     argv = [
@@ -215,8 +216,9 @@ def run_symfony_evidence(
     compose_env = _repo_env()
     compose_env["CDPX_E2E_UID"] = str(os.getuid())
     compose_env["CDPX_E2E_GID"] = str(os.getgid())
-    # Le volume `.proof` du compose est paramétré: le conteneur monte l'arbre
-    # cible (staging pendant `make proof`, `./.proof` par défaut via Makefile).
+    # The compose `.proof` volume is parameterized: the container mounts the
+    # target tree (staging during `make proof`, `./.proof` by default via the
+    # Makefile).
     compose_env["CDPX_PROOF_DIR"] = str(
         (default_proof_dir if proof_dir is None else proof_dir).resolve()
     )
@@ -289,24 +291,24 @@ def run_symfony_evidence(
         "docker-compose.symfony-e2e.yml",
         "down",
         "--remove-orphans",
-        # --volumes: aucun volume déclaré aujourd'hui, mais si une image de
-        # base ajoute un VOLUME, ses volumes anonymes ne s'accumulent pas.
+        # --volumes: no volume declared today, but if a base image adds a
+        # VOLUME, its anonymous volumes won't accumulate.
         "--volumes",
     ]
     pre_code, pre_output = run_text(down_argv, timeout=60, env=compose_env)
     try:
-        # Le `up` est streamé dans un fichier privé (progression observable)
-        # et borné par deadline: kill du groupe sur dépassement, exit 124.
+        # The `up` is streamed into a private file (observable progress)
+        # and bounded by a deadline: group kill on overrun, exit 124.
         up_code, _up_timed_out, up_output = stream_and_collect(
             argv,
             log_path,
             env=compose_env,
             timeout=timeout,
-            timeout_label="docker compose up interrompu",
+            timeout_label="docker compose up interrupted",
         )
     finally:
-        # Même une interruption/exception/deadline pendant `up` doit rendre la
-        # main avec les conteneurs et réseaux Compose supprimés.
+        # Even an interruption/exception/deadline during `up` must return
+        # control with the Compose containers and networks removed.
         post_code, post_output = run_text(down_argv, timeout=60, env=compose_env)
     duration = time.monotonic() - start
     body = "\n\n".join(

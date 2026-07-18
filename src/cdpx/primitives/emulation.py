@@ -1,4 +1,4 @@
-"""Profils d'émulation device, réseau et CPU."""
+"""Device, network, and CPU emulation profiles."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ PRESETS: dict[str, dict[str, Any]] = {
 def emulate(client: CDPClient, preset: str | None = None, reset: bool = False) -> dict[str, Any]:
     if reset:
         client.send("Emulation.clearDeviceMetricsOverride")
-        # userAgent vide = Chrome restaure l'UA par défaut (vérifié e2e); sans
-        # cet appel, l'UA du preset mobile survivait au reset.
+        # empty userAgent = Chrome restores the default UA (verified e2e); without
+        # this call, the mobile preset's UA survived the reset.
         client.send("Emulation.setUserAgentOverride", {"userAgent": ""})
         client.send(
             "Network.emulateNetworkConditions",
@@ -46,7 +46,7 @@ def emulate(client: CDPClient, preset: str | None = None, reset: bool = False) -
         client.send("Emulation.setCPUThrottlingRate", {"rate": 1})
         return {"reset": True}
     if preset not in PRESETS:
-        raise ValueError(f"preset inconnu: {preset}")
+        raise ValueError(f"unknown preset: {preset}")
     spec = PRESETS[preset]
     client.send("Network.enable")
     if "metrics" in spec:

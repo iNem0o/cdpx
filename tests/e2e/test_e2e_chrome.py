@@ -433,7 +433,7 @@ def test_cli_stdout_stderr_and_exit_contract(cli_page, evidence_case):
     attach_cli_run(evidence_case, "exit-1-runtime-error", runtime_error)
     #: un sélecteur introuvable est une erreur d'exécution: code 1, diagnostic hors de stdout
     assert runtime_error.returncode == 1 and runtime_error.stdout == ""
-    assert "sélecteur introuvable" in runtime_error.stderr
+    assert "selector not found" in runtime_error.stderr
 
     usage_error = run_cli(manifest, path, "goto")
     attach_cli_run(evidence_case, "exit-2-usage-error", usage_error)
@@ -1159,7 +1159,7 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
     )
     #: l'accueil annonce le verdict rouge et le compte de tests du run, et la
     #: feature synthétique apparaît en carte comme dans la barre latérale
-    assert home["verdict"] == "ECHEC"
+    assert home["verdict"] == "FAILED"
     assert home["tests"] == "12/13"
     assert home["cards"] == 1 and home["cardPill"] == "failed"
     assert "Achat de démonstration" in home["sideEntry"]
@@ -1262,7 +1262,7 @@ def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evid
     )
     #: le panneau « À lire d'abord » nomme la commande échouée ET le test
     #: failed, avec sa pastille de statut
-    assert read_first["heading"] == "À lire d'abord"
+    assert read_first["heading"] == "Read first"
     assert any("command failed: Pytest E2E Chrome" in item for item in read_first["items"])
     assert any(COCKPIT_FAIL_NODEID in item for item in read_first["items"])
     assert read_first["failedPill"] == "failed"
@@ -1364,8 +1364,8 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         " ok: document.querySelectorAll('.modal-content .net-status.net-ok').length})",
     )
     #: la table réseau restitue le résumé agrégé et colore les statuts HTTP
-    assert "2 requêtes" in network_view["summary"]
-    assert "1 erreurs 4xx/5xx" in network_view["summary"]
+    assert "2 requests" in network_view["summary"]
+    assert "1 4xx/5xx errors" in network_view["summary"]
     assert network_view["rows"] == 2
     assert network_view["bad"] == 1 and network_view["ok"] == 1
     _close_modal(client)
@@ -1514,7 +1514,7 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
     )
     #: un fichier opaque assume son repli: raison du non-embarquement et lien
     #: de téléchargement vers l'artefact
-    assert "Contenu non embarqué" in fallback["text"]
+    assert "Content not embedded" in fallback["text"]
     assert fallback["link"] == "ouvrir le fichier"
     _close_modal(client)
 
@@ -1685,7 +1685,7 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
     assert "symfony" in run_view["suiteText"]
     #: la section casts du portail liste le cast généré et les fins de logs
     #: restent accessibles en repli
-    assert "Casts de démonstration" in run_view["headings"]
+    assert "Demo casts" in run_view["headings"]
     assert run_view["castChip"] is True
     assert "cdpx-help" in run_view["castText"]
     assert "Fins de logs" in run_view["tails"]
@@ -1737,12 +1737,12 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
     #: le contrat CLI (31 sous-commandes réelles, extraites de l'aide du vrai
     #: binaire) est visible tel quel dans le cockpit
     assert cli_view["rows"] == 31
-    assert "31 sous-commandes" in cli_view["intro"]
+    assert "31 cdpx subcommands" in cli_view["intro"]
     assert "cdpx goto" in cli_view["body"] and "cdpx tabs" in cli_view["body"]
     #: chaque entrypoint affiche son rattachement: lien vers la feature quand
     #: il existe, mention explicite sinon
     assert cli_view["mapped"] is True
-    assert "non rattaché" in cli_view["body"]
+    assert "unattached" in cli_view["body"]
 
     _goto_route(
         client,
@@ -1757,10 +1757,10 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
     )
     #: la vue Validation aligne ses quatre volets, chacun avec sa table
     assert validation_view["headings"] == [
-        "Preuve par milestone",
-        "Tests par module",
-        "Risques et mitigations",
-        "Inconnues assumées",
+        "Proof by milestone",
+        "Tests by module",
+        "Risks and mitigations",
+        "Accepted unknowns",
     ]
     assert validation_view["tables"] == 4
     #: matrice, couverture, risques et inconnues restituent les données du run
@@ -1801,7 +1801,7 @@ def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_c
     assert "Chrome DevTools Protocol" in project_view["mission"]
     assert "0.0-e2e" in project_view["mission"]
     assert "e2e-cockpit" in project_view["mission"]
-    assert "Chrome/Chromium présent" in project_view["mission"]
+    assert "Chrome/Chromium present" in project_view["mission"]
     #: docs et fixtures du projet sont inventoriées en deux panneaux
     assert any("README.md" in item for item in project_view["lists"])
     assert any("tests/fixtures/index.html" in item for item in project_view["lists"])
@@ -1809,7 +1809,7 @@ def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_c
     _goto_route(
         client,
         "/nulle-part",
-        "document.querySelector('#app h1')?.textContent === 'Vue introuvable'",
+        "document.querySelector('#app h1')?.textContent === 'View not found'",
     )
     not_found = js.evaluate(
         client,
@@ -1818,7 +1818,7 @@ def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_c
     )
     #: la route inconnue est nommée dans la vue de repli, fil d'Ariane compris
     assert not_found["route"] == "/nulle-part"
-    assert "Introuvable" in not_found["crumb"]
+    assert "Not found" in not_found["crumb"]
     if evidence_case is not None:
         evidence_case.attach_json(
             "vue-projet-et-introuvable", {"project": project_view, "not_found": not_found}
@@ -1865,12 +1865,12 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     nav.navigate(c, f"{base}/interactions-rich.html")
 
     for selector, reason in (
-        ("#hidden-button", "non visible"),
-        ("#disabled-button", "désactivé"),
-        ("#aria-disabled-button", "désactivé"),
-        ("#inert-button", "désactivé"),
-        ("#pointer-events-button", "désactivé"),
-        ("#covered-button", "recouvert"),
+        ("#hidden-button", "not visible"),
+        ("#disabled-button", "disabled"),
+        ("#aria-disabled-button", "disabled"),
+        ("#inert-button", "disabled"),
+        ("#pointer-events-button", "disabled"),
+        ("#covered-button", "covered"),
     ):
         #: chaque cause de non-actionnabilité est refusée avec sa raison précise, avant le clic
         with pytest.raises(inputs.ElementNotInteractable, match=reason):
@@ -1893,9 +1893,9 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     assert js.evaluate(c, "window.interactionFixture.snapshot().clicks.descendant") == 1
 
     for selector, reason in (
-        ("#hidden-button", "non visible"),
-        ("#disabled-button", "désactivé"),
-        ("#descendant-button", "non éditable"),
+        ("#hidden-button", "not visible"),
+        ("#disabled-button", "disabled"),
+        ("#descendant-button", "not editable"),
     ):
         #: la saisie applique les mêmes gardes, plus le refus des éléments non éditables
         with pytest.raises(inputs.ElementNotInteractable, match=reason):
@@ -2070,9 +2070,9 @@ def test_seo_edge_real(page):
     #: la largeur du titre est estimée en pixels, au-delà du simple comptage de caractères
     assert res["title_px_estimate"] > 0
     #: chaque piège posé par la fixture ressort comme finding explicite et actionnable
-    assert "h1 dupliqué: produit dupliqué" in res["findings"]
-    assert "JSON-LD invalide" in res["findings"]
-    assert "Product JSON-LD incomplet (sku ou name requis)" in res["findings"]
+    assert "duplicate h1: produit dupliqué" in res["findings"]
+    assert "invalid JSON-LD" in res["findings"]
+    assert "incomplete Product JSON-LD (sku or name required)" in res["findings"]
 
 
 def test_origin_guard_cli_real(managed_cli_session, fixtures_http, evidence_case):
@@ -2086,7 +2086,7 @@ def test_origin_guard_cli_real(managed_cli_session, fixtures_http, evidence_case
         attach_screenshot(evidence_case, client, "origin-guard-final")
     #: la sortie vers une origine interdite échoue en erreur runtime avec un refus explicite
     assert proc.returncode == 1
-    assert "origine refusée" in proc.stderr
+    assert "origin rejected" in proc.stderr
 
 
 def test_metrics_real(page):
@@ -2356,7 +2356,7 @@ def test_seo_audit_real(page):
     nav.navigate(c, f"{base}/seo-broken.html")
     broken = audit.seo(c)
     #: le même audit sur la page cassée détecte le doublon de h1
-    assert "2 h1 (attendu: 1)" in broken["findings"]
+    assert "2 h1 (expected: 1)" in broken["findings"]
 
 
 def test_cookies_and_storage_real(page):

@@ -1,24 +1,24 @@
-"""Serveur HTTP de fixtures: le "site témoin" déterministe.
+"""Fixture HTTP server: the deterministic "reference site".
 
-Rôle: fournir des pages HTML statiques et des endpoints API au comportement
-figé, pour que chaque primitive cdpx ait un terrain de jeu reproductible —
-d'abord pour le e2e Chrome réel (M1), et dès maintenant testé unitairement
-(le serveur lui-même est sous test: tests/test_fixture_server.py).
+Role: serve static HTML pages and API endpoints with fixed behavior, so
+that every cdpx primitive has a reproducible playground — first for the
+real-Chrome e2e (M1), and unit-tested right away (the server itself is
+under test: tests/test_fixture_server.py).
 
-Règles de déterminisme:
-- aucun contenu dépendant de l'heure, de l'aléa ou du réseau externe,
-- Cache-Control: no-store partout (jamais d'état de cache entre deux runs),
-- les seuls délais sont EXPLICITES et pilotés par l'appelant (/api/slow?ms=N).
+Determinism rules:
+- no content depending on time, randomness, or external network,
+- Cache-Control: no-store everywhere (never any cache state between two runs),
+- the only delays are EXPLICIT and driven by the caller (/api/slow?ms=N).
 
-Endpoints API (en plus des fichiers statiques de tests/fixtures/):
-  GET /api/json          -> payload JSON fixe
-  GET /api/slow?ms=N     -> payload JSON après N millisecondes (défaut 200)
-  GET /api/status/CODE   -> répond avec le code HTTP demandé
-  ANY /api/echo          -> renvoie méthode, chemin, body reçus
-  GET /api/set-cookie    -> pose Set-Cookie: fixture=on
-  GET /api/profiler-sim  -> pose X-Debug-Token-Link vers le faux Web Profiler
-  GET /_profiler/TOKEN?panel=X -> HTML de panel figé (tests/fixtures/profiler/X.html,
-                            markup WebProfilerBundle réel élagué; défaut: request)
+API endpoints (in addition to the static files in tests/fixtures/):
+  GET /api/json          -> fixed JSON payload
+  GET /api/slow?ms=N     -> JSON payload after N milliseconds (default 200)
+  GET /api/status/CODE   -> responds with the requested HTTP code
+  ANY /api/echo          -> returns method, path, body received
+  GET /api/set-cookie    -> sets Set-Cookie: fixture=on
+  GET /api/profiler-sim  -> sets X-Debug-Token-Link to the fake Web Profiler
+  GET /_profiler/TOKEN?panel=X -> fixed panel HTML (tests/fixtures/profiler/X.html,
+                            real WebProfilerBundle markup trimmed down; default: request)
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ def _make_handler(root: pathlib.Path):
                 panel = qs.get("panel", ["request"])[0]
                 target = root / "profiler" / f"{panel}.html"
                 if not re.fullmatch(r"[a-z_]+", panel) or not target.is_file():
-                    self._send(b'{"error": "panel inconnu"}', status=404)
+                    self._send(b'{"error": "unknown panel"}', status=404)
                     return
                 self._send(target.read_bytes(), ctype="text/html; charset=utf-8")
                 return
@@ -154,7 +154,7 @@ class FixtureServer:
         self.stop()
 
 
-def main() -> None:  # pragma: no cover - utilitaire manuel (make fixtures)
+def main() -> None:  # pragma: no cover - manual utility (make fixtures)
     import argparse
 
     p = argparse.ArgumentParser()
@@ -162,7 +162,7 @@ def main() -> None:  # pragma: no cover - utilitaire manuel (make fixtures)
     p.add_argument("--root", default=None)
     args = p.parse_args()
     srv = FixtureServer(root=args.root, port=args.port).start()
-    print(f"Fixtures: {srv.base_url}  (racine: {srv.root})")
+    print(f"Fixtures: {srv.base_url}  (root: {srv.root})")
     try:
         while True:
             time.sleep(3600)

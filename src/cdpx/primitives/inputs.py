@@ -1,9 +1,9 @@
-"""Primitives d'interaction (Input domain).
+"""Interaction primitives (Input domain).
 
-Pourquoi Input.dispatch* plutôt que el.click() en JS: les évènements passent
-par le pipeline navigateur réel (hover, focus, trusted events). C'est ce qui
-fait la différence sur les frameworks front qui filtrent isTrusted, et c'est
-plus proche de ce que verra un vrai utilisateur.
+Why Input.dispatch* rather than el.click() in JS: the events go through
+the real browser pipeline (hover, focus, trusted events). That's what makes
+the difference on front-end frameworks that filter isTrusted, and it's
+closer to what a real user would see.
 """
 
 from __future__ import annotations
@@ -139,10 +139,10 @@ _ACTIONABLE_DEFAULTS = {
 }
 
 _FAILURE_MESSAGES = (
-    ("visible", "élément non visible"),
-    ("enabled", "élément désactivé"),
-    ("stable", "élément instable"),
-    ("receives_events", "élément recouvert"),
+    ("visible", "element not visible"),
+    ("enabled", "element disabled"),
+    ("stable", "element unstable"),
+    ("receives_events", "element covered"),
 )
 
 KEY_MAP = {
@@ -168,7 +168,7 @@ class ElementNotFound(RuntimeError):
 
 
 class ElementNotInteractable(ElementNotFound):
-    """Élément présent mais impropre à une interaction utilisateur fiable."""
+    """Element present but unfit for reliable user interaction."""
 
 
 def _probe_actionability(client: CDPClient, selector: str) -> dict[str, Any]:
@@ -194,7 +194,7 @@ def _probe_actionability(client: CDPClient, selector: str) -> dict[str, Any]:
 
 def _require_attached(state: dict[str, Any], selector: str) -> None:
     if not state["attached"]:
-        raise ElementNotFound(f"sélecteur introuvable: {selector}")
+        raise ElementNotFound(f"selector not found: {selector}")
 
 
 def _require_actionable(state: dict[str, Any], selector: str) -> None:
@@ -210,7 +210,7 @@ def _prepare_text_input(client: CDPClient, selector: str, clear: bool) -> None:
     )
     res = client.send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
     if res.get("result", {}).get("value") is not True:
-        raise ElementNotFound(f"sélecteur introuvable ou sélection impossible: {selector}")
+        raise ElementNotFound(f"selector not found or selection not possible: {selector}")
 
 
 def click(client: CDPClient, selector: str, button: str = "left") -> dict:
@@ -218,7 +218,7 @@ def click(client: CDPClient, selector: str, button: str = "left") -> dict:
     _require_actionable(state, selector)
     rect = state["rect"]
     if not isinstance(rect, dict):
-        raise ElementNotInteractable(f"élément non visible: {selector}")
+        raise ElementNotInteractable(f"element not visible: {selector}")
     x = rect["x"] + rect["width"] / 2
     y = rect["y"] + rect["height"] / 2
     base = {"x": x, "y": y, "button": button, "clickCount": 1}
@@ -229,14 +229,14 @@ def click(client: CDPClient, selector: str, button: str = "left") -> dict:
 
 
 def type_text(client: CDPClient, selector: str, text: str, clear: bool = False) -> dict:
-    """Focus l'élément puis insère le texte via Input.insertText (composition IME-safe)."""
+    """Focuses the element then inserts the text via Input.insertText (IME-safe composition)."""
     state = _probe_actionability(client, selector)
     _require_attached(state, selector)
     for field, message in _FAILURE_MESSAGES[:2]:
         if not state[field]:
             raise ElementNotInteractable(f"{message}: {selector}")
     if not state["editable"]:
-        raise ElementNotInteractable(f"élément non éditable: {selector}")
+        raise ElementNotInteractable(f"element not editable: {selector}")
     _prepare_text_input(client, selector, clear)
     if clear:
         press_key(client, "Backspace")
@@ -251,7 +251,7 @@ def type_text(client: CDPClient, selector: str, text: str, clear: bool = False) 
 
 def press_key(client: CDPClient, key: str) -> dict:
     if key not in KEY_MAP:
-        raise ValueError(f"touche non supportée: {key} (dispo: {', '.join(KEY_MAP)})")
+        raise ValueError(f"unsupported key: {key} (available: {', '.join(KEY_MAP)})")
     params = KEY_MAP[key]
     down = {"type": "rawKeyDown", **{k: v for k, v in params.items() if k != "text"}}
     client.send("Input.dispatchKeyEvent", down)

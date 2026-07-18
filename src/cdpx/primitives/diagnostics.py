@@ -1,4 +1,4 @@
-"""Diagnostics navigateur: Web Vitals, accessibilité et couverture."""
+"""Browser diagnostics: Web Vitals, accessibility, and coverage."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ def vitals(
     settle: float = 0.5,
     origins: str | None = None,
 ) -> dict[str, Any]:
-    timeout = validate_time_budget(timeout, "timeout vitals")
-    settle = validate_time_budget(settle, "stabilisation vitals")
+    timeout = validate_time_budget(timeout, "vitals timeout")
+    settle = validate_time_budget(settle, "vitals settle")
     script = """
 window.__cdpxVitals = {lcp: 0, cls: 0, inp: 0};
 new PerformanceObserver((list) => {
@@ -46,7 +46,7 @@ try {
     nav.navigate(client, url, timeout=timeout)
     if click_selector:
         if origins:
-            current_url = actions.require_current_http_url(client, "avant interaction vitals")
+            current_url = actions.require_current_http_url(client, "before vitals interaction")
             assert_url_allowed(current_url, parse_origins(origins, required=True))
         inputs.click(client, click_selector)
     client.collect_events(settle)

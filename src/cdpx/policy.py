@@ -1,7 +1,7 @@
-"""Politique d'exécution centralisée pour les usages agentiques de cdpx.
+"""Centralized execution policy for cdpx's agentic usages.
 
-Chaque commande navigateur s'exécute dans une session supervisée fail-closed:
-run, target, autorité et origines sont fixés avant toute connexion.
+Each browser command runs inside a fail-closed supervised session:
+run, target, authority and origins are fixed before any connection.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from cdpx.cdp_types import DiscoveryTarget
 
 
 class PolicyError(ValueError):
-    """Une commande ou une connexion viole la politique du run."""
+    """A command or connection violates the run's policy."""
 
 
 class Authority(StrEnum):
@@ -65,15 +65,15 @@ class ExecutionContext:
         session_id: str | None = None,
     ) -> ExecutionContext:
         if not _RUN_ID_RE.fullmatch(run_id or ""):
-            raise PolicyError("session: --run-id explicite et sûr requis")
+            raise PolicyError("session: explicit and safe --run-id required")
         if not target_id:
-            raise PolicyError("session: --target explicite requis")
+            raise PolicyError("session: explicit --target required")
         if not session_id:
-            raise PolicyError("session: identifiant de session explicite requis")
+            raise PolicyError("session: explicit session identifier required")
         try:
             grant = Authority(authority)
         except ValueError as e:
-            raise PolicyError(f"niveau d'autorité inconnu: {authority}") from e
+            raise PolicyError(f"unknown authority level: {authority}") from e
         return cls(
             authority=grant,
             origins=parse_origins(origins, required=True),
@@ -191,11 +191,11 @@ LIFECYCLE_COMMANDS = frozenset({"session"})
 
 def command_semantics(command: str) -> CommandSemantics:
     if command in LIFECYCLE_COMMANDS:
-        raise PolicyError(f"commande de cycle de vie hors matrice d'autorité navigateur: {command}")
+        raise PolicyError(f"lifecycle command outside the browser authority matrix: {command}")
     try:
         return COMMAND_SEMANTICS[command]
     except KeyError as error:
-        raise PolicyError(f"commande non classée par la politique: {command}") from error
+        raise PolicyError(f"command not classified by policy: {command}") from error
 
 
 def authority_for(command: str) -> Authority:
@@ -203,11 +203,11 @@ def authority_for(command: str) -> Authority:
     semantics = command_semantics(command)
     if semantics.authority_mode == "fixed":
         if semantics.authority is None:
-            raise PolicyError(f"autorité fixe absente: {command}")
+            raise PolicyError(f"missing fixed authority: {command}")
         return semantics.authority
     if semantics.authority_mode == "preflight":
         return Authority.PRIVILEGED
-    raise PolicyError(f"mode d'autorité non géré: {semantics.authority_mode}")
+    raise PolicyError(f"unhandled authority mode: {semantics.authority_mode}")
 
 
 _ACTION_TYPES = (GotoAction, WaitAction, ClickAction, TypeAction, KeyAction, EvalAction)
@@ -220,7 +220,7 @@ def action_authority(action: BrowserAction) -> Authority:
         return Authority.INTERACTION
     if isinstance(action, EvalAction):
         return Authority.PRIVILEGED
-    raise PolicyError(f"action non classée par la politique: {action!r}")
+    raise PolicyError(f"action not classified by policy: {action!r}")
 
 
 def max_authority(actions: list[Any]) -> Authority:
@@ -228,7 +228,7 @@ def max_authority(actions: list[Any]) -> Authority:
     for item in actions:
         action = item if isinstance(item, _ACTION_TYPES) else getattr(item, "action", None)
         if not isinstance(action, _ACTION_TYPES):
-            raise PolicyError("liste d'actions préflightée requise")
+            raise PolicyError("preflighted action list required")
         candidate = action_authority(action)
         if _AUTHORITY_RANK[candidate] > _AUTHORITY_RANK[required]:
             required = candidate
@@ -246,33 +246,33 @@ def assert_authorized(
 def assert_grant(context: ExecutionContext, required: Authority, label: str) -> None:
     if _AUTHORITY_RANK[context.authority] < _AUTHORITY_RANK[required]:
         raise PolicyError(
-            f"session: {label} requiert {required.value}, authority={context.authority.value}"
+            f"session: {label} requires {required.value}, authority={context.authority.value}"
         )
 
 
 def parse_origins(raw: str | None, *, required: bool = True) -> tuple[str, ...]:
     items = [item.strip() for item in (raw or "").split(",") if item.strip()]
     if required and not items:
-        raise PolicyError("session: CDPX_ORIGINS obligatoire et non vide")
+        raise PolicyError("session: CDPX_ORIGINS required and non-empty")
     return tuple(dict.fromkeys(_canonical_origin_pattern(item) for item in items))
 
 
 def _canonical_origin_pattern(value: str) -> str:
     if "://" not in value:
-        raise PolicyError(f"origine invalide: {value}")
+        raise PolicyError(f"invalid origin: {value}")
     scheme, authority = value.split("://", 1)
     scheme = scheme.lower()
     if scheme not in {"http", "https"}:
-        raise PolicyError(f"origine HTTP(S) requise: {value}")
+        raise PolicyError(f"HTTP(S) origin required: {value}")
     if not authority or any(marker in authority for marker in ("/", "?", "#", "@")):
-        raise PolicyError(f"origine sans chemin/credentials requise: {value}")
+        raise PolicyError(f"origin without path/credentials required: {value}")
     host, port = _split_host_port(authority)
     host = host.lower()
     if host == "*" or not _valid_origin_host(host):
-        raise PolicyError(f"hôte d'origine invalide: {value}")
+        raise PolicyError(f"invalid origin host: {value}")
     if port is not None:
         if port != "*" and (not port.isdigit() or not 1 <= int(port) <= 65535):
-            raise PolicyError(f"port d'origine invalide: {value}")
+            raise PolicyError(f"invalid origin port: {value}")
         if (scheme, port) in {("http", "80"), ("https", "443")}:
             port = None
     rendered_host = f"[{host}]" if ":" in host else host
@@ -283,16 +283,16 @@ def _split_host_port(authority: str) -> tuple[str, str | None]:
     if authority.startswith("["):
         end = authority.find("]")
         if end < 0:
-            raise PolicyError(f"adresse IPv6 invalide: {authority}")
+            raise PolicyError(f"invalid IPv6 address: {authority}")
         host = authority[1:end]
         suffix = authority[end + 1 :]
         if not suffix:
             return host, None
         if not suffix.startswith(":"):
-            raise PolicyError(f"origine invalide: {authority}")
+            raise PolicyError(f"invalid origin: {authority}")
         return host, suffix[1:]
     if authority.count(":") > 1:
-        raise PolicyError(f"IPv6 entre crochets requise: {authority}")
+        raise PolicyError(f"bracketed IPv6 required: {authority}")
     if ":" in authority:
         host, port = authority.rsplit(":", 1)
         return host, port
@@ -312,11 +312,11 @@ def origin_from_url(url: str) -> str:
         parsed = urllib.parse.urlsplit(url)
         port = parsed.port
     except ValueError as e:
-        raise PolicyError(f"URL invalide: {url}") from e
+        raise PolicyError(f"invalid URL: {url}") from e
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-        raise PolicyError(f"origine HTTP(S) indéterminable: {url}")
+        raise PolicyError(f"undeterminable HTTP(S) origin: {url}")
     if parsed.username is not None or parsed.password is not None:
-        raise PolicyError("credentials interdits dans une URL de politique")
+        raise PolicyError("credentials forbidden in a policy URL")
     scheme = parsed.scheme.lower()
     host = parsed.hostname.lower()
     if (scheme, port) in {("http", 80), ("https", 443)}:
@@ -331,23 +331,23 @@ def assert_url_allowed(url: str, origins: tuple[str, ...]) -> None:
     if not origins or not any(
         _origin_pattern_matches(pattern, scheme=scheme, host=host, port=port) for pattern in origins
     ):
-        raise PolicyError(f"origine refusée par la politique du run: {origin}")
+        raise PolicyError(f"origin rejected by the run's policy: {origin}")
 
 
 def _origin_parts(origin: str) -> tuple[str, str, int | None]:
-    """Décompose une origine canonique sans appliquer de glob textuel.
+    """Decompose a canonical origin without applying a textual glob.
 
-    ``fnmatch`` ne convient pas ici: les crochets d'une IPv6 sont interprétés
-    comme une classe de caractères et ``*`` peut traverser les séparateurs de
-    l'origine. Le matching est donc effectué champ par champ.
+    ``fnmatch`` doesn't fit here: an IPv6 address's brackets are interpreted
+    as a character class and ``*`` can cross the origin's separators.
+    Matching is therefore performed field by field.
     """
     try:
         parsed = urllib.parse.urlsplit(origin)
         port = parsed.port
     except ValueError as e:
-        raise PolicyError(f"origine invalide: {origin}") from e
+        raise PolicyError(f"invalid origin: {origin}") from e
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise PolicyError(f"origine HTTP(S) indéterminable: {origin}")
+        raise PolicyError(f"undeterminable HTTP(S) origin: {origin}")
     return parsed.scheme, parsed.hostname.lower(), port
 
 
@@ -389,25 +389,25 @@ def is_loopback_host(host: str | None) -> bool:
 
 def assert_loopback_endpoint(discovery_host: str, websocket_url: str | None = None) -> None:
     if not is_loopback_host(discovery_host):
-        raise PolicyError(f"session: endpoint de découverte non loopback: {discovery_host}")
+        raise PolicyError(f"session: non-loopback discovery endpoint: {discovery_host}")
     if websocket_url is None:
         return
     try:
         parsed = urllib.parse.urlsplit(websocket_url)
     except ValueError as e:
-        raise PolicyError("WebSocket CDP invalide") from e
+        raise PolicyError("invalid CDP WebSocket") from e
     if parsed.scheme not in {"ws", "wss"} or not is_loopback_host(parsed.hostname):
-        raise PolicyError(f"session: WebSocket CDP non loopback: {websocket_url}")
+        raise PolicyError(f"session: non-loopback CDP WebSocket: {websocket_url}")
 
 
 def validate_target(target: DiscoveryTarget, expected_id: str) -> DiscoveryTarget:
     if target.get("id") != expected_id:
         raise PolicyError(
-            f"target non attribué au run: attendu {expected_id}, reçu {target.get('id')}"
+            f"target not assigned to the run: expected {expected_id}, got {target.get('id')}"
         )
     if target.get("type") != "page":
-        raise PolicyError("le target attribué doit être de type page")
+        raise PolicyError("the assigned target must be of type page")
     ws_url = target.get("webSocketDebuggerUrl")
     if not isinstance(ws_url, str) or not ws_url:
-        raise PolicyError("le target attribué n'expose aucun WebSocket CDP")
+        raise PolicyError("the assigned target exposes no CDP WebSocket")
     return target

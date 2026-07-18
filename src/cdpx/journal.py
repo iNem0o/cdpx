@@ -1,4 +1,4 @@
-"""Format sûr des actions persistées par record/replay."""
+"""Safe format for actions persisted by record/replay."""
 
 from __future__ import annotations
 
@@ -66,8 +66,8 @@ def serialize_action(
         }, False
     argv = action_argv(action)
     cleaned = redact_action(argv, context=ctx, path="$.action")
-    if not isinstance(cleaned, list):  # pragma: no cover - entrée validée argv
-        raise JournalError("action nettoyée invalide")
+    if not isinstance(cleaned, list):  # pragma: no cover - argv-validated input
+        raise JournalError("invalid cleaned action")
     stored = [str(item) for item in cleaned]
     return stored, stored == argv
 
@@ -79,30 +79,30 @@ def materialize_action(
 ) -> BrowserAction:
     if isinstance(stored, list):
         if not all(isinstance(item, str) for item in stored):
-            raise JournalError("action v1 invalide")
+            raise JournalError("invalid v1 action")
         action = parse_action(stored)
         if stored[0] in {"type", "eval"}:
-            raise JournalError("action v1 sensible refusée")
+            raise JournalError("sensitive v1 action refused")
         return action
     if not isinstance(stored, Mapping):
-        raise JournalError("action de journal invalide")
+        raise JournalError("invalid journal action")
     verb = stored.get("verb")
     if verb == "type":
         selector = stored.get("selector")
         input_spec = stored.get("input")
         if not isinstance(selector, str) or not isinstance(input_spec, Mapping):
-            raise JournalError("action type v2 invalide")
+            raise JournalError("invalid v2 type action")
         secret_ref = input_spec.get("secret_ref")
         if input_spec.get("source") != "env" or not isinstance(secret_ref, str):
-            raise JournalError("action type redacted non rejouable sans secret_ref")
+            raise JournalError("redacted type action not replayable without secret_ref")
         source = os.environ if environ is None else environ
         value = source.get(secret_ref)
         if value is None:
-            raise JournalError(f"secret_ref introuvable dans l'environnement: {secret_ref}")
+            raise JournalError(f"secret_ref not found in environment: {secret_ref}")
         return TypeAction(selector, value, clear=stored.get("clear") is True)
     if verb == "eval":
-        raise JournalError("action eval redacted non rejouable")
-    raise JournalError(f"verbe de journal v2 inconnu: {verb}")
+        raise JournalError("redacted eval action not replayable")
+    raise JournalError(f"unknown v2 journal verb: {verb}")
 
 
 def append_event(path: str | Path, event: Mapping[str, Any]) -> None:
@@ -110,18 +110,18 @@ def append_event(path: str | Path, event: Mapping[str, Any]) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination.parent.chmod(0o700)
     if destination.is_symlink():
-        raise JournalError(f"journal symbolique interdit: {destination}")
+        raise JournalError(f"symbolic journal forbidden: {destination}")
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
         fd = os.open(destination, flags, 0o600)
     except OSError as e:
-        raise JournalError(f"journal non ouvrable: {destination}: {e}") from e
+        raise JournalError(f"journal not openable: {destination}: {e}") from e
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
-            raise JournalError(f"journal régulier requis: {destination}")
+            raise JournalError(f"regular journal required: {destination}")
         os.fchmod(fd, 0o600)
         line = json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
         os.write(fd, line.encode("utf-8"))

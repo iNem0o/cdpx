@@ -1,4 +1,4 @@
-"""Interception réseau bornée autour d'une navigation CDP."""
+"""Bounded network interception around a CDP navigation."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ def intercept_goto(
     timeout: float = 30.0,
     settle: float = 0.5,
 ) -> dict[str, Any]:
-    timeout = validate_time_budget(timeout, "timeout interception")
-    settle = validate_time_budget(settle, "stabilisation interception")
+    timeout = validate_time_budget(timeout, "interception timeout")
+    settle = validate_time_budget(settle, "interception settle")
     parsed_rules = [parse_intercept_rule(rule) for rule in rules]
     started = time.monotonic()
     deadline = started + timeout
@@ -29,7 +29,7 @@ def intercept_goto(
     def remaining() -> float:
         budget = deadline - time.monotonic()
         if budget <= 0:
-            raise CDPTimeout(f"timeout interception après {timeout}s")
+            raise CDPTimeout(f"interception timeout after {timeout}s")
         return budget
 
     client.send(
@@ -85,7 +85,7 @@ def intercept_goto(
                 },
             )
         else:  # pragma: no cover - parse_intercept_rule validates the domain.
-            raise AssertionError(f"action d'interception non validée: {action}")
+            raise AssertionError(f"unvalidated interception action: {action}")
         hits.append({"url": request_url, "action": action})
     navigation = client.wait_response(
         navigation_id,
@@ -97,14 +97,14 @@ def intercept_goto(
 
 def parse_intercept_rule(rule: str) -> dict[str, str]:
     if "=>" not in rule:
-        raise ValueError("règle attendue: PATTERN => ACTION")
+        raise ValueError("expected rule: PATTERN => ACTION")
     pattern, action = [part.strip() for part in rule.split("=>", 1)]
     if not pattern:
-        raise ValueError("motif d'interception vide")
+        raise ValueError("empty interception pattern")
     if action not in {"continue", "block"}:
         is_status = action.isascii() and len(action) == 3 and action.isdigit()
         if not is_status or not 200 <= int(action) <= 599:
-            raise ValueError("action d'interception attendue: continue, block ou statut 200..599")
+            raise ValueError("expected interception action: continue, block, or status 200..599")
     return {"pattern": pattern, "action": action}
 
 

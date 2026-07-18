@@ -204,8 +204,8 @@ class PassiveCollector:
                 )
                 entry["method"] = request.get("method")
                 entry["resourceType"] = params.get("type")
-                # Une redirection n'émet pas de responseReceived: son token
-                # profiler n'existe que dans redirectResponse.
+                # A redirect does not emit responseReceived: its profiler
+                # token only exists in redirectResponse.
                 hit = dev.find_profiler_hit([ev], entry.get("url") or "")
                 if hit:
                     self.profiler_hits.append(hit)
@@ -248,16 +248,16 @@ def load(path: str | Path) -> Scenario:
     try:
         raw = yaml.safe_load(source.read_text(encoding="utf-8"))
     except OSError as e:
-        raise ScenarioUsageError(f"scénario illisible: {source}: {e}") from e
+        raise ScenarioUsageError(f"unreadable scenario: {source}: {e}") from e
     except yaml.YAMLError as e:
-        raise ScenarioUsageError(f"YAML invalide: {source}: {e}") from e
+        raise ScenarioUsageError(f"invalid YAML: {source}: {e}") from e
     return parse(raw, source=source)
 
 
 def parse(raw: Any, *, source: Path | None = None) -> Scenario:
     where = f"{source}: " if source else ""
     if not isinstance(raw, dict):
-        raise ScenarioUsageError(f"{where}le scénario doit être un objet YAML")
+        raise ScenarioUsageError(f"{where}scenario must be a YAML object")
     _unknown(raw, {"name", "context", "steps", "assertions", "artifacts"}, where)
     name = _required_str(raw, "name", where)
     context = _required_dict(raw, "context", where)
@@ -265,7 +265,7 @@ def parse(raw: Any, *, source: Path | None = None) -> Scenario:
     base_url = _required_str(context, "base_url", f"{where}context.")
     emulation_preset = context.get("emulation")
     if emulation_preset is not None and emulation_preset not in emulation.PRESETS:
-        raise ScenarioUsageError(f"{where}context.emulation inconnu: {emulation_preset}")
+        raise ScenarioUsageError(f"{where}context.emulation unknown: {emulation_preset}")
     steps = _parse_steps(raw.get("steps"), where)
     assertions = _parse_assertions(raw.get("assertions", []), where)
     artifacts = _parse_artifacts(raw.get("artifacts", []), where, "artifacts")
@@ -293,10 +293,10 @@ def run(
     if isinstance(scenario, PreparedScenario):
         prepared = scenario
         if context is not None and context is not prepared.context:
-            raise ScenarioUsageError("scenario préparé avec un autre contexte")
+            raise ScenarioUsageError("scenario prepared with a different context")
     else:
         if context is None:
-            raise ScenarioUsageError("contexte d'orchestration requis")
+            raise ScenarioUsageError("orchestration context required")
         prepared = prepare(scenario, context)
     scenario_spec = prepared.scenario
     context = prepared.context
@@ -453,20 +453,20 @@ def _record_current_origin(
 
 def _parse_steps(value: Any, where: str) -> list[ScenarioStep]:
     if not isinstance(value, list) or not value:
-        raise ScenarioUsageError(f"{where}steps doit être une liste non vide")
+        raise ScenarioUsageError(f"{where}steps must be a non-empty list")
     steps = []
     for index, item in enumerate(value):
         prefix = f"{where}steps[{index}]."
         if not isinstance(item, dict):
-            raise ScenarioUsageError(f"{prefix}doit être un objet")
+            raise ScenarioUsageError(f"{prefix}must be an object")
         _unknown(item, STEP_KEYS, prefix)
         verbs = [key for key in STEP_ACTIONS if key in item]
         if len(verbs) != 1:
-            raise ScenarioUsageError(f"{prefix}doit déclarer exactement une action")
+            raise ScenarioUsageError(f"{prefix}must declare exactly one action")
         verb = verbs[0]
         label = item.get("label") or f"{index:03d}-{verb}"
         if not isinstance(label, str) or not label:
-            raise ScenarioUsageError(f"{prefix}label doit être une chaîne non vide")
+            raise ScenarioUsageError(f"{prefix}label must be a non-empty string")
         capture_items = _parse_artifacts(item.get("capture", []), where, f"steps[{index}].capture")
         _validate_step_value(verb, item[verb], prefix)
         steps.append(
@@ -485,20 +485,20 @@ def _parse_assertions(value: Any, where: str) -> list[dict[str, Any]]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ScenarioUsageError(f"{where}assertions doit être une liste")
+        raise ScenarioUsageError(f"{where}assertions must be a list")
     assertions = []
     for index, item in enumerate(value):
         prefix = f"{where}assertions[{index}]."
         if not isinstance(item, dict):
-            raise ScenarioUsageError(f"{prefix}doit être un objet")
+            raise ScenarioUsageError(f"{prefix}must be an object")
         _unknown(item, ASSERTIONS, prefix)
         if len(item) != 1:
-            raise ScenarioUsageError(f"{prefix}doit déclarer exactement une assertion")
+            raise ScenarioUsageError(f"{prefix}must declare exactly one assertion")
         name, assertion_value = next(iter(item.items()))
         if name == "no_console_errors" and not isinstance(assertion_value, bool):
-            raise ScenarioUsageError(f"{prefix}{name} doit être booléen")
+            raise ScenarioUsageError(f"{prefix}{name} must be boolean")
         if name == "network_errors_max" and not isinstance(assertion_value, int):
-            raise ScenarioUsageError(f"{prefix}{name} doit être entier")
+            raise ScenarioUsageError(f"{prefix}{name} must be an integer")
         if name == "text_contains":
             _require_pair(assertion_value, f"{prefix}{name}")
         assertions.append(item)
@@ -509,33 +509,33 @@ def _parse_artifacts(value: Any, where: str, field_name: str) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ScenarioUsageError(f"{where}{field_name} doit être une liste")
+        raise ScenarioUsageError(f"{where}{field_name} must be a list")
     for item in value:
         if item not in ARTIFACTS:
-            raise ScenarioUsageError(f"{where}{field_name}: artifact inconnu: {item}")
+            raise ScenarioUsageError(f"{where}{field_name}: unknown artifact: {item}")
     return list(value)
 
 
 def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
     if verb in {"goto", "wait_visible", "click", "key", "eval"}:
         if not isinstance(value, str) or not value:
-            raise ScenarioUsageError(f"{prefix}{verb} doit être une chaîne non vide")
+            raise ScenarioUsageError(f"{prefix}{verb} must be a non-empty string")
     elif verb == "wait_text":
         _require_pair(value, f"{prefix}{verb}")
     elif verb == "type":
         if isinstance(value, dict):
             _unknown(value, {"selector", "secret_ref", "clear"}, f"{prefix}{verb}.")
             if not isinstance(value.get("selector"), str):
-                raise ScenarioUsageError(f"{prefix}{verb}.selector doit être une chaîne")
+                raise ScenarioUsageError(f"{prefix}{verb}.selector must be a string")
             has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
             if not has_secret_ref:
-                raise ScenarioUsageError(f"{prefix}{verb} exige secret_ref")
+                raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
-                raise ScenarioUsageError(f"{prefix}{verb}.clear doit être booléen")
+                raise ScenarioUsageError(f"{prefix}{verb}.clear must be boolean")
         else:
-            # La forme [selector, text] mettrait le secret en clair dans le
-            # YAML: refusée dès la validation, avec la position du step.
-            raise ScenarioUsageError(f"{prefix}{verb} exige un objet avec secret_ref")
+            # The [selector, text] form would put the secret in plaintext in
+            # the YAML: refused at validation time, with the step's position.
+            raise ScenarioUsageError(f"{prefix}{verb} requires an object with secret_ref")
 
 
 def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenario:
@@ -567,8 +567,8 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 step,
                 action=_type_action(step.value, context=context.redaction),
             )
-        else:  # pragma: no cover - le parseur valide STEP_ACTIONS
-            raise ScenarioUsageError(f"action inconnue: {step.verb}")
+        else:  # pragma: no cover - the parser validates STEP_ACTIONS
+            raise ScenarioUsageError(f"unknown action: {step.verb}")
         operations.append(operation)
     return PreparedScenario(scenario, context, tuple(operations))
 
@@ -588,18 +588,18 @@ def _run_operation(
         and operation.expected is not None
     ):
         return _wait_text(client, operation.selector, operation.expected, timeout)
-    raise ScenarioUsageError(f"opération non matérialisée: {operation.step.label}")
+    raise ScenarioUsageError(f"operation not materialized: {operation.step.label}")
 
 
 def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
     if isinstance(value, dict):
         secret_ref = value["secret_ref"]
         if secret_ref not in os.environ:
-            raise ScenarioUsageError(f"secret_ref introuvable: {secret_ref}")
+            raise ScenarioUsageError(f"secret_ref not found: {secret_ref}")
         text = os.environ[secret_ref]
         context.register_secret(text)
         return TypeAction(value["selector"], text, clear=bool(value.get("clear")))
-    raise ScenarioUsageError("scenario type exige secret_ref")
+    raise ScenarioUsageError("scenario type requires secret_ref")
 
 
 def _persistable_step_result(
@@ -622,7 +622,7 @@ def _wait_text(client: CDPClient, selector: str, expected: str, timeout: float) 
         if last_text is not None and expected in last_text:
             return {"selector": selector, "text": last_text, "contains": expected}
         if time.monotonic() >= deadline:
-            raise CDPTimeout(f"texte introuvable après {timeout}s: {selector} contient {expected}")
+            raise CDPTimeout(f"text not found after {timeout}s: {selector} contains {expected}")
         time.sleep(0.05)
 
 
@@ -651,7 +651,7 @@ def _run_assertions(
         if not record["ok"]:
             run_state.finding(
                 f"assertion_{name}",
-                f"assertion échouée: {name}",
+                f"assertion failed: {name}",
             )
         run_state.assertions.append(redact_tree(record, context=collector.redaction))
 
@@ -671,7 +671,7 @@ def _capture_many(
         except ACTION_ERRORS as e:
             run_state.finding(
                 "artifact_failed",
-                f"preuve {artifact} indisponible: {e}",
+                f"{artifact} proof unavailable: {e}",
                 step=label,
             )
 
@@ -715,7 +715,7 @@ def _capture_one(
         if profiler_result is None:
             run_state.finding(
                 "profiler_unavailable",
-                "header X-Debug-Token-Link/X-Debug-Token introuvable",
+                "X-Debug-Token-Link/X-Debug-Token header not found",
                 severity="warning",
                 step=label,
             )
@@ -766,7 +766,7 @@ def _assert_current_origin(client: CDPClient, origins: tuple[str, ...]) -> str:
 def _current_url(client: CDPClient) -> str:
     current_url = js.evaluate(client, "window.location.href")
     if not isinstance(current_url, str):
-        raise ScenarioUsageError("URL courante indéterminable")
+        raise ScenarioUsageError("current URL cannot be determined")
     return current_url
 
 
@@ -805,14 +805,14 @@ def slugify(value: str) -> str:
 def _required_str(data: dict[str, Any], key: str, where: str) -> str:
     value = data.get(key)
     if not isinstance(value, str) or not value:
-        raise ScenarioUsageError(f"{where}{key} doit être une chaîne non vide")
+        raise ScenarioUsageError(f"{where}{key} must be a non-empty string")
     return value
 
 
 def _required_dict(data: dict[str, Any], key: str, where: str) -> dict[str, Any]:
     value = data.get(key)
     if not isinstance(value, dict):
-        raise ScenarioUsageError(f"{where}{key} doit être un objet")
+        raise ScenarioUsageError(f"{where}{key} must be an object")
     return value
 
 
@@ -823,10 +823,10 @@ def _require_pair(value: Any, label: str) -> None:
         or not isinstance(value[0], str)
         or not isinstance(value[1], str)
     ):
-        raise ScenarioUsageError(f"{label} doit être [selector, texte]")
+        raise ScenarioUsageError(f"{label} must be [selector, text]")
 
 
 def _unknown(data: dict[str, Any], allowed: set[str], where: str) -> None:
     unknown = sorted(set(data) - allowed)
     if unknown:
-        raise ScenarioUsageError(f"{where}champ(s) inconnu(s): {', '.join(unknown)}")
+        raise ScenarioUsageError(f"{where}unknown field(s): {', '.join(unknown)}")

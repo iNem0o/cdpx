@@ -62,7 +62,7 @@ additionally:
    origin/secret, then the actual origin check after navigation;
 3. cover with stdout, stderr, log, scenario, and artifact canaries, without
    over-redacting ordinary text;
-4. use `--secret-env`, `--value-env`, `@env:NOM` or `secret_ref` in
+4. use `--secret-env`, `--value-env`, `@env:NAME` or `secret_ref` in
    examples: never a literal credential;
 5. classify proofs as `public`, `internal`, `secret`, or
    `opaque-restricted`, verify `0600`/`0700`, and make shareable only a

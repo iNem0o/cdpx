@@ -1,3 +1,3 @@
-"""cdpx — primitives Chrome DevTools Protocol pour agents de dev."""
+"""cdpx — Chrome DevTools Protocol primitives for dev agents."""
 
 __version__ = "0.2.0"

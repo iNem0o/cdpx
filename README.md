@@ -130,7 +130,7 @@ the sensitive capabilities (`eval`, cookies, storage, profiler, interception
 and emulation). Target lifecycle stays exclusively with the supervisor.
 
 **Secrets.** To keep a sensitive value out of argv, journals and proofs, use
-`type --secret-env NAME`, `cookies set --value-env NAME`, `@env:NOM` in a
+`type --secret-env NAME`, `cookies set --value-env NAME`, `@env:NAME` in a
 `record` action, and `secret_ref: NAME` in a scenario `type` step. These
 references are resolved in memory and a missing reference is refused during
 preflight, before any CDP effect.

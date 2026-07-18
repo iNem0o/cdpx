@@ -78,17 +78,17 @@ def cmd_cookies(args) -> None:
             if item is None
         ]
         if missing:
-            raise scenarios.ScenarioUsageError(f"cookies set: {', '.join(missing)} requis")
+            raise scenarios.ScenarioUsageError(f"cookies set: {', '.join(missing)} required")
         if args.options.show_values:
-            raise scenarios.ScenarioUsageError("cookies set: --show-values non supporté")
+            raise scenarios.ScenarioUsageError("cookies set: --show-values not supported")
     elif any(
         value is not None for value in (args.options.name, args.options.value_env, args.options.url)
     ):
         raise scenarios.ScenarioUsageError(
-            f"cookies {args.options.action}: --name/--value/--url non supportés"
+            f"cookies {args.options.action}: --name/--value/--url not supported"
         )
     elif args.options.action == "clear" and args.options.show_values:
-        raise scenarios.ScenarioUsageError("cookies clear: --show-values non supporté")
+        raise scenarios.ScenarioUsageError("cookies clear: --show-values not supported")
     with _client(args) as c:
         if args.options.action == "get":
             _out(args, state.get_cookies(c, show_values=args.options.show_values))
@@ -108,34 +108,34 @@ def cmd_storage(args) -> None:
 def register_commands(
     sub: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    parser = sub.add_parser("screenshot", help="capture d'écran PNG ou JPEG")
+    parser = sub.add_parser("screenshot", help="PNG or JPEG screenshot")
     parser.add_argument("-o", "--output", default="screenshot.png")
     parser.add_argument("--full-page", action="store_true")
     parser.add_argument("--format", dest="fmt", choices=["png", "jpeg"], default="png")
     parser.set_defaults(func=cmd_screenshot)
 
-    parser = sub.add_parser("pdf", help="imprimer la page en PDF")
+    parser = sub.add_parser("pdf", help="print the page as PDF")
     parser.add_argument("-o", "--output", default="page.pdf")
     parser.set_defaults(func=cmd_pdf)
 
-    parser = sub.add_parser("console", help="capturer logs et exceptions JS")
+    parser = sub.add_parser("console", help="capture JS logs and exceptions")
     parser.add_argument("--duration", type=float, default=2.0)
+    parser.add_argument("--follow", action="store_true", help="stream NDJSON until Ctrl-C or --max")
     parser.add_argument(
-        "--follow", action="store_true", help="stream NDJSON jusqu'à Ctrl-C ou --max"
+        "--max", type=int, default=None, help="max number of entries in follow mode"
     )
-    parser.add_argument("--max", type=int, default=None, help="nombre max d'entrées en mode follow")
     parser.set_defaults(func=cmd_console)
 
-    parser = sub.add_parser("network", help="naviguer en capturant l'activité réseau")
+    parser = sub.add_parser("network", help="navigate while capturing network activity")
     parser.add_argument("url")
     parser.add_argument("--settle", type=float, default=0.5)
     parser.set_defaults(func=cmd_network)
 
-    parser = sub.add_parser("cookies", help="cookies (valeurs masquées par défaut)")
+    parser = sub.add_parser("cookies", help="cookies (values redacted by default)")
     parser.add_argument("action", choices=["get", "set", "clear"])
     parser.add_argument("--show-values", action="store_true")
     parser.add_argument("--name", default=None)
-    parser.add_argument("--value-env", default=None, help="lire la valeur depuis cette variable")
+    parser.add_argument("--value-env", default=None, help="read the value from this variable")
     parser.add_argument("--url", default=None)
     parser.set_defaults(func=cmd_cookies)
 

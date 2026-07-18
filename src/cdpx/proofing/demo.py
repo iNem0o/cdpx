@@ -1,9 +1,9 @@
-"""Démonstration CLI supervisée, enregistrée en .cast pendant ``make proof``.
+"""Supervised CLI demonstration, recorded as .cast during ``make proof``.
 
-Pilote le backend mock (aucun Chrome requis): la session supervisée, les
-commandes réelles et leurs sorties JSON composent une preuve de démonstration
-déterministe. Exit 0 seulement si toutes les commandes passent —
-l'enregistreur exige un exit propre pour marquer le cast ``generated``.
+Drives the mock backend (no Chrome required): the supervised session, the
+real commands and their JSON outputs compose a deterministic demonstration
+proof. Exit 0 only if all commands pass — the recorder requires a clean
+exit to mark the cast ``generated``.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def main() -> int:
             "CDPX_RUN_ID": manifest.run_id,
             "CDPX_TARGET": manifest.target_id,
         }
-        print("# session mock supervisée — démonstration cdpx sans navigateur", flush=True)
+        print("# supervised mock session — cdpx demonstration without a browser", flush=True)
         try:
             for command in DEMO_COMMANDS:
                 print(f"$ cdpx {' '.join(command)}", flush=True)
@@ -60,5 +60,5 @@ def main() -> int:
     return 1 if failures else 0
 
 
-if __name__ == "__main__":  # pragma: no cover - point d'entrée de démonstration
+if __name__ == "__main__":  # pragma: no cover - demonstration entry point
     raise SystemExit(main())

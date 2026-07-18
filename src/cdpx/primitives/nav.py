@@ -1,8 +1,9 @@
-"""Primitives de navigation.
+"""Navigation primitives.
 
-Usecase agent: se déplacer dans l'app en cours de dev (front Symfony, back
-Shopware/PrestaShop) et SAVOIR quand la page est réellement chargée avant
-d'observer quoi que ce soit — sinon l'agent lit des états intermédiaires.
+Agent usecase: move around the app under active development (Symfony
+front-end, Shopware/PrestaShop back-office) and KNOW when the page is
+actually loaded before observing anything — otherwise the agent reads
+intermediate states.
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ class NavigationError(ValueError):
 
     def __init__(self, result: dict[str, Any]) -> None:
         self.result = result
-        detail = result.get("errorText") or result.get("url") or "erreur inconnue"
-        super().__init__(f"navigation échouée: {detail}")
+        detail = result.get("errorText") or result.get("url") or "unknown error"
+        super().__init__(f"navigation failed: {detail}")
 
 
 def raise_for_navigation_error(
@@ -56,9 +57,9 @@ def navigate(
     wait: NavigationWait = "load",
     timeout: float = 30.0,
 ) -> dict:
-    """Navigue et attend l'évènement de cycle de vie demandé (load|domcontentloaded|none)."""
+    """Navigates and waits for the requested lifecycle event (load|domcontentloaded|none)."""
     if wait not in {*WAIT_EVENTS, "none"}:
-        raise ValueError(f"attente de navigation inconnue: {wait}")
+        raise ValueError(f"unknown navigation wait: {wait}")
     client.send("Page.enable")
     started = time.monotonic()
     res = client.send("Page.navigate", {"url": url}, timeout=timeout)
@@ -78,10 +79,10 @@ def navigate(
 
 
 def wait_for(client: CDPClient, selector: str, timeout: float = 10.0, poll: float = 0.05) -> dict:
-    """Attend qu'un sélecteur CSS existe dans le DOM (polling Runtime.evaluate).
+    """Waits for a CSS selector to exist in the DOM (Runtime.evaluate polling).
 
-    Pourquoi polling plutôt que MutationObserver injecté: zéro état résiduel
-    dans la page, comportement identique quel que soit le moment où on arrive.
+    Why polling rather than an injected MutationObserver: zero residual
+    state left in the page, identical behavior no matter when we arrive.
     """
     expr = f"!!document.querySelector({json.dumps(selector)})"
     deadline = time.monotonic() + timeout
@@ -95,7 +96,7 @@ def wait_for(client: CDPClient, selector: str, timeout: float = 10.0, poll: floa
                 "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
             }
         if time.monotonic() >= deadline:
-            raise CDPTimeout(f"sélecteur introuvable après {timeout}s: {selector}")
+            raise CDPTimeout(f"selector not found after {timeout}s: {selector}")
         time.sleep(poll)
 
 
@@ -105,7 +106,7 @@ def wait_for_visible(
     timeout: float = 10.0,
     poll: float = 0.05,
 ) -> dict:
-    """Attend un élément attaché, rendu et doté d'une boîte non nulle."""
+    """Waits for an element that is attached, rendered, and has a non-zero box."""
     expr = (
         "(() => {"
         f"const el = document.querySelector({json.dumps(selector)});"
@@ -129,5 +130,5 @@ def wait_for_visible(
                 "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
             }
         if time.monotonic() >= deadline:
-            raise CDPTimeout(f"sélecteur non visible après {timeout}s: {selector}")
+            raise CDPTimeout(f"selector not visible after {timeout}s: {selector}")
         time.sleep(poll)

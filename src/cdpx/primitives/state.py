@@ -1,9 +1,9 @@
-"""Primitives d'état: cookies, localStorage/sessionStorage.
+"""State primitives: cookies, localStorage/sessionStorage.
 
-Sécurité (voir HARNESS.md): les valeurs d'état sont MASQUÉES par défaut
-dans les sorties. Un agent qui recopie ses sorties dans un ticket, un commit
-ou un log ne doit pas pouvoir exfiltrer une session par accident. Le flag
-show_values est un acte volontaire de l'humain.
+Security (see HARNESS.md): state values are REDACTED by default in
+outputs. An agent that copies its outputs into a ticket, a commit, or a
+log must not be able to exfiltrate a session by accident. The
+show_values flag is a deliberate human act.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def clear_cookies(client: CDPClient) -> dict:
         client.send("Storage.clearCookies")
         return {"cleared": True, "method": "Storage.clearCookies"}
     except CDPError:
-        # Chrome historique sans Storage.clearCookies: méthode dépréciée en repli.
+        # Legacy Chrome without Storage.clearCookies: deprecated method as fallback.
         client.send("Network.clearBrowserCookies")
         return {"cleared": True, "method": "Network.clearBrowserCookies"}
 
@@ -54,7 +54,7 @@ def get_storage(
     show_values: bool = False,
 ) -> dict:
     if kind not in {"local", "session"}:
-        raise ValueError(f"stockage inconnu: {kind}")
+        raise ValueError(f"unknown storage: {kind}")
     store = "localStorage" if kind == "local" else "sessionStorage"
     expr = f"JSON.stringify(Object.fromEntries(Object.entries({store})))"
     raw = evaluate(client, expr)

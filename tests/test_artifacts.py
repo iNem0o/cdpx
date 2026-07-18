@@ -54,7 +54,7 @@ def test_opaque_and_secret_artifacts_can_never_be_shareable(tmp_path):
         ArtifactClassification.OPAQUE_RESTRICTED,
     ):
         #: la combinaison classification sensible + partage est une erreur, pas un avertissement
-        with pytest.raises(ArtifactError, match="non partageable"):
+        with pytest.raises(ArtifactError, match="non-shareable"):
             writer.write_text(
                 f"{classification.value}.txt",
                 "content",
@@ -70,14 +70,14 @@ def test_writer_refuses_traversal_absolute_paths_and_symlinks(tmp_path):
     writer = SecureArtifactWriter(tmp_path, "run-1")
     for name in ("../escape.txt", "/tmp/escape.txt", "a/../../escape.txt"):
         #: chaque variante d'évasion (remontée, absolu, traversée imbriquée) est bloquée
-        with pytest.raises(ArtifactError, match="chemin"):
+        with pytest.raises(ArtifactError, match="artifact path"):
             writer.write_text(name, "x")
     target = tmp_path / "outside.txt"
     target.write_text("outside", encoding="utf-8")
     link = writer.run_dir / "link.txt"
     link.symlink_to(target)
     #: un symlink déposé dans le run ne peut pas être adopté comme artefact légitime
-    with pytest.raises(ArtifactError, match="symbolique"):
+    with pytest.raises(ArtifactError, match="symbolic link"):
         writer.register_file(link, classification=ArtifactClassification.INTERNAL)
 
 
@@ -90,7 +90,7 @@ def test_writer_refuses_a_symbolic_artifact_root(tmp_path):
     root.symlink_to(target, target_is_directory=True)
 
     #: le refus intervient à la construction, avant la moindre écriture
-    with pytest.raises(ArtifactError, match="symbolique"):
+    with pytest.raises(ArtifactError, match="symbolic artifact directory"):
         SecureArtifactWriter(root, "run-1")
 
 
@@ -178,7 +178,7 @@ def test_unmanifested_private_file_blocks_staging(tmp_path):
     rogue = writer.run_dir / "rogue.txt"
     rogue.write_text("rogue", encoding="utf-8")
     #: le fichier orphelin est traité comme une compromission, pas simplement ignoré
-    with pytest.raises(ArtifactError, match="non manifesté"):
+    with pytest.raises(ArtifactError, match="unmanifested"):
         writer.build_shareable(tmp_path / "share")
 
 
@@ -196,7 +196,7 @@ def test_mutated_manifested_file_blocks_staging(tmp_path):
     (writer.run_dir / "safe.txt").write_text("secret-after-redaction", encoding="utf-8")
 
     #: le sha256 du manifeste sert de sceau: toute mutation post-redaction est fatale
-    with pytest.raises(ArtifactError, match="intégrité"):
+    with pytest.raises(ArtifactError, match="integrity"):
         writer.build_shareable(tmp_path / "share")
 
     #: l'échec est atomique — aucun répertoire de partage partiel n'est laissé derrière
@@ -211,7 +211,7 @@ def test_missing_manifested_file_blocks_staging(tmp_path):
     (writer.run_dir / "safe.txt").unlink()
 
     #: un manifeste qui promet un fichier absent invalide le staging complet
-    with pytest.raises(ArtifactError, match="introuvable"):
+    with pytest.raises(ArtifactError, match="not found"):
         writer.build_shareable(tmp_path / "share")
 
 
@@ -227,7 +227,7 @@ def test_replaced_manifested_file_symlink_blocks_staging(tmp_path):
     artifact.symlink_to(outside)
 
     #: le lien substitué est démasqué au moment de la copie, malgré un nom manifesté
-    with pytest.raises(ArtifactError, match="symbolique"):
+    with pytest.raises(ArtifactError, match="symbolic link"):
         writer.build_shareable(tmp_path / "share")
 
     #: rien n'a été copié: le contenu extérieur n'a jamais quitté sa place
@@ -277,7 +277,7 @@ def test_expiration_purge_rejects_invalid_manifests(tmp_path, payload):
     manifest = run_dir / "manifest.json"
     manifest.write_text(payload, encoding="utf-8")
 
-    with pytest.raises(ArtifactError, match="manifest d'artefacts invalide.*broken") as error:
+    with pytest.raises(ArtifactError, match="invalid artifacts manifest.*broken") as error:
         purge_expired(tmp_path)
 
     assert error.value.__cause__ is not None

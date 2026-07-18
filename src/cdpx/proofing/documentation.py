@@ -1,4 +1,4 @@
-"""Catalogue documentaire curaté rendu dans le cockpit de preuve."""
+"""Curated documentation catalog rendered in the proof cockpit."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ CONFIG_PATH = Path("docs/cockpit.toml")
 
 def _safe_pattern(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value:
-        raise ValueError(f"{CONFIG_PATH}: {label} doit contenir des chemins non vides")
+        raise ValueError(f"{CONFIG_PATH}: {label} must contain non-empty paths")
     candidate = PurePosixPath(value)
     if candidate.is_absolute() or ".." in candidate.parts or "\\" in value:
-        raise ValueError(f"{CONFIG_PATH}: chemin hors dépôt interdit: {value}")
+        raise ValueError(f"{CONFIG_PATH}: path outside repository forbidden: {value}")
     return value
 
 
@@ -28,21 +28,21 @@ def _load_config(path: Path) -> dict[str, Any]:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ValueError(f"{path}: configuration documentaire invalide: {exc}") from exc
+        raise ValueError(f"{path}: invalid documentation configuration: {exc}") from exc
     allowed = {"schema", "index", "include", "exclude", "labels"}
     if set(data) - allowed:
-        raise ValueError(f"{path}: clés inconnues: {', '.join(sorted(set(data) - allowed))}")
+        raise ValueError(f"{path}: unknown keys: {', '.join(sorted(set(data) - allowed))}")
     if data.get("schema") != SCHEMA:
-        raise ValueError(f"{path}: schema attendu: {SCHEMA}")
+        raise ValueError(f"{path}: expected schema: {SCHEMA}")
     if not isinstance(data.get("include"), list) or not data["include"]:
-        raise ValueError(f"{path}: include doit être une liste non vide")
+        raise ValueError(f"{path}: include must be a non-empty list")
     if not isinstance(data.get("exclude", []), list):
-        raise ValueError(f"{path}: exclude doit être une liste")
+        raise ValueError(f"{path}: exclude must be a list")
     labels = data.get("labels", {})
     if not isinstance(labels, dict) or not all(
         isinstance(key, str) and isinstance(value, str) and value for key, value in labels.items()
     ):
-        raise ValueError(f"{path}: labels doit être une table de chaînes")
+        raise ValueError(f"{path}: labels must be a table of strings")
     return data
 
 
@@ -54,7 +54,7 @@ def _expand_paths(root: Path, config: dict[str, Any]) -> list[str]:
         pattern = _safe_pattern(raw_pattern, "include")
         matches = sorted(root.glob(pattern))
         if not matches:
-            raise ValueError(f"{CONFIG_PATH}: include sans résultat: {pattern}")
+            raise ValueError(f"{CONFIG_PATH}: include with no results: {pattern}")
         for path in matches:
             relative = path.relative_to(root).as_posix()
             if any(fnmatch.fnmatch(relative, item) for item in excluded):
@@ -62,16 +62,16 @@ def _expand_paths(root: Path, config: dict[str, Any]) -> list[str]:
             try:
                 info = path.lstat()
             except OSError as exc:
-                raise ValueError(f"{CONFIG_PATH}: document illisible: {relative}") from exc
+                raise ValueError(f"{CONFIG_PATH}: unreadable document: {relative}") from exc
             if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                raise ValueError(f"{CONFIG_PATH}: document régulier requis: {relative}")
+                raise ValueError(f"{CONFIG_PATH}: regular document required: {relative}")
             if path.suffix.lower() != ".md":
-                raise ValueError(f"{CONFIG_PATH}: document Markdown requis: {relative}")
+                raise ValueError(f"{CONFIG_PATH}: Markdown document required: {relative}")
             if not path.resolve().is_relative_to(root_resolved):
-                raise ValueError(f"{CONFIG_PATH}: document hors dépôt: {relative}")
+                raise ValueError(f"{CONFIG_PATH}: document outside repository: {relative}")
             found[relative] = None
     if not found:
-        raise ValueError(f"{CONFIG_PATH}: catalogue documentaire vide")
+        raise ValueError(f"{CONFIG_PATH}: empty documentation catalog")
     return list(found)
 
 
@@ -112,7 +112,7 @@ def build_documentation_catalog(
     config_path: Path = CONFIG_PATH,
     feature_specs: list[FeatureSpec] | None = None,
 ) -> dict[str, Any]:
-    """Construit le catalogue ou retourne ses violations sans effet de bord."""
+    """Build the catalog or return its violations without side effects."""
 
     violations: list[str] = []
     try:
@@ -134,7 +134,7 @@ def build_documentation_catalog(
     feature_by_source = {spec.source: spec for spec in specs}
     missing_features = sorted(set(feature_by_source) - set(paths))
     if missing_features:
-        violations.append("feature docs absentes du catalogue: " + ", ".join(missing_features))
+        violations.append("feature docs missing from catalog: " + ", ".join(missing_features))
 
     catalog_paths = tuple(paths)
     documents = []
@@ -153,7 +153,7 @@ def build_documentation_catalog(
             kind = "reference"
             feature_id = None
             if not title:
-                violations.append(f"document sans titre H1: {relative}")
+                violations.append(f"document without H1 title: {relative}")
                 title = Path(relative).stem
         documents.append(
             {
@@ -173,7 +173,7 @@ def build_documentation_catalog(
 
     index = _safe_pattern(config.get("index"), "index")
     if index not in paths:
-        violations.append(f"index documentaire absent du catalogue: {index}")
+        violations.append(f"documentation index missing from catalog: {index}")
     labels = {str(key): str(value) for key, value in config.get("labels", {}).items()}
     return {
         "schema": SCHEMA,

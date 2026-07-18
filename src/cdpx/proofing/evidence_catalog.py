@@ -1,9 +1,8 @@
-"""Catalogue d'évidence, inventaire projet et matrice de validation.
+"""Evidence catalog, project inventory, and validation matrix.
 
-``build_evidence_catalog`` reçoit les chemins de preuve via ``ProofPaths``:
-la façade `cdpx.proof` les résout depuis ses globals (monkeypatchables) au
-moment de l'appel. Aucun symbole de ce module ne lit `cdpx.proof` à
-l'exécution.
+``build_evidence_catalog`` receives proof paths via ``ProofPaths``: the
+`cdpx.proof` facade resolves them from its globals (monkeypatchable) at call
+time. No symbol in this module reads `cdpx.proof` at runtime.
 """
 
 from __future__ import annotations
@@ -18,11 +17,11 @@ VALIDATION_DOC = Path("docs/VALIDATION.md")
 
 @dataclass(frozen=True)
 class ProofPaths:
-    """Chemins de preuve résolus par la façade au moment de l'appel.
+    """Proof paths resolved by the facade at call time.
 
-    Ils reflètent les constantes patchables de `cdpx.proof` (PROOF_DIR,
-    SYMFONY_LOG, EVIDENCE_DIR, …): les implémentations extraites ne lisent
-    jamais ces globals elles-mêmes.
+    They mirror the patchable constants of `cdpx.proof` (PROOF_DIR,
+    SYMFONY_LOG, EVIDENCE_DIR, …): the extracted implementations never read
+    these globals themselves.
     """
 
     proof_dir: Path
@@ -53,32 +52,32 @@ def build_evidence_catalog(
     paths: ProofPaths,
     proof_dir: Path | None = None,
 ) -> list[dict]:
-    # Racine physique parcourue pour les preuves visuelles/casts; les chemins
-    # canoniques publiés restent dérivés des constantes de la façade.
+    # Physical root walked for visual proofs/casts; the published canonical
+    # paths remain derived from the facade's constants.
     scan_root = paths.proof_dir if proof_dir is None else proof_dir
     catalog = [
         {
-            "type": "rapport-html",
-            "name": "Rapport humain projet",
+            "type": "html-report",
+            "name": "Project human report",
             "path": str(paths.report_html),
             "status": "generated",
-            "roi": "Point d'entrée humain: verdict, périmètre, milestones et preuves repliables.",
+            "roi": "Human entry point: verdict, scope, milestones and collapsible proofs.",
         },
         {
-            "type": "resume-json",
-            "name": "Résumé machine",
+            "type": "json-summary",
+            "name": "Machine summary",
             "path": str(paths.summary_json),
             "status": "generated",
-            "roi": "Signal compact pour CI/handoff sans relire tous les logs.",
+            "roi": "Compact signal for CI/handoff without re-reading all logs.",
         },
         {
             "type": "junit",
-            "name": "Tests unitaires JUnit",
+            "name": "Unit tests JUnit",
             "path": unit.get("path", str(paths.proof_dir / "unit-junit.xml")),
             "status": "passed"
             if unit.get("failures", 0) + unit.get("errors", 0) == 0
             else "failed",
-            "roi": f"{unit.get('tests', 0)} tests unitaires structurés.",
+            "roi": f"{unit.get('tests', 0)} structured unit tests.",
         },
         {
             "type": "junit",
@@ -86,8 +85,8 @@ def build_evidence_catalog(
             "path": e2e.get("path", str(paths.proof_dir / "e2e-junit.xml")),
             "status": "passed" if e2e.get("failures", 0) + e2e.get("errors", 0) == 0 else "failed",
             "roi": (
-                f"{e2e.get('tests', 0)} scénarios navigateur Chrome, "
-                f"{e2e.get('skipped', 0)} skip déclaré."
+                f"{e2e.get('tests', 0)} Chrome browser scenarios, "
+                f"{e2e.get('skipped', 0)} declared skip."
             ),
         },
         {
@@ -96,27 +95,27 @@ def build_evidence_catalog(
             "path": symfony.get("path", str(paths.symfony_junit)),
             "status": _junit_status(symfony),
             "roi": (
-                f"{symfony.get('tests', 0)} scénario Symfony réel, "
-                f"{symfony.get('skipped', 0)} indisponibilité/skip déclaré."
+                f"{symfony.get('tests', 0)} real Symfony scenario, "
+                f"{symfony.get('skipped', 0)} declared unavailability/skip."
             ),
         },
         {
             "type": "logs",
-            "name": "Logs unitaires",
+            "name": "Unit logs",
             "path": str(paths.unit_log),
             "status": "generated",
-            "roi": "Transcript terminal reproductible.",
+            "roi": "Reproducible terminal transcript.",
         },
         {
             "type": "logs",
-            "name": "Logs E2E Chrome",
+            "name": "E2E Chrome logs",
             "path": str(paths.e2e_log),
             "status": "generated",
-            "roi": "Transcript navigateur réel; Chrome absent est bloquant.",
+            "roi": "Real browser transcript; missing Chrome is blocking.",
         },
         {
             "type": "logs",
-            "name": "Logs Symfony E2E",
+            "name": "Symfony E2E logs",
             "path": str(paths.symfony_log),
             "status": next(
                 (
@@ -126,35 +125,35 @@ def build_evidence_catalog(
                 ),
                 "generated",
             ),
-            "roi": "Transcript Docker Compose, politique d'indisponibilité et teardown.",
+            "roi": "Docker Compose transcript, unavailability policy and teardown.",
         },
         {
-            "type": "surface-publique",
-            "name": "Aide CLI capturée",
+            "type": "public-surface",
+            "name": "Captured CLI help",
             "path": str(paths.cli_help),
             "status": "generated",
-            "roi": "Contrat public exposé par le binaire.",
+            "roi": "Public contract exposed by the binary.",
         },
         {
             "type": "git",
-            "name": "Snapshot Git",
+            "name": "Git snapshot",
             "path": str(paths.git_status),
             "status": "generated",
-            "roi": "Provenance du run et état local au moment de la preuve.",
+            "roi": "Run provenance and local state at proof time.",
         },
         {
             "type": "git",
             "name": "Diff stat",
             "path": str(paths.git_diff_stat),
             "status": "generated",
-            "roi": "Contexte local sans ouvrir le diff complet.",
+            "roi": "Local context without opening the full diff.",
         },
         {
             "type": "scenarios",
-            "name": "Scénarios pytest documentés",
+            "name": "Documented pytest scenarios",
             "path": str(paths.evidence_dir),
             "status": "generated",
-            "roi": "Association test par test entre statut, logs et artefacts.",
+            "roi": "Test-by-test association between status, logs and artifacts.",
         },
     ]
     for pattern, evidence_type in (
@@ -170,17 +169,17 @@ def build_evidence_catalog(
                     "name": path.name,
                     "path": str(path),
                     "status": "generated",
-                    "roi": "Preuve visuelle ou replay terminal ajouté au rapport.",
+                    "roi": "Visual proof or terminal replay added to the report.",
                 }
             )
     if not any(item["type"] == "screenshot" for item in catalog):
         catalog.append(
             {
                 "type": "screenshot",
-                "name": "Capture UI",
+                "name": "UI capture",
                 "path": "",
                 "status": "not-needed",
-                "roi": "Non générée automatiquement; utile seulement pour prouver un delta visuel.",
+                "roi": "Not generated automatically; useful only to prove a visual delta.",
             }
         )
     inline_catalog_casts(catalog)
@@ -216,8 +215,8 @@ def collect_project_inventory(help_commands: list[dict[str, str]]) -> dict:
         "name": "cdpx",
         "version": version,
         "mission": (
-            "CLI de primitives Chrome DevTools Protocol pour agents de dev et humains "
-            "qui pilotent des audits navigateur."
+            "Chrome DevTools Protocol primitives CLI for dev agents and humans "
+            "driving browser audits."
         ),
         "cli_command_count": len(help_commands),
         "cli_commands": [command["name"] for command in help_commands],

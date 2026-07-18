@@ -1,9 +1,9 @@
-"""Évidence de scénarios pytest: chargement, totaux, inline des artefacts.
+"""Pytest scenario evidence: loading, totals, artifact inlining.
 
-L'inline embarque le contenu textuel des artefacts dans le payload du cockpit
-(la CSP du rapport interdit tout fetch). Aucun symbole de ce module ne lit
-`cdpx.proof` à l'exécution: la façade ré-exporte ces fonctions et résout
-elle-même sa constante patchable ``EVIDENCE_DIR`` (défaut de
+Inlining embeds the textual content of artifacts into the cockpit payload
+(the report's CSP forbids any fetch). No symbol in this module reads
+`cdpx.proof` at runtime: the facade re-exports these functions and resolves
+its own patchable constant ``EVIDENCE_DIR`` itself (default of
 ``load_scenario_evidence``).
 """
 
@@ -27,15 +27,15 @@ from cdpx.proofing.scenario_models import (
 )
 from cdpx.security.redaction import RedactionContext, redact_tree
 
-# L'inline ne concerne que le textuel: la CSP du rapport (connect-src 'none')
-# interdit tout fetch, donc ce que les visualiseurs affichent doit voyager
-# dans le JSON embarqué. Les binaires restent des liens locaux.
+# Inlining only concerns text: the report's CSP (connect-src 'none')
+# forbids any fetch, so whatever the viewers display must travel inside the
+# embedded JSON. Binaries remain local links.
 _INLINE_TYPES = frozenset(
     {"command", "log-excerpt", "logs", "json", "console", "network", "profiler", "asciinema"}
 )
 INLINE_MAX_BYTES = 16 * 1024
-# Les .cast sont la matière première du player: cap dédié plus large, mais
-# toujours très en deçà de MAX_CAST_BYTES pour contenir le poids du rapport.
+# .cast files are the player's raw material: a dedicated, larger cap, but
+# still well below MAX_CAST_BYTES to contain the report's weight.
 INLINE_CAST_MAX_BYTES = 256 * 1024
 INLINE_TOTAL_BUDGET = 2 * 1024 * 1024
 INLINE_CAST_BUDGET = 1 * 1024 * 1024
@@ -49,12 +49,13 @@ def load_scenario_evidence(root: Path) -> ScenarioEvidence:
     if not root.exists():
         return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
     for path in sorted(root.glob("*-scenarios.json")):
-        # Validation localisée fail-closed: un fichier corrompu, d'un schéma
-        # inconnu ou structurellement faux est nommé ici, plutôt que d'exploser
-        # en KeyError/TypeError anonyme au calcul des totaux ou au rendu du
-        # cockpit. Les payloads legacy v1 (sans clé `schema`) restent acceptés
-        # tels quels: la tolérance des lecteurs évite tout migrateur.
-        decoded = _read_json_or_fail(path, "JSON de scénarios illisible")
+        # Localized fail-closed validation: a corrupted file, an unknown
+        # schema, or a structurally wrong one is named here, rather than
+        # exploding into an anonymous KeyError/TypeError when computing
+        # totals or rendering the cockpit. Legacy v1 payloads (without a
+        # `schema` key) remain accepted as-is: reader tolerance avoids any
+        # migrator.
+        decoded = _read_json_or_fail(path, "unreadable scenarios JSON")
         payload = validated_scenario_file(
             decoded, source=str(path), expected_schema=SCENARIOS_SCHEMA
         )
@@ -131,7 +132,7 @@ def _artifact_excerpt(text: str) -> str:
     return "\n".join(
         [
             *lines[:EXCERPT_HEAD_LINES],
-            f"… ({omitted} lignes tronquées) …",
+            f"… ({omitted} lines truncated) …",
             *lines[-EXCERPT_TAIL_LINES:],
         ]
     )
@@ -159,10 +160,11 @@ def _inline_artifact(entry: dict, remaining: int) -> int:
 
 
 def inline_catalog_casts(catalog: list[dict], *, budget: int = INLINE_CAST_BUDGET) -> list[dict]:
-    """Inline les .cast du catalogue: le player du cockpit exige ``inline_content``.
+    """Inline the catalog's .cast files: the cockpit player requires ``inline_content``.
 
-    Sans cet inline, un cast produit hors scénario pytest ne serait qu'un lien
-    de tableau — injouable sous la CSP du rapport (aucun fetch autorisé).
+    Without this inlining, a cast produced outside a pytest scenario would
+    just be a table link — unplayable under the report's CSP (no fetch
+    allowed).
     """
 
     remaining = budget
@@ -175,10 +177,11 @@ def inline_catalog_casts(catalog: list[dict], *, budget: int = INLINE_CAST_BUDGE
 def inline_scenario_artifacts(
     scenario_evidence: ScenarioEvidence, *, budget: int = INLINE_TOTAL_BUDGET
 ) -> ScenarioEvidence:
-    """Inline le contenu des artefacts textuels dans le payload du cockpit.
+    """Inline the content of textual artifacts into the cockpit payload.
 
-    Au-delà du cap unitaire ou du budget global, l'artefact est représenté
-    par un extrait tête+queue et marqué truncated: le rendu reste honnête.
+    Beyond the per-unit cap or the global budget, the artifact is
+    represented by a head+tail excerpt and marked truncated: the rendering
+    stays honest.
     """
 
     remaining = budget
@@ -197,7 +200,7 @@ def inline_scenario_artifacts(
 
 
 def _strip_inline_content(scenario_evidence: ScenarioEvidence) -> ScenarioEvidence:
-    """Retire les contenus inlinés avant réécriture disque (déjà présents en fichiers)."""
+    """Strip inlined content before writing back to disk (already present in files)."""
 
     suites: dict[str, list[Scenario]] = {}
     for suite, scenarios in scenario_evidence.get("suites", {}).items():

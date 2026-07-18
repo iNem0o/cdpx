@@ -1,4 +1,4 @@
-"""Enregistrement et rejeu déterministes d'actions composées."""
+"""Deterministic recording and replay of composed actions."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def record(
     run_id: str | None = None,
     context: OrchestrationContext,
 ) -> dict[str, Any]:
-    """Exécute l'action puis la journalise (résultat compris) en NDJSON."""
+    """Executes the action then journals it (including the result) in NDJSON."""
     redaction = context.redaction
     stored_action, replayable = journal.serialize_action(action, context=redaction)
     execution_action = action
@@ -55,21 +55,21 @@ def record(
         if isinstance(input_spec, dict) and input_spec.get("secret_ref"):
             execution_action = journal.materialize_action(stored_action)
             if not isinstance(execution_action, TypeAction):
-                raise journal.JournalError("action type matérialisée invalide")
+                raise journal.JournalError("invalid materialized type action")
             redaction.register_secret(execution_action.text)
     allowed = context.origins
     if isinstance(execution_action, GotoAction):
         assert_url_allowed(execution_action.url, allowed)
     else:
         assert_url_allowed(
-            actions.require_current_http_url(client, "avant action record"),
+            actions.require_current_http_url(client, "before record action"),
             allowed,
         )
     error: Exception | None = None
     try:
         result: dict[str, Any] = actions.run_action(client, execution_action)
         assert_url_allowed(
-            actions.require_current_http_url(client, "après action record"),
+            actions.require_current_http_url(client, "after record action"),
             allowed,
         )
         ok = True
@@ -112,7 +112,7 @@ def _persistable_action_result(
     ok: bool,
     context: RedactionContext,
 ) -> dict[str, Any]:
-    """Ne persiste jamais une valeur ou erreur arbitraire issue de ``eval``."""
+    """Never persists an arbitrary value or error coming from ``eval``."""
     if not isinstance(action, EvalAction):
         safe = redact_tree(result, context=context)
         return safe if isinstance(safe, dict) else {"redacted": True}
@@ -128,7 +128,7 @@ def replay(
     *,
     context: OrchestrationContext,
 ) -> dict[str, Any]:
-    """Rejoue un journal NDJSON, arrêt à la première divergence."""
+    """Replays an NDJSON journal, stopping at the first divergence."""
     redaction = context.redaction
     loaded = _load_replay_events(path, redaction)
     if isinstance(loaded, ReplayLoadFailure):
@@ -141,7 +141,7 @@ def replay(
         }
     entries = loaded
     if max_actions is not None and len(entries) > max_actions:
-        raise ValueError(f"budget --max-actions dépassé: {len(entries)} > {max_actions}")
+        raise ValueError(f"--max-actions budget exceeded: {len(entries)} > {max_actions}")
     for index, entry in enumerate(entries):
         if entry.event["ok"] is not True:
             return {
@@ -149,7 +149,7 @@ def replay(
                 "events": len(entries),
                 "played": 0,
                 "ok": False,
-                "divergence": f"event {index}: ok=false journalisé",
+                "divergence": f"event {index}: ok=false journaled",
             }
     origin_patterns = context.origins
     played = 0
@@ -163,7 +163,7 @@ def replay(
         if not isinstance(action, GotoAction):
             try:
                 assert_url_allowed(
-                    actions.require_current_http_url(client, "avant action"),
+                    actions.require_current_http_url(client, "before action"),
                     origin_patterns,
                 )
             except ACTION_ERRORS as error:
@@ -176,11 +176,11 @@ def replay(
         try:
             current_url = actions.require_current_http_url(
                 client,
-                "après navigation" if isinstance(action, GotoAction) else "après action",
+                "after navigation" if isinstance(action, GotoAction) else "after action",
             )
             assert_url_allowed(current_url, origin_patterns)
         except ACTION_ERRORS as error:
-            prefix = "destination après action: " if not isinstance(action, GotoAction) else ""
+            prefix = "destination after action: " if not isinstance(action, GotoAction) else ""
             return _replay_error(path, len(entries), played, index, error, prefix=prefix)
         if "result" in event:
             differences = _semantic_differences(event["result"], actual)
@@ -216,13 +216,13 @@ def _load_replay_events(
         except json.JSONDecodeError as error:
             return ReplayLoadFailure(len(entries), f"line {line_number}: {error.msg}")
         if not isinstance(event, dict) or not isinstance(event.get("action"), list | dict):
-            return ReplayLoadFailure(len(entries), f"line {line_number}: action manquante")
+            return ReplayLoadFailure(len(entries), f"line {line_number}: missing action")
         if event.get("schema") not in {None, journal.SCHEMA}:
-            return ReplayLoadFailure(len(entries) + 1, f"line {line_number}: schema record inconnu")
+            return ReplayLoadFailure(len(entries) + 1, f"line {line_number}: unknown record schema")
         if event.get("replayable") is False:
             return ReplayLoadFailure(
                 len(entries) + 1,
-                f"line {line_number}: action redacted non rejouable",
+                f"line {line_number}: redacted action not replayable",
             )
         try:
             materialized = journal.materialize_action(event["action"])
@@ -233,12 +233,12 @@ def _load_replay_events(
         if not isinstance(event.get("ok"), bool):
             return ReplayLoadFailure(
                 len(entries) + 1,
-                f"line {line_number}: ok booléen requis",
+                f"line {line_number}: boolean ok required",
             )
         if "result" in event and not isinstance(event["result"], dict):
             return ReplayLoadFailure(
                 len(entries) + 1,
-                f"line {line_number}: result doit être un objet",
+                f"line {line_number}: result must be an object",
             )
         if "result" in event:
             event = {**event, "result": redact_tree(event["result"], context=redaction)}

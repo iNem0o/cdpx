@@ -1,9 +1,9 @@
-"""Politique de classification et de purge des artefacts de preuve.
+"""Classification and purge policy for proof artifacts.
 
-Seuls les fichiers produits par le pipeline lui-même peuvent être classés par
-la politique MIME; tout le reste doit être couvert par un manifeste
-d'évidence, sinon le staging échoue fermé. Aucun symbole de ce module ne lit
-`cdpx.proof` à l'exécution: la façade ré-exporte ces primitives.
+Only files produced by the pipeline itself can be classified by the MIME
+policy; everything else must be covered by an evidence manifest, otherwise
+staging fails closed. No symbol in this module reads `cdpx.proof` at
+runtime: the facade re-exports these primitives.
 """
 
 from __future__ import annotations
@@ -32,12 +32,12 @@ _TEXTUAL_PROOF_SUFFIXES = {
     ".yaml",
 }
 
-# Allowlist explicite et bornée des fichiers produits par le pipeline de
-# preuve lui-même (hors sessions pytest): eux seuls peuvent être classés par
-# la politique MIME. Tout autre fichier doit être couvert par un manifeste
-# d'évidence, sinon le staging échoue fermé. Les noms reflètent les constantes
-# de chemin de la façade `cdpx.proof` (REPORT_HTML, SUMMARY_JSON, …), figées
-# à l'import comme le contrat historique.
+# Explicit, bounded allowlist of files produced by the proof pipeline itself
+# (outside pytest sessions): only they can be classified by the MIME policy.
+# Any other file must be covered by an evidence manifest, otherwise staging
+# fails closed. The names mirror the path constants of the `cdpx.proof`
+# facade (REPORT_HTML, SUMMARY_JSON, …), frozen at import like the historical
+# contract.
 _PIPELINE_TOP_LEVEL_FILES = frozenset(
     {
         "proof-report.html",
@@ -57,7 +57,7 @@ _PIPELINE_TOP_LEVEL_FILES = frozenset(
         "artifact-manifest.json",
     }
 )
-# Ordre de restriction croissant pour la fusion multi-manifestes.
+# Increasing restriction order for multi-manifest merging.
 _CLASSIFICATION_SEVERITY: dict[ArtifactClassification, int] = {
     ArtifactClassification.PUBLIC: 0,
     ArtifactClassification.INTERNAL: 1,
@@ -92,9 +92,9 @@ def _is_pipeline_proof_artifact(relative: str) -> bool:
     if len(parts) == 1:
         return parts[0] in _PIPELINE_TOP_LEVEL_FILES or parts[0].endswith(".cast")
     if len(parts) == 2 and parts[0] == "evidence":
-        # Les *-scenarios.json sont réécrits par _generate() après les runs
-        # (symfony-scenarios.json peut même exister sans manifeste); les
-        # manifestes eux-mêmes sont des métadonnées produites par les sessions.
+        # *-scenarios.json files are rewritten by _generate() after the runs
+        # (symfony-scenarios.json can even exist without a manifest); the
+        # manifests themselves are metadata produced by the sessions.
         name = parts[1]
         return name.endswith("-scenarios.json") or (
             name.startswith("evidence-manifest") and name.endswith(".json")
@@ -103,21 +103,21 @@ def _is_pipeline_proof_artifact(relative: str) -> bool:
 
 
 def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassification, bool]]:
-    """Agrège les manifestes d'évidence en une politique par chemin résolu.
+    """Aggregate evidence manifests into a policy keyed by resolved path.
 
-    Les manifestes écrits par les sessions pytest sont la seule autorité de
-    classification des artefacts d'évidence: en cas de doublon entre
-    manifestes, la classification la plus restrictive gagne et l'upload n'est
-    permis que si tous l'autorisent.
+    Manifests written by pytest sessions are the sole authority for
+    classifying evidence artifacts: when manifests overlap, the most
+    restrictive classification wins and upload is allowed only if all of
+    them allow it.
     """
 
     evidence_root = (proof_dir / "evidence").resolve()
     policy: dict[Path, tuple[ArtifactClassification, bool]] = {}
     redaction_policies: set[str] = set()
     for manifest_path in sorted((proof_dir / "evidence").glob("evidence-manifest*.json")):
-        payload = _read_json_or_fail(manifest_path, "manifeste d'évidence illisible")
+        payload = _read_json_or_fail(manifest_path, "unreadable evidence manifest")
         if not isinstance(payload, dict) or payload.get("schema") != EVIDENCE_SCHEMA:
-            raise ArtifactError(f"schéma de manifeste d'évidence inattendu: {manifest_path}")
+            raise ArtifactError(f"unexpected evidence manifest schema: {manifest_path}")
         redaction_policies.add(str(payload.get("redaction_policy")))
         for entry in payload.get("artifacts", []):
             try:
@@ -126,10 +126,10 @@ def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassific
                 upload_allowed = bool(entry["upload_allowed"])
             except (KeyError, TypeError, ValueError) as e:
                 raise ArtifactError(
-                    f"entrée de manifeste d'évidence invalide dans {manifest_path}: {e}"
+                    f"invalid evidence manifest entry in {manifest_path}: {e}"
                 ) from e
             if resolved != evidence_root and evidence_root not in resolved.parents:
-                raise ArtifactError(f"chemin manifesté hors de l'évidence: {entry['path']}")
+                raise ArtifactError(f"manifested path outside evidence: {entry['path']}")
             previous = policy.get(resolved)
             if previous is not None:
                 if _CLASSIFICATION_SEVERITY[previous[0]] > _CLASSIFICATION_SEVERITY[classification]:
@@ -138,44 +138,44 @@ def _load_evidence_policy(proof_dir: Path) -> dict[Path, tuple[ArtifactClassific
             policy[resolved] = (classification, upload_allowed)
     if len(redaction_policies) > 1:
         raise ArtifactError(
-            "politiques de redaction hétérogènes entre manifestes d'évidence: "
+            "heterogeneous redaction policies across evidence manifests: "
             + ", ".join(sorted(redaction_policies))
         )
     return policy
 
 
 def _docker_chown_remedy(root: Path) -> str:
-    """Remède standard aux fichiers root laissés par un run Docker interrompu."""
+    """Standard remedy for root-owned files left by an interrupted Docker run."""
 
     return (
-        f'réparer avec `docker run --rm -v "$PWD/{root.name}:/t" alpine '
-        'chown -R "$(id -u):$(id -g)" /t` puis relancer'
+        f'fix with `docker run --rm -v "$PWD/{root.name}:/t" alpine '
+        'chown -R "$(id -u):$(id -g)" /t` then re-run'
     )
 
 
 def _raise_actionable_permission_error(root: Path, exc: PermissionError) -> NoReturn:
-    """Convertit une PermissionError du staging en erreur actionnable.
+    """Convert a staging PermissionError into an actionable error.
 
-    Un conteneur Symfony tué avant son chown final laisse des fichiers root
-    dans l'arbre: plutôt qu'une PermissionError brute au milieu du run, on
-    nomme le répertoire fautif et le remède.
+    A Symfony container killed before its final chown leaves root-owned
+    files in the tree: rather than a raw PermissionError mid-run, we name
+    the offending directory and the remedy.
     """
 
     raise ArtifactError(
-        f"staging résiduel non purgeable: {root} (fichiers appartenant "
-        f"probablement à root après un run Docker interrompu); {_docker_chown_remedy(root)}"
+        f"leftover staging cannot be purged: {root} (files probably "
+        f"owned by root after an interrupted Docker run); {_docker_chown_remedy(root)}"
     ) from exc
 
 
 def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
-    """Purge les artefacts d'évidence orphelins d'un pytest mort sans épilogue.
+    """Purge orphaned evidence artifacts from a pytest run killed without an epilogue.
 
-    Un pytest interrompu (deadline exit 124, SIGKILL, OOM 137, segfault)
-    n'exécute pas ``pytest_sessionfinish``: ses artefacts attach_* déjà écrits
-    n'ont aucun manifeste, et le staging partageable échouerait fermé avec un
-    message trompeur. On retire ces orphelins de l'arbre — la suite tuée est
-    déjà un échec de commande visible au verdict — plutôt que de masquer la
-    cause réelle.
+    An interrupted pytest run (deadline exit 124, SIGKILL, OOM 137, segfault)
+    does not run ``pytest_sessionfinish``: its already-written attach_*
+    artifacts have no manifest, and shareable staging would fail closed with
+    a misleading message. We remove these orphans from the tree — the killed
+    suite is already a command failure visible in the verdict — rather than
+    masking the real cause.
     """
 
     artifacts_root = proof_dir / "evidence" / "artifacts"
@@ -185,7 +185,7 @@ def _purge_unmanifested_evidence(proof_dir: Path) -> list[str]:
     removed: list[str] = []
     for path in sorted(artifacts_root.rglob("*"), reverse=True):
         if path.is_symlink():
-            raise ArtifactError(f"lien symbolique interdit dans les preuves: {path}")
+            raise ArtifactError(f"symlink forbidden in proofs: {path}")
         if path.is_file() and path.resolve() not in policy:
             path.unlink()
             removed.append(path.relative_to(proof_dir).as_posix())

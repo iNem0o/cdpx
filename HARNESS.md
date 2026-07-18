@@ -96,12 +96,12 @@ Never put a literal secret in a command:
 
 - `cdpx type ... --secret-env NAME` resolves the input from the environment;
 - `cdpx cookies set ... --value-env NAME` does the same for a cookie;
-- `record -- type SELECTOR @env:NOM` writes only the reference;
+- `record -- type SELECTOR @env:NAME` writes only the reference;
 - a scenario uses `type: {selector: ..., secret_ref: NAME, clear: true}`.
 
 Missing references are refused at preflight, before any CDP command. The
 `cdpx.record/v2` journal masks typed input and an `eval` action journals
-only a mask and a SHA-256. `record type` requires `@env:NOM`, v1 journals
+only a mask and a SHA-256. `record type` requires `@env:NAME`, v1 journals
 with sensitive `type`/`eval` are refused, and the actually typed text
 appears neither in the result (`typed: true`, `value_masked: true`) nor in
 the journal.

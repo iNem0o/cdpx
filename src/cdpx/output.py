@@ -1,7 +1,7 @@
-"""Mise en forme des sorties CLI.
+"""CLI output formatting.
 
-Le défaut est optimisé agent: JSON compact, une ligne, valeurs volumineuses
-bornées. L'humain peut demander `--pretty`; l'audit complet peut demander
+The default is agent-optimized: compact JSON, one line, large values
+bounded. Humans can request `--pretty`; a full audit can request
 `--full`.
 """
 

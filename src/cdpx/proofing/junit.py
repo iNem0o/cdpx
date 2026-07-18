@@ -1,8 +1,8 @@
-"""Parsing des JUnit XML pytest et de l'aide CLI capturée.
+"""Parsing of pytest JUnit XML and captured CLI help.
 
-Fonctions pures (fichier -> structures): aucun symbole de ce module ne lit
-`cdpx.proof` à l'exécution; la façade les ré-exporte pour le contrat des tests
-et du smoke-dist (`parse_help_commands`).
+Pure functions (file -> structures): no symbol in this module reads
+`cdpx.proof` at runtime; the facade re-exports them for the tests and
+smoke-dist contract (`parse_help_commands`).
 """
 
 from __future__ import annotations
@@ -147,8 +147,8 @@ def _suite_for_summary(suite: dict) -> dict:
         "skipped": suite.get("skipped", 0),
         "time_s": suite.get("time_s", 0.0),
         "parse_error": suite.get("parse_error"),
-        # cases + focus embarqués: la vue Run du rapport montre chaque test et
-        # les échecs/plus lents sans rouvrir les XML JUnit.
+        # cases + focus embedded: the report's Run view shows every test and
+        # the failures/slowest ones without reopening the JUnit XML.
         "cases": cases,
         "focus": _case_focus(cases),
     }

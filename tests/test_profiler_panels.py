@@ -279,7 +279,7 @@ def test_parse_panel_rejects_unknown_key():
     panel inconnue lève immédiatement au lieu de retourner du vide."""
     #: l'erreur de programmation est bruyante, contrairement au HTML cassé
     #: qui, lui, doit être toléré
-    with pytest.raises(ValueError, match="panel inconnu"):
+    with pytest.raises(ValueError, match="unknown panel"):
         profiler.parse_panel("nope", 200, "<html></html>")
 
 
@@ -293,7 +293,7 @@ def test_normalize_panels_defaults_and_rejects():
     assert profiler.normalize_panels(["db", "twig"]) == ["db", "twig"]
     #: une clé inconnue échoue à la validation, donc avant toute requête
     #: vers le profiler
-    with pytest.raises(ValueError, match="panel\\(s\\) inconnu"):
+    with pytest.raises(ValueError, match=r"unknown panel\(s\)"):
         profiler.normalize_panels(["db", "doctrine"])
 
 
@@ -402,7 +402,7 @@ def test_collect_without_panels_probes_token_only(mock, client):
 
 
 def test_collect_rejects_unknown_panel_before_fetch(mock, client):
-    with pytest.raises(ValueError, match=r"panel\(s\) inconnu"):
+    with pytest.raises(ValueError, match=r"unknown panel\(s\)"):
         profiler.collect_profiler_report(
             client,
             HIT,
@@ -460,7 +460,7 @@ def test_collect_rejects_cross_origin_link_before_fetch(mock, client):
 
     #: le refus est une erreur explicite nommant l'origine, pas un fetch qui
     #: échouerait silencieusement
-    with pytest.raises(ValueError, match="origine refusée"):
+    with pytest.raises(ValueError, match="origin rejected"):
         profiler.collect_profiler_report(client, hit, context=PROFILER_CONTEXT, panels=["db"])
 
     #: aucune commande n'est partie vers le navigateur: le rejet précède
