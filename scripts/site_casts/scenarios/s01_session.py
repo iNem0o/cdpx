@@ -1,4 +1,4 @@
-"""Session supervisée: identité triple, autorité, teardown."""
+"""Supervised session: identity triple, authority, teardown."""
 
 from __future__ import annotations
 
@@ -6,12 +6,13 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario
 
 SCENARIO = Scenario(
     id="session",
-    title="cdpx — la session supervisée : un Chrome jetable, une identité, un teardown",
+    title="cdpx — the supervised session: a disposable Chrome, one identity, one teardown",
     height=16,
     manage_session=False,
     steps=(
         Comment(
-            "une session = un Chrome dédié au run : profil neuf, loopback, origines allowlistées"
+            "a session = a Chrome dedicated to the run: fresh profile, loopback, "
+            "allowlisted origins"
         ),
         Cmd(
             argv=(
@@ -35,15 +36,15 @@ SCENARIO = Scenario(
             timeout=120.0,
         ),
         Comment(
-            "la triple identité (session, run, target) est installée — chaque commande la vérifie"
+            "the identity triple (session, run, target) is installed — every command checks it"
         ),
         Cmd(argv=("session", "status"), expect=('"run_id":"demo"', '"authority":"privileged"')),
-        Comment("jamais votre Chrome personnel : on inspecte le navigateur réellement attribué"),
+        Comment("never your personal Chrome: we inspect the browser actually assigned"),
         Cmd(argv=("version",), expect=('"Browser":"Chrome/',)),
-        Comment("tabs list vérifie l'origine réelle du tab attribué — il faut d'abord y naviguer"),
+        Comment("tabs list checks the assigned tab's real origin — you must navigate there first"),
         Cmd(argv=("goto", "{base}/index.html"), expect=('"ok":true',)),
         Cmd(argv=("tabs", "list"), expect=('"count":1',)),
-        Comment("à l'arrêt, le superviseur détruit profil, artefacts et processus"),
+        Comment("on stop, the supervisor destroys the profile, artifacts and processes"),
         Cmd(argv=("session", "stop"), expect=('"run_id":"demo"', '"stopped":true')),
     ),
 )

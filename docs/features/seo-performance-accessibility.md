@@ -122,7 +122,7 @@ Specific options:
 # Auditer une fiche produit (navigation puis audit du DOM rendu)
 cdpx seo https://www.exemple.fr/produit-42
 
-# Auditer la page courante, sans navigation (état post-interaction)
+# Audit the current page, without navigating (post-interaction state)
 cdpx seo
 
 # Lecture humaine

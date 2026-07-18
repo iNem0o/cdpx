@@ -1,34 +1,34 @@
 {
   "docs": {
-    "files": 6,
-    "lines": 10
+    "files": 1,
+    "lines": 1
   },
   "fixtures": {
-    "files": 13,
-    "lines": 43
+    "files": 0,
+    "lines": 0
   },
   "meta": {
-    "files": 5,
-    "lines": 34
+    "files": 0,
+    "lines": 0
   },
   "root-docs": {
     "files": 0,
     "lines": 0
   },
   "scripts": {
-    "files": 17,
-    "lines": 98
+    "files": 0,
+    "lines": 0
   },
   "site": {
-    "files": 2,
-    "lines": 279
+    "files": 0,
+    "lines": 0
   },
   "src": {
     "files": 0,
     "lines": 0
   },
   "tests": {
-    "files": 6,
-    "lines": 21
+    "files": 5,
+    "lines": 17
   }
 }

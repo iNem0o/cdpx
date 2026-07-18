@@ -118,9 +118,16 @@ translation commits (never mixed with a refactor), exact ratchet
       switched to `@env:NAME` everywhere; the cockpit UI strings ("Read
       first", "Content not embedded", "FAILED" verdict) aligned with the
       e2e and unit assertions.
-- [ ] Phase 4 — test intention docstrings, in waves.
-- [ ] Phase 5 — regenerate the artifacts (casts via `make site-casts`,
-      proof, homepage) and aim for a ratchet at 0.
+- [x] Phase 4 — test intention docstrings, in waves (annotation standard
+      intact, `test_intent.py` frozen witnesses translated at constant
+      line count, GitHub templates and their pins included).
+- [x] Phase 5 — reference site and Symfony app fixtures with their pinned
+      assertions, site_casts scripts with their `expect` patterns realigned
+      to the English CLI, homepage, Makefile/compose/workflow comments,
+      casts re-recorded via `make site-casts`. The ratchet floor is a
+      handful of deliberate test lines: removed-contract guards (the
+      hunted phrases stay French by design), accented-anchor fixtures in
+      `test_markdown.py`, and the Unicode datum "Léo".
 
 ## Ongoing technical debt
 

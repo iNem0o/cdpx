@@ -215,7 +215,7 @@ cdpx dom-diff -- click "#offcanvas-cart"
 # Diff entre la page courante et une autre route (lecture pure)
 cdpx dom-diff -- goto http://127.0.0.1:8000/panier
 
-# La saisie déclenche-t-elle l'autocomplétion ?
+# Does typing trigger the autocomplete?
 cdpx dom-diff -- type "#recherche" "chaussures trail" --clear
 ```
 

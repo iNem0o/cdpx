@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cdpx — le Chrome de dev devient scriptable, pour vous et vos agents</title>
-<meta name="description" content="cdpx expose des primitives Chrome DevTools Protocol en CLI. Six familles d'usage — voir, mesurer, auditer, reproduire, prouver, verrouiller — pour les devs front, back Symfony, QA, DevOps et product owners, en agentique, en review, en CI et en monitoring.">
+<title>cdpx — the dev Chrome browser becomes scriptable, for you and your agents</title>
+<meta name="description" content="cdpx exposes Chrome DevTools Protocol primitives as a CLI. Six usage families — see, measure, audit, reproduce, prove, lock down — for front-end devs, Symfony backend devs, QA, DevOps and product owners, in agentic dev, in review, in CI and in monitoring.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3/dist/bundle/asciinema-player.min.css">
 <style>
   :root {
@@ -64,7 +64,7 @@
   nav.links a { color: var(--text-dim); font-size: 14px; }
   nav.links a:hover { color: var(--text); text-decoration: none; }
 
-  /* ---- hero : un écran, pitch et terminal côte à côte ---- */
+  /* ---- hero: one screen, pitch and terminal side by side ---- */
   .hero { padding: 56px 0 48px; }
   .hero .cols {
     display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
@@ -174,7 +174,7 @@
   section h2 { font-size: 26px; margin: 6px 0 8px; letter-spacing: -0.01em; }
   section p.sub { color: var(--text-dim); margin: 0 0 28px; max-width: 52em; }
 
-  /* ---- filtre métiers ---- */
+  /* ---- persona filter ---- */
   .personas {
     display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
     margin: 0 0 26px;
@@ -234,7 +234,7 @@
     background: rgba(90, 200, 224, 0.06);
   }
 
-  /* ---- recettes (anciens usecases, repliés) ---- */
+  /* ---- recipes (former use cases, collapsed) ---- */
   .recettes { margin: 8px 0 14px; display: flex; flex-direction: column; gap: 8px; }
   .recette { border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-raised); }
   .recette summary {
@@ -312,7 +312,7 @@
   .cmd-cast .cast-note { margin-bottom: 4px; }
   .cmd-more { font-family: var(--mono); font-size: 12px; margin: 8px 0 0; }
 
-  /* ---- pourquoi / sécurité ---- */
+  /* ---- why / security ---- */
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
   @media (max-width: 940px) { .two-col { grid-template-columns: 1fr; } }
   .arg-list { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -351,7 +351,7 @@
   footer .fine { margin-top: 36px; font-size: 13px; }
 </style>
 <noscript><style>
-  /* sans JS : tout le contenu reste lisible, empilé */
+  /* without JS: all content stays readable, stacked */
   .fam-panel { display: block; }
   .fam-panel + .fam-panel { border-top: 1px dashed var(--border); margin-top: 32px; padding-top: 32px; }
   .fam-rail, .personas { display: none; }
@@ -363,10 +363,10 @@
   <div class="wrap">
     <span class="brand">cdpx<span class="cursor">▮</span></span>
     <nav class="links">
-      <a href="#familles">Familles d'usage</a>
-      <a href="#commandes">Commandes</a>
-      <a href="#pourquoi">Pourquoi cdpx</a>
-      <a href="#securite">Sécurité</a>
+      <a href="#familles">Usage families</a>
+      <a href="#commandes">Commands</a>
+      <a href="#why">Why cdpx</a>
+      <a href="#securite">Security</a>
       <a href="#installation">Installation</a>
       <a href="https://github.com/inem0o/cdpx">GitHub</a>
     </nav>
@@ -377,32 +377,32 @@
   <div class="hero">
     <div class="wrap cols">
       <div>
-        <h1>Votre agent code dans un navigateur qu'il ne voit pas. <em>cdpx lui donne des yeux — et à vous, des preuves.</em></h1>
+        <h1>Your agent codes in a browser it cannot see. <em>cdpx gives it eyes — and gives you proof.</em></h1>
         <p class="lede">
-          cdpx expose des primitives Chrome DevTools Protocol en ligne de commande.
-          Console, réseau, profiler Symfony, Core Vitals, SEO du DOM rendu, parcours
-          utilisateurs&nbsp;: tout devient un JSON assertable, rejouable par un humain et
-          versionnable — pendant le dev agentique, en review, en CI et en monitoring
-          anti-régression.
+          cdpx exposes Chrome DevTools Protocol primitives as a command line.
+          Console, network, Symfony profiler, Core Vitals, SEO of the rendered DOM,
+          user journeys: it all becomes assertable JSON, replayable by a human and
+          version-controlled — during agentic dev, in review, in CI and in
+          anti-regression monitoring.
         </p>
         <div class="badges">
           <span class="badge">MIT</span>
           <span class="badge">Python ≥ 3.11</span>
-          <span class="badge">31 commandes</span>
+          <span class="badge">31 commands</span>
           <span class="badge">stdout = JSON · exit 0/1/2</span>
-          <span class="badge live">12 tutoriels enregistrés sur Chrome réel</span>
-          <span class="badge beta">beta pré-1.0</span>
+          <span class="badge live">12 tutorials recorded on real Chrome</span>
+          <span class="badge beta">pre-1.0 beta</span>
         </div>
         <div class="cta">
-          <a class="btn primary" href="https://github.com/inem0o/cdpx">Voir sur GitHub</a>
-          <a class="btn ghost" href="#familles">Explorer les familles d'usage</a>
+          <a class="btn primary" href="https://github.com/inem0o/cdpx">View on GitHub</a>
+          <a class="btn ghost" href="#familles">Explore the usage families</a>
         </div>
       </div>
       <div class="term">
         <div class="term-bar">
           <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          <span class="title">session supervisée — profil Chrome jetable, loopback uniquement</span>
-          <span class="tag real">sortie réelle · site témoin</span>
+          <span class="title">supervised session — disposable Chrome profile, loopback only</span>
+          <span class="tag real">real output · reference site</span>
         </div>
         <pre><code><span class="p">$</span> <span class="cmd">cdpx goto http://127.0.0.1:8899/form.html</span>
 <span class="out">{"url":"http://127.0.0.1:8899/form.html","errorText":null,"waited":"load","ok":true,"elapsed_ms":23.0,<span class="env">"_cdpx":{…}</span>}</span>
@@ -418,67 +418,67 @@
 
   <section id="familles">
     <div class="wrap">
-      <span class="kicker">Six familles · un catalogue</span>
-      <h2>Une intention par famille, ses commandes rangées dessous</h2>
+      <span class="kicker">Six families · one catalog</span>
+      <h2>One intent per family, its commands sorted below</h2>
       <p class="sub">
-        Le prototype d'origine donnait des <strong>mains</strong> à l'agent&nbsp;: voir
-        la page, naviguer, exécuter du JS. cdpx est né du constat qu'il lui manquait
-        des <strong>sens</strong> et des <strong>instruments de mesure</strong> — puis
-        sont venus les preuves et les garde-fous (<a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">docs/CONTEXT.md</a>).
-        Chaque famille arrive avec son tutoriel enregistré sur Chrome réel et ses
-        recettes&nbsp;; le socle transversal — session supervisée, navigation, lecture,
-        interaction — vit dans <a href="#commandes">la grille des 31 commandes</a>.
+        The original prototype gave the agent <strong>hands</strong>: seeing the
+        page, navigating, running JS. cdpx was born from the realization that it
+        lacked <strong>senses</strong> and <strong>measuring instruments</strong> —
+        then came proof and guardrails (<a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">docs/CONTEXT.md</a>).
+        Each family ships with its tutorial recorded on real Chrome and its
+        recipes; the cross-cutting foundation — supervised session, navigation, reading,
+        interaction — lives in <a href="#commandes">the grid of 31 commands</a>.
       </p>
 
-      <div class="personas" role="group" aria-label="Filtrer les familles par métier" id="personas">
-        <span class="lbl">Vous êtes&nbsp;:</span>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="voir">dev front</button>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="mesurer">dev back Symfony</button>
+      <div class="personas" role="group" aria-label="Filter families by role" id="personas">
+        <span class="lbl">You are:</span>
+        <button class="persona-chip" type="button" aria-pressed="false" data-fams="voir">front-end dev</button>
+        <button class="persona-chip" type="button" aria-pressed="false" data-fams="mesurer">Symfony backend dev</button>
         <button class="persona-chip" type="button" aria-pressed="false" data-fams="reproduire,prouver">QA</button>
         <button class="persona-chip" type="button" aria-pressed="false" data-fams="verrouiller,prouver">DevOps / lead</button>
         <button class="persona-chip" type="button" aria-pressed="false" data-fams="auditer">product / SEO</button>
       </div>
 
       <div class="explorer">
-        <div class="fam-rail" role="tablist" aria-label="Familles d'usage">
-          <button class="fam-tab" type="button" role="tab" id="tab-voir" aria-selected="true" aria-controls="voir"><span class="n">01 · Voir</span><span class="t">Donner des sens à l'agent</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-mesurer" aria-selected="false" aria-controls="mesurer"><span class="n">02 · Mesurer</span><span class="t">Objectiver au lieu de constater</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-auditer" aria-selected="false" aria-controls="auditer"><span class="n">03 · Auditer</span><span class="t">Le DOM que Googlebot indexe</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-reproduire" aria-selected="false" aria-controls="reproduire"><span class="n">04 · Reproduire</span><span class="t">Pannes, mobiles, états</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-prouver" aria-selected="false" aria-controls="prouver"><span class="n">05 · Prouver</span><span class="t">La confiance se rejoue</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-verrouiller" aria-selected="false" aria-controls="verrouiller"><span class="n">06 · Verrouiller</span><span class="t">Portes de merge, rondes de nuit</span></button>
+        <div class="fam-rail" role="tablist" aria-label="Usage families">
+          <button class="fam-tab" type="button" role="tab" id="tab-voir" aria-selected="true" aria-controls="voir"><span class="n">01 · See</span><span class="t">Give the agent senses</span></button>
+          <button class="fam-tab" type="button" role="tab" id="tab-mesurer" aria-selected="false" aria-controls="mesurer"><span class="n">02 · Measure</span><span class="t">Objectify instead of assume</span></button>
+          <button class="fam-tab" type="button" role="tab" id="tab-auditer" aria-selected="false" aria-controls="auditer"><span class="n">03 · Audit</span><span class="t">The DOM that Googlebot indexes</span></button>
+          <button class="fam-tab" type="button" role="tab" id="tab-reproduire" aria-selected="false" aria-controls="reproduire"><span class="n">04 · Reproduce</span><span class="t">Outages, mobile, state</span></button>
+          <button class="fam-tab" type="button" role="tab" id="tab-prouver" aria-selected="false" aria-controls="prouver"><span class="n">05 · Prove</span><span class="t">Trust gets replayed</span></button>
+          <button class="fam-tab" type="button" role="tab" id="tab-verrouiller" aria-selected="false" aria-controls="verrouiller"><span class="n">06 · Lock down</span><span class="t">Merge gates, night watches</span></button>
         </div>
 
         <div class="fam-panels">
 
           <!-- ============================ F1 VOIR ============================ -->
           <article class="fam-panel active" id="voir" role="tabpanel" aria-labelledby="tab-voir">
-            <span class="kicker">Famille 01 · Voir</span>
-            <h3>Donner des sens à l'agent — et au dev qui le pilote</h3>
-            <div class="chips"><span class="chip">dev front</span><span class="chip">agentique</span><span class="chip">dev quotidien</span></div>
+            <span class="kicker">Family 01 · See</span>
+            <h3>Give the agent senses — and the dev steering it</h3>
+            <div class="chips"><span class="chip">front-end dev</span><span class="chip">agentic</span><span class="chip">daily dev</span></div>
             <p class="intent">
-              Un agent qui ne lit ni la console JS ni les requêtes en échec debugge un
-              front <strong>à l'aveugle</strong>. Console et réseau sont les deux boucles de
-              feedback du dev front&nbsp;: ce sont les primitives les plus rentables de tout
-              l'outil, complétées par la capture de pixels et la vision sémantique de
-              l'arbre d'accessibilité.
+              An agent that reads neither the JS console nor the failed requests
+              debugs a front end <strong>blind</strong>. Console and network are the
+              two feedback loops of front-end dev: they are the most cost-effective
+              primitives in the whole tool, complemented by pixel capture and the
+              semantic view of the accessibility tree.
             </p>
             <div class="fam-cmds"><code>console</code><code>network</code><code>metrics</code><code>screenshot</code><code>pdf</code><code>a11y</code></div>
 
             <div class="cast" data-cast="assets/casts/observe.cast"></div>
-            <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/observe.cast">source du cast</a>)&nbsp;: console, réseau, métriques runtime.</p>
+            <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/observe.cast">cast source</a>): console, network, runtime metrics.</p>
 
             <div class="recettes">
               <details class="recette">
-                <summary>«&nbsp;C'est corrigé&nbsp;» — sauf que la page est cassée <span class="gain">· l'exception, la XHR en 500 et le clic mort deviennent trois JSON</span></summary>
+                <summary>"It's fixed" — except the page is broken <span class="gain">· the exception, the 500 XHR and the dead click become three JSON objects</span></summary>
                 <div class="body">
                   <p class="pain">
-                    L'agent annonce que c'est réglé&nbsp;; vous découvrez le contraire en ouvrant
-                    le navigateur. Alors vous devenez copiste&nbsp;: capture d'écran collée dans
-                    le chat, stack retranscrite à la main, onglet Réseau décrit avec des mots.
+                    The agent announces it's fixed; you discover otherwise by opening
+                    the browser. So you become a scribe: a screenshot pasted into
+                    the chat, a stack trace transcribed by hand, the Network tab described in words.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">l'agent constate lui-même</span><span class="tag doc">exemple des fiches</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the agent sees it for itself</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx console --duration 3</span>
 <span class="out">{"entries":[{"kind":"console","type":"error","text":<span class="bad">"TypeError: cart is undefined"</span>,"ts":1751700000123.4}],"count":1,"errors":1,"duration":3.0}</span>
 <span class="p">$</span> <span class="cmd">cdpx network http://demo.test/checkout</span>
@@ -486,335 +486,338 @@
 <span class="p">$</span> <span class="cmd">cdpx dom-diff -- click "#offcanvas-cart"</span>
 <span class="out">{"action":["click","#offcanvas-cart"],"changed":<span class="bad">false</span>,"diff":[],"lines":0}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> l'exception, la XHR
-                  en 500 et le clic mort sont trois JSON que l'agent lit, corrèle et re-vérifie
-                  après son fix. La boucle «&nbsp;corrige, puis prouve&nbsp;» ne passe plus par
-                  vos yeux.</p>
+                  <p class="payoff"><strong>What changes:</strong> the exception, the
+                  500 XHR and the dead click are three JSON objects that the agent reads,
+                  correlates and re-checks after its fix. The "fix, then prove" loop no
+                  longer runs through your eyes.</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>Lire la page comme un lecteur d'écran <span class="gain">· rôles et noms, sans le bruit du HTML</span></summary>
+                <summary>Reading the page like a screen reader <span class="gain">· roles and names, without the HTML noise</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Le HTML complet coûte cher à lire — pour un agent comme pour un humain.
-                    L'arbre d'accessibilité est la vision <strong>sémantique</strong> de la
-                    page&nbsp;: rôles et noms, sans le bruit. Un bouton sans nom accessible y
-                    disparaît — c'est précisément le signal recherché.
+                    Full HTML is expensive to read — for an agent as much as for a human.
+                    The accessibility tree is the <strong>semantic</strong> view of the
+                    page: roles and names, without the noise. A button with no accessible
+                    name disappears from it — which is exactly the signal being sought.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">la page en rôles et noms</span><span class="tag real">sortie réelle · site témoin</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the page as roles and names</span><span class="tag real">real output · reference site</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx a11y</span>
-<span class="out">{"nodes":[{"role":"RootWebArea","name":"Fixture: formulaire","ignored":false},{"role":"heading","name":"Formulaire","ignored":false},…,{"role":"textbox","name":"Nom","ignored":false},…,{"role":"textbox","name":"Email","ignored":false},…,{"role":"button","name":<span class="good">"Envoyer"</span>,"ignored":false},…]}</span></code></pre>
+<span class="out">{"nodes":[{"role":"RootWebArea","name":"Fixture: form","ignored":false},{"role":"heading","name":"Form","ignored":false},…,{"role":"textbox","name":"Name","ignored":false},…,{"role":"textbox","name":"Email","ignored":false},…,{"role":"button","name":<span class="good">"Submit"</span>,"ignored":false},…]}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> l'agent vérifie
-                  libellés, structure de titres et zones de repère sans parser le HTML —
-                  et les manques d'accessibilité deviennent visibles au même prix.</p>
+                  <p class="payoff"><strong>What changes:</strong> the agent checks
+                  labels, heading structure and landmark regions without parsing the HTML —
+                  and accessibility gaps become visible at the same cost.</p>
                   <div class="cast" data-cast="assets/casts/capture.cast"></div>
-                  <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/capture.cast">source du cast</a>)&nbsp;: screenshot ciblé, pleine page JPEG, PDF, puis la page entière en rôles et noms accessibles.</p>
+                  <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/capture.cast">cast source</a>): targeted screenshot, full-page JPEG, PDF, then the whole page as accessible roles and names.</p>
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/browser-capture-observability.md">fiche observabilité &amp; capture →</a></p>
+            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/browser-capture-observability.md">observability &amp; capture sheet →</a></p>
           </article>
 
           <!-- ============================ F2 MESURER ============================ -->
           <article class="fam-panel" id="mesurer" role="tabpanel" aria-labelledby="tab-mesurer">
-            <span class="kicker">Famille 02 · Mesurer</span>
-            <h3>Objectiver au lieu de constater</h3>
-            <div class="chips"><span class="chip">dev back Symfony</span><span class="chip">dev front</span><span class="chip">perf</span></div>
+            <span class="kicker">Family 02 · Measure</span>
+            <h3>Objectify instead of assume</h3>
+            <div class="chips"><span class="chip">Symfony backend dev</span><span class="chip">front-end dev</span><span class="chip">perf</span></div>
             <p class="intent">
-              «&nbsp;C'est lent&nbsp;», «&nbsp;ça a l'air mieux&nbsp;»&nbsp;: tant que la
-              performance est une impression, elle se discute. cdpx transforme le profiler
-              Symfony, les Core Vitals et la couverture de code en <strong>nombres</strong> —
-              et un nombre se compare, se suit, se refuse.
+              "It's slow", "it looks better": as long as performance is an
+              impression, it's up for debate. cdpx turns the Symfony profiler, Core
+              Vitals and code coverage into <strong>numbers</strong> — and a number
+              can be compared, tracked, refused.
             </p>
             <div class="fam-cmds"><code>profiler</code><code>vitals</code><code>coverage</code></div>
 
             <div class="cast" data-cast="assets/casts/profiler.cast"></div>
-            <p class="cast-note">Démo enregistrée — vraie app Symfony témoin du dépôt (<a href="assets/casts/profiler.cast">source du cast</a>)&nbsp;: la même page en variante saine (3 requêtes, 0 doublon) puis N+1 (6 requêtes, 4 doublons, SQL à l'appui), et le one-liner <code>jq -e</code> qui refuse le merge.</p>
+            <p class="cast-note">Recorded demo — real repository reference Symfony app (<a href="assets/casts/profiler.cast">cast source</a>): the same page in a healthy variant (3 queries, 0 duplicates) then N+1 (6 queries, 4 duplicates, SQL included), and the <code>jq -e</code> one-liner that refuses the merge.</p>
 
             <div class="recettes">
               <details class="recette">
-                <summary>Le N+1 Doctrine attrapé à la fiche produit, pas en prod <span class="gain">· 6 requêtes dont 4 duplicats&nbsp;: un nombre, plus une intuition</span></summary>
+                <summary>The Doctrine N+1 caught on the product page, not in prod <span class="gain">· 6 queries including 4 duplicates: a number, not a hunch</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Le WebProfiler a la réponse depuis le début, mais il vit dans un
-                    navigateur&nbsp;: personne ne clique neuf panels à chaque itération, et un
-                    agent ne peut pas le lire du tout.
+                    The WebProfiler has had the answer all along, but it lives in a
+                    browser: nobody clicks through nine panels on every iteration, and an
+                    agent can't read it at all.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">le profiler devient une donnée</span><span class="tag doc">exemple des fiches</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the profiler becomes data</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/produit/42 --panels db,cache</span>
 <span class="out">{"token_present":true,"status":200,"panels":{"db":{"available":true,"queries":6,"statements":2,"duplicates":<span class="bad">4</span>,"time_ms":1.76,…},"cache":{"available":true,"calls":4,"hits":3,"misses":1,…}}}</span>
-<span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/produit/42 --panels db | jq -e '.panels.db.duplicates == 0' || echo "N+1 détecté"</span>
-<span class="bad">N+1 détecté</span></code></pre>
+<span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/produit/42 --panels db | jq -e '.panels.db.duplicates == 0' || echo "N+1 detected"</span>
+<span class="bad">N+1 detected</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> 6 requêtes dont
-                  4 duplicats — le N+1 est un nombre, plus une intuition. Le même one-liner,
-                  posé en CI, empêche le prochain (voir <a href="#verrouiller">famille 06</a>).</p>
+                  <p class="payoff"><strong>What changes:</strong> 6 queries including
+                  4 duplicates — the N+1 is a number, not a hunch. The same one-liner,
+                  dropped into CI, prevents the next one (see <a href="#verrouiller">family 06</a>).</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>Core Vitals sur interaction réelle, code mort compris <span class="gain">· l'INP vient d'un vrai clic dispatché, pas d'une estimation</span></summary>
+                <summary>Core Vitals on a real interaction, dead code included <span class="gain">· the INP comes from a real dispatched click, not an estimate</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Les outils lab mesurent le chargement d'une URL froide&nbsp;; votre INP se
-                    joue sur le clic «&nbsp;Ajouter au panier&nbsp;». Et la régression LCP se
-                    découvre dans Search Console, trois semaines trop tard.
+                    Lab tools measure a cold URL's load; your INP plays out on the
+                    "Add to cart" click. And the LCP regression turns up in Search
+                    Console, three weeks too late.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">LCP, CLS, INP — puis le poids du code jamais exécuté</span><span class="tag real">sortie réelle · site témoin</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">LCP, CLS, INP — then the weight of code that never runs</span><span class="tag real">real output · reference site</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx vitals http://127.0.0.1:8899/vitals.html --click "#inp-button" --settle 1.0</span>
 <span class="out">{"url":"http://127.0.0.1:8899/vitals.html","lcp":16,"cls":0,"inp":<span class="good">24</span>,<span class="env">"_cdpx":{…}</span>}</span>
 <span class="p">$</span> <span class="cmd">cdpx coverage http://127.0.0.1:8899/coverage.html</span>
 <span class="out">{"url":"http://127.0.0.1:8899/coverage.html","files":[{"url":"http://127.0.0.1:8899/coverage.js","functions":3,"used_ranges":2,"total_bytes":163,"used_bytes":107,"unused_bytes":<span class="bad">56</span>,"coverage_percent":65.6}],"count":1,"js":{"total_bytes":163,"used_bytes":107,"unused_bytes":56},"css":{"rules":1,"used":1,"unused":0},<span class="env">"_cdpx":{…}</span>}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> l'INP de 24&nbsp;ms
-                  vient d'un vrai clic dispatché par le domaine Input, pas d'une estimation.
-                  LCP, CLS, INP et octets morts se mesurent sur votre machine, à chaque
-                  branche.</p>
+                  <p class="payoff"><strong>What changes:</strong> the 24&nbsp;ms INP
+                  comes from a real click dispatched via the Input domain, not an estimate.
+                  LCP, CLS, INP and dead bytes get measured on your machine, on every
+                  branch.</p>
                   <div class="cast" data-cast="assets/casts/perf.cast"></div>
-                  <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/perf.cast">source du cast</a>)&nbsp;: vitals sur clic réel, couverture JS/CSS, budget perf en une ligne.</p>
+                  <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/perf.cast">cast source</a>): vitals on a real click, JS/CSS coverage, perf budget in one line.</p>
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">fiche performance →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dev-profiler-diff.md">fiche profiler →</a></p>
+            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">performance sheet →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dev-profiler-diff.md">profiler sheet →</a></p>
           </article>
 
           <!-- ============================ F3 AUDITER ============================ -->
           <article class="fam-panel" id="auditer" role="tabpanel" aria-labelledby="tab-auditer">
-            <span class="kicker">Famille 03 · Auditer</span>
-            <h3>Auditer le rendu — celui que Googlebot indexe</h3>
+            <span class="kicker">Family 03 · Audit</span>
+            <h3>Auditing the render — the one Googlebot indexes</h3>
             <div class="chips"><span class="chip">product / SEO</span><span class="chip">e-commerce</span><span class="chip">migrations</span></div>
             <p class="intent">
-              Pour un audit SEO, ce qui compte est le DOM final vu par le rendering de
-              Googlebot, <strong>pas le HTML servi</strong>. curl et grep s'arrêtent à la
-              source&nbsp;; cdpx extrait le contrat SEO du DOM rendu en un appel&nbsp;:
-              title, metas, canonical, hreflang, JSON-LD, h1, alt, liens — plus des
-              findings prêts à asserter.
+              For an SEO audit, what matters is the final DOM as seen by Googlebot's
+              rendering, <strong>not the served HTML</strong>. curl and grep stop at
+              the source; cdpx extracts the SEO contract from the rendered DOM in one
+              call: title, metas, canonical, hreflang, JSON-LD, h1, alt, links — plus
+              findings ready to assert.
             </p>
             <div class="fam-cmds"><code>seo</code></div>
 
             <div class="cast" data-cast="assets/casts/seo.cast"></div>
-            <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/seo.cast">source du cast</a>)&nbsp;: contrat SEO complet en un appel, findings vides sur la page conforme, nommés sur la page cassée.</p>
+            <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/seo.cast">cast source</a>): full SEO contract in one call, empty findings on the compliant page, named findings on the broken one.</p>
 
             <div class="recettes">
               <details class="recette">
-                <summary>Le contrat SEO, diffable entre staging et prod <span class="gain">· le canonical qui disparaît se voit à la PR, pas dans Search Console</span></summary>
+                <summary>The SEO contract, diffable between staging and prod <span class="gain">· a vanishing canonical shows up in the PR, not in Search Console</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Les canonicals et hreflang cassent silencieusement pendant une refonte,
-                    et l'audit d'agence arrive après la chute de trafic.
+                    Canonicals and hreflang break silently during a redesign, and the
+                    agency audit arrives after the traffic drop.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">le SEO devient un objet comparable</span><span class="tag doc">exemple des fiches</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">SEO becomes a comparable object</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx seo https://staging.exemple.fr/produit-42 > staging.json</span>
 <span class="p">$</span> <span class="cmd">cdpx seo https://www.exemple.fr/produit-42 > prod.json</span>
 <span class="p">$</span> <span class="cmd">diff &lt;(jq -S '{title,canonical,h1,robots}' staging.json) &lt;(jq -S '{title,canonical,h1,robots}' prod.json)</span>
 <span class="bad">&lt;   "canonical": null,</span>
 <span class="good">&gt;   "canonical": "https://www.exemple.fr/produit-42",</span>
 <span class="p">$</span> <span class="cmd">jq .findings staging.json</span>
-<span class="out">["2 image(s) sans alt"]</span></code></pre>
+<span class="out">["2 image(s) without alt"]</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> le contrat SEO est
-                  un JSON versionnable, comparé avant et après release — le canonical qui
-                  disparaît se voit à la PR, pas dans Search Console.</p>
+                  <p class="payoff"><strong>What changes:</strong> the SEO contract is a
+                  version-controlled JSON, compared before and after release — a
+                  vanishing canonical shows up in the PR, not in Search Console.</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>Auditer l'état après interaction, pas seulement l'URL <span class="gain">· les états intermédiaires d'un parcours s'auditent comme des pages</span></summary>
+                <summary>Auditing state after interaction, not just the URL <span class="gain">· the intermediate states of a journey get audited like pages</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Une SPA, une variante sélectionnée, un panier ouvert&nbsp;: l'état qui
-                    compte n'a parfois pas d'URL. <code>cdpx seo</code> sans argument audite
-                    la page <strong>actuellement affichée</strong>, quel que soit le chemin qui
-                    y a mené.
+                    An SPA, a selected variant, an open cart: the state that matters
+                    sometimes has no URL. <code>cdpx seo</code> with no argument audits
+                    the page <strong>currently displayed</strong>, whatever the path
+                    that led there.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">l'audit suit le parcours</span><span class="tag doc">exemple des fiches</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the audit follows the journey</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx goto http://shop.localhost/collection/robes</span>
 <span class="p">$</span> <span class="cmd">cdpx click "#variante-taille-38"</span>
 <span class="p">$</span> <span class="cmd">cdpx seo</span>
-<span class="c"># audite le DOM rendu de l'état courant — title, canonical, JSON-LD après le routage côté client</span></code></pre>
+<span class="c"># audits the rendered DOM of the current state — title, canonical, JSON-LD after client-side routing</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> les états
-                  intermédiaires d'un parcours e-commerce s'auditent comme des pages — c'est
-                  là que vivent les bugs SEO des SPA.</p>
+                  <p class="payoff"><strong>What changes:</strong> the intermediate
+                  states of an e-commerce journey get audited like pages — that's
+                  where SPA SEO bugs live.</p>
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">fiche SEO →</a></p>
+            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">SEO sheet →</a></p>
           </article>
 
           <!-- ============================ F4 REPRODUIRE ============================ -->
           <article class="fam-panel" id="reproduire" role="tabpanel" aria-labelledby="tab-reproduire">
-            <span class="kicker">Famille 04 · Reproduire</span>
-            <h3>Reproduire l'irreproductible&nbsp;: pannes, mobiles, états</h3>
-            <div class="chips"><span class="chip">QA</span><span class="chip">support</span><span class="chip">dev front</span></div>
+            <span class="kicker">Family 04 · Reproduce</span>
+            <h3>Reproducing the irreproducible: outages, mobile, state</h3>
+            <div class="chips"><span class="chip">QA</span><span class="chip">support</span><span class="chip">front-end dev</span></div>
             <p class="intent">
-              «&nbsp;Ça ne le fait que chez le client, sur mobile, quand l'API rame.&nbsp;»
-              Le bug le plus cher est celui qu'on ne sait pas reproduire. cdpx maîtrise les
-              conditions&nbsp;: interception réseau, émulation d'appareil, état de session
-              préparé — le tout scripté, donc rejouable à l'identique.
+              "It only happens for the customer, on mobile, when the API lags."
+              The most expensive bug is the one you can't reproduce. cdpx controls
+              the conditions: network interception, device emulation, prepared
+              session state — all scripted, so it replays identically.
             </p>
             <div class="fam-cmds"><code>intercept</code><code>emulate</code><code>cookies</code><code>storage</code></div>
 
             <div class="cast" data-cast="assets/casts/resilience.cast"></div>
-            <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/resilience.cast">source du cast</a>)&nbsp;: panne d'API simulée, fallback lu dans le DOM, émulation mobile et réseau 3G lent.</p>
+            <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/resilience.cast">cast source</a>): simulated API outage, fallback read from the DOM, mobile emulation and slow 3G network.</p>
 
             <div class="recettes">
               <details class="recette">
-                <summary>Que devient la page quand l'API paie tombe&nbsp;? <span class="gain">· le comportement en panne se lit dans le DOM, sans toucher à l'infra</span></summary>
+                <summary>What happens to the page when the payment API goes down? <span class="gain">· outage behavior reads straight from the DOM, without touching the infra</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Le fallback d'erreur n'est jamais testé parce que «&nbsp;on ne va quand même
-                    pas éteindre l'API&nbsp;». Une règle d'interception simule la panne, la
-                    page révèle son vrai comportement.
+                    The error fallback is never tested because "we're not going to turn
+                    off the API just to check." An interception rule simulates the
+                    outage, and the page reveals its real behavior.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">la panne devient un cas de test</span><span class="tag real">sortie réelle · site témoin</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the outage becomes a test case</span><span class="tag real">real output · reference site</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://127.0.0.1:8899/intercept.html</span>
 <span class="out">{"url":"http://127.0.0.1:8899/intercept.html","rules":["*api* => 503"],"hits":[{"url":"http://127.0.0.1:8899/intercept.html","action":"continue"},{"url":"http://127.0.0.1:8899/api/json","action":<span class="bad">"503"</span>},{"url":"http://127.0.0.1:8899/api/status/500","action":<span class="bad">"503"</span>},…],"count":5,"settle":1.0,<span class="env">"_cdpx":{…}</span>}</span>
 <span class="p">$</span> <span class="cmd">cdpx text "#intercept-result"</span>
 <span class="out">{"selector":"#intercept-result","text":"/api/json:503|/api/status/500:503|/api/slow?ms=120:503|/api/echo:503",<span class="env">"_cdpx":{…}</span>}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> le comportement en
-                  panne se lit dans le DOM, en une commande, sans toucher à l'infra. La règle
-                  accepte <code>continue</code>, <code>block</code> ou un statut — de quoi
-                  scénariser les dégradations.</p>
+                  <p class="payoff"><strong>What changes:</strong> outage behavior
+                  reads from the DOM, in one command, without touching the infra. The
+                  rule accepts <code>continue</code>, <code>block</code> or a status —
+                  enough to script degradations.</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>« Sur mobile ça casse » — d'accord, lequel, et prouvez-le <span class="gain">· un préréglage nommé et rejouable au lieu d'une anecdote</span></summary>
+                <summary>"It breaks on mobile" — okay, which one, and prove it <span class="gain">· a named, replayable preset instead of an anecdote</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Le viewport mobile, le réseau lent et le CPU bridé changent le comportement
-                    réel de la page. <code>emulate</code> applique un profil le temps d'une
-                    action, puis tout revient à la normale.
+                    The mobile viewport, the slow network and the throttled CPU change
+                    the page's real behavior. <code>emulate</code> applies a profile for
+                    the duration of one action, then everything returns to normal.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">profil mobile appliqué le temps d'une action</span><span class="tag real">sortie réelle · site témoin</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">mobile profile applied for one action</span><span class="tag real">real output · reference site</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx emulate mobile -- goto http://127.0.0.1:8899/index.html</span>
 <span class="out">{"preset":"mobile","applied":true,"action":{"argv":["goto","http://127.0.0.1:8899/index.html"],"result":{"url":"http://127.0.0.1:8899/index.html","errorText":null,"waited":"load","ok":true,"elapsed_ms":11.8}},<span class="env">"_cdpx":{…}</span>}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> «&nbsp;sur
-                  mobile&nbsp;» devient un préréglage nommé et rejouable — combinez-le avec
-                  <code>screenshot</code>, <code>vitals</code> ou <code>dom-diff</code> pour
-                  transformer l'anecdote en constat.</p>
+                  <p class="payoff"><strong>What changes:</strong> "on mobile" becomes
+                  a named, replayable preset — combine it with <code>screenshot</code>,
+                  <code>vitals</code> or <code>dom-diff</code> to turn the anecdote into
+                  a finding.</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>Préparer l'état d'un scénario sans fuiter une session <span class="gain">· cookies et storage posés en script, valeurs masquées par défaut</span></summary>
+                <summary>Preparing a scenario's state without leaking a session <span class="gain">· cookies and storage set from a script, values redacted by default</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Consentement posé, panier rempli, session connectée&nbsp;: les scénarios
-                    réalistes exigent un état. cdpx le lit et le prépare — cookies et storage —
-                    avec masquage par défaut, parce qu'un agent recopie ses sorties.
+                    Consent given, cart filled, session logged in: realistic scenarios
+                    require state. cdpx reads and prepares it — cookies and storage —
+                    with redaction by default, because an agent copies its outputs
+                    around.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">l'état, sans les valeurs</span><span class="tag real">sortie réelle · site témoin</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the state, without the values</span><span class="tag real">real output · reference site</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx storage</span>
 <span class="out">{"kind":"local","entries":{"cdpx-key":<span class="good">"***"</span>},"count":1,"values_masked":true,<span class="env">"_cdpx":{…}</span>}</span>
 <span class="p">$</span> <span class="cmd">cdpx cookies set --name consent --value-env CONSENT_VALUE --url http://127.0.0.1:8899/</span>
-<span class="c"># la valeur vient de l'environnement, jamais d'argv ni d'un journal</span></code></pre>
+<span class="c"># the value comes from the environment, never from argv or a log</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> l'état se prépare
-                  en script au lieu de se recréer à la main — et les valeurs restent masquées
-                  par défaut, <code>--show-values</code> étant un choix explicite.</p>
+                  <p class="payoff"><strong>What changes:</strong> state is prepared in
+                  a script instead of recreated by hand — and values stay redacted by
+                  default, <code>--show-values</code> being an explicit choice.</p>
                   <div class="cast" data-cast="assets/casts/state.cast"></div>
-                  <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/state.cast">source du cast</a>)&nbsp;: storage et cookies masqués par défaut, cookie posé depuis l'environnement, nettoyage.</p>
+                  <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/state.cast">cast source</a>): storage and cookies redacted by default, cookie set from the environment, cleanup.</p>
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">fiche résilience →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/state-session.md">fiche état &amp; session →</a></p>
+            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">resilience sheet →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/state-session.md">state &amp; session sheet →</a></p>
           </article>
 
           <!-- ============================ F5 PROUVER ============================ -->
           <article class="fam-panel" id="prouver" role="tabpanel" aria-labelledby="tab-prouver">
-            <span class="kicker">Famille 05 · Prouver</span>
-            <h3>La confiance ne se déclare pas, elle se rejoue</h3>
-            <div class="chips"><span class="chip">reviewer / lead</span><span class="chip">QA</span><span class="chip">agentique</span></div>
+            <span class="kicker">Family 05 · Prove</span>
+            <h3>Trust isn't declared, it's replayed</h3>
+            <div class="chips"><span class="chip">reviewer / lead</span><span class="chip">QA</span><span class="chip">agentic</span></div>
             <p class="intent">
-              Reviewer le travail d'un agent — ou d'un collègue — sur la foi d'un
-              «&nbsp;ça marche&nbsp;» ne tient pas. Chaque action cdpx peut être
-              <strong>journalisée, rejouée et vérifiée</strong>&nbsp;: le NDJSON de
-              <code>record</code>, les divergences de <code>replay</code>, les verdicts de
-              <code>scenario</code> constituent la mémoire opposable du run.
+              Reviewing an agent's work — or a colleague's — on the faith of an
+              "it works" doesn't hold up. Every cdpx action can be
+              <strong>logged, replayed and verified</strong>: the NDJSON from
+              <code>record</code>, the divergences from <code>replay</code>, the
+              verdicts from <code>scenario</code> form the run's admissible record.
             </p>
             <div class="fam-cmds"><code>record</code><code>replay</code><code>scenario</code></div>
 
             <div class="cast" data-cast="assets/casts/journey.cast"></div>
-            <p class="cast-note">Démo enregistrée — Chrome réel, site témoin du dépôt (<a href="assets/casts/journey.cast">source du cast</a>)&nbsp;: parcours journalisé, rejoué, puis verdict <code>pass</code> du scénario YAML.</p>
+            <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/journey.cast">cast source</a>): journey logged, replayed, then the <code>pass</code> verdict of the YAML scenario.</p>
 
             <div class="recettes">
               <details class="recette">
-                <summary>Le parcours cliqué une fois devient un test <span class="gain">· la première divergence arrête tout avec un exit 1</span></summary>
+                <summary>The journey clicked once becomes a test <span class="gain">· the first divergence stops everything with exit 1</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Après chaque changement, quelqu'un reclique le checkout à la main — ou
-                    personne ne le fait. Le journal d'un parcours enregistré se rejoue, et la
-                    première divergence arrête tout avec un exit 1.
+                    After every change, someone re-clicks through checkout by hand — or
+                    nobody does. The log of a recorded journey gets replayed, and the
+                    first divergence stops everything with exit 1.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">record → replay → divergence</span><span class="tag doc">exemple des fiches</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">record → replay → divergence</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx record -o parcours.ndjson -- goto http://demo.test/produit-42</span>
 <span class="p">$</span> <span class="cmd">cdpx record -o parcours.ndjson -- click "#acheter"</span>
 <span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay parcours.ndjson</span>
 <span class="out">{"path":"parcours.ndjson","events":3,"played":3,"ok":<span class="good">true</span>}</span>
-<span class="c"># … refonte du template panier …</span>
+<span class="c"># … cart template redesign …</span>
 <span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay parcours.ndjson</span>
-<span class="out">{"path":"parcours.ndjson","events":3,"played":1,"ok":<span class="bad">false</span>,"divergence":"event 1: sélecteur introuvable après 10.0s: #acheter"}</span></code></pre>
+<span class="out">{"path":"parcours.ndjson","events":3,"played":1,"ok":<span class="bad">false</span>,"divergence":"event 1: selector not found after 10.0s: #acheter"}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> l'exploration laisse
-                  un journal rejouable, validé intégralement avant la première action&nbsp;;
-                  les secrets y vivent en référence (<code>@env:NOM</code>), jamais en valeur.</p>
+                  <p class="payoff"><strong>What changes:</strong> exploration leaves
+                  behind a replayable log, validated in full before the first action;
+                  secrets live in it by reference (<code>@env:NAME</code>), never by
+                  value.</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>Le scénario métier avec verdict, assertions et pièces jointes <span class="gain">· un verdict structuré, pas une impression</span></summary>
+                <summary>The business scenario with verdict, assertions and attachments <span class="gain">· a structured verdict, not an impression</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Un parcours critique mérite mieux qu'une suite de commandes&nbsp;: un
-                    scénario YAML nomme ses étapes, pose ses assertions et archive ses preuves
-                    — capture par étape, erreurs console comptées.
+                    A critical journey deserves more than a sequence of commands: a
+                    YAML scenario names its steps, sets its assertions and archives its
+                    proof — a capture per step, console errors counted.
                   </p>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">un verdict, pas une impression</span><span class="tag doc">exemple des fiches</span></div>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">a verdict, not an impression</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx scenario run checkout_guest_add_to_cart.yml</span>
 <span class="out">{"name":"checkout_guest_add_to_cart","verdict":<span class="good">"pass"</span>,"findings":[],"steps":[{"index":0,"label":"product_page","verb":"goto","ok":true},…],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page",…}],…}</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> la review d'une PR
-                  d'agent lit un verdict structuré et ses preuves — le dépôt cdpx s'applique
-                  d'ailleurs la règle à lui-même, avec un cockpit de preuve généré par
-                  <code>make proof</code> où chaque test joint captures, journaux et casts.</p>
+                  <p class="payoff"><strong>What changes:</strong> reviewing an agent's
+                  PR means reading a structured verdict and its proof — the cdpx
+                  repository applies the rule to itself, too, with a proof cockpit
+                  generated by <code>make proof</code> where every test attaches
+                  captures, logs and casts.</p>
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">fiche orchestration →</a></p>
+            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">orchestration sheet →</a></p>
           </article>
 
           <!-- ============================ F6 VERROUILLER ============================ -->
           <article class="fam-panel" id="verrouiller" role="tabpanel" aria-labelledby="tab-verrouiller">
-            <span class="kicker">Famille 06 · Verrouiller &amp; veiller</span>
-            <h3>Des portes de merge aux rondes de nuit</h3>
+            <span class="kicker">Family 06 · Lock down &amp; watch</span>
+            <h3>From merge gates to night watches</h3>
             <div class="chips"><span class="chip">devops</span><span class="chip">lead</span><span class="chip">CI</span><span class="chip">monitoring</span></div>
             <p class="intent">
-              Tout ce que les familles précédentes mesurent tient en une ligne de shell avec
-              un exit code — c'est exactement la matière d'une CI et d'un moniteur. Les
-              mêmes commandes qui ont servi à développer <strong>verrouillent</strong> le
-              merge, puis <strong>veillent</strong> en production. Pas de commande
-              dédiée&nbsp;: de la composition.
+              Everything the previous families measure fits in one shell line with
+              an exit code — which is exactly what a CI and a monitor are made of.
+              The same commands used to build the app <strong>lock down</strong> the
+              merge, then <strong>watch</strong> in production. No dedicated
+              command: just composition.
             </p>
             <div class="fam-cmds"><code>jq -e</code><code>diff</code><code>exit 0/1/2</code><code>session --ttl</code><code>cron</code></div>
 
             <div class="term">
-              <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">quatre portes, quatre one-liners</span><span class="tag doc">exemple de pipeline</span></div>
+              <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">four gates, four one-liners</span><span class="tag doc">pipeline example</span></div>
               <pre><code><span class="p">$</span> <span class="cmd">cdpx vitals "$APP_URL/produit/42" --click "#ajouter-panier" | jq -e '.lcp &lt; 2500 and .cls &lt; 0.1'</span>
 <span class="p">$</span> <span class="cmd">cdpx profiler "$APP_URL/produit/42" --panels db | jq -e '.panels.db.duplicates == 0'</span>
 <span class="p">$</span> <span class="cmd">diff &lt;(cdpx seo "$APP_URL/produit/42" | jq -S '{title,canonical,robots}') contrat-seo.json</span>
@@ -823,66 +826,68 @@
 
             <div class="recettes">
               <details class="recette">
-                <summary>Les budgets deviennent des portes de merge <span class="gain">· le refus arrive avec son JSON de constat, pas avec un «&nbsp;ça semble plus lent&nbsp;»</span></summary>
+                <summary>Budgets become merge gates <span class="gain">· the refusal arrives with its own JSON evidence, not with "it seems slower"</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Un budget perf en wiki n'a jamais bloqué une régression. Un budget en
-                    <code>jq -e</code> dans le Makefile, si&nbsp;: exit 1, la PR attend.
+                    A perf budget on a wiki page has never blocked a regression. A
+                    budget in <code>jq -e</code> inside the Makefile has: exit 1, the
+                    PR waits.
                   </p>
                   <div class="diagram">
                     <pre class="mermaid">flowchart LR
-  PR["Pull request"] --> S["session cdpx jetable<br>+ app de la branche"]
+  PR["Pull request"] --> S["disposable cdpx session<br>+ branch app"]
   S --> G1["vitals ≤ budget"]
   S --> G2["db.duplicates == 0"]
-  S --> G3["diff du contrat SEO"]
-  S --> G4["replay des parcours"]
-  G1 --> V{"tous exit 0 ?"}
+  S --> G3["SEO contract diff"]
+  S --> G4["journey replay"]
+  G1 --> V{"all exit 0?"}
   G2 --> V
   G3 --> V
   G4 --> V
-  V -->|oui| M["merge"]
-  V -->|non| B["blocage<br>+ JSON du constat"]</pre>
+  V -->|yes| M["merge"]
+  V -->|no| B["blocked<br>+ JSON evidence"]</pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> la régression se
-                  paie au moment le moins cher — avant le merge — et le refus arrive avec son
-                  JSON de constat, pas avec un «&nbsp;ça semble plus lent&nbsp;».</p>
+                  <p class="payoff"><strong>What changes:</strong> the regression is
+                  paid for at its cheapest moment — before the merge — and the
+                  refusal arrives with its own JSON evidence, not with "it seems
+                  slower".</p>
                 </div>
               </details>
 
               <details class="recette">
-                <summary>Monitoring anti-régression&nbsp;: la ronde automatique <span class="gain">· divergence ou budget dépassé = alerte, en minutes</span></summary>
+                <summary>Anti-regression monitoring: the automatic round <span class="gain">· divergence or budget overrun = alert, within minutes</span></summary>
                 <div class="body">
                   <p class="pain">
-                    Entre deux déploiements, personne ne re-teste le checkout ni ne surveille le
-                    canonical. Une session éphémère en cron rejoue les scénarios critiques et
-                    mesure les pages clés — divergence ou budget dépassé = alerte.
+                    Between two deploys, nobody re-tests checkout or watches the
+                    canonical. An ephemeral cron session replays critical scenarios and
+                    measures key pages — divergence or budget overrun = alert.
                   </p>
                   <div class="diagram">
                     <pre class="mermaid">flowchart LR
-  C["cron / scheduler"] --> S["cdpx session start<br>profil jetable, TTL court"]
-  S --> R["scenario run<br>parcours critiques"]
-  S --> V["vitals + seo<br>pages clés"]
+  C["cron / scheduler"] --> S["cdpx session start<br>disposable profile, short TTL"]
+  S --> R["scenario run<br>critical journeys"]
+  S --> V["vitals + seo<br>key pages"]
   R --> J["JSON + exit codes"]
   V --> J
-  J -->|"exit 1"| A["alerte / issue<br>avec le JSON du constat"]
-  J -->|"exit 0"| Z["session stop<br>rien à signaler"]</pre>
+  J -->|"exit 1"| A["alert / issue<br>with the JSON evidence"]
+  J -->|"exit 0"| Z["session stop<br>nothing to report"]</pre>
                   </div>
                   <div class="term">
-                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">la ronde, en shell</span><span class="tag doc">exemple de script</span></div>
-                    <pre><code><span class="c"># toutes les 30 minutes, sur une machine de supervision</span>
+                    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the round, in shell</span><span class="tag doc">script example</span></div>
+                    <pre><code><span class="c"># every 30 minutes, on a monitoring machine</span>
 <span class="p">$</span> <span class="cmd">eval "$(cdpx session start --run-id ronde --authority interaction --origins "https://www.exemple.fr" --ttl 300 --export)"</span>
 <span class="p">$</span> <span class="cmd">trap 'cdpx session stop' EXIT</span>
-<span class="p">$</span> <span class="cmd">cdpx scenario run checkout_guest.yml | jq -e '.verdict == "pass"' || alerte "checkout cassé"</span>
-<span class="p">$</span> <span class="cmd">cdpx vitals https://www.exemple.fr/ | jq -e '.lcp &lt; 2500' || alerte "LCP dégradé"</span></code></pre>
+<span class="p">$</span> <span class="cmd">cdpx scenario run checkout_guest.yml | jq -e '.verdict == "pass"' || alert "checkout broken"</span>
+<span class="p">$</span> <span class="cmd">cdpx vitals https://www.exemple.fr/ | jq -e '.lcp &lt; 2500' || alert "LCP degraded"</span></code></pre>
                   </div>
-                  <p class="payoff"><strong>Ce que ça change&nbsp;:</strong> la régression
-                  fonctionnelle ou de perf se détecte en minutes, avec le JSON exact du constat
-                  dans l'alerte — et la session jetable ne laisse ni profil ni cookie derrière
-                  elle.</p>
+                  <p class="payoff"><strong>What changes:</strong> functional or perf
+                  regressions get detected within minutes, with the exact JSON evidence
+                  in the alert — and the disposable session leaves neither profile nor
+                  cookie behind.</p>
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">fiche orchestration →</a></p>
+            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">orchestration sheet →</a></p>
           </article>
 
         </div>
@@ -892,162 +897,163 @@
 
   <section id="commandes">
     <div class="wrap">
-      <span class="kicker">Catalogue</span>
-      <h2>31 commandes, un contrat de sortie</h2>
+      <span class="kicker">Catalog</span>
+      <h2>31 commands, one output contract</h2>
       <p class="sub">
-        stdout = un objet JSON, stderr = diagnostics, exit 0/1/2. Le socle sert toutes
-        les familles&nbsp;; chaque groupe embarque son tutoriel enregistré — démos
-        produites contre un Chrome réel et les sites témoins du dépôt, sorties JSON et
-        durées authentiques, seule la frappe est synthétisée
-        (<a href="https://github.com/inem0o/cdpx/blob/master/site/assets/casts/README.md">protocole</a>).
-        Le catalogue de référence vit dans
+        stdout = a JSON object, stderr = diagnostics, exit 0/1/2. The foundation
+        serves every family; each group ships its own recorded tutorial — demos
+        produced against real Chrome and the repository's reference sites, genuine
+        JSON outputs and timings, only the keystrokes are synthesized
+        (<a href="https://github.com/inem0o/cdpx/blob/master/site/assets/casts/README.md">protocol</a>).
+        The reference catalog lives in
         <a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">docs/PRIMITIVES.md</a>.
       </p>
       <div class="cmd-grid">
         <div class="cmd-col" id="cat-session">
-          <h3>Socle · session</h3>
-          <div class="cmd-row"><code>session start|stop</code><span>attribuer une session navigateur jetable et exclusive à un run&nbsp;; <code>--export</code> installe l'identité en un <code>eval</code></span></div>
-          <div class="cmd-row"><code>tabs list</code><span>inspecter l'unique target attribué à la session</span></div>
-          <div class="cmd-row"><code>version</code><span>vérifier le Chrome ciblé avant d'agir</span></div>
+          <h3>Foundation · session</h3>
+          <div class="cmd-row"><code>session start|stop</code><span>assign a disposable, exclusive browser session to a run; <code>--export</code> installs the identity with one <code>eval</code></span></div>
+          <div class="cmd-row"><code>tabs list</code><span>inspect the single target assigned to the session</span></div>
+          <div class="cmd-row"><code>version</code><span>check the targeted Chrome before acting</span></div>
           <details class="cmd-cast">
-            <summary>tutoriel enregistré — le cycle de vie complet</summary>
+            <summary>recorded tutorial — the full lifecycle</summary>
             <div class="cast" data-cast="assets/casts/session.cast"></div>
-            <p class="cast-note">Chrome réel (<a href="assets/casts/session.cast">source du cast</a>)&nbsp;: <code>session start --export</code>, statut, version du Chrome attribué, target unique, teardown.</p>
+            <p class="cast-note">Real Chrome (<a href="assets/casts/session.cast">cast source</a>): <code>session start --export</code>, status, version of the assigned Chrome, single target, teardown.</p>
           </details>
-          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/SESSION-LIFECYCLE.md">référence des sessions supervisées →</a></p>
+          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/SESSION-LIFECYCLE.md">supervised session reference →</a></p>
         </div>
         <div class="cmd-col" id="cat-nav">
-          <h3>Socle · navigation</h3>
-          <div class="cmd-row"><code>goto</code><span>se déplacer et savoir quand la page est prête (load, domcontentloaded, none)</span></div>
-          <div class="cmd-row"><code>wait</code><span>attendre un élément injecté après coup (SPA, contenu différé)</span></div>
+          <h3>Foundation · navigation</h3>
+          <div class="cmd-row"><code>goto</code><span>move and know when the page is ready (load, domcontentloaded, none)</span></div>
+          <div class="cmd-row"><code>wait</code><span>wait for an element injected later (SPA, deferred content)</span></div>
           <details class="cmd-cast">
-            <summary>tutoriel enregistré — attendre le vrai état d'une SPA</summary>
+            <summary>recorded tutorial — waiting for an SPA's real state</summary>
             <div class="cast" data-cast="assets/casts/nav.cast"></div>
-            <p class="cast-note">Chrome réel (<a href="assets/casts/nav.cast">source du cast</a>)&nbsp;: navigation, comptage, puis le contenu SPA qui n'arrive que 300&nbsp;ms après le load event, attendu proprement.</p>
+            <p class="cast-note">Real Chrome (<a href="assets/casts/nav.cast">cast source</a>): navigation, counting, then the SPA content that only arrives 300&nbsp;ms after the load event, waited for cleanly.</p>
           </details>
-          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/browser-navigation.md">fiche navigation →</a></p>
+          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/browser-navigation.md">navigation sheet →</a></p>
         </div>
         <div class="cmd-col" id="cat-read">
-          <h3>Socle · lecture</h3>
-          <div class="cmd-row"><code>text</code><span>innerText — vision sémantique low-cost, bien moins cher qu'un screenshot</span></div>
-          <div class="cmd-row"><code>html</code><span>outerHTML — vérifier attributs, classes, data-*</span></div>
-          <div class="cmd-row"><code>count</code><span>assertion cheap («&nbsp;il y a bien 12 produits&nbsp;»)</span></div>
-          <div class="cmd-row"><code>eval</code><span>primitive racine, échappatoire universelle — dernier recours</span></div>
-          <div class="cmd-row"><code>frame</code><span>lire dans une iframe same-origin (paiement, consentement)</span></div>
+          <h3>Foundation · reading</h3>
+          <div class="cmd-row"><code>text</code><span>innerText — low-cost semantic view, far cheaper than a screenshot</span></div>
+          <div class="cmd-row"><code>html</code><span>outerHTML — check attributes, classes, data-*</span></div>
+          <div class="cmd-row"><code>count</code><span>cheap assertion ("there really are 12 products")</span></div>
+          <div class="cmd-row"><code>eval</code><span>root primitive, universal escape hatch — last resort</span></div>
+          <div class="cmd-row"><code>frame</code><span>read inside a same-origin iframe (payment, consent)</span></div>
           <details class="cmd-cast">
-            <summary>tutoriel enregistré — cinq niveaux de lecture</summary>
+            <summary>recorded tutorial — five levels of reading</summary>
             <div class="cast" data-cast="assets/casts/read.cast"></div>
-            <p class="cast-note">Chrome réel (<a href="assets/casts/read.cast">source du cast</a>)&nbsp;: cinq niveaux de lecture sur le formulaire témoin, iframe comprise.</p>
+            <p class="cast-note">Real Chrome (<a href="assets/casts/read.cast">cast source</a>): five levels of reading on the reference form, iframe included.</p>
           </details>
-          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dom-interaction.md">fiche DOM →</a></p>
+          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dom-interaction.md">DOM sheet →</a></p>
         </div>
         <div class="cmd-col" id="cat-act">
-          <h3>Socle · interaction</h3>
-          <div class="cmd-row"><code>click</code><span>clic trusted — exige attached, visible, enabled, stable, hit-test au centre</span></div>
-          <div class="cmd-row"><code>type</code><span>remplir un champ sans jamais mettre le secret dans argv (<code>--secret-env</code>)</span></div>
-          <div class="cmd-row"><code>key</code><span>Enter, Tab, flèches… la validation clavier d'un utilisateur</span></div>
-          <div class="cmd-row"><code>dom-diff</code><span>snapshot avant/après une action → diff structurel stable</span></div>
+          <h3>Foundation · interaction</h3>
+          <div class="cmd-row"><code>click</code><span>trusted click — requires attached, visible, enabled, stable, hit-test at center</span></div>
+          <div class="cmd-row"><code>type</code><span>fill a field without ever putting the secret in argv (<code>--secret-env</code>)</span></div>
+          <div class="cmd-row"><code>key</code><span>Enter, Tab, arrows… a user's keyboard validation</span></div>
+          <div class="cmd-row"><code>dom-diff</code><span>before/after snapshot of an action → stable structural diff</span></div>
           <details class="cmd-cast">
-            <summary>tutoriel enregistré — agir et prouver l'effet</summary>
+            <summary>recorded tutorial — act and prove the effect</summary>
             <div class="cast" data-cast="assets/casts/act.cast"></div>
-            <p class="cast-note">Chrome réel (<a href="assets/casts/act.cast">source du cast</a>)&nbsp;: saisie masquée depuis l'environnement, clic, validation clavier, et le diff DOM exact d'un clic.</p>
+            <p class="cast-note">Real Chrome (<a href="assets/casts/act.cast">cast source</a>): input redacted from the environment, click, keyboard validation, and the exact DOM diff of a click.</p>
           </details>
-          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dom-interaction.md">fiche interactions →</a></p>
+          <p class="cmd-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dom-interaction.md">interactions sheet →</a></p>
         </div>
         <div class="cmd-col" id="cat-observe">
-          <h3>01 · Voir</h3>
-          <div class="cmd-row"><code>console</code><span>logs + exceptions JS — LE feedback manquant, streamable en NDJSON</span></div>
-          <div class="cmd-row"><code>network</code><span>naviguer en capturant XHR, statuts, poids — résumé + détail par requête</span></div>
-          <div class="cmd-row"><code>metrics</code><span>heap, nœuds, layouts — objectiver une fuite ou une dérive</span></div>
-          <div class="cmd-row"><code>screenshot</code><span>vision pixel — bugs CSS, rendus&nbsp;; JPEG pour alléger</span></div>
-          <div class="cmd-row"><code>pdf</code><span>figer une page en preuve d'état imprimable</span></div>
-          <div class="cmd-row"><code>a11y</code><span>arbre d'accessibilité compacté — vision sémantique structurée</span></div>
-          <p class="cmd-more"><a href="#voir" class="js-fam-link">démos dans la famille Voir →</a></p>
+          <h3>01 · See</h3>
+          <div class="cmd-row"><code>console</code><span>JS logs + exceptions — THE missing feedback, streamable as NDJSON</span></div>
+          <div class="cmd-row"><code>network</code><span>navigate while capturing XHR, statuses, weight — summary + per-request detail</span></div>
+          <div class="cmd-row"><code>metrics</code><span>heap, nodes, layouts — objectify a leak or a drift</span></div>
+          <div class="cmd-row"><code>screenshot</code><span>pixel view — CSS bugs, renders; JPEG to keep it light</span></div>
+          <div class="cmd-row"><code>pdf</code><span>freeze a page as printable proof of state</span></div>
+          <div class="cmd-row"><code>a11y</code><span>compacted accessibility tree — structured semantic view</span></div>
+          <p class="cmd-more"><a href="#voir" class="js-fam-link">demos in the See family →</a></p>
         </div>
         <div class="cmd-col" id="cat-perf">
-          <h3>02 · Mesurer</h3>
-          <div class="cmd-row"><code>vitals</code><span>LCP/CLS/INP — l'interaction pour l'INP, la mesure locale à chaque branche</span></div>
-          <div class="cmd-row"><code>coverage</code><span>JS/CSS mort par fichier — la dette front mesurée, pas devinée</span></div>
-          <div class="cmd-row"><code>profiler</code><span>parser les panels du WebProfiler (Doctrine, Twig, cache, exceptions…) — le N+1 chiffré par l'agent</span></div>
-          <p class="cmd-more"><a href="#mesurer" class="js-fam-link">démos dans la famille Mesurer →</a></p>
+          <h3>02 · Measure</h3>
+          <div class="cmd-row"><code>vitals</code><span>LCP/CLS/INP — the interaction for the INP, measured locally on every branch</span></div>
+          <div class="cmd-row"><code>coverage</code><span>dead JS/CSS by file — front-end debt measured, not guessed</span></div>
+          <div class="cmd-row"><code>profiler</code><span>parse the WebProfiler panels (Doctrine, Twig, cache, exceptions…) — the N+1 quantified by the agent</span></div>
+          <p class="cmd-more"><a href="#mesurer" class="js-fam-link">demos in the Measure family →</a></p>
         </div>
         <div class="cmd-col" id="cat-seo">
-          <h3>03 · Auditer</h3>
-          <div class="cmd-row"><code>seo</code><span>diagnostic on-page du DOM rendu — diffable entre staging et prod, assertable en <code>jq -e</code></span></div>
-          <p class="cmd-more"><a href="#auditer" class="js-fam-link">démos dans la famille Auditer →</a></p>
+          <h3>03 · Audit</h3>
+          <div class="cmd-row"><code>seo</code><span>on-page diagnostic of the rendered DOM — diffable between staging and prod, assertable with <code>jq -e</code></span></div>
+          <p class="cmd-more"><a href="#auditer" class="js-fam-link">demos in the Audit family →</a></p>
         </div>
         <div class="cmd-col" id="cat-state">
-          <h3>04 · Reproduire</h3>
-          <div class="cmd-row"><code>intercept</code><span>mocker/bloquer des requêtes pendant une navigation («&nbsp;PAT =&gt; 503|block|continue&nbsp;»)</span></div>
-          <div class="cmd-row"><code>emulate</code><span>device, throttling réseau/CPU — appliqués le temps d'une action</span></div>
-          <div class="cmd-row"><code>cookies</code><span>inspecter (masqué par défaut) et préparer un état via <code>--value-env</code></span></div>
-          <div class="cmd-row"><code>storage</code><span>localStorage / sessionStorage — panier invité, consentement, caches front</span></div>
-          <p class="cmd-more"><a href="#reproduire" class="js-fam-link">démos dans la famille Reproduire →</a></p>
+          <h3>04 · Reproduce</h3>
+          <div class="cmd-row"><code>intercept</code><span>mock/block requests during a navigation ("PAT =&gt; 503|block|continue")</span></div>
+          <div class="cmd-row"><code>emulate</code><span>device, network/CPU throttling — applied for the duration of one action</span></div>
+          <div class="cmd-row"><code>cookies</code><span>inspect (redacted by default) and prepare state via <code>--value-env</code></span></div>
+          <div class="cmd-row"><code>storage</code><span>localStorage / sessionStorage — guest cart, consent, front-end caches</span></div>
+          <p class="cmd-more"><a href="#reproduire" class="js-fam-link">demos in the Reproduce family →</a></p>
         </div>
         <div class="cmd-col" id="cat-journey">
-          <h3>05 · Prouver</h3>
-          <div class="cmd-row"><code>record</code><span>journal <code>cdpx.record/v2</code> redacté — les secrets en référence <code>@env:</code></span></div>
-          <div class="cmd-row"><code>replay</code><span>prévalider puis rejouer, stop à la première divergence, budget <code>--max-actions</code></span></div>
-          <div class="cmd-row"><code>scenario</code><span>parcours métier déclaratif — verdict unique, findings, dossier de preuves</span></div>
-          <p class="cmd-more"><a href="#prouver" class="js-fam-link">démos dans la famille Prouver →</a></p>
+          <h3>05 · Prove</h3>
+          <div class="cmd-row"><code>record</code><span>redacted <code>cdpx.record/v2</code> log — secrets by reference <code>@env:</code></span></div>
+          <div class="cmd-row"><code>replay</code><span>pre-validate then replay, stop at the first divergence, <code>--max-actions</code> budget</span></div>
+          <div class="cmd-row"><code>scenario</code><span>declarative business journey — single verdict, findings, evidence folder</span></div>
+          <p class="cmd-more"><a href="#prouver" class="js-fam-link">demos in the Prove family →</a></p>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="pourquoi">
+  <section id="why">
     <div class="wrap two-col">
       <div>
-        <span class="kicker">Positionnement</span>
-        <h2>Pourquoi pas juste un serveur MCP DevTools&nbsp;?</h2>
+        <span class="kicker">Positioning</span>
+        <h2>Why not just an MCP DevTools server?</h2>
         <p class="sub">
-          Brancher les DevTools sur un agent via MCP donne des yeux à une conversation.
-          cdpx fait un pari différent&nbsp;: donner des primitives au projet.
+          Wiring DevTools to an agent through MCP gives eyes to a conversation.
+          cdpx makes a different bet: giving primitives to the project.
         </p>
         <ul class="arg-list">
-          <li><strong>Rejouable par un humain.</strong> Un tool call MCP vit et meurt dans
-          le contexte de l'agent. Chaque action cdpx est une ligne de shell&nbsp;: vous la
-          recopiez, elle fait la même chose. Le debug d'hier se rejoue aujourd'hui, à
-          l'identique.</li>
-          <li><strong>Assertable en CI.</strong> stdout JSON + exit 0/1/2&nbsp;:
-          <code>jq -e</code>, <code>diff</code>, un seuil dans le Makefile. Budget perf,
-          plafond de requêtes SQL, contrat SEO deviennent des portes de CI. Un tool call
-          ne passe pas dans un pipeline.</li>
-          <li><strong>Traçable et rejouable.</strong> <code>record</code> journalise en
-          NDJSON, <code>replay</code> détecte les divergences, <code>scenario</code>
-          exécute des parcours YAML avec assertions. Ce que l'agent a fait est écrit,
-          prouvable, re-exécutable.</li>
-          <li><strong>Rien à câbler.</strong> Un agent n'a besoin que d'un shell — pas de
-          schéma de tools à maintenir. 31 commandes sous un contrat unique&nbsp;; le
-          catalogue complet vit dans
+          <li><strong>Replayable by a human.</strong> An MCP tool call lives and dies
+          inside the agent's context. Every cdpx action is a shell line: you copy it,
+          it does the same thing. Yesterday's debugging session replays today,
+          identically.</li>
+          <li><strong>Assertable in CI.</strong> stdout JSON + exit 0/1/2:
+          <code>jq -e</code>, <code>diff</code>, a threshold in the Makefile. Perf
+          budgets, SQL query caps, SEO contracts become CI gates. A tool call
+          doesn't fit in a pipeline.</li>
+          <li><strong>Traceable and replayable.</strong> <code>record</code> logs to
+          NDJSON, <code>replay</code> detects divergences, <code>scenario</code>
+          runs YAML journeys with assertions. What the agent did is written down,
+          provable, re-runnable.</li>
+          <li><strong>Nothing to wire up.</strong> An agent needs only a shell — no
+          tool schema to maintain. 31 commands under a single contract; the full
+          catalog lives in
           <a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">docs/PRIMITIVES.md</a>.</li>
         </ul>
       </div>
       <div id="securite">
-        <span class="kicker">Sécurité</span>
-        <h2>Sûr par défaut, pensé pour les agents</h2>
+        <span class="kicker">Security</span>
+        <h2>Safe by default, built for agents</h2>
         <p class="sub">
-          Un agent qui pilote un navigateur manipule des données non fiables. cdpx
-          encadre chaque action&nbsp;; les règles complètes vivent dans
+          An agent driving a browser handles untrusted data. cdpx guards every
+          action; the full rules live in
           <a href="https://github.com/inem0o/cdpx/blob/master/HARNESS.md">HARNESS.md</a>.
         </p>
         <ul class="arg-list">
-          <li><strong>Sessions supervisées, jamais votre Chrome.</strong>
-          Chaque session possède son profil jetable, son port dynamique sur loopback et
-          un unique target&nbsp;; le superviseur détruit profil et artefacts à l'arrêt.
-          Un port 9222 exposé brut à un agent n'a aucune de ces ceintures.</li>
-          <li><strong>Allowlist d'origines obligatoire et fail-closed.</strong>
-          Toute destination non autorisée est refusée avant d'agir. Trois niveaux
-          d'autorité — <code>observation</code>, <code>interaction</code>,
-          <code>privileged</code> — bornent ce qu'une commande a le droit de faire.</li>
-          <li><strong>Secrets hors argv, valeurs masquées.</strong>
-          <code>--secret-env</code> et <code>secret_ref</code> résolvent les valeurs
-          sensibles en mémoire&nbsp;; cookies et storage sont masqués par défaut dans
-          toute sortie.</li>
-          <li><strong>Le contenu de la page est une entrée non fiable.</strong>
-          Les sorties portent <code>"_cdpx":{"content_trust":"untrusted"}</code>&nbsp;: une
-          instruction lue dans la page ne peut jamais modifier le run, ses grants ou
-          les règles du harness.</li>
+          <li><strong>Supervised sessions, never your own Chrome.</strong>
+          Every session has its own disposable profile, its own dynamic loopback
+          port and a single target; the supervisor destroys the profile and
+          artifacts on stop. A raw port 9222 exposed to an agent has none of these
+          safety belts.</li>
+          <li><strong>Mandatory, fail-closed origin allowlist.</strong>
+          Any unauthorized destination is refused before acting. Three authority
+          levels — <code>observation</code>, <code>interaction</code>,
+          <code>privileged</code> — bound what a command is allowed to do.</li>
+          <li><strong>Secrets out of argv, values redacted.</strong>
+          <code>--secret-env</code> and <code>secret_ref</code> resolve sensitive
+          values in memory; cookies and storage are redacted by default in every
+          output.</li>
+          <li><strong>Page content is untrusted input.</strong>
+          Outputs carry <code>"_cdpx":{"content_trust":"untrusted"}</code>: an
+          instruction read from the page can never alter the run, its grants or
+          the harness rules.</li>
         </ul>
       </div>
     </div>
@@ -1056,19 +1062,19 @@
   <section id="installation">
     <div class="wrap install-cols">
       <div>
-        <span class="kicker">Démarrer</span>
+        <span class="kicker">Get started</span>
         <h2>Installation</h2>
         <p class="sub">
-          Prérequis&nbsp;: Python 3.11 ou plus récent. Chrome ou Chromium est nécessaire pour
-          piloter un vrai navigateur&nbsp;; <code>make mock</code> permet de découvrir le CLI
-          sans navigateur.
+          Requirements: Python 3.11 or newer. Chrome or Chromium is needed to
+          drive a real browser; <code>make mock</code> lets you explore the CLI
+          without a browser.
         </p>
         <div class="note">
-          <strong>Statut&nbsp;: beta pré-1.0.</strong> La surface est testée contre un mock CDP,
-          un vrai Chrome et une application Symfony Dockerisée, mais des changements de
-          contrat restent possibles avant 1.0&nbsp;; ils sont annoncés dans le
+          <strong>Status: pre-1.0 beta.</strong> The surface is tested against a
+          mock CDP, a real Chrome and a Dockerized Symfony application, but
+          contract changes remain possible before 1.0; they are announced in the
           <a href="https://github.com/inem0o/cdpx/blob/master/CHANGELOG.md">changelog</a>.
-          La publication PyPI sera documentée après sa mise en ligne effective.
+          PyPI publication will be documented once it actually goes live.
         </div>
       </div>
       <div class="term">
@@ -1090,7 +1096,7 @@
 <dialog class="cast-dialog" id="cast-dialog" aria-labelledby="cast-dialog-title">
   <div class="cast-dialog-bar">
     <span id="cast-dialog-title"></span>
-    <button class="cast-dialog-close" type="button" id="cast-dialog-close">fermer ✕</button>
+    <button class="cast-dialog-close" type="button" id="cast-dialog-close">close ✕</button>
   </div>
   <div class="cast-dialog-body">
     <div id="cast-dialog-holder"></div>
@@ -1102,35 +1108,35 @@
   <div class="wrap">
     <div class="cols">
       <div>
-        <h4>Projet</h4>
+        <h4>Project</h4>
         <ul>
-          <li><a href="https://github.com/inem0o/cdpx">Dépôt GitHub</a></li>
+          <li><a href="https://github.com/inem0o/cdpx">GitHub repository</a></li>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/CHANGELOG.md">Changelog</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/LICENSE">Licence MIT</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/LICENSE">MIT license</a></li>
         </ul>
       </div>
       <div>
         <h4>Documentation</h4>
         <ul>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/README.md">README</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">Catalogue des primitives</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">Intention d'origine</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/HARNESS.md">Harness et sécurité</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">Primitives catalog</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">Original intent</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/HARNESS.md">Harness and security</a></li>
         </ul>
       </div>
       <div>
-        <h4>Communauté</h4>
+        <h4>Community</h4>
         <ul>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/SUPPORT.md">Support</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/CONTRIBUTING.md">Contribuer</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/SECURITY.md">Signaler une vulnérabilité</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/CONTRIBUTING.md">Contribute</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/SECURITY.md">Report a vulnerability</a></li>
         </ul>
       </div>
     </div>
-    <p class="fine">cdpx est publié par <a href="https://github.com/inem0o">inem0o</a> sous licence MIT.
-    Le support communautaire est fourni au mieux, sans délai de réponse garanti.
-    Les démos «&nbsp;sortie réelle&nbsp;» sont enregistrées contre le site témoin du dépôt et un Chrome réel
-    (<a href="https://github.com/inem0o/cdpx/blob/master/site/assets/casts/README.md">protocole d'enregistrement</a>).</p>
+    <p class="fine">cdpx is published by <a href="https://github.com/inem0o">inem0o</a> under the MIT license.
+    Community support is provided on a best-effort basis, with no guaranteed response time.
+    The "real output" demos are recorded against the repository's reference site and a real Chrome
+    (<a href="https://github.com/inem0o/cdpx/blob/master/site/assets/casts/README.md">recording protocol</a>).</p>
   </div>
 </footer>
 
@@ -1138,7 +1144,7 @@
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js" defer></script>
 <script>
 window.addEventListener('DOMContentLoaded', function () {
-  /* ---- explorateur : onglets de familles + filtre métiers ---- */
+  /* ---- explorer: family tabs + persona filter ---- */
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.fam-tab'));
   var panels = Array.prototype.slice.call(document.querySelectorAll('.fam-panel'));
   var chips = Array.prototype.slice.call(document.querySelectorAll('.persona-chip'));
@@ -1208,7 +1214,7 @@ window.addEventListener('DOMContentLoaded', function () {
   });
   routeHash(false);
 
-  /* ---- casts : players créés à l'apparition (scroll, onglet ou details) ---- */
+  /* ---- casts: players created on reveal (scroll, tab or details) ---- */
   if (window.AsciinemaPlayer) {
     var initCast = function (el) {
       if (el.dataset.castInit) { return; }
@@ -1236,7 +1242,7 @@ window.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  /* ---- tutoriels de la grille : modale plutôt qu'un player en colonne étroite ---- */
+  /* ---- grid tutorials: modal rather than a player in a narrow column ---- */
   var dialog = document.getElementById('cast-dialog');
   if (dialog && dialog.showModal && window.AsciinemaPlayer) {
     var dialogPlayer = null;
@@ -1276,7 +1282,7 @@ window.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  /* ---- mermaid : rendu différé, les diagrammes vivent dans des details fermés ---- */
+  /* ---- mermaid: deferred rendering, diagrams live in closed details ---- */
   if (window.mermaid) {
     mermaid.initialize({
       startOnLoad: false,

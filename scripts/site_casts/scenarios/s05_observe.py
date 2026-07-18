@@ -1,4 +1,4 @@
-"""Observabilité: console, network, metrics — les sens de l'agent."""
+"""Observability: console, network, metrics — the agent's senses."""
 
 from __future__ import annotations
 
@@ -6,22 +6,22 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario
 
 SCENARIO = Scenario(
     id="observe",
-    title="cdpx — console, réseau, métriques : les sens de l'agent",
+    title="cdpx — console, network, metrics: the agent's senses",
     steps=(
-        Comment("un front cassé se voit d'abord en console — encore faut-il la lire"),
+        Comment("a broken frontend shows up in the console first — you still have to read it"),
         Cmd(argv=("goto", "{base}/console.html"), expect=('"ok":true',)),
         Cmd(
             argv=("console", "--duration", "2"),
             expect=('"errors":2', "fixture-uncaught"),
             timeout=30.0,
         ),
-        Comment("network : naviguer en capturant XHR, statuts et poids"),
+        Comment("network: navigate while capturing XHR, statuses and weight"),
         Cmd(
             argv=("network", "{base}/network.html", "--settle", "1"),
             expect=('"errors_4xx_5xx":1', '"status":500'),
             timeout=60.0,
         ),
-        Comment("metrics : objectiver une dérive — nœuds DOM, heap, layouts"),
+        Comment("metrics: objectify a drift — DOM nodes, heap, layouts"),
         Cmd(argv=("metrics",), expect=('"Nodes":52', '"JSHeapUsedSize"')),
     ),
 )

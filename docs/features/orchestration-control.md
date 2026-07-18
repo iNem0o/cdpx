@@ -198,7 +198,7 @@ cdpx frame "#status"
 ```
 
 ```json
-{"selector":"#status","text":"Paiement accepté"}
+{"selector":"#status","text":"Payment accepted"}
 ```
 
 Errors and pitfalls: if no element matches, or if the iframe is
@@ -295,13 +295,13 @@ Full successful replay:
 Divergence (exit 1, the JSON stays structured on stdout):
 
 ```json
-{"path":"parcours.ndjson","events":3,"played":1,"ok":false,"divergence":"event 1: sélecteur introuvable après 10.0s: #acheter"}
+{"path":"parcours.ndjson","events":3,"played":1,"ok":false,"divergence":"event 1: selector not found after 10.0s: #acheter"}
 ```
 
 Errors and pitfalls: a non-JSON line or one without `action` produces
 `"ok":false` with `"divergence":"line N: ..."` and `"played":0` (exit 1). A
-journal longer than `--max-actions` triggers `budget --max-actions
-dépassé` (exit 1, nothing is replayed). `played` counts the actions
+journal longer than `--max-actions` triggers `--max-actions budget
+exceeded` (exit 1, nothing is replayed). `played` counts the actions
 actually replayed successfully; the `divergence` index is that of the
 offending event (0-based). Volatile keys (`elapsed_ms`, loader/frame IDs,
 coordinates) are ignored in the comparison. v1 journals containing `type`

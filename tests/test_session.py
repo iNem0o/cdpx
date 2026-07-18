@@ -307,6 +307,10 @@ def test_chrome_command_forces_ephemeral_loopback_profile(tmp_path):
     #: the profile used is the disposable one from the supervised session
     assert f"--user-data-dir={profile}" in command
     assert "--no-first-run" in command
+    #: crash reporting is disabled: crashpad outlives a killed Chrome and
+    #: would write dumps into the profile while the supervisor removes it
+    assert "--disable-crash-reporter" in command
+    assert "--disable-breakpad" in command
 
 
 def test_chrome_sandbox_is_disabled_only_for_root_or_ci(tmp_path, monkeypatch):

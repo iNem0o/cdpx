@@ -15,8 +15,9 @@ services:
     build:
       context: .
     volumes:
-      # Cible hôte paramétrable: `make proof` monte son staging transactionnel
-      # (.proof.new) via CDPX_PROOF_DIR; le défaut sert `make docker-symfony-e2e`.
+      # Parameterizable host target: `make proof` mounts its transactional
+      # staging (.proof.new) via CDPX_PROOF_DIR; the default serves
+      # `make docker-symfony-e2e`.
       - ${CDPX_PROOF_DIR:-./.proof}:/workspace/.proof
     environment:
       SYMFONY_E2E_URL: http://symfony:8000
@@ -26,9 +27,9 @@ services:
     depends_on:
       symfony:
         condition: service_healthy
-    # pytest tourne en arrière-plan du shell PID 1 pour que le trap TERM/INT
-    # reste réactif: même un `compose down` pendant le run rend les fichiers
-    # du volume à l'UID hôte (sinon la purge du staging échoue en root).
+    # pytest runs in the background of the PID 1 shell so the TERM/INT trap
+    # stays responsive: even a `compose down` during the run hands the volume
+    # files back to the host UID (otherwise the staging purge fails as root).
     command:
       [
         "/bin/sh",

@@ -1,4 +1,4 @@
-"""Performance: vitals sur interaction réelle, coverage du code mort."""
+"""Performance: vitals on a real interaction, dead-code coverage."""
 
 from __future__ import annotations
 
@@ -6,21 +6,21 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario, Shell
 
 SCENARIO = Scenario(
     id="perf",
-    title="cdpx — Core Vitals sur vrai clic, code mort mesuré",
+    title="cdpx — Core Vitals on a real click, dead code measured",
     steps=(
-        Comment("l'INP se mesure sur un vrai clic dispatché par le domaine Input"),
+        Comment("INP is measured on a real click dispatched by the Input domain"),
         Cmd(
             argv=("vitals", "{base}/vitals.html", "--click", "#inp-button", "--settle", "1"),
             expect=('"lcp":', '"cls":', '"inp":'),
             timeout=60.0,
         ),
-        Comment("coverage : le poids du JS et du CSS jamais exécutés, par fichier"),
+        Comment("coverage: the weight of JS and CSS never executed, per file"),
         Cmd(
             argv=("coverage", "{base}/coverage.html"),
             expect=('"unused_bytes":56', '"css":{"rules":1,"used":1,"unused":0}'),
             timeout=60.0,
         ),
-        Comment("un budget perf en jq -e devient une porte de merge : exit 1, la PR attend"),
+        Comment("a perf budget in jq -e becomes a merge gate: exit 1, the PR waits"),
         Shell(
             command=(
                 'cdpx vitals {base}/vitals.html --click "#inp-button" --settle 1 '

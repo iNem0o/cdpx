@@ -57,15 +57,15 @@ final class Kernel extends BaseKernel
                     'queue' => 'in-memory://',
                 ],
                 'routing' => [
-                    // SyncPing n'est PAS routé: traité en direct par son
-                    // handler -> une seule entrée dans le collector (le
-                    // transport sync:// ferait collecter dispatch + réception).
+                    // SyncPing is NOT routed: handled directly by its
+                    // handler -> a single entry in the collector (the
+                    // sync:// transport would collect dispatch + receive).
                     QueuedPing::class => 'queue',
                 ],
             ],
             'cache' => [
                 'pools' => [
-                    // Adapter array = compteurs intra-requête 100 % déterministes.
+                    // Array adapter = 100% deterministic intra-request counters.
                     'app.scenario_pool' => ['adapter' => 'cache.adapter.array'],
                 ],
             ],
@@ -84,8 +84,8 @@ final class Kernel extends BaseKernel
                         'url' => 'sqlite:///%kernel.project_dir%/var/data.db',
                         'profiling_collect_backtrace' => false,
                     ],
-                    // Le seeding passe par cette connexion non profilée pour ne
-                    // JAMAIS polluer les compteurs du panel db des scénarios.
+                    // Seeding goes through this unprofiled connection to
+                    // NEVER pollute the scenarios' db panel counters.
                     'seed' => [
                         'url' => 'sqlite:///%kernel.project_dir%/var/data.db',
                         'profiling' => false,

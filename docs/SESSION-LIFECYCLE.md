@@ -161,13 +161,13 @@ hexadecimal identifier:
 ```text
 RUNTIME_ROOT/
 └── SESSION_ID/                 mode 0700
-    ├── manifest.json           mode 0600, après readiness
+    ├── manifest.json           mode 0600, after readiness
     ├── supervisor.log          mode 0600
     ├── chrome-stderr.log       mode 0600
-    ├── command.lock            mode 0600, créé au premier lease
+    ├── command.lock            mode 0600, created on the first lease
     ├── stop                    mode 0600, transitoire
     ├── profile/                mode 0700, --user-data-dir
-    │   └── DevToolsActivePort  écrit par Chrome
+    │   └── DevToolsActivePort  written by Chrome
     └── artifacts/              mode 0700
 ```
 

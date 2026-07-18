@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>cdpx fixtures — interactions riches</title>
+  <title>cdpx fixtures — rich interactions</title>
   <style>
     body { font: 16px/1.4 sans-serif; margin: 2rem; }
     button, input { font: inherit; }
@@ -22,24 +22,24 @@
   </style>
 </head>
 <body>
-  <h1>Interactions riches</h1>
+  <h1>Rich interactions</h1>
 
-  <button id="hidden-button" type="button">Caché</button>
-  <button id="disabled-button" type="button" disabled>Désactivé</button>
-  <button id="aria-disabled-button" type="button" aria-disabled="true">ARIA désactivé</button>
-  <span inert><button id="inert-button" type="button">Inerte</button></span>
-  <button id="pointer-events-button" type="button">Sans événements pointeur</button>
+  <button id="hidden-button" type="button">Hidden</button>
+  <button id="disabled-button" type="button" disabled>Disabled</button>
+  <button id="aria-disabled-button" type="button" aria-disabled="true">ARIA disabled</button>
+  <span inert><button id="inert-button" type="button">Inert</button></span>
+  <button id="pointer-events-button" type="button">No pointer events</button>
 
   <div class="hit-test-box">
-    <button id="covered-button" type="button">Recouvert</button>
-    <div id="cover" aria-label="Couche de recouvrement"></div>
+    <button id="covered-button" type="button">Covered</button>
+    <div id="cover" aria-label="Cover layer"></div>
   </div>
 
   <button id="descendant-button" type="button">
-    <span id="descendant-hit-area">Descendant cliquable</span>
+    <span id="descendant-hit-area">Clickable descendant</span>
   </button>
 
-  <label for="controlled-input">Champ contrôlé</label>
+  <label for="controlled-input">Controlled field</label>
   <input id="controlled-input" value="legacy">
   <output id="controlled-mirror">legacy</output>
   <output id="interaction-state"></output>

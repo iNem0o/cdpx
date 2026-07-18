@@ -1,14 +1,15 @@
-"""CLI du générateur de casts de la homepage.
+"""CLI for the homepage cast generator.
 
-Usage (depuis la racine du dépôt):
+Usage (from the repository root):
 
     python3 scripts/site_casts/generate.py list
     python3 scripts/site_casts/generate.py record [--only id,id] [--port 8899]
     python3 scripts/site_casts/generate.py check
 
-`record` exécute chaque scénario contre un Chrome réel (session supervisée
-jetable) et le site témoin du dépôt, puis écrit `site/assets/casts/<id>.cast`.
-Un scénario dont une attente échoue ne produit aucun cast et sort en erreur.
+`record` runs each scenario against a real Chrome (disposable supervised
+session) and the repo's reference site, then writes
+`site/assets/casts/<id>.cast`. A scenario with a failing expectation produces
+no cast and exits with an error.
 """
 
 from __future__ import annotations
@@ -31,18 +32,18 @@ DEFAULT_OUT = REPO_ROOT / "site" / "assets" / "casts"
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("list", help="lister les scénarios")
-    rec = sub.add_parser("record", help="enregistrer les casts")
-    rec.add_argument("--only", help="ids de scénarios, séparés par des virgules")
-    rec.add_argument("--port", type=int, default=8899, help="port du site témoin")
+    sub.add_parser("list", help="list scenarios")
+    rec = sub.add_parser("record", help="record the casts")
+    rec.add_argument("--only", help="scenario ids, comma-separated")
+    rec.add_argument("--port", type=int, default=8899, help="reference site port")
     rec.add_argument("--out", type=Path, default=DEFAULT_OUT)
     rec.add_argument("--keep-workdir", action="store_true")
     rec.add_argument(
         "--symfony-base",
         default=os.environ.get("CDPX_SITE_SYMFONY_BASE"),
-        help="URL de l'app Symfony témoin (active le scénario profiler)",
+        help="URL of the reference Symfony app (enables the profiler scenario)",
     )
-    chk = sub.add_parser("check", help="valider les casts présents")
+    chk = sub.add_parser("check", help="validate the present casts")
     chk.add_argument("--dir", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args()
 
@@ -62,7 +63,7 @@ def main() -> int:
     if wanted:
         unknown = wanted - {s.id for s in selected}
         if unknown:
-            parser.error(f"scénarios inconnus: {', '.join(sorted(unknown))}")
+            parser.error(f"unknown scenarios: {', '.join(sorted(unknown))}")
     failures = 0
     for scenario in selected:
         try:

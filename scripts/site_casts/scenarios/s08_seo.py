@@ -1,4 +1,4 @@
-"""SEO: le contrat du DOM rendu, assertable en une ligne."""
+"""SEO: the rendered DOM's contract, assertable in one line."""
 
 from __future__ import annotations
 
@@ -6,32 +6,34 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario, Shell
 
 SCENARIO = Scenario(
     id="seo",
-    title="cdpx — le contrat SEO du DOM rendu, celui que Googlebot indexe",
+    title="cdpx — the SEO contract of the rendered DOM, the one Googlebot indexes",
     height=16,
     steps=(
-        Comment("seul le DOM final fait foi côté rendering Googlebot — pas le HTML servi"),
+        Comment(
+            "only the final DOM is authoritative for Googlebot rendering — not the served HTML"
+        ),
         Cmd(
             argv=("seo", "{base}/seo.html"),
             expect=(
-                '"title":"Fixture SEO — page conforme"',
+                '"title":"SEO fixture — compliant page"',
                 '"images_without_alt":0',
                 '"findings":[]',
             ),
         ),
-        Comment("le contrat est un JSON : jq -e en fait une porte de CI"),
+        Comment("the contract is JSON: jq -e turns it into a CI gate"),
         Shell(
             command="cdpx seo {base}/seo.html | jq -c '.findings'",
             expect=("[]",),
         ),
-        Comment("la même commande sur une page cassée nomme les manques"),
+        Comment("the same command on a broken page names what's missing"),
         Shell(
             command="cdpx seo {base}/seo-broken.html | jq -c '.findings'",
             expect=(
-                "title manquant",
-                "meta description manquante",
-                "canonical manquant",
-                "2 h1 (attendu: 1)",
-                "2 image(s) sans alt",
+                "missing title",
+                "missing meta description",
+                "missing canonical",
+                "2 h1 (expected: 1)",
+                "2 image(s) without alt",
             ),
         ),
     ),

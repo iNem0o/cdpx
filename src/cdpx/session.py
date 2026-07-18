@@ -552,6 +552,13 @@ def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-gpu",
+        # crashpad daemonizes (it is not a child of the main Chrome process,
+        # so killing Chrome does not reach it) and keeps writing crash dumps
+        # into the profile after the kill — the exact writer that makes the
+        # supervisor's rmtree fail with ENOTEMPTY on loaded CI runners. A
+        # disposable profile never wants crash reporting.
+        "--disable-crash-reporter",
+        "--disable-breakpad",
         "about:blank",
     ]
     if _sandbox_must_be_disabled():

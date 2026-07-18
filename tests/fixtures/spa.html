@@ -2,14 +2,14 @@
 <html lang="fr">
 <head><meta charset="utf-8"><title>Fixture: SPA</title></head>
 <body>
-  <h1>Contenu différé</h1>
-  <div id="app">Chargement…</div>
+  <h1>Deferred content</h1>
+  <div id="app">Loading…</div>
   <script>
-    // Délai fixe: teste `cdpx wait` (le contenu N'EXISTE PAS au load event).
+    // Fixed delay: tests `cdpx wait` (the content DOES NOT EXIST at load event).
     setTimeout(() => {
       const el = document.createElement('div');
       el.id = 'late-content';
-      el.textContent = 'Contenu arrivé après 300ms';
+      el.textContent = 'Content arrived after 300ms';
       document.getElementById('app').replaceChildren(el);
     }, 300);
   </script>

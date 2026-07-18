@@ -1,9 +1,9 @@
-"""Profiler Symfony: le WebProfiler de la vraie app témoin devient une donnée.
+"""Symfony profiler: the real reference app's WebProfiler becomes data.
 
-Nécessite l'app Symfony de tests/symfony-app joignable depuis l'hôte —
-`make site-casts` la démarre via l'overlay docker-compose.site-casts.yml
-(loopback :8025) et passe `--symfony-base` au générateur. Sans base fournie,
-le scénario est sauté proprement.
+Requires the tests/symfony-app app reachable from the host —
+`make site-casts` starts it via the docker-compose.site-casts.yml overlay
+(loopback :8025) and passes `--symfony-base` to the generator. Without a
+base provided, the scenario is skipped cleanly.
 """
 
 from __future__ import annotations
@@ -12,17 +12,17 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario, Shell
 
 SCENARIO = Scenario(
     id="profiler",
-    title="cdpx — le WebProfiler Symfony devient une donnée",
+    title="cdpx — the Symfony WebProfiler becomes data",
     requires="symfony",
     steps=(
-        Comment("l'app Symfony témoin tourne en dev : le WebProfiler trace chaque requête"),
-        Comment("variante saine : 3 requêtes Doctrine, aucun doublon"),
+        Comment("the reference Symfony app runs in dev: the WebProfiler traces every request"),
+        Comment("healthy variant: 3 Doctrine queries, no duplicates"),
         Cmd(
             argv=("profiler", "{symfony}/scenario/profiler/doctrine-normal", "--panels", "db"),
             expect=('"duplicates":0',),
             timeout=60.0,
         ),
-        Comment("même page, version N+1 : le panel db chiffre la dérive"),
+        Comment("same page, N+1 version: the db panel quantifies the drift"),
         Cmd(
             argv=(
                 "profiler",
@@ -33,14 +33,14 @@ SCENARIO = Scenario(
             expect=('"queries":6', '"duplicates":4'),
             timeout=60.0,
         ),
-        Comment("le même one-liner, posé en CI, devient une porte de merge"),
+        Comment("the same one-liner, dropped into CI, becomes a merge gate"),
         Shell(
             command=(
                 "cdpx profiler {symfony}/scenario/profiler/doctrine-n-plus-one --panels db "
                 "| jq -e '.panels.db.duplicates == 0' >/dev/null "
-                '|| echo "N+1 détecté — merge refusé"'
+                '|| echo "N+1 detected — merge refused"'
             ),
-            expect=("N+1 détecté — merge refusé",),
+            expect=("N+1 detected — merge refused",),
             timeout=60.0,
         ),
     ),

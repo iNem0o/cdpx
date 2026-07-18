@@ -1,4 +1,4 @@
-"""Registre ordonné des scénarios tutoriels de la homepage."""
+"""Ordered registry of the homepage's tutorial scenarios."""
 
 from __future__ import annotations
 

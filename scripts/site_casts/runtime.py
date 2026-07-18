@@ -1,11 +1,11 @@
-"""Runtime d'enregistrement des casts tutoriels de la homepage.
+"""Runtime for recording the homepage's tutorial casts.
 
-Doctrine identique aux casts historiques (site/assets/casts/README.md):
-chaque sortie JSON et chaque durée proviennent de commandes réellement
-exécutées contre un Chrome réel et le site témoin du dépôt; seule la frappe
-clavier est synthétisée (cadence déterministe) pour la lisibilité. Le cast
-n'est écrit que si toutes les attentes (`expect`, code de sortie) sont
-vérifiées: un scénario rouge ne produit aucun artefact.
+Same doctrine as the historical casts (site/assets/casts/README.md): every
+JSON output and every duration comes from commands actually executed against
+a real Chrome and the repo's reference site; only the keystroke typing is
+synthesized (deterministic cadence) for readability. The cast is written
+only if every expectation (`expect`, exit code) is verified: a red scenario
+produces no artifact.
 """
 
 from __future__ import annotations
@@ -34,29 +34,29 @@ CAST_WIDTH = 100
 CAST_HEIGHT = 14
 MAX_CAST_BYTES = 2 * 1024 * 1024
 
-# Palette alignée sur les casts historiques et le thème de la page.
+# Palette aligned on the historical casts and the page theme.
 ANSI_PROMPT = "\x1b[38;5;242m$\x1b[0m \x1b[1m"
 ANSI_RESET = "\x1b[0m"
 ANSI_OUT = "\x1b[38;5;80m"
 ANSI_ERR = "\x1b[38;5;167m"
 ANSI_COMMENT = "\x1b[3;38;5;246m"
 
-# Cadence de frappe déterministe (secondes/caractère), même esprit que les
-# casts historiques: jitter cyclique autour de ~30 ms.
+# Deterministic typing cadence (seconds/char), same spirit as the
+# historical casts: cyclic jitter around ~30 ms.
 _TYPE_CYCLE = (0.022, 0.03, 0.038, 0.026, 0.034, 0.03)
 _COMMENT_CYCLE = (0.010, 0.014, 0.012)
 
 
 @dataclasses.dataclass(frozen=True)
 class Comment:
-    """Ligne `# ...` pédagogique, affichée en italique dim."""
+    """Educational `# ...` line, displayed in dim italics."""
 
     text: str
 
 
 @dataclasses.dataclass(frozen=True)
 class Cmd:
-    """Une commande cdpx: argv réel exécuté, affichage `cdpx ...` synthétisé."""
+    """A cdpx command: real argv executed, synthesized `cdpx ...` display."""
 
     argv: tuple[str, ...]
     display: str | None = None
@@ -70,7 +70,7 @@ class Cmd:
 
 @dataclasses.dataclass(frozen=True)
 class Shell:
-    """Ligne shell complète (pipes jq, diff...) exécutée via bash -c."""
+    """Full shell line (jq pipes, diff...) executed via bash -c."""
 
     command: str
     display: str | None = None
@@ -85,7 +85,7 @@ Step = Comment | Cmd | Shell
 
 @dataclasses.dataclass(frozen=True)
 class Scenario:
-    """Un cast tutoriel: titre, étapes, prérequis d'environnement."""
+    """A tutorial cast: title, steps, environment prerequisites."""
 
     id: str
     title: str
@@ -94,16 +94,16 @@ class Scenario:
     manage_session: bool = True
     authority: str = "privileged"
     env: dict[str, str] = dataclasses.field(default_factory=dict)
-    # Fichiers copiés dans le cwd d'exécution: (source relative au dépôt,
-    # nom destination, substitutions {placeholder: valeur, "{base}" résolu}).
+    # Files copied into the execution cwd: (source relative to the repo,
+    # destination name, substitutions {placeholder: value, "{base}" resolved}).
     copies: tuple[tuple[str, str, dict[str, str]], ...] = ()
-    # Sous-chaînes interdites dans le cast final (fuite de secret).
+    # Substrings forbidden in the final cast (secret leak).
     forbidden: tuple[str, ...] = ()
-    requires: str | None = None  # ex: "symfony" => sauté par défaut
+    requires: str | None = None  # e.g. "symfony" => skipped by default
 
 
 class StepFailure(RuntimeError):
-    """Une attente d'étape n'est pas vérifiée; le cast n'est pas écrit."""
+    """A step expectation is not verified; the cast is not written."""
 
 
 def _substitute(value: str, base: str, symfony: str | None = None) -> str:
@@ -120,7 +120,7 @@ def _quote(arg: str) -> str:
 
 
 class CastBuilder:
-    """Accumule les évènements asciicast v2 avec une horloge monotone."""
+    """Accumulates asciicast v2 events with a monotonic clock."""
 
     def __init__(self) -> None:
         self.events: list[tuple[float, str]] = []
@@ -168,7 +168,7 @@ class CastBuilder:
 
 
 def _parse_exports(stdout: str) -> dict[str, str]:
-    """Extrait les `export NAME='value'` d'une sortie --export."""
+    """Extracts the `export NAME='value'` lines from a --export output."""
 
     exports: dict[str, str] = {}
     for line in stdout.splitlines():
@@ -183,18 +183,18 @@ def _check_expectations(step: Cmd | Shell, stdout: str, stderr: str, code: int) 
     label = step.display or " ".join(getattr(step, "argv", ()) or (getattr(step, "command", ""),))
     if code != step.expect_exit:
         raise StepFailure(
-            f"[{label}] exit {code} (attendu {step.expect_exit})\n"
+            f"[{label}] exit {code} (expected {step.expect_exit})\n"
             f"stdout: {stdout}\nstderr: {stderr}"
         )
     for needle in step.expect:
         if needle not in stdout:
             raise StepFailure(
-                f"[{label}] sortie sans «{needle}»\nstdout: {stdout}\nstderr: {stderr}"
+                f"[{label}] output missing «{needle}»\nstdout: {stdout}\nstderr: {stderr}"
             )
 
 
 def _make_cdpx_shim(bin_dir: Path) -> None:
-    """Un vrai `cdpx` dans PATH pour les étapes Shell (pipes jq, diff)."""
+    """A real `cdpx` on PATH for Shell steps (jq pipes, diff)."""
 
     shim = bin_dir / "cdpx"
     shim.write_text(
@@ -214,7 +214,7 @@ def record_scenario(
     keep_workdir: bool = False,
     symfony_base: str | None = None,
 ) -> dict[str, Any]:
-    """Exécute un scénario contre Chrome réel + fixtures et écrit son cast."""
+    """Runs a scenario against a real Chrome + fixtures and writes its cast."""
 
     if scenario.requires == "symfony" and not symfony_base:
         return {"id": scenario.id, "status": "skipped", "requires": scenario.requires}
@@ -267,8 +267,8 @@ def record_scenario(
         previous_step: Step | None = None
         for step in scenario.steps:
             if isinstance(step, Comment):
-                # Ligne vide avant un bloc de commentaires: sépare visuellement
-                # le titre de l'étape suivante de la sortie JSON précédente.
+                # Blank line before a comment block: visually separates the
+                # next step's title from the previous JSON output.
                 if previous_step is not None and not isinstance(previous_step, Comment):
                     builder.emit("\r\n", dt=0.15)
                 builder.comment(_substitute(step.text, base, sub))
@@ -296,10 +296,10 @@ def record_scenario(
                 if step.capture_exports:
                     exports = _parse_exports(proc.stdout)
                     if not exports:
-                        raise StepFailure(f"[{display}] aucune ligne export capturée")
+                        raise StepFailure(f"[{display}] no export line captured")
                     run_env.update(exports)
                     exports_seen = True
-                    builder.clock += min(elapsed, 8.0)  # eval "$(...)" n'affiche rien
+                    builder.clock += min(elapsed, 8.0)  # eval "$(...)" prints nothing
                 elif step.show_stdout:
                     builder.output(proc.stdout, elapsed=elapsed)
                 else:
@@ -339,10 +339,10 @@ def record_scenario(
     content = builder.render(scenario.title, scenario.height)
     for needle in scenario.forbidden:
         if needle in content:
-            raise StepFailure(f"[{scenario.id}] valeur interdite présente dans le cast: {needle}")
+            raise StepFailure(f"[{scenario.id}] forbidden value present in the cast: {needle}")
     encoded = content.encode("utf-8")
     if len(encoded) > MAX_CAST_BYTES:
-        raise StepFailure(f"[{scenario.id}] cast trop volumineux: {len(encoded)} octets")
+        raise StepFailure(f"[{scenario.id}] cast too large: {len(encoded)} bytes")
     out_dir.mkdir(parents=True, exist_ok=True)
     cast_path = out_dir / f"{scenario.id}.cast"
     cast_path.write_text(content, encoding="utf-8")
@@ -358,7 +358,7 @@ def record_scenario(
 
 
 def check_casts(out_dir: Path, scenarios: Iterable[Scenario]) -> dict[str, Any]:
-    """Valide les casts présents: format v2, horloge monotone, interdits."""
+    """Validates the present casts: v2 format, monotonic clock, forbidden values."""
 
     reports: list[dict[str, Any]] = []
     ok = True
@@ -366,7 +366,7 @@ def check_casts(out_dir: Path, scenarios: Iterable[Scenario]) -> dict[str, Any]:
         path = out_dir / f"{scenario.id}.cast"
         report: dict[str, Any] = {"id": scenario.id, "path": str(path)}
         if not path.is_file():
-            # Un scénario à prérequis absent n'est pas une erreur; les autres si.
+            # A scenario with a missing prerequisite isn't an error; others are.
             if scenario.requires:
                 report["status"] = "skipped"
                 report["requires"] = scenario.requires
@@ -379,17 +379,17 @@ def check_casts(out_dir: Path, scenarios: Iterable[Scenario]) -> dict[str, Any]:
             lines = path.read_text(encoding="utf-8").splitlines()
             header = json.loads(lines[0])
             assert header["version"] == 2, "header version != 2"
-            assert header["width"] == CAST_WIDTH, "largeur inattendue"
+            assert header["width"] == CAST_WIDTH, "unexpected width"
             previous = 0.0
             for raw in lines[1:]:
                 clock, kind, text = json.loads(raw)
-                assert kind == "o", "évènement non-output"
-                assert clock >= previous, "horloge non monotone"
-                assert isinstance(text, str), "payload non textuel"
+                assert kind == "o", "non-output event"
+                assert clock >= previous, "non-monotonic clock"
+                assert isinstance(text, str), "non-text payload"
                 previous = clock
             body = "\n".join(lines)
             for needle in scenario.forbidden:
-                assert needle not in body, f"valeur interdite: {needle}"
+                assert needle not in body, f"forbidden value: {needle}"
             report["status"] = "ok"
             report["events"] = len(lines) - 1
             report["duration_s"] = round(previous, 1)

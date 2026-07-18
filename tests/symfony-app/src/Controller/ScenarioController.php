@@ -34,11 +34,11 @@ final class ScenarioController
     }
 
     /**
-     * Chaque cas exerce RÉELLEMENT le collector visé (vraies requêtes SQL,
-     * vrai pool de cache, vrai client HTTP vers l'app elle-même, vrais
-     * messages Messenger, vraies exceptions): cdpx lit ensuite les panels du
-     * WebProfiler, aucun signal fabriqué. Déterminisme = comptes stables,
-     * jamais des millisecondes.
+     * Each case REALLY exercises the targeted collector (real SQL queries,
+     * real cache pool, real HTTP client against the app itself, real
+     * Messenger messages, real exceptions): cdpx then reads the WebProfiler
+     * panels, no fabricated signal. Determinism = stable counts, never
+     * milliseconds.
      */
     public function profiler(Request $request, string $case): Response
     {
@@ -72,7 +72,7 @@ final class ScenarioController
             'messenger-queued' => $this->caseMessengerQueued(),
             'headers-cache' => 'headers-cache',
             default => throw new NotFoundHttpException(
-                sprintf('cas profiler inconnu: %s', $case),
+                sprintf('unknown profiler case: %s', $case),
             ),
         };
 
@@ -104,7 +104,7 @@ final class ScenarioController
 
     private function caseDegraded(Request $request): string
     {
-        // 4x la même requête (3 duplicats) + 3 requêtes distinctes = 7 requêtes.
+        // 4x the same query (3 duplicates) + 3 distinct queries = 7 queries.
         for ($i = 0; $i < 4; $i++) {
             $this->em->createQuery('SELECT b FROM App\Entity\Book b')->getResult();
         }
@@ -122,7 +122,7 @@ final class ScenarioController
 
     private function caseDoctrineNormal(): string
     {
-        // Exactement 3 requêtes, toutes distinctes: zéro duplicat.
+        // Exactly 3 queries, all distinct: zero duplicates.
         $this->em->createQuery('SELECT a FROM App\Entity\Author a')->getResult();
         $this->em->createQuery('SELECT b FROM App\Entity\Book b')->getResult();
         $this->em->createQuery('SELECT COUNT(b.id) FROM App\Entity\Book b')
@@ -133,8 +133,8 @@ final class ScenarioController
 
     private function caseDoctrineNPlusOne(): string
     {
-        // 1 findAll + 5 initialisations paresseuses (auteurs distincts) =
-        // 6 requêtes, 2 statements distincts, 4 duplicats.
+        // 1 findAll + 5 lazy initializations (distinct authors) =
+        // 6 queries, 2 distinct statements, 4 duplicates.
         $books = $this->em->getRepository(Book::class)->findAll();
         $names = [];
         foreach ($books as $book) {
@@ -146,7 +146,7 @@ final class ScenarioController
 
     private function caseDoctrineDuplicates(): string
     {
-        // Le DQL contourne l'identity map: 4 exécutions SQL identiques.
+        // DQL bypasses the identity map: 4 identical SQL executions.
         for ($i = 0; $i < 4; $i++) {
             $this->em
                 ->createQuery('SELECT a FROM App\Entity\Author a WHERE a.name LIKE :p')

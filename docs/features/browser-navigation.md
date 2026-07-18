@@ -179,7 +179,7 @@ cdpx wait "#late-content"
 ```
 
 Errors and gotchas: selector still absent at the deadline → exit 1
-with a diagnostic on stderr (`sélecteur introuvable après Ns`). `wait`
+with a diagnostic on stderr (`selector not found after Ns`). `wait`
 tests for existence in the DOM, not visibility: an element that is
 present but `display:none` is considered found. Always quote the
 selector (`"#id"`) to keep the shell from interpreting `#` as a

@@ -380,7 +380,7 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
         "--show-values",
     )
     #: --show-values returns the innocuous value actually set by the page
-    assert shown_session["entries"] == {"cdpx-session": "oui"}
+    assert shown_session["entries"] == {"cdpx-session": "yes"}
     #: cleanup brings the cookie context back to a verifiably clean state
     assert cli_json(session_context, "cookies", "clear")["cleared"] is True
     assert cli_json(session_context, "cookies", "get")["count"] == 0
@@ -1832,7 +1832,7 @@ def test_navigate_and_read_title(page):
     c, base = page
     nav.navigate(c, f"{base}/index.html")
     #: the title read via Runtime proves the right page is loaded and executable
-    assert js.evaluate(c, "document.title") == "cdpx fixtures — accueil"
+    assert js.evaluate(c, "document.title") == "cdpx fixtures — home"
 
 
 def test_wait_for_late_spa_content(page):
@@ -1997,7 +1997,7 @@ def test_a11y_and_frame_real(page):
     #: Chrome exposes a non-empty a11y tree for the host page
     assert tree["count"] > 0
     #: the text read does come from the child document, not the host page
-    assert frames.frame_text(c, "#child-marker")["text"] == "Contenu de l'iframe"
+    assert frames.frame_text(c, "#child-marker")["text"] == "Iframe content"
 
 
 def test_coverage_real(page):
@@ -2071,7 +2071,7 @@ def test_seo_edge_real(page):
     #: the title's width is estimated in pixels, beyond a simple character count
     assert res["title_px_estimate"] > 0
     #: each trap set by the fixture surfaces as an explicit, actionable finding
-    assert "duplicate h1: produit dupliqué" in res["findings"]
+    assert "duplicate h1: duplicate product" in res["findings"]
     assert "invalid JSON-LD" in res["findings"]
     assert "incomplete Product JSON-LD (sku or name required)" in res["findings"]
 

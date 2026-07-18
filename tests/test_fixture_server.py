@@ -21,12 +21,12 @@ PAGES_MARKERS = {
     "/spa.html": ["late-content", "300"],
     "/console.html": ["fixture-log", "fixture-error", "fixture-uncaught"],
     "/network.html": ["/api/json", "/api/status/500", "/api/slow"],
-    "/seo.html": ["canonical", "ld+json", "hreflang", 'alt="pixel décoratif"'],
-    "/seo-broken.html": ["Premier H1", "Deuxième H1"],
+    "/seo.html": ["canonical", "ld+json", "hreflang", 'alt="decorative pixel"'],
+    "/seo-broken.html": ["First H1", "Second H1"],
     "/storage.html": ["cdpx-key", "jsCookie"],
     "/iframe.html": ['src="/child.html"'],
     "/child.html": ['id="child-marker"'],
-    "/long.html": ['id="long-title"', 'id="long-bottom"', "Marqueur bas de page"],
+    "/long.html": ['id="long-title"', 'id="long-bottom"', "Bottom-of-page marker"],
     "/intercept.html": ['id="intercept-result"', "/api/status/500", "/api/echo"],
     "/interactions-rich.html": [
         'id="hidden-button"',
@@ -41,7 +41,7 @@ PAGES_MARKERS = {
     ],
     "/vitals.html": ['id="inp-button"', "Largest content candidate"],
     "/coverage.html": ['href="/coverage.css"', 'src="/coverage.js"'],
-    "/seo-edge.html": ["Produit dupliqué", "{invalid json"],
+    "/seo-edge.html": ["Duplicate product", "{invalid json"],
 }
 
 

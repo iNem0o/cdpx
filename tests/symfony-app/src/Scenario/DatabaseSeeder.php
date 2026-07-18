@@ -5,10 +5,10 @@ namespace App\Scenario;
 use Doctrine\DBAL\Connection;
 
 /**
- * Seed SQLite figé: 5 auteurs, 5 livres (1 auteur distinct par livre, pour que
- * le N+1 produise exactement 1 + 5 requêtes). Passe par la connexion `seed`
- * (profiling désactivé) afin que le panel db ne compte QUE les requêtes des
- * scénarios. Idempotent: CREATE IF NOT EXISTS + INSERT OR IGNORE.
+ * Frozen SQLite seed: 5 authors, 5 books (1 distinct author per book, so
+ * that N+1 produces exactly 1 + 5 queries). Goes through the `seed`
+ * connection (profiling disabled) so the db panel counts ONLY the
+ * scenarios' queries. Idempotent: CREATE IF NOT EXISTS + INSERT OR IGNORE.
  */
 final class DatabaseSeeder
 {

@@ -15,8 +15,8 @@ class Book
     #[ORM\Column(type: 'string')]
     private string $title;
 
-    // LAZY volontaire: le cas doctrine-n-plus-one repose sur l'initialisation
-    // paresseuse (1 findAll + 1 requête par auteur distinct).
+    // LAZY on purpose: the doctrine-n-plus-one case relies on lazy
+    // initialization (1 findAll + 1 query per distinct author).
     #[ORM\ManyToOne(targetEntity: Author::class, fetch: 'LAZY')]
     #[ORM\JoinColumn(name: 'author_id', nullable: false)]
     private Author $author;

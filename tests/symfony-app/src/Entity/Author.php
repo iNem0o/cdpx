@@ -8,7 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'author')]
 class Author
 {
-    // Ids assignés par le seeder: aucun auto-increment, dataset 100 % figé.
+    // Ids assigned by the seeder: no auto-increment, dataset 100% frozen.
     #[ORM\Id]
     #[ORM\Column(type: 'integer')]
     private int $id;

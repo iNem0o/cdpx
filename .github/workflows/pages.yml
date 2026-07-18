@@ -12,8 +12,8 @@ on:
 permissions:
   contents: read
 
-# Un seul déploiement Pages à la fois; on ne coupe pas un déploiement en
-# cours pour éviter de laisser l'environnement dans un état intermédiaire.
+# One Pages deployment at a time; an in-flight deployment is not cancelled
+# to avoid leaving the environment in an intermediate state.
 concurrency:
   group: pages
   cancel-in-progress: false

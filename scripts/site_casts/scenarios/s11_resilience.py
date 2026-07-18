@@ -1,4 +1,4 @@
-"""Résilience: intercept (panne simulée) et emulate (mobile, réseau lent)."""
+"""Resilience: intercept (simulated outage) and emulate (mobile, slow network)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario
 
 SCENARIO = Scenario(
     id="resilience",
-    title="cdpx — reproduire l'irreproductible : pannes et mobiles",
+    title="cdpx — reproducing the irreproducible: outages and mobile",
     steps=(
-        Comment("« que devient la page si l'API tombe ? » — la panne devient un cas de test"),
+        Comment(
+            "“what happens to the page if the API goes down?” — the outage becomes a test case"
+        ),
         Cmd(
             argv=(
                 "intercept",
@@ -28,14 +30,14 @@ SCENARIO = Scenario(
             argv=("text", "#intercept-result"),
             expect=("/api/json:503|/api/status/500:503|/api/slow?ms=120:503|/api/echo:503",),
         ),
-        Comment("le fallback d'erreur se lit dans le DOM — sans toucher à l'infra"),
-        Comment("emulate mobile : viewport et UA, le temps d'une action"),
+        Comment("the error fallback reads straight from the DOM — no need to touch the infra"),
+        Comment("emulate mobile: viewport and UA, for the duration of an action"),
         Cmd(
             argv=("emulate", "mobile", "--", "goto", "{base}/index.html"),
             display="cdpx emulate mobile -- goto {base}/index.html",
             expect=('"preset":"mobile"', '"applied":true'),
         ),
-        Comment("emulate slow-3g : 400ms de latence réseau, mesurés sur l'action elle-même"),
+        Comment("emulate slow-3g: 400ms of network latency, measured on the action itself"),
         Cmd(
             argv=("emulate", "slow-3g", "--", "goto", "{base}/index.html"),
             display="cdpx emulate slow-3g -- goto {base}/index.html",

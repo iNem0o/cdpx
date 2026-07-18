@@ -322,7 +322,7 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
 
         evaluated = successful_session_json(*privileged, "eval", "document.title")
         #: privileged authority unlocks JS evaluation in the real page
-        assert evaluated["value"] == "cdpx fixtures — accueil"
+        assert evaluated["value"] == "cdpx fixtures — home"
         opened = successful_session_json(
             *privileged,
             "eval",

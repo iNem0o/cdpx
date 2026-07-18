@@ -1,4 +1,4 @@
-"""État: cookies et storage, valeurs masquées par défaut."""
+"""State: cookies and storage, values redacted by default."""
 
 from __future__ import annotations
 
@@ -6,19 +6,19 @@ from scripts.site_casts.runtime import Cmd, Comment, Scenario
 
 SCENARIO = Scenario(
     id="state",
-    title="cdpx — cookies et storage : l'état, sans les valeurs",
+    title="cdpx — cookies and storage: the state, without the values",
     env={"CONSENT_VALUE": "opt-in-2026-krx"},
     forbidden=("opt-in-2026-krx",),
     steps=(
         Cmd(argv=("goto", "{base}/storage.html"), expect=('"ok":true',)),
-        Comment("valeurs masquées par défaut : un agent recopie ses sorties dans son contexte"),
+        Comment("redacted by default: an agent copies its outputs straight into its context"),
         Cmd(argv=("storage",), expect=('"cdpx-key":"***"', '"values_masked":true')),
         Cmd(
             argv=("storage", "--kind", "session"),
             expect=('"cdpx-session":"***"', '"values_masked":true'),
         ),
         Cmd(argv=("cookies", "get"), expect=('"name":"jsCookie","value":"***"',)),
-        Comment("préparer un état de scénario sans exposer la valeur"),
+        Comment("prepare a scenario's state without exposing the value"),
         Cmd(
             argv=(
                 "cookies",
@@ -33,7 +33,7 @@ SCENARIO = Scenario(
             expect=('"name":"consent"', '"success":true'),
         ),
         Cmd(argv=("cookies", "get"), expect=('"name":"consent","value":"***"', '"count":2')),
-        Comment("et repartir propre"),
+        Comment("and leave things clean"),
         Cmd(argv=("cookies", "clear"), expect=('"cleared":true', "Storage.clearCookies")),
     ),
 )

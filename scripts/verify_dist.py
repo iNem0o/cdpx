@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vérifie le contenu public du wheel et du sdist avant publication."""
+"""Verifies the public content of the wheel and sdist before publication."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ DIST = ROOT / "dist"
 def _single(pattern: str) -> Path:
     matches = sorted(DIST.glob(pattern))
     if len(matches) != 1:
-        raise AssertionError(f"attendu un artefact {pattern}, trouvé: {matches}")
+        raise AssertionError(f"expected one artifact {pattern}, found: {matches}")
     return matches[0]
 
 
@@ -35,7 +35,7 @@ def _assert_no_private_paths(paths: set[str]) -> None:
     for path in paths:
         relative = path.split("/", 1)[1] if "/" in path and path.startswith("cdpx-") else path
         assert not relative.startswith(forbidden), (
-            f"contenu non public dans la distribution: {path}"
+            f"non-public content in the distribution: {path}"
         )
 
 
@@ -48,7 +48,7 @@ def verify_wheel(path: Path) -> dict[str, object]:
         top_levels = {name.split("/", 1)[0] for name in names if "/" in name}
         dist_info = metadata_name.split("/", 1)[0]
 
-        assert top_levels <= {"cdpx", dist_info}, f"module inattendu dans le wheel: {top_levels}"
+        assert top_levels <= {"cdpx", dist_info}, f"unexpected module in the wheel: {top_levels}"
         assert "cdpx/__init__.py" in names
         assert "cdpx/proofing/vendor/mermaid-11.16.0.min.js" in names
         assert "cdpx/proofing/vendor/LICENSE.mermaid" in names
@@ -79,7 +79,7 @@ def verify_sdist(path: Path) -> dict[str, object]:
     with tarfile.open(path, "r:gz") as archive:
         names = {member.name for member in archive.getmembers() if member.isfile()}
         roots = {name.split("/", 1)[0] for name in names}
-        assert roots == {f"cdpx-{__version__}"}, f"racine sdist inattendue: {roots}"
+        assert roots == {f"cdpx-{__version__}"}, f"unexpected sdist root: {roots}"
         root = next(iter(roots))
         required = {
             "LICENSE",
@@ -112,7 +112,7 @@ def verify_sdist(path: Path) -> dict[str, object]:
             "tests/fixtures/profiler/LICENSE.SYMFONY",
         }
         missing = {name for name in required if f"{root}/{name}" not in names}
-        assert not missing, f"fichiers absents du sdist: {sorted(missing)}"
+        assert not missing, f"files missing from the sdist: {sorted(missing)}"
         _assert_no_private_paths(names)
 
     return {"path": str(path), "files": len(names), "root": root}

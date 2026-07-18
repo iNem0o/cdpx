@@ -7,9 +7,9 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Cibles locales réelles du collector http_client. Docker reste autonome:
- * les scénarios http-client-* appellent l'app elle-même (voir Dockerfile,
- * PHP_CLI_SERVER_WORKERS > 1 obligatoire pour éviter le deadlock).
+ * Real local targets for the http_client collector. Docker stays self-
+ * contained: the http-client-* scenarios call the app itself (see
+ * Dockerfile, PHP_CLI_SERVER_WORKERS > 1 mandatory to avoid deadlock).
  */
 final class ApiController
 {
