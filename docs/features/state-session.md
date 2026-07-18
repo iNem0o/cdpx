@@ -170,7 +170,7 @@ Options globales et codes de sortie : voir la section Contrat CLI du README.
 ### `cdpx session`
 
 ```text
-usage: cdpx session start --run-id RUN --authority observation|interaction|privileged --origins ORIGINES [--ttl S] [--owner-pid PID] [--chrome BIN] [--startup-timeout S]
+usage: cdpx session start --run-id RUN --authority observation|interaction|privileged --origins ORIGINES [--ttl S] [--owner-pid PID] [--chrome BIN] [--startup-timeout S] [--export]
 usage: cdpx session status --session PATH --run-id RUN --target ID
 usage: cdpx session stop --session PATH --run-id RUN --target ID
 ```
@@ -197,7 +197,17 @@ cdpx session status --session /tmp/cdpx-session/manifest.json --run-id checkout-
 cdpx session stop --session /tmp/cdpx-session/manifest.json --run-id checkout-17 --target ABC123
 ```
 
-Les trois identifiants peuvent être exportés une fois :
+Les trois identifiants peuvent être exportés une fois. `--export` remplace le
+JSON de démarrage par les trois lignes `export` quotées (`CDPX_SESSION`,
+`CDPX_RUN_ID`, `CDPX_TARGET`) — c'est l'exception documentée au contrat
+stdout-JSON, destinée à `eval` façon `ssh-agent` :
+
+```bash
+eval "$(cdpx session start --run-id checkout-17 --authority interaction --origins "http://*.test" --export)"
+cdpx text "#cart"
+```
+
+Les exports manuels depuis la sortie JSON restent possibles :
 
 ```bash
 export CDPX_SESSION=/tmp/cdpx-session/manifest.json

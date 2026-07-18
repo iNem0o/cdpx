@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -204,6 +205,48 @@ def test_session_start_uses_run_id_environment_and_emits_metadata(
     assert payload["_cdpx"] == manifest.execution_context().metadata()
     #: l'option --startup-timeout traverse intacte jusqu'au superviseur
     assert calls[0]["timeout"] == 75.0
+
+
+def test_session_start_export_prints_evalable_identity_lines(
+    mock,
+    capsys,
+    tmp_path,
+    monkeypatch,
+):
+    """`session start --export` remplace le JSON de démarrage par les trois
+    lignes `export` de la triple identité: `eval "$(cdpx session start ...
+    --export)"` installe l'environnement en une seule commande shell."""
+    manifest, path = session_manifest(mock, tmp_path)
+    monkeypatch.setenv("CDPX_RUN_ID", manifest.run_id)
+    monkeypatch.setattr(session_mod, "start_session", lambda **_kwargs: (manifest, path))
+
+    code = main(
+        [
+            "session",
+            "start",
+            "--authority",
+            "observation",
+            "--origins",
+            "http://*.test",
+            "--export",
+        ]
+    )
+    streams = capsys.readouterr()
+
+    #: stdout ne contient que les trois affectations, dans l'ordre documenté
+    #: CDPX_SESSION, CDPX_RUN_ID, CDPX_TARGET — rien d'autre à évaluer
+    assert code == 0 and not streams.err
+    lines = streams.out.splitlines()
+    assert lines == [
+        f"export CDPX_SESSION={path}",
+        f"export CDPX_RUN_ID={manifest.run_id}",
+        f"export CDPX_TARGET={manifest.target_id}",
+    ]
+    #: chaque ligne est un mot-clé `export` suivi d'une unique affectation:
+    #: la sortie est consommable par eval sans effet de bord shell
+    for line in lines:
+        keyword, assignment = shlex.split(line)
+        assert keyword == "export" and "=" in assignment
 
 
 @pytest.mark.scenario(

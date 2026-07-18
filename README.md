@@ -52,17 +52,16 @@ Dans un autre terminal, demandez à cdpx de créer une session supervisée. Elle
 possède son profil Chrome jetable, son port dynamique et un unique target :
 
 ```bash
-cdpx session start --run-id demo --authority interaction --origins "http://127.0.0.1:*" --ttl 1800
+eval "$(cdpx session start --run-id demo --authority interaction --origins "http://127.0.0.1:*" --ttl 1800 --export)"
 ```
 
-La sortie JSON fournit `manifest` et `target_id`. Exportez la triple identité
-retournée ; les arguments explicites équivalents restent possibles et sont
-prioritaires sur l'environnement.
+`--export` remplace la sortie JSON de démarrage par les trois lignes `export`
+de la triple identité (`CDPX_SESSION`, `CDPX_RUN_ID`, `CDPX_TARGET`), quotées
+pour `eval`. Sans ce drapeau, la sortie JSON fournit `manifest` et `target_id`
+à exporter soi-même ; les arguments explicites équivalents restent possibles
+et sont prioritaires sur l'environnement.
 
 ```bash
-export CDPX_SESSION=/run/user/1000/cdpx/SESSION/manifest.json
-export CDPX_RUN_ID=demo
-export CDPX_TARGET=ABC123
 export FORM_NAME=Ada
 
 cdpx goto http://127.0.0.1:8899/form.html
@@ -71,7 +70,7 @@ cdpx type "#name" --secret-env FORM_NAME --clear
 cdpx click "#submit-btn"
 cdpx text "#result"
 cdpx screenshot -o cdpx-form.jpg --format jpeg
-cdpx session stop --session "$CDPX_SESSION" --run-id "$CDPX_RUN_ID" --target "$CDPX_TARGET"
+cdpx session stop
 ```
 
 Une seule commande détient le lease à la fois. Le superviseur ferme le target,

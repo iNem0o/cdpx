@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
-import shlex
 import signal
 import threading
 from pathlib import Path
 
-from cdpx.session import start_session, stop_session
+from cdpx.session import export_lines, start_session, stop_session
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,12 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         browser_kind="mock",
     )
     print("Session mock supervisée prête. Copiez ces exports :", flush=True)
-    for name, value in (
-        ("CDPX_SESSION", str(path)),
-        ("CDPX_RUN_ID", manifest.run_id),
-        ("CDPX_TARGET", manifest.target_id),
-    ):
-        print(f"export {name}={shlex.quote(value)}", flush=True)
+    for line in export_lines(manifest, path):
+        print(line, flush=True)
     print("cdpx goto http://demo.test/", flush=True)
     print("cdpx tabs list", flush=True)
     print("Ctrl-C arrête la session et supprime ses fichiers.", flush=True)

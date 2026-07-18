@@ -16,6 +16,7 @@ import math
 import os
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import stat
@@ -182,6 +183,20 @@ class SessionManifest:
             "created_at": self.created_at,
             "expires_at": self.expires_at,
         }
+
+
+def export_lines(manifest: SessionManifest, manifest_path: str | Path) -> list[str]:
+    """Lignes ``export`` shell installant la triple identité d'une session.
+
+    La sortie est destinée à ``eval`` : uniquement des affectations quotées,
+    aucune donnée au-delà de ce que la vue publique du manifest expose déjà.
+    """
+    values = (
+        ("CDPX_SESSION", str(manifest_path)),
+        ("CDPX_RUN_ID", manifest.run_id),
+        ("CDPX_TARGET", manifest.target_id),
+    )
+    return [f"export {name}={shlex.quote(value)}" for name, value in values]
 
 
 @dataclass(frozen=True)

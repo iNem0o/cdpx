@@ -1,0 +1,8 @@
+# Overlay pour l'enregistrement des casts de la homepage (make site-casts):
+# publie l'app Symfony témoin sur le loopback hôte afin que le générateur
+# (scripts/site_casts) enregistre la démo profiler contre la vraie app.
+# Port 8025 pour ne jamais entrer en collision avec un dev server local.
+services:
+  symfony:
+    ports:
+      - "127.0.0.1:8025:8000"

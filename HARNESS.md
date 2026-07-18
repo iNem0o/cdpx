@@ -25,8 +25,10 @@ cdpx session start --run-id review-42 --authority interaction \
 La sortie fournit `manifest`, `run_id` et `target_id`. Chaque commande métier
 doit ensuite fournir **les trois** identifiants `--session`, `--run-id` et
 `--target`, explicitement ou avec `CDPX_SESSION`, `CDPX_RUN_ID` et
-`CDPX_TARGET`. Les options explicites gagnent sur l'environnement et les
-valeurs vides sont refusées.
+`CDPX_TARGET`. `session start --export` émet ces trois exports quotés à la
+place du JSON, pour `eval` dans le shell appelant ; le contrôle d'identité en
+aval reste identique. Les options explicites gagnent sur l'environnement et
+les valeurs vides sont refusées.
 
 Les commandes de cycle de vie ne sont pas des commandes navigateur et ne
 consomment donc aucun niveau d'autorité du manifest. `session start` crée ce

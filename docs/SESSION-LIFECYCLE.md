@@ -38,17 +38,26 @@ cdpx session start \
 ```
 
 Le démarrage retourne notamment `manifest`, `run_id` et `target_id`. Ces trois
-valeurs sont obligatoires pour toute commande navigateur. Elles peuvent être
-passées explicitement ou exportées :
+valeurs sont obligatoires pour toute commande navigateur. Le plus simple est
+`--export`, qui remplace le JSON de démarrage par trois lignes `export` quotées
+à évaluer dans le shell courant, façon `ssh-agent` :
+
+```bash
+eval "$(cdpx session start --run-id review-42 --authority interaction \
+  --origins "http://*.test,http://127.0.0.1:*" --ttl 1800 --export)"
+
+cdpx goto http://demo.test/
+cdpx session status
+cdpx session stop
+```
+
+Sans `--export`, les trois valeurs de la sortie JSON peuvent être passées
+explicitement à chaque commande ou exportées à la main :
 
 ```bash
 export CDPX_SESSION=/run/user/1000/cdpx/SESSION/manifest.json
 export CDPX_RUN_ID=review-42
 export CDPX_TARGET=TARGET_ID
-
-cdpx goto http://demo.test/
-cdpx session status
-cdpx session stop
 ```
 
 Les arguments explicites gagnent sur l'environnement. Une valeur vide, un run

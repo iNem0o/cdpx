@@ -224,7 +224,7 @@ def test_github_workflows_are_parseable_and_actions_are_sha_pinned():
     workflows = sorted(Path(".github/workflows").glob("*.yml"))
     #: l'inventaire des workflows est exhaustif: un workflow ajouté doit
     #: passer par ce garde-fou ou être explicitement listé
-    assert {path.name for path in workflows} == {"ci.yml", "release.yml"}
+    assert {path.name for path in workflows} == {"ci.yml", "pages.yml", "release.yml"}
     for path in workflows:
         text = path.read_text(encoding="utf-8")
         parsed = yaml.load(text, Loader=yaml.BaseLoader)

@@ -84,9 +84,14 @@ détaillés dans la [référence des sessions supervisées](SESSION-LIFECYCLE.md
 | CLI | Usecase | Pourquoi |
 |---|---|---|
 | `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | lifecycle hors matrice d'autorité CDP: `start` crée le grant; `status`/`stop` exigent le manifest privé et son identité run/target exacte |
+| `cdpx session start ... --export` | installer la triple identité en une commande via `eval "$(...)"` | lignes `export` quotées à la `ssh-agent`; exception documentée au contrat stdout-JSON |
 | `cdpx cookies get [--show-values]` | inspecter la session (masqué par défaut) | sécurité: cf. HARNESS.md §2 |
 | `cdpx cookies set --name n --value-env NOM --url u` / `clear` | préparer un scénario sans exposer la valeur dans argv | reproductibilité; `clear` = Storage.clearCookies avec repli |
 | `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, valeurs masquées par défaut | panier invité, consentement, caches front |
+
+```bash
+cdpx session start --run-id demo --authority interaction --origins "http://127.0.0.1:*" --ttl 1800 --export
+```
 
 ## Audits SEO, performance, accessibilité — [fiche](features/seo-performance-accessibility.md)
 
@@ -125,7 +130,7 @@ cdpx dom-diff -- click "#submit-btn"
 |---|---|---|
 | `cdpx intercept --rule "PATTERN => 503\|block\|continue" -- goto <url>` | mocker/bloquer des requêtes pendant une navigation | commande composée: `Fetch.enable` meurt avec la connexion |
 | `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | device mobile, throttling réseau/CPU | forme composée obligatoire pour agir sous émulation: les overrides meurent avec la connexion |
-| `cdpx frame <selector>` | lire dans une iframe same-origin | contenus embarqués (paiement, consentement) |
+| `cdpx frame <selector>` | lire dans une iframe same-origin — le sélecteur vise un élément **dans** le document de l'iframe, pas la balise `<iframe>` | contenus embarqués (paiement, consentement) |
 | `cdpx record [-o j.ndjson] -- <action>` | exécuter UNE action et écrire un journal `cdpx.record/v2` redacted | `type` rejouable via `@env:NOM`; eval/littéraux sensibles non rejouables |
 | `cdpx replay <j.ndjson>` | prévalider puis rejouer, stop à la première divergence | relit l'URL réelle après navigation et avant mutation; budget `--max-actions` |
 | `cdpx scenario run <fichier.yml>` | exécuter un parcours métier déclaratif | verdict unique pass/fail, findings et dossier de preuves |

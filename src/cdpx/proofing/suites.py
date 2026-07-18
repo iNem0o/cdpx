@@ -289,6 +289,9 @@ def run_symfony_evidence(
         "docker-compose.symfony-e2e.yml",
         "down",
         "--remove-orphans",
+        # --volumes: aucun volume déclaré aujourd'hui, mais si une image de
+        # base ajoute un VOLUME, ses volumes anonymes ne s'accumulent pas.
+        "--volumes",
     ]
     pre_code, pre_output = run_text(down_argv, timeout=60, env=compose_env)
     try:

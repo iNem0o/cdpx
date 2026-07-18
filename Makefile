@@ -7,7 +7,7 @@
 PY ?= python3
 COV_MIN ?= 85
 
-.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist smoke-dist
+.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock site-casts docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist smoke-dist
 
 help: ## liste des cibles
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -57,7 +57,7 @@ docker-symfony-e2e: ## M2: e2e profiler contre une vraie app Symfony Dockerisée
 	@set -eu; \
 	mkdir -p .proof/evidence; \
 	export CDPX_E2E_UID=$$(id -u) CDPX_E2E_GID=$$(id -g) CDPX_PROOF_DIR=./.proof; \
-	cleanup() { docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans; }; \
+	cleanup() { docker compose -f docker-compose.symfony-e2e.yml down --remove-orphans --volumes; }; \
 	trap cleanup EXIT INT TERM; \
 	cleanup; \
 	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
@@ -73,6 +73,17 @@ fixtures: ## lancer le site témoin sur :8899 (inspection manuelle / e2e piloté
 
 mock: ## lancer un faux Chrome scriptable (debug du CLI sans navigateur)
 	$(PY) -m cdpx.testing.mock_session
+
+# Projet compose dédié: n'interfère jamais avec l'état docker-symfony-e2e,
+# et `down --volumes` évite la fuite de volumes anonymes de l'app témoin.
+SITE_CASTS_COMPOSE = docker compose -p cdpx-site-casts \
+	-f docker-compose.symfony-e2e.yml -f docker-compose.site-casts.yml
+
+site-casts: ## (ré)enregistrer les casts tutoriels de la homepage (Chrome réel + app Symfony)
+	$(SITE_CASTS_COMPOSE) up -d --wait symfony
+	$(PY) scripts/site_casts/generate.py record --symfony-base http://127.0.0.1:8025; \
+	status=$$?; $(SITE_CASTS_COMPOSE) down --volumes --remove-orphans; exit $$status
+	$(PY) scripts/site_casts/generate.py check
 
 clean: ## nettoyer artefacts
 	rm -rf .pytest_cache .ruff_cache .mypy_cache .proof .proof.new .proof.old dist build src/*.egg-info

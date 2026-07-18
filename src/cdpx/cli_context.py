@@ -67,6 +67,7 @@ class CommandOptions:
     ttl: float = 3600.0
     owner_pid: int | None = None
     chrome: str | None = None
+    export: bool = False
     startup_timeout: float = session_api.DEFAULT_STARTUP_TIMEOUT
     session_path: str | None = None
     session_target: str | None = None
@@ -125,6 +126,7 @@ class CommandOptions:
             ttl=float(values.get("ttl", 3600.0)),
             owner_pid=cast(int | None, values.get("owner_pid")),
             chrome=cast(str | None, values.get("chrome")),
+            export=bool(values.get("export", False)),
             startup_timeout=float(
                 values.get("startup_timeout", session_api.DEFAULT_STARTUP_TIMEOUT)
             ),

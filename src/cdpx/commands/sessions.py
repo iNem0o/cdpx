@@ -8,6 +8,7 @@ import os
 from cdpx import scenarios, session
 from cdpx.cli_context import CommandInvocation
 from cdpx.commands.shared import emit_json
+from cdpx.security import redact_text
 
 
 def register_commands(
@@ -26,6 +27,11 @@ def register_commands(
     start.add_argument("--ttl", type=float, default=3600.0)
     start.add_argument("--owner-pid", type=int, default=None)
     start.add_argument("--chrome", default=None)
+    start.add_argument(
+        "--export",
+        action="store_true",
+        help="émettre des lignes `export` eval-ables au lieu du JSON de démarrage",
+    )
     start.add_argument(
         "--startup-timeout",
         type=float,
@@ -60,8 +66,14 @@ def cmd_session(args: CommandInvocation) -> None:
             chrome_bin=args.options.chrome,
             timeout=args.options.startup_timeout,
         )
+        started = args.with_session(manifest)
+        if args.options.export:
+            # exception documentée au contrat stdout-JSON: lignes eval-ables
+            for line in session.export_lines(manifest, path):
+                print(redact_text(line, context=started.redaction))
+            return
         emit_json(
-            args.with_session(manifest),
+            started,
             {**manifest.public_dict(), "manifest": str(path), "started": True},
         )
         return

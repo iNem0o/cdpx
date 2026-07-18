@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 from dataclasses import replace
@@ -17,6 +18,7 @@ from cdpx.session import (
     SessionManifest,
     assert_session_active,
     build_chrome_command,
+    export_lines,
     find_chrome,
     load_manifest,
     remove_session_files,
@@ -260,6 +262,34 @@ def test_public_manifest_omits_capabilities_and_physical_profile(tmp_path, evide
             public,
             filename="public-manifest.json",
         )
+
+
+def test_export_lines_quote_hostile_values_for_eval(tmp_path):
+    """Les lignes `export` de la triple identité quotent toute valeur hostile
+    au shell: un chemin avec espace ou apostrophe survit à un round-trip
+    shlex sans injection ni troncature."""
+    manifest = replace(
+        manifest_for(tmp_path),
+        run_id="run 'quoted'",
+    )
+    hostile_path = tmp_path / "dossier avec espaces" / "manifest.json"
+
+    lines = export_lines(manifest, hostile_path)
+
+    #: exactement les trois variables du contrat, dans l'ordre documenté
+    assert [line.split("=", 1)[0] for line in lines] == [
+        "export CDPX_SESSION",
+        "export CDPX_RUN_ID",
+        "export CDPX_TARGET",
+    ]
+    #: chaque ligne redonne la valeur exacte après interprétation shell:
+    #: le quoting neutralise espaces et apostrophes au lieu de les émettre bruts
+    parsed = dict(shlex.split(line)[1].split("=", 1) for line in lines)
+    assert parsed == {
+        "CDPX_SESSION": str(hostile_path),
+        "CDPX_RUN_ID": manifest.run_id,
+        "CDPX_TARGET": manifest.target_id,
+    }
 
 
 def test_chrome_command_forces_ephemeral_loopback_profile(tmp_path):

@@ -2594,6 +2594,11 @@ def test_run_symfony_evidence_composes_and_tears_down(tmp_path, monkeypatch):
     assert command.status == "ok"
     #: le teardown est systématique: down avant ET après le up
     assert calls["down"] == 2
+    #: chaque down purge orphelins ET volumes: la boucle ne peut pas
+    #: accumuler de volumes anonymes même si une image en déclare un jour
+    for argv in calls["argv"]:
+        if "down" in argv:
+            assert "--remove-orphans" in argv and "--volumes" in argv
     log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
     #: le log agrège le transcript streamé du up et le verdict de sortie
     assert "compose up transcript" in log
