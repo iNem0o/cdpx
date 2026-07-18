@@ -1,78 +1,79 @@
-# CONTEXT.md — d'où vient ce projet
+# CONTEXT.md — where this project comes from
 
-## L'existant (point de départ)
+## What already existed (starting point)
 
-Un premier outillage CLI exploitant le Chrome DevTools Protocol a donné à un
-agent la capacité de **voir et naviguer** dans un Chrome de développement,
-dans le contexte d'applications Symfony, de sites e-commerce
-(Shopware/PrestaShop) et d'opérations SEO.
+A first CLI tooling built on the Chrome DevTools Protocol gave an
+agent the ability to **see and navigate** in a development Chrome,
+in the context of Symfony applications, e-commerce sites
+(Shopware/PrestaShop) and SEO operations.
 
-Capacités du prototype initial:
-- voir la page,
-- naviguer,
-- gérer les onglets,
-- exécuter du JS brut dans la page.
+Capabilities of the initial prototype:
+- see the page,
+- navigate,
+- manage tabs,
+- execute raw JS in the page.
 
-## La demande
+## The request
 
-1. **Trouver de nouveaux usecases** offerts par le câblage CDP déjà en place.
-2. **Scripter de nouvelles primitives** qui améliorent la production de
-   l'agent ET du dev qui le pilote.
-3. Livrer une **stack complète**: CLI pour l'agent, toutes les primitives,
-   et surtout un **système de test déterministe** — un serveur HTTP simple +
-   des HTML statiques couvrant tous les usecases.
-4. Harness agent intégré, documentation des échanges, todolist complète
-   (quoi/comment/pourquoi + intentions d'origine + exemples), roadmap par
-   milestones pour ce qui ne peut pas être pris tout de suite.
-5. Ne mettre en place **que ce qui est validable à 100% en runtime** au moment
-   de la génération; documenter le reste.
+1. **Find new usecases** offered by the CDP wiring already in place.
+2. **Script new primitives** that improve the output of
+   the agent AND of the dev driving it.
+3. Deliver a **complete stack**: CLI for the agent, all the primitives,
+   and above all a **deterministic test system** — a simple HTTP server +
+   static HTML pages covering all the usecases.
+4. Integrated agent harness, documentation of exchanges, complete todo list
+   (what/how/why + original intent + examples), roadmap by
+   milestones for what cannot be taken on right away.
+5. Only put in place **what is 100% validatable at runtime** at the time
+   of generation; document the rest.
 
-## L'idée directrice (issue de l'échange)
+## The guiding idea (from the discussion)
 
-Le câblage existant (voir/naviguer/onglets/JS brut) donne à l'agent des
-**mains**. Ce qui lui manque pour produire mieux, ce sont des **sens** et des
-**instruments de mesure**:
+The existing wiring (see/navigate/tabs/raw JS) gives the agent
+**hands**. What it lacks to produce better work are **senses** and
+**measurement instruments**:
 
-- **console + réseau**: un agent qui ne lit ni la console JS ni les requêtes
-  en échec debugge un front à l'aveugle. Ce sont les deux feedback loops
-  du dev front, et les primitives les plus rentables à ajouter.
-- **attente explicite** (`wait`): sans elle, l'agent lit des états
-  intermédiaires (SPA, contenu injecté) et tire des conclusions fausses.
-- **interaction "trusted"** (`click`/`type` via Input domain, pas `el.click()`
-  JS): reproduire ce qu'un utilisateur réel produit, y compris pour les
-  frameworks qui filtrent `isTrusted`.
-- **audit SEO du DOM rendu** (`seo`): pour les audits e-commerce et SEO, ce
-  qui compte est le DOM final vu par le rendering de Googlebot, pas le HTML
-  servi. Une primitive = un contrat SEO extrait en un appel (title, metas,
-  canonical, hreflang, JSON-LD, h1, alt, liens).
-- **mesure** (`metrics`, poids réseau): objectiver au lieu de constater.
-- **état** (`cookies`/`storage`): comprendre et préparer des scénarios
-  (sessions, consentement, panier) — avec masquage par défaut, cf. HARNESS.md.
+- **console + network**: an agent that reads neither the JS console nor
+  failed requests debugs a frontend blind. These are the two feedback loops
+  of frontend dev, and the most cost-effective primitives to add.
+- **explicit wait** (`wait`): without it, the agent reads intermediate
+  states (SPA, injected content) and draws false conclusions.
+- **"trusted" interaction** (`click`/`type` via Input domain, not `el.click()`
+  JS): reproduce what a real user produces, including for
+  frameworks that filter `isTrusted`.
+- **SEO audit of the rendered DOM** (`seo`): for e-commerce and SEO audits,
+  what matters is the final DOM seen by Googlebot's rendering, not the served
+  HTML. One primitive = one SEO contract extracted in a single call (title,
+  metas, canonical, hreflang, JSON-LD, h1, alt, links).
+- **measurement** (`metrics`, network weight): make things objective
+  instead of just observing them.
+- **state** (`cookies`/`storage`): understand and prepare scenarios
+  (sessions, consent, cart) — with redaction by default, cf. HARNESS.md.
 
-Usecases plus lourds identifiés mais reportés en roadmap (voir ROADMAP.md):
-lecture du profiler Symfony via `x-debug-token-link`, interception/mock de
-requêtes (Fetch domain), DOM diff avant/après action, émulation device/réseau,
-arbre d'accessibilité comme "vision sémantique" low-cost, record/replay de
-sessions, Core Web Vitals.
+Heavier usecases identified but deferred to the roadmap (see ROADMAP.md):
+reading the Symfony profiler via `x-debug-token-link`, request interception/
+mocking (Fetch domain), before/after action DOM diff, device/network
+emulation, the accessibility tree as a low-cost "semantic vision", session
+record/replay, Core Web Vitals.
 
-## Contrainte d'exécution Chrome
+## Chrome execution constraint
 
-Les e2e Chrome réel sont désormais un portail bloquant: `make test-e2e` et
-`make proof` échouent si aucun binaire Chrome/Chromium n'est disponible dans
-le `PATH`. Les tests démarrent leur propre profil headless jetable et ne
-s'attachent pas au Chrome personnel déjà ouvert.
+Real Chrome e2e tests are now a blocking gate: `make test-e2e` and
+`make proof` fail if no Chrome/Chromium binary is available in
+the `PATH`. The tests start their own disposable headless profile and do
+not attach to an already-open personal Chrome.
 
-## Décisions techniques et leurs raisons
+## Technical decisions and their reasons
 
-| Décision | Raison |
+| Decision | Reason |
 |---|---|
-| Python 3.11+, stdlib + dépendances runtime ciblées (`websockets`, `markdown-it-py`, `PyYAML`) | `websockets` porte le transport CDP synchrone, `markdown-it-py` le rendu CommonMark du cockpit de preuve et `PyYAML` les scénarios déclaratifs; aucun framework applicatif n'est introduit |
-| Client **sync** (`websockets.sync`) | un CLI est séquentiel; pas d'asyncio à propager dans les primitives ni les tests |
-| Connexion directe au `webSocketDebuggerUrl` du target page | modèle simple du prototype initial; pas de sessions flatten à gérer |
-| Mock CDP qui **enregistre les commandes** | tester le protocole émis, pas seulement la sortie: une régression de params CDP casse un test, pas une session de dev |
-| Découverte HTTP et WS sur deux ports dans le mock | simplicité; le client suit l'URL publiée par /json, donc compat totale avec le vrai Chrome (un seul port) |
-| `/json/new` en PUT avec fallback GET | Chrome ≥ 111 exige PUT; les vieux headless acceptent GET |
-| Cookies masqués par défaut | un agent recopie ses sorties; une session ne doit pas fuiter par accident |
-| Fixtures HTML sans aucune ressource externe ni aléa | déterminisme total; les seuls délais sont explicites (`/api/slow?ms=`, setTimeout 300ms de spa.html) |
-| `Input.dispatch*` plutôt que `el.click()` | évènements trusted, pipeline navigateur réel |
-| Sortie CLI = un objet JSON | parsable par l'agent, lisible par l'humain, diffable dans les logs |
+| Python 3.11+, stdlib + targeted runtime dependencies (`websockets`, `markdown-it-py`, `PyYAML`) | `websockets` carries the synchronous CDP transport, `markdown-it-py` the CommonMark rendering of the proof cockpit and `PyYAML` the declarative scenarios; no application framework is introduced |
+| **Sync** client (`websockets.sync`) | a CLI is sequential; no asyncio to propagate into the primitives or the tests |
+| Direct connection to the page target's `webSocketDebuggerUrl` | simple model from the initial prototype; no flattened sessions to manage |
+| CDP mock that **records commands** | test the protocol emitted, not just the output: a CDP params regression breaks a test, not a dev session |
+| HTTP and WS discovery on two ports in the mock | simplicity; the client follows the URL published by /json, so full compatibility with real Chrome (a single port) |
+| `/json/new` as PUT with GET fallback | Chrome ≥ 111 requires PUT; older headless versions accept GET |
+| Cookies redacted by default | an agent copies its outputs verbatim; a session must not leak by accident |
+| HTML fixtures with no external resource and no randomness | total determinism; the only delays are explicit (`/api/slow?ms=`, spa.html's 300ms setTimeout) |
+| `Input.dispatch*` rather than `el.click()` | trusted events, real browser pipeline |
+| CLI output = one JSON object | parsable by the agent, readable by humans, diffable in logs |

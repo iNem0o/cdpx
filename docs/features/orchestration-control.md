@@ -1,8 +1,8 @@
 +++
 id = "orchestration-control"
-title = "Interception, émulation et orchestration"
+title = "Interception, emulation and orchestration"
 status = "validated"
-summary = "Contrôler le comportement réseau, émuler des contraintes d'appareil, lire des iframes, exécuter des scénarios métier et enregistrer/rejouer des actions navigateur bornées."
+summary = "Control network behavior, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
 path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
 test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
@@ -11,105 +11,104 @@ expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
 id = "intercept-network"
-title = "Forcer, bloquer ou laisser passer les requêtes réseau correspondantes"
+title = "Force, block or let through matching network requests"
 entrypoint = "cdpx intercept"
 
 [[journeys]]
 id = "replay-flow"
-title = "Enregistrer et rejouer des actions navigateur bornées"
+title = "Record and replay bounded browser actions"
 entrypoint = "cdpx replay"
 
 [[journeys]]
 id = "scenario-run"
-title = "Exécuter un scénario métier déclaratif avec preuves"
+title = "Run a declarative business scenario with proofs"
 entrypoint = "cdpx scenario"
 
 [[scenarios]]
 id = "intercept-network-request"
 journey = "intercept-network"
-title = "Intercepter une requête réseau de façon déterministe"
-ui_text = "Le run navigateur peut forcer, bloquer ou laisser passer les issues réseau."
-report_text = "Ce scénario prouve que le comportement réseau peut être contrôlé pendant la validation navigateur et relié à une preuve lisible par un humain."
-given = "Une page fixture émet des requêtes que les règles d'interception peuvent matcher."
-when = "cdpx intercept applique un comportement fulfill, block ou continue pendant la navigation composée."
-then = "Le résultat navigateur et la capture d'écran prouvent le chemin réseau demandé."
+title = "Intercept a network request deterministically"
+ui_text = "The browser run can force, block or let through network outcomes."
+report_text = "This scenario proves that network behavior can be controlled during browser validation and linked to a human-readable proof."
+given = "A fixture page issues requests that the interception rules can match."
+when = "cdpx intercept applies a fulfill, block or continue behavior during the composed navigation."
+then = "The browser result and the screenshot prove the requested network path."
 tests = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_intercept*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "orchestrate-replay-and-emulation"
 journey = "replay-flow"
-title = "Rejouer une orchestration navigateur bornée"
-ui_text = "Le rapport relie les primitives d'orchestration aux tests de rejeu, d'iframe, d'émulation et de garde d'origine."
-report_text = "Ce scénario prouve que des actions navigateur bornées et des contraintes d'appareil peuvent être réellement rejouées ou inspectées sans devenir un langage de macros illimité."
-given = "Un journal NDJSON d'actions enregistrées, des fixtures iframe ou des contraintes d'émulation sont disponibles."
-when = "cdpx valide le journal entier (syntaxe, actions, budget) puis rejoue réellement chaque action contre le navigateur, émule, lit des iframes ou applique la garde d'origine."
-then = "Chaque action est rejouée dans la limite du budget, le rejeu s'arrête à la première divergence, et le résultat reste borné, vérifiable et rattaché à la feature d'orchestration."
+title = "Replay a bounded browser orchestration"
+ui_text = "The report links the orchestration primitives to the replay, iframe, emulation and origin guard tests."
+report_text = "This scenario proves that bounded browser actions and device constraints can actually be replayed or inspected without becoming an unbounded macro language."
+given = "An NDJSON journal of recorded actions, iframe fixtures or emulation constraints are available."
+when = "cdpx validates the entire journal (syntax, actions, budget) then actually replays each action against the browser, emulates, reads iframes or applies the origin guard."
+then = "Each action is replayed within the budget limit, the replay stops at the first divergence, and the result stays bounded, verifiable and tied to the orchestration feature."
 tests = ["tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "run-declarative-business-scenario"
 journey = "scenario-run"
-title = "Exécuter un scénario métier YAML avec preuves"
-ui_text = "Un fichier YAML décrit un parcours métier, ses assertions et ses preuves à collecter pendant et après le run."
-report_text = "Ce scénario prouve que les primitives cdpx peuvent être composées en parcours métier déclaratifs avec verdict unique, findings et dossier de preuves."
-given = "Un Chrome jetable cible une application locale ou Symfony et un fichier YAML décrit les steps, assertions et captures."
-when = "cdpx scenario run exécute les steps, collecte console/réseau en continu, capture les preuves aux checkpoints et évalue les assertions."
-then = "La sortie contient un verdict pass/fail unique, les findings, les steps exécutés et les artefacts produits."
+title = "Run a YAML business scenario with proofs"
+ui_text = "A YAML file describes a business journey, its assertions and the proofs to collect during and after the run."
+report_text = "This scenario proves that cdpx primitives can be composed into declarative business journeys with a single verdict, findings and a proof dossier."
+given = "A disposable Chrome targets a local or Symfony application and a YAML file describes the steps, assertions and captures."
+when = "cdpx scenario run executes the steps, continuously collects console/network, captures proofs at checkpoints and evaluates the assertions."
+then = "The output contains a single pass/fail verdict, the findings, the executed steps and the produced artifacts."
 tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 expected_proofs = ["junit", "json", "screenshot"]
 +++
 
-## Intention
+## Intent
 
-Permettre des expériences navigateur contrôlées où le réseau, les conditions
-d'appareil ou un journal d'actions multi-étapes font partie de la validation.
-Pendant la construction d'une app Symfony ou e-commerce, on a besoin de forcer
-un backend en erreur sans le casser (`intercept`), de vérifier un rendu sous
-contraintes mobiles ou réseau lent (`emulate`), de lire du contenu embarqué
-dans une iframe (`frame`), et de constituer puis rejouer un parcours
-reproductible (`record` / `replay`), ou d'élever ces primitives en scénario
-métier déclaratif (`scenario run`). Le langage d'actions reste volontairement
-compact (goto, wait, click, type, key, eval) : une action = une primitive
-nommée, jamais d'échappatoire shell.
+Enable controlled browser experiments where the network, device conditions
+or a multi-step action journal are part of the validation. While building a
+Symfony or e-commerce app, one needs to force a backend into an error state
+without breaking it (`intercept`), check a render under mobile or slow
+network constraints (`emulate`), read content embedded in an iframe
+(`frame`), and build then replay a reproducible journey (`record` /
+`replay`), or elevate these primitives into a declarative business scenario
+(`scenario run`). The action language stays deliberately compact (goto,
+wait, click, type, key, eval): one action = one named primitive, never a
+shell escape hatch.
 
 ## Usage
 
-Options globales et codes de sortie: voir la section Contrat CLI du README.
+Global options and exit codes: see the CLI Contract section of the README.
 
-L'allowlist de la session est obligatoire et toutes les actions sont
-préflightées avec l'autorité du manifest. Pour les commandes composées, le
-niveau suit le verbe (`goto`/`wait`: observation;
-`click`/`type`/`key`: interaction; `eval`: privileged). `replay` et `scenario`
-prennent le niveau maximal de tout le fichier avant effet CDP. Destinations et
-origine réelle sont vérifiées ; le contenu page reste une entrée non fiable.
-`frame` est une observation.
+The session's allowlist is mandatory and every action is preflighted
+against the manifest's authority. For composed commands, the level follows
+the verb (`goto`/`wait`: observation; `click`/`type`/`key`: interaction;
+`eval`: privileged). `replay` and `scenario` take the maximum level of the
+whole file before any CDP effect. Destinations and the real origin are
+checked; page content remains an untrusted input. `frame` is an observation.
 
 ### `cdpx intercept`
 
-Synopsis : `cdpx intercept --rule "PATTERN => ACTION" [--rule ...] [--settle S] -- goto <url>`
+Synopsis: `cdpx intercept --rule "PATTERN => ACTION" [--rule ...] [--settle S] -- goto <url>`
 
-Intercepte les requêtes réseau pendant une navigation et leur applique un
-comportement déterministe : répondre à la place du serveur avec un code HTTP
-(ex. `503`), bloquer (`block`, échec `BlockedByClient`), ou laisser passer
-(`continue`). Usecase : prouver qu'une page dégrade proprement quand son API
-répond 503, sans toucher au backend. La commande est composée parce que
-`Fetch.enable` meurt avec la connexion CDP : l'interception ne peut exister
-que le temps d'une invocation, l'action à intercepter doit donc être exécutée
-dans la même commande (`-- goto <url>`).
+Intercepts network requests during a navigation and applies a deterministic
+behavior to them: answering in place of the server with an HTTP code (e.g.
+`503`), blocking (`block`, `BlockedByClient` failure), or letting through
+(`continue`). Use case: prove that a page degrades cleanly when its API
+returns 503, without touching the backend. The command is composed because
+`Fetch.enable` dies with the CDP connection: interception can only exist for
+the duration of one invocation, so the action to intercept must be executed
+within the same command (`-- goto <url>`).
 
-Options propres à la commande :
+Command-specific options:
 
-- `--rule` (requis, répétable) : règle `PATTERN => ACTION`. `PATTERN` est un
-  motif fnmatch (`*api*`) ou une sous-chaîne de l'URL ; `ACTION` vaut un code
-  HTTP numérique **de 200 à 599** (ex. `503`, réponse JSON
+- `--rule` (required, repeatable): rule `PATTERN => ACTION`. `PATTERN` is an
+  fnmatch pattern (`*api*`) or a substring of the URL; `ACTION` is a numeric
+  HTTP code **from 200 to 599** (e.g. `503`, JSON response
   `{"cdpx":"intercept","status":N}`),
-  `block` ou `continue`. Première règle qui matche gagne ; une requête sans
-  règle continue normalement.
-- `--settle` : période de calme (secondes, défaut 0.5) après l'évènement
-  `load` avant de conclure que le réseau est stable.
-- `action` (après `--`) : uniquement `goto <url>`.
+  `block` or `continue`. The first matching rule wins; a request with no
+  matching rule continues normally.
+- `--settle`: quiet period (seconds, default 0.5) after the `load` event
+  before concluding the network is stable.
+- `action` (after `--`): only `goto <url>`.
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
@@ -120,36 +119,37 @@ cdpx intercept --rule "*tracker* => block" --rule "*api* => continue" -- goto ht
 {"url":"http://demo.test/","rules":["*api* => 503"],"hits":[{"url":"http://demo.test/","action":"continue"},{"url":"http://demo.test/api/health","action":"503"}],"count":2,"settle":1.0}
 ```
 
-Erreurs et pièges : toute autre action que `goto <url>` après `--` est
-refusée. Une règle sans `=>`, une faute de frappe (`typo`) ou un statut hors
-`200..599` échoue au parsing **avant** `Fetch.enable`/navigation ; aucune
-branche par défaut ne continue silencieusement. Si `load` n'arrive jamais, la
-commande timeout. `intercept` exige `privileged` et une destination autorisée.
-Le document principal est lui aussi intercepté : une
-règle trop large (`* => 503`) casse la page porteuse.
+Errors and pitfalls: any action other than `goto <url>` after `--` is
+rejected. A rule without `=>`, a typo (`typo`), or a status outside
+`200..599` fails at parsing **before** `Fetch.enable`/navigation; no default
+branch silently continues. If `load` never fires, the command times out.
+`intercept` requires `privileged` and an allowed destination. The main
+document is intercepted too: an overly broad rule (`* => 503`) breaks the
+hosting page.
 
 ### `cdpx emulate`
 
-Synopsis : `cdpx emulate [mobile|slow-3g|cpu-4x] [--reset] [-- <action ...>]`
+Synopsis: `cdpx emulate [mobile|slow-3g|cpu-4x] [--reset] [-- <action ...>]`
 
-Applique un preset d'émulation — `mobile` (viewport 390x844, deviceScaleFactor
-3, UA `cdpx-mobile/1.0`), `slow-3g` (latence 400 ms, débit 50 Kio/s montant et
-descendant) ou `cpu-4x` (CPU ralenti 4x) — puis, sous forme composée, exécute
-une action dans la même connexion CDP. Usecase : vérifier qu'une page reste
-utilisable sur mobile ou en réseau dégradé. La forme composée est essentielle :
-les overrides d'émulation MEURENT avec la connexion CDP (prouvé e2e sur
-Chrome 150), donc agir sous émulation exige que l'action soit passée dans la
-même invocation (`cdpx emulate mobile -- goto http://demo.test/`).
+Applies an emulation preset — `mobile` (viewport 390x844, deviceScaleFactor
+3, UA `cdpx-mobile/1.0`), `slow-3g` (400 ms latency, 50 KiB/s throughput
+upstream and downstream) or `cpu-4x` (CPU throttled 4x) — then, in composed
+form, executes an action within the same CDP connection. Use case: check
+that a page stays usable on mobile or on a degraded network. The composed
+form is essential: emulation overrides DIE with the CDP connection (proven
+e2e on Chrome 150), so acting under emulation requires the action to be
+passed in the same invocation (`cdpx emulate mobile -- goto
+http://demo.test/`).
 
-Options propres à la commande :
+Command-specific options:
 
-- `preset` (positionnel, optionnel) : `mobile`, `slow-3g` ou `cpu-4x`.
-- `--reset` : restaure l'état par défaut — device metrics, user-agent (bug
-  historique corrigé : l'UA du preset mobile survivait au reset), conditions
-  réseau et taux CPU. S'utilise sans preset.
-- `action` (après `--`) : action composée exécutée sous émulation —
-  `goto <url>`, `wait <sélecteur>`, `click <sélecteur>`,
-  `type <sélecteur> <texte> [--clear]`, `key <touche>`, `eval <js>`.
+- `preset` (positional, optional): `mobile`, `slow-3g` or `cpu-4x`.
+- `--reset`: restores the default state — device metrics, user-agent (fixed
+  historical bug: the mobile preset's UA used to survive the reset), network
+  conditions and CPU rate. Used without a preset.
+- `action` (after `--`): composed action executed under emulation —
+  `goto <url>`, `wait <selector>`, `click <selector>`,
+  `type <selector> <text> [--clear]`, `key <key>`, `eval <js>`.
 
 ```bash
 cdpx emulate mobile -- goto http://demo.test/
@@ -158,39 +158,40 @@ cdpx emulate mobile -- eval "navigator.userAgent"
 cdpx emulate --reset
 ```
 
-Sortie avec action composée :
+Output with a composed action:
 
 ```json
 {"preset":"mobile","applied":true,"action":{"argv":["goto","http://demo.test/"],"result":{"url":"http://demo.test/","frameId":"7C93","loaderId":"A1F0","errorText":null,"waited":"load","ok":true,"elapsed_ms":52.7}}}
 ```
 
-Sortie de `--reset` :
+Output of `--reset`:
 
 ```json
 {"reset":true}
 ```
 
-Erreurs et pièges : sans preset ni `--reset`, la commande échoue
-(`preset inconnu: None`, exit 1). PIÈGE PRINCIPAL : `cdpx emulate mobile` sans
-action applique bien les overrides mais ils disparaissent dès la fin de la
-commande — un `cdpx goto` lancé ensuite tourne SANS émulation (voir Limites
-connues). La commande est classée par le verbe de son action :
-`emulate mobile -- goto ...` relève d'observation, `emulate mobile -- click
-...` exige interaction et toute destination reste bornée par l'allowlist.
+Errors and pitfalls: without a preset or `--reset`, the command fails
+(`preset inconnu: None`, exit 1). MAIN PITFALL: `cdpx emulate mobile`
+without an action does apply the overrides, but they vanish as soon as the
+command ends — a `cdpx goto` launched afterward runs WITHOUT emulation (see
+Known limitations). The command is classified by its action's verb:
+`emulate mobile -- goto ...` counts as observation, `emulate mobile --
+click ...` requires interaction and any destination remains bounded by the
+allowlist.
 
 ### `cdpx frame`
 
-Synopsis : `cdpx frame <sélecteur>`
+Synopsis: `cdpx frame <selector>`
 
-Lit l'`innerText` d'un élément situé DANS une iframe same-origin de la page
-courante : toutes les iframes sont parcourues, la première qui contient le
-sélecteur fournit le texte. Usecase : vérifier le contenu d'un widget embarqué
-(paiement sandbox, preview CMS) sans changer de target CDP.
+Reads the `innerText` of an element located INSIDE a same-origin iframe of
+the current page: every iframe is scanned, the first one containing the
+selector provides the text. Use case: check the content of an embedded
+widget (sandboxed payment, CMS preview) without switching CDP target.
 
-Options propres à la commande :
+Command-specific options:
 
-- `selector` (positionnel, requis) : sélecteur CSS cherché dans le document de
-  chaque iframe.
+- `selector` (positional, required): CSS selector searched for in the
+  document of each iframe.
 
 ```bash
 cdpx frame "#status"
@@ -200,39 +201,39 @@ cdpx frame "#status"
 {"selector":"#status","text":"Paiement accepté"}
 ```
 
-Erreurs et pièges : si aucun élément ne matche, ou si l'iframe est
-cross-origin (son `contentDocument` est inaccessible), la sortie porte
-`"text":null` avec exit 0 — vérifier la valeur, pas le code de sortie.
-`frame` relève d'observation mais exige tout de même que l'origine courante
-appartienne à l'allowlist obligatoire.
+Errors and pitfalls: if no element matches, or if the iframe is
+cross-origin (its `contentDocument` is inaccessible), the output carries
+`"text":null` with exit 0 — check the value, not the exit code. `frame`
+counts as observation but still requires the current origin to belong to
+the mandatory allowlist.
 
 ### `cdpx record`
 
-Synopsis : `cdpx record [-o journal.ndjson] -- <action ...>`
+Synopsis: `cdpx record [-o journal.ndjson] -- <action ...>`
 
-Exécute RÉELLEMENT une action (via l'interpréteur d'actions partagé :
-`goto <url>`, `wait <sélecteur>`, `click <sélecteur>`,
-`type <sélecteur> <texte> [--clear]`, `key <touche>`, `eval <js>`) puis la
-journalise dans le schéma NDJSON `cdpx.record/v2`. Le journal est ouvert en
-append : plusieurs invocations construisent un parcours. Chaque ligne contient
-schéma, `run_id`, action structurée ou argv, `replayable`, verdict, résultat
-nettoyé et timestamp. Un échec est écrit avant l'exit 1.
+ACTUALLY executes an action (via the shared action interpreter:
+`goto <url>`, `wait <selector>`, `click <selector>`,
+`type <selector> <text> [--clear]`, `key <key>`, `eval <js>`) then logs it
+in the `cdpx.record/v2` NDJSON schema. The journal is opened in append mode:
+several invocations build up a journey. Each line contains the schema,
+`run_id`, structured action or argv, `replayable`, verdict, cleaned result
+and timestamp. A failure is written before the exit 1.
 
-`record type` exige `@env:NOM` : seule la référence est persistée, la valeur est
-résolue en mémoire et enregistrée dans le contexte de redaction. `eval` est
-toujours masqué, hashé et non rejouable. Toute autre forme de saisie est
-refusée avant connexion.
+`record type` requires `@env:NAME`: only the reference is persisted, the
+value is resolved in memory and recorded in the redaction context. `eval`
+is always redacted, hashed and non-replayable. Any other form of input is
+rejected before connecting.
 
-Options propres à la commande :
+Command-specific options:
 
-- `-o`, `--output` : nom du journal NDJSON (défaut `cdpx-record.ndjson`).
-  Seul son basename est retenu.
-- `action` (après `--`) : l'action à exécuter et journaliser.
+- `-o`, `--output`: name of the NDJSON journal (default
+  `cdpx-record.ndjson`). Only its basename is kept.
+- `action` (after `--`): the action to execute and log.
 
-Le journal est confiné sous `artifacts/journals/` de la session, en `0600`,
-avec métadonnées
+The journal is confined under the session's `artifacts/journals/`, at
+`0600`, with metadata
 `classification:"internal"`, `upload_allowed:false`, `retention:"session"`.
-`replay` ne peut relire qu'un fichier régulier privé de ce même dossier.
+`replay` can only read a private regular file from that same folder.
 
 ```bash
 cdpx record -o parcours.ndjson -- goto http://demo.test/
@@ -245,94 +246,95 @@ cdpx record -o parcours.ndjson -- wait "#confirmation"
 {"schema":"cdpx.record/v2","path":"parcours.ndjson","recorded":1,"replayable":true,"ok":true}
 ```
 
-Ligne NDJSON écrite dans le journal :
+NDJSON line written to the journal:
 
 ```json
 {"schema":"cdpx.record/v2","run_id":"checkout-17","action":{"verb":"type","selector":"#password","input":{"secret_ref":"CHECKOUT_PASSWORD","source":"env"},"clear":true},"replayable":true,"ok":true,"result":{"typed":true,"value_masked":true,"selector":"#password","cleared":true},"ts":1783814400.123}
 ```
 
-Erreurs et pièges : une référence env absente est refusée avant effet CDP. Une
-action qui échoue est journalisée `ok:false` avant l'exit 1. Le fichier et son
-dossier sont forcés respectivement en `0600` et `0700`. L'autorité requise suit
-l'action et l'origine réelle est revalidée après exécution.
+Errors and pitfalls: a missing env reference is rejected before any CDP
+effect. A failing action is logged with `ok:false` before the exit 1. The
+file and its folder are forced to `0600` and `0700` respectively. The
+required authority follows the action and the real origin is revalidated
+after execution.
 
 ### `cdpx replay`
 
-Synopsis : `cdpx replay <journal.ndjson>` (budget : option globale `--max-actions`)
+Synopsis: `cdpx replay <journal.ndjson>` (budget: global option `--max-actions`)
 
-Rejoue un journal NDJSON produit par `cdpx record` contre le navigateur,
-action par action, et s'arrête à la première divergence. Toute la validation
-se fait AVANT la première exécution : syntaxe JSON de chaque ligne, présence
-d'une action, schéma/rejouabilité, résolution de toutes les références de
-secret, autorité maximale et budget `--max-actions`. Une seule référence
-absente garantit `played:0` et aucune commande CDP. Ensuite chaque action est
-réellement exécutée et son résultat non volatil est comparé au résultat
-enregistré.
+Replays an NDJSON journal produced by `cdpx record` against the browser,
+action by action, and stops at the first divergence. All validation happens
+BEFORE the first execution: JSON syntax of every line, presence of an
+action, schema/replayability, resolution of every secret reference, maximum
+authority and the `--max-actions` budget. A single missing reference
+guarantees `played:0` and no CDP command. Each action is then actually
+executed and its non-volatile result is compared to the recorded result.
 
-Après chaque `goto`, replay relit `window.location.href` au lieu de conserver
-l'URL demandée. Cette URL finale est contrôlée immédiatement et à nouveau juste
-avant la mutation suivante : une redirection autorisée → origine interdite ne
-peut pas recevoir le clic suivant.
+After every `goto`, replay re-reads `window.location.href` instead of
+keeping the requested URL. This final URL is checked immediately and again
+just before the next mutation: an allowed → forbidden origin redirect
+cannot receive the next click.
 
-Options propres à la commande :
+Command-specific options:
 
-- `path` (positionnel, requis) : chemin du journal NDJSON à rejouer.
-- Le budget d'actions vient de l'option globale `--max-actions` : un journal
-  qui le dépasse est refusé avant tout rejeu.
+- `path` (positional, required): path of the NDJSON journal to replay.
+- The action budget comes from the global option `--max-actions`: a journal
+  exceeding it is rejected before any replay.
 
 ```bash
 cdpx replay parcours.ndjson
 cdpx --max-actions 20 replay parcours.ndjson
 ```
 
-Rejeu complet réussi :
+Full successful replay:
 
 ```json
 {"path":"parcours.ndjson","events":3,"played":3,"ok":true}
 ```
 
-Divergence (exit 1, le JSON reste structuré sur stdout) :
+Divergence (exit 1, the JSON stays structured on stdout):
 
 ```json
 {"path":"parcours.ndjson","events":3,"played":1,"ok":false,"divergence":"event 1: sélecteur introuvable après 10.0s: #acheter"}
 ```
 
-Erreurs et pièges : une ligne non-JSON ou sans `action` produit
-`"ok":false` avec `"divergence":"line N: ..."` et `"played":0` (exit 1). Un
-journal plus long que `--max-actions` provoque
-`budget --max-actions dépassé` (exit 1, rien n'est rejoué). `played` compte
-les actions effectivement rejouées avec succès ; l'index de `divergence` est
-celui de l'évènement fautif (base 0). Les clés volatiles (`elapsed_ms`, IDs de
-loader/frame, coordonnées) sont ignorées dans la comparaison. Les journaux v1
-contenant `type` ou `eval` sont refusés ; les actions v1 non
-sensibles restent compatibles.
+Errors and pitfalls: a non-JSON line or one without `action` produces
+`"ok":false` with `"divergence":"line N: ..."` and `"played":0` (exit 1). A
+journal longer than `--max-actions` triggers `budget --max-actions
+dépassé` (exit 1, nothing is replayed). `played` counts the actions
+actually replayed successfully; the `divergence` index is that of the
+offending event (0-based). Volatile keys (`elapsed_ms`, loader/frame IDs,
+coordinates) are ignored in the comparison. v1 journals containing `type`
+or `eval` are rejected; non-sensitive v1 actions remain compatible.
 
 ### `cdpx scenario`
 
-Synopsis : `cdpx scenario run <fichier.yml> [--settle S]`
+Synopsis: `cdpx scenario run <file.yml> [--settle S]`
 
-Exécute un scénario métier déclaratif YAML contre l'onglet ciblé. Le scénario
-décrit un contexte (`base_url`, émulation optionnelle), une suite de steps, des
-assertions, des preuves finales et, si besoin, des preuves à collecter aux
-moments clés du run (`capture` sur un step). La sortie est toujours un objet
-JSON unique avec `verdict` (`pass` ou `fail`), `findings`, `steps`,
-`assertions`, `artifacts` et `evidence_dir`.
+Runs a declarative YAML business scenario against the targeted tab. The
+scenario describes a context (`base_url`, optional emulation), a suite of
+steps, assertions, final proofs and, if needed, proofs to collect at key
+moments of the run (`capture` on a step). The output is always a single
+JSON object with `verdict` (`pass` or `fail`), `findings`, `steps`,
+`assertions`, `artifacts` and `evidence_dir`.
 
-Format P0 supporté :
+Supported P0 format:
 
-- `context.base_url` : origine ou URL de base pour résoudre les `goto`
-  relatifs.
-- `context.emulation` : optionnel, `mobile`, `slow-3g` ou `cpu-4x`, appliqué
-  dans la même connexion CDP que les steps.
-- Steps : `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
-  `wait_text`. `wait_visible` exige un élément attaché, rendu, visible et doté
-  d'une boîte non nulle. `type` accepte uniquement
-  `{selector, secret_ref, clear}` et prévalide la référence d'environnement.
-- `capture` sur step : liste parmi `screenshot`, `console`, `network`,
-  `profiler`. Ces preuves sont collectées immédiatement après le step, même si
-  le step échoue.
-- Assertions : `no_console_errors`, `network_errors_max`, `text_contains`.
-- `artifacts` : mêmes types que `capture`, collectés en fin de scénario.
+- `context.base_url`: origin or base URL for resolving relative `goto`
+  calls.
+- `context.emulation`: optional, `mobile`, `slow-3g` or `cpu-4x`, applied
+  within the same CDP connection as the steps.
+- Steps: `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
+  `wait_text`. `wait_visible` requires an element that is attached,
+  rendered, visible and has a non-zero box. `type` accepts only
+  `{selector, secret_ref, clear}` and prevalidates the environment
+  reference.
+- `capture` on a step: a list among `screenshot`, `console`, `network`,
+  `profiler`. These proofs are collected immediately after the step, even
+  if the step fails.
+- Assertions: `no_console_errors`, `network_errors_max`, `text_contains`.
+- `artifacts`: same types as `capture`, collected at the end of the
+  scenario.
 
 ```yaml
 name: checkout_guest_add_to_cart
@@ -367,76 +369,76 @@ artifacts:
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
-Sortie réussie :
+Successful output:
 
 ```json
 {"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":"/runtime/session/artifacts/scenarios/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":"/runtime/session/artifacts/scenarios/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png","classification":"opaque-restricted","upload_allowed":false}],"_cdpx":{"content_trust":"untrusted"}}
 ```
 
-Erreurs et pièges : un YAML invalide ou un champ inconnu sort en exit 2. Un
-scénario exécuté mais non conforme sort en exit 1 avec `verdict:"fail"` et des
-`findings` structurés. Les assertions ne s'arrêtent pas au premier échec :
-elles accumulent les findings puis les preuves finales sont collectées. Une
-capture `profiler` utilise d'abord les headers Symfony observés pendant le run
-(`X-Debug-Token-Link` ou `X-Debug-Token`) ; si aucun header n'a été vu, cdpx
-tente la dernière URL naviguée, puis ajoute un finding warning
-`profiler_unavailable` si aucun profiler n'est disponible. Le collector effectue
-un dernier drainage console/réseau **avant** les assertions, afin qu'une erreur
-tardive participe au verdict. Chaque origine est contrôlée avant le step et
-après stabilisation ; une redirection hors allowlist bloque mutation, capture
-et assertions suivantes.
+Errors and pitfalls: invalid YAML or an unknown field exits with code 2. A
+scenario that runs but does not conform exits with code 1 with
+`verdict:"fail"` and structured `findings`. Assertions do not stop at the
+first failure: they accumulate findings and then the final proofs are
+collected. A `profiler` capture first uses the Symfony headers observed
+during the run (`X-Debug-Token-Link` or `X-Debug-Token`); if no header was
+seen, cdpx tries the last navigated URL, then adds a `profiler_unavailable`
+warning finding if no profiler is available. The collector performs one
+final console/network drain **before** the assertions, so a late error
+counts toward the verdict. Every origin is checked before the step and
+after stabilization; a redirect outside the allowlist blocks the following
+mutation, capture and assertions.
 
-Le dossier de run est `0700`, ses fichiers et son manifest sont `0600`. Les
-JSON console/réseau/profiler sont `internal`; screenshots et autres binaires
-sont `opaque-restricted`, avec `upload_allowed:false`. Le résultat et les
-erreurs sont redacted avant persistance. Le dossier de scénario est forcé sous
-les artefacts de session et son TTL ne dépasse pas le temps restant du manifest;
-le teardown supprime l'ensemble.
+The run folder is `0700`, its files and manifest are `0600`. The
+console/network/profiler JSON files are `internal`; screenshots and other
+binaries are `opaque-restricted`, with `upload_allowed:false`. The result
+and errors are redacted before persistence. The scenario folder is forced
+under the session's artifacts and its TTL never exceeds the manifest's
+remaining time; the teardown removes everything.
 
-## Parcours utilisateur
+## User journeys
 
-- Intercepter une navigation et forcer des issues réseau déterministes
+- Intercept a navigation and force deterministic network outcomes
   (fulfill, block, continue).
-- Émuler mobile, réseau lent ou ralentissement CPU et agir dans la même
-  connexion.
-- Exécuter un scénario métier YAML et récupérer un verdict, des findings et
-  des preuves collectées aux checkpoints et en fin de run.
-- Lire le texte d'une iframe same-origin.
-- Enregistrer des actions réellement exécutées puis rejouer le journal avec un
-  budget, arrêt à la première divergence.
+- Emulate mobile, slow network or CPU throttling and act within the same
+  connection.
+- Run a YAML business scenario and get back a verdict, findings and proofs
+  collected at checkpoints and at the end of the run.
+- Read the text of a same-origin iframe.
+- Record actually executed actions then replay the journal with a budget,
+  stopping at the first divergence.
 
 ## Validation
 
-Les tests unitaires sur mock CDP valident les règles d'interception, les
-presets et le reset d'émulation, l'exécution et la journalisation de `record`,
-la validation préalable et le rejeu réel de `replay` (y compris la divergence
-et le budget), les scénarios métier YAML, l'interpréteur d'actions partagé et
-la garde d'origine. Les tests e2e valident l'interception Fetch réelle, la
-non-persistance des overrides d'émulation entre connexions, le cycle
-record/replay complet sur Chrome réel, et des scénarios déclaratifs pass/fail
-avec preuves. Les e2e Symfony exécutent aussi des scénarios YAML contre les
-routes déterministes `/scenario/front/*`, `/scenario/vitals/*` et
+The unit tests on mock CDP validate the interception rules, the emulation
+presets and reset, the execution and logging of `record`, the upfront
+validation and actual replay of `replay` (including divergence and the
+budget), the YAML business scenarios, the shared action interpreter and the
+origin guard. The e2e tests validate real Fetch interception, the
+non-persistence of emulation overrides across connections, the full
+record/replay cycle on real Chrome, and declarative pass/fail scenarios with
+proofs. The Symfony e2e tests also run YAML scenarios against the
+deterministic routes `/scenario/front/*`, `/scenario/vitals/*` and
 `/scenario/profiler/*`.
 
-## Preuves
+## Proofs
 
-Preuves attendues : rapports JUnit, captures d'écran pour les scénarios e2e
-d'orchestration (page interceptée, rendu sous émulation), JSON de runs
-déclaratifs, console, réseau et profiler collectés par `cdpx scenario run`.
+Expected proofs: JUnit reports, screenshots for the orchestration e2e
+scenarios (intercepted page, render under emulation), JSON of declarative
+runs, console, network and profiler collected by `cdpx scenario run`.
 
-## Limites connues
+## Known limitations
 
-- Les overrides d'émulation ne survivent PAS à la commande : ils meurent avec
-  la connexion CDP (comportement de Chrome, vérifié e2e sur Chrome 150).
-  `cdpx emulate mobile` seul est donc sans effet durable — toujours utiliser
-  la forme composée `cdpx emulate mobile -- goto http://demo.test/`.
-- `intercept` ne compose qu'avec `goto <url>` ; l'interception ne peut pas
-  encore entourer un `click` ou un parcours complet.
-- `frame` ne lit que les iframes same-origin (le `contentDocument` d'une
-  iframe cross-origin est inaccessible) et retourne le premier match.
-- Record/replay exécute des actions réelles mais le langage d'actions reste
-  volontairement compact (goto, wait, click, type, key, eval) — ce n'est pas
-  un langage de macros navigateur complet.
-- Replay compare les résultats enregistrés hors champs volatils ; un résultat
-  identique ne garantit pas à lui seul l'effet métier attendu. Ajouter une
-  assertion observable dans un scénario pour le prouver.
+- Emulation overrides do NOT survive the command: they die with the CDP
+  connection (Chrome behavior, verified e2e on Chrome 150). `cdpx emulate
+  mobile` alone therefore has no lasting effect — always use the composed
+  form `cdpx emulate mobile -- goto http://demo.test/`.
+- `intercept` only composes with `goto <url>`; interception cannot yet wrap
+  a `click` or a full journey.
+- `frame` only reads same-origin iframes (a cross-origin iframe's
+  `contentDocument` is inaccessible) and returns the first match.
+- Record/replay executes real actions but the action language remains
+  deliberately compact (goto, wait, click, type, key, eval) — it is not a
+  full browser macro language.
+- Replay compares recorded results outside volatile fields; an identical
+  result alone does not guarantee the expected business effect. Add an
+  observable assertion in a scenario to prove it.

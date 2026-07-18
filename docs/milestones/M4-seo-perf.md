@@ -1,50 +1,50 @@
-# M4 — Mesure SEO, performance et accessibilité
+# M4 — SEO, performance, and accessibility measurement
 
-## Pourquoi
+## Why
 
-Compléter le contrat SEO du DOM rendu par des signaux locaux de performance,
-de sémantique accessible et de poids mort, sans les présenter comme des audits
-exhaustifs.
+Complementing the SEO contract of the rendered DOM with local signals of
+performance, accessible semantics, and dead weight, without presenting them
+as exhaustive audits.
 
-## État livré
+## Delivered state
 
 ### `cdpx vitals`
 
-Des `PerformanceObserver` LCP/CLS/INP sont injectés avant navigation. Un clic
-optionnel produit une interaction réelle pour tenter d'alimenter INP. Les
-valeurs sont support-dépendantes et bornées par `--settle` : ce diagnostic
-local n'est ni une méthodologie lab multi-run ni une donnée terrain CrUX/RUM.
+LCP/CLS/INP `PerformanceObserver`s are injected before navigation. An
+optional click produces a real interaction to try to feed INP. The values
+are support-dependent and bounded by `--settle`: this local diagnostic is
+neither a multi-run lab methodology nor CrUX/RUM field data.
 
 ### `cdpx a11y`
 
-`Accessibility.getFullAXTree` produit une liste compacte des nœuds non ignorés
-`{role, name, ignored}`. C'est une vue sémantique utile à l'agent, pas la
-reproduction d'un lecteur d'écran ni un audit RGAA complet. Les contrôles RGAA
-de la fixture Symfony constituent un sous-ensemble automatisé séparé.
+`Accessibility.getFullAXTree` produces a compact list of non-ignored nodes
+`{role, name, ignored}`. It is a semantic view useful to the agent, not the
+reproduction of a screen reader nor a complete RGAA audit. The RGAA checks
+on the Symfony fixture constitute a separate automated subset.
 
 ### `cdpx coverage`
 
-`Profiler.takePreciseCoverage` et `CSS.stopRuleUsageTracking` agrègent octets
-JS utilisés/inutilisés par ressource et règles CSS utilisées/inutilisées. La
-mesure reflète uniquement le chargement instrumenté : une fonctionnalité non
-exercée peut apparaître comme morte.
+`Profiler.takePreciseCoverage` and `CSS.stopRuleUsageTracking` aggregate
+used/unused JS bytes per resource and used/unused CSS rules. The measurement
+only reflects the instrumented load: a feature that isn't exercised may
+appear dead.
 
 ### `cdpx seo`
 
-Le diagnostic inspecte title, metas, canonical, robots, h1, hreflang, JSON-LD,
-images et liens du DOM rendu. Il reste on-page : aucun crawl, signal
-d'indexation, backlink, log serveur ou Search Console.
+The diagnostic inspects title, metas, canonical, robots, h1, hreflang,
+JSON-LD, images, and links of the rendered DOM. It stays on-page: no crawl,
+indexing signal, backlink, server log, or Search Console.
 
-## Preuves
+## Proofs
 
-Le mock verrouille le protocole et les sorties; Chrome réel exerce les signaux
-sur fixtures locales; Symfony Docker ajoute les variantes déterministes et le
-sous-ensemble RGAA. Les assertions acceptent l'absence de signaux non supportés
-au lieu d'inventer une stabilité inter-run.
+The mock locks down the protocol and the outputs; real Chrome exercises the
+signals on local fixtures; Symfony Docker adds the deterministic variants and
+the RGAA subset. The assertions accept the absence of unsupported signals
+instead of inventing cross-run stability.
 
 ## Definition of Done
 
-- [x] vitals injectés avant navigation et interaction optionnelle exercée ;
-- [x] AXTree compact documenté et testé mock/Chrome ;
-- [x] coverage JS/CSS agrégée par ressource et testée ;
-- [x] limites SEO/vitals/a11y explicites dans la documentation utilisateur.
+- [x] vitals injected before navigation and optional interaction exercised;
+- [x] compact AXTree documented and tested mock/Chrome;
+- [x] JS/CSS coverage aggregated per resource and tested;
+- [x] SEO/vitals/a11y limits made explicit in the user documentation.

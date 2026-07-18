@@ -1,55 +1,58 @@
-# M3 — Interception et émulation
+# M3 — Interception and emulation
 
-## Pourquoi
+## Why
 
-Tester les conditions rencontrées en production sans modifier le backend : API
-indisponible, tiers bloqué, viewport mobile, réseau lent ou CPU contraint.
+Testing conditions encountered in production without modifying the backend: an
+unavailable API, a blocked third party, mobile viewport, slow network, or
+constrained CPU.
 
-## État livré
+## Delivered state
 
 ### `cdpx intercept`
 
-`Fetch.enable` suspend les requêtes de la navigation composée. La première
-règle dont le motif URL matche applique exactement l'une des actions suivantes :
+`Fetch.enable` suspends the requests of the composed navigation. The first
+rule whose URL pattern matches applies exactly one of the following actions:
 
-- `continue` → `Fetch.continueRequest` ;
-- `block` → `Fetch.failRequest(BlockedByClient)` ;
-- statut `200..599` → `Fetch.fulfillRequest` avec corps JSON mock.
+- `continue` → `Fetch.continueRequest`;
+- `block` → `Fetch.failRequest(BlockedByClient)`;
+- status `200..599` → `Fetch.fulfillRequest` with a mock JSON body.
 
-Le matcher porte sur l'URL (fnmatch ou sous-chaîne), pas sur la méthode HTTP.
-Une faute de frappe ou un statut hors plage est refusé au parsing avant effet
-CDP. L'interception compose uniquement avec `goto` parce que l'état Fetch meurt
-avec la connexion :
+The matcher operates on the URL (fnmatch or substring), not on the HTTP
+method. A typo or an out-of-range status is rejected at parsing before any
+CDP effect. Interception only composes with `goto` because the Fetch state
+dies with the connection:
 
 ```bash
 cdpx intercept --rule "*api/payment* => 503" --rule "*googletagmanager* => block" -- goto http://shop.test/checkout
 ```
 
-La fixture dédiée `intercept.html`, le mock et Chrome réel couvrent continue,
-fulfill et block. Les sessions gérées du M8 isolent les runs, mais ne rendent
-pas l'interception persistante entre commandes.
+The dedicated `intercept.html` fixture, the mock, and real Chrome cover
+continue, fulfill, and block. The managed sessions from M8 isolate runs, but
+do not make interception persistent across commands.
 
 ### `cdpx emulate`
 
-Les presets `mobile`, `slow-3g` et `cpu-4x` configurent métriques/UA, conditions
-réseau ou throttling CPU. `--reset` restaure métriques, user-agent, réseau et
-CPU. Comme les overrides meurent avec la connexion, l'action utile se passe
-dans la même invocation :
+The `mobile`, `slow-3g`, and `cpu-4x` presets configure metrics/UA, network
+conditions, or CPU throttling. `--reset` restores metrics, user-agent, network,
+and CPU. Since overrides die with the connection, the useful action happens
+in the same invocation:
 
 ```bash
 cdpx emulate mobile -- goto http://shop.test/checkout
 ```
 
-## Preuves et limites
+## Proofs and limits
 
-- Le mock verrouille les méthodes/paramètres et le rejet des règles invalides.
-- Chrome réel vérifie interception, viewport/UA, reset, latence et screenshot.
-- La preuve ne revendique pas une comparaison pixel desktop/mobile exhaustive.
-- `intercept` n'entoure pas encore un clic ou un scénario entier.
+- The mock locks down the methods/parameters and the rejection of invalid
+  rules.
+- Real Chrome verifies interception, viewport/UA, reset, latency, and
+  screenshot.
+- The proof does not claim an exhaustive desktop/mobile pixel comparison.
+- `intercept` does not yet wrap a click or an entire scenario.
 
 ## Definition of Done
 
-- [x] règles fulfill/fail/continue testées mock et Chrome réel ;
-- [x] actions inconnues refusées avant navigation ;
-- [x] presets/reset documentés et exercés sur Chrome réel ;
-- [x] durée de vie connexion/interception explicitée.
+- [x] fulfill/fail/continue rules tested with mock and real Chrome;
+- [x] unknown actions rejected before navigation;
+- [x] presets/reset documented and exercised on real Chrome;
+- [x] connection/interception lifetime made explicit.

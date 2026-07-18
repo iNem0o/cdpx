@@ -1,57 +1,56 @@
-# Code de conduite
+# Code of Conduct
 
-Ce document adapte le Contributor Covenant 2.1 au projet cdpx.
+This document adapts the Contributor Covenant 2.1 for the cdpx project.
 
-## Notre engagement
+## Our Pledge
 
-Nous nous engageons à faire de la participation à ce projet une expérience
-sans harcèlement, quels que soient l'âge, la morphologie, le handicap visible
-ou invisible, l'origine, les caractéristiques sexuelles, l'identité ou
-l'expression de genre, le niveau d'expérience, l'éducation, le statut
-socio-économique, la nationalité, l'apparence, la race, la caste, la couleur,
-la religion ou l'identité et l'orientation sexuelles.
+We pledge to make participation in this project a harassment-free
+experience for everyone, regardless of age, body size, visible or
+invisible disability, ethnicity, sex characteristics, gender identity or
+expression, level of experience, education, socio-economic status,
+nationality, personal appearance, race, caste, color, religion, or sexual
+identity and orientation.
 
-Nous agissons et interagissons de manière à favoriser une communauté ouverte,
-accueillante, diverse, inclusive et saine.
+We act and interact in ways that foster an open, welcoming, diverse,
+inclusive, and healthy community.
 
-## Comportements attendus
+## Expected Behavior
 
-- faire preuve d'empathie et de respect ;
-- accueillir les points de vue et expériences différents ;
-- donner et accepter des retours constructifs ;
-- assumer ses erreurs, s'excuser et apprendre ;
-- privilégier l'intérêt de la communauté et du projet.
+- show empathy and respect;
+- welcome differing viewpoints and experiences;
+- give and accept constructive feedback;
+- take responsibility for one's mistakes, apologize, and learn;
+- prioritize the interest of the community and the project.
 
-Les comportements inacceptables comprennent le harcèlement public ou privé,
-les propos sexualisés, les insultes, les attaques personnelles, le trolling,
-la publication d'informations privées sans permission et toute conduite qui
-serait raisonnablement jugée inappropriée dans un cadre professionnel.
+Unacceptable behavior includes public or private harassment, sexualized
+language, insults, personal attacks, trolling, publishing private
+information without permission, and any conduct that could reasonably be
+considered inappropriate in a professional setting.
 
-## Responsabilités et périmètre
+## Responsibilities and Scope
 
-Les mainteneurs clarifient et font respecter ces règles de manière équitable.
-Ils peuvent retirer, modifier ou refuser commentaires, commits, code, issues et
-autres contributions contraires à ce Code, et expliquer la décision lorsque
-cela est approprié.
+Maintainers clarify and enforce these rules fairly. They may remove, edit,
+or reject comments, commits, code, issues, and other contributions that
+are contrary to this Code, and explain the decision when appropriate.
 
-Ce Code s'applique dans les espaces du projet et lorsqu'une personne représente
-publiquement le projet ou sa communauté.
+This Code applies within the project's spaces and when a person publicly
+represents the project or its community.
 
-## Signalement et application
+## Reporting and Enforcement
 
-Un incident doit être signalé en privé via le formulaire GitHub suivant, avec
-le préfixe **[Code of Conduct]** dans le titre :
+An incident must be reported privately via the following GitHub form, with
+the prefix **[Code of Conduct]** in the title:
 
-[Contacter les mainteneurs en privé](https://github.com/inem0o/cdpx/security/advisories/new)
+[Contact the maintainers privately](https://github.com/inem0o/cdpx/security/advisories/new)
 
-N'utilisez pas une issue publique. Les informations sont examinées par les
-mainteneurs autorisés, qui protègent autant que possible la confidentialité et
-la sécurité de la personne à l'origine du signalement. Les mesures prises sont
-proportionnées au contexte et peuvent aller d'un avertissement privé à une
-exclusion permanente des espaces du projet.
+Do not use a public issue. Information is reviewed by authorized
+maintainers, who protect the confidentiality and safety of the reporter as
+much as possible. The measures taken are proportionate to the context and
+can range from a private warning to permanent exclusion from the project
+spaces.
 
 ## Attribution
 
-Ce Code est adapté du
+This Code is adapted from the
 [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html),
-disponible sous licence Creative Commons Attribution 4.0.
+available under the Creative Commons Attribution 4.0 license.

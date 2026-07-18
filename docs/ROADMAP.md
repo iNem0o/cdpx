@@ -1,82 +1,82 @@
 # Roadmap
 
-Chaque milestone technique possède une fiche détaillée dans
-`docs/milestones/`. Un jalon n'est déclaré terminé que lorsque ses preuves mock
-et runtime passent par les cibles Make correspondantes.
+Each technical milestone has a detailed sheet in
+`docs/milestones/`. A milestone is declared complete only once its mock
+and runtime proofs pass through the corresponding Make targets.
 
-## M0 — Socle CDP et CLI ✅
+## M0 — CDP and CLI foundation ✅
 
-Client CDP synchrone, découverte `/json`, contrat CLI JSON/exit 0-1-2, mock
-scriptable, serveur de fixtures et premières primitives déterministes.
+Synchronous CDP client, `/json` discovery, CLI JSON/exit 0-1-2 contract,
+scriptable mock, fixture server and first deterministic primitives.
 
-## M1 — Chrome réel ✅
+## M1 — Real Chrome ✅
 
-Les primitives sont exercées contre Blink/V8 avec un profil jetable et les
-mêmes fixtures que les tests unitaires. Chrome absent est un échec du portail,
-pas un succès dégradé. Voir [M1](milestones/M1-e2e-chrome.md).
+The primitives are exercised against Blink/V8 with a disposable profile and the
+same fixtures as the unit tests. Chrome being absent is a gate failure,
+not a degraded success. See [M1](milestones/M1-e2e-chrome.md).
 
-## M2 — Boucle Symfony ✅
+## M2 — Symfony loop ✅
 
-Profiler WebProfiler, console suivie, diff DOM et scénarios contre une vraie
-application Symfony Dockerisée. Voir [M2](milestones/M2-boucle-symfony.md).
+WebProfiler profiler, tracked console, DOM diff and scenarios against a real
+Dockerized Symfony application. See [M2](milestones/M2-boucle-symfony.md).
 
-## M3 — Interception et émulation ✅
+## M3 — Interception and emulation ✅
 
-Interception Fetch continue/fulfill/block et profils mobile, réseau et CPU,
-validés dans une connexion persistante. Voir
+Fetch continue/fulfill/block interception and mobile, network and CPU
+profiles, validated in a persistent connection. See
 [M3](milestones/M3-interception-emulation.md).
 
-## M4 — SEO, performance et accessibilité ✅
+## M4 — SEO, performance and accessibility ✅
 
-Vitals, arbre d'accessibilité, couverture JS/CSS et audit SEO enrichi du DOM
-rendu. Voir [M4](milestones/M4-seo-perf.md).
+Vitals, accessibility tree, JS/CSS coverage and SEO audit enriched with the
+rendered DOM. See [M4](milestones/M4-seo-perf.md).
 
-## M5 — Orchestration et garde-fous ✅
+## M5 — Orchestration and guardrails ✅
 
-Record/replay, scénarios YAML, iframe, `CDPX_ORIGINS` et budgets d'action. Voir
+Record/replay, YAML scenarios, iframe, `CDPX_ORIGINS` and action budgets. See
 [M5](milestones/M5-orchestration.md).
 
-## M6 — Distribution technique ✅
+## M6 — Technical distribution ✅
 
-Version du paquet, wheel/sdist, image `cdpx-ci`, Compose Symfony et cockpit de
-preuve. Ces capacités sont indépendantes de la plateforme d'hébergement. Voir
+Package version, wheel/sdist, `cdpx-ci` image, Symfony Compose and proof
+cockpit. These capabilities are independent of the hosting platform. See
 [M6](milestones/M6-distribution.md).
 
-## M7 — Publication open source GitHub 🚧
+## M7 — Open source publication on GitHub 🚧
 
-Objectif : rendre le dépôt compréhensible, testable et publiable par une
-personne extérieure.
+Goal: make the repository understandable, testable and publishable by an
+outside person.
 
-- licence MIT et métadonnées publiques cohérentes ;
-- GitHub Actions comme CI principale, avec Docker, Chrome et Symfony
-  obligatoires ;
-- contribution, sécurité, support et modèles GitHub ;
-- artefacts de preuve publiés par la CI sans être versionnés ;
-- GitHub Release sur tag et publication PyPI par Trusted Publishing ;
-- validation finale sur un runner GitHub avant le premier tag public.
+- MIT license and consistent public metadata;
+- GitHub Actions as the primary CI, with Docker, Chrome and Symfony
+  mandatory;
+- contribution, security, support and GitHub templates;
+- proof artifacts published by CI without being versioned;
+- GitHub Release on tag and PyPI publication via Trusted Publishing;
+- final validation on a GitHub runner before the first public tag.
 
-Le suivi opérationnel vit dans [TODO.md](TODO.md) et
+Operational tracking lives in [TODO.md](TODO.md) and
 [RELEASE-PLAN.md](RELEASE-PLAN.md).
 
-## M8 — Sessions supervisées et frontière de confiance ✅
+## M8 — Supervised sessions and trust boundary ✅
 
-Objectif : rendre l'exécution déterministe lorsque plusieurs agents utilisent
-cdpx en parallèle et faire de cette supervision le contrat unique du produit.
+Goal: make execution deterministic when several agents use
+cdpx in parallel and make this supervision the product's single contract.
 
-- session Chrome supervisée par run : profil jetable, target explicite, lease
-  exclusif, TTL/owner et teardown ;
-- niveaux `observation`, `interaction`, `privileged`, avec commandes composées
-  préflightées et refus par défaut des capacités non classées ;
-- identité manifest/run/target et allowlist obligatoires avant discovery,
-  contrôle avant/après navigation pour fermer la fenêtre de redirection ;
-- suppression de la connexion directe, du target implicite et du lifecycle
-  public des targets ; backend mock exercé par le même contrat supervisé ;
-- journal v2 et références de secrets, redaction transversale, artefacts privés
-  classifiés et staging CI allowlisté ;
-- interactions renforcées (`wait_visible`, actionability, hit-test, clear par
-  événements) et assertions scénario après drainage final.
+- Chrome session supervised per run: disposable profile, explicit target,
+  exclusive lease, TTL/owner and teardown;
+- `observation`, `interaction`, `privileged` levels, with preflighted
+  composite commands and default refusal of unclassified capabilities;
+- manifest/run/target identity and mandatory allowlist before discovery,
+  before/after navigation check to close the redirection window;
+- removal of direct connection, implicit target and public target
+  lifecycle; mock backend exercised by the same supervised contract;
+- journal v2 and secret references, cross-cutting redaction, classified
+  private artifacts and allowlisted CI staging;
+- hardened interactions (`wait_visible`, actionability, hit-test, event-based
+  clear) and scenario assertions after final drain.
 
-Le code, les tests ciblés, le HARNESS, les fiches features, le cockpit de
-preuve, `make check`, `make proof` et la validation du paquet distribué avec
-31 commandes sont verts.
-Voir [M8](milestones/M8-isolation-securite-session.md).
+The code, targeted tests, the HARNESS, the feature sheets, the proof
+cockpit, `make check`, `make proof` and validation of the distributed package
+with 31 commands are green.
+See [M8](milestones/M8-isolation-securite-session.md).

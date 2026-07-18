@@ -1,57 +1,57 @@
-# PRIMITIVES.md — catalogue
+# PRIMITIVES.md — catalog
 
-Chaque primitive = une fonction (`src/cdpx/primitives/`), une sous-commande
-CLI, des tests mock (sortie + protocole), une fixture si scénario e2e. Ce
-catalogue donne le **quoi/pourquoi** par feature; la référence exhaustive
-(options, sorties JSON, pièges) vit dans la fiche de chaque feature
-(`docs/features/`), affichée aussi dans le rapport de preuve (`make proof`).
+Each primitive = a function (`src/cdpx/primitives/`), a CLI subcommand, mock
+tests (output + protocol), a fixture if an e2e scenario makes sense. This
+catalog gives the **what/why** per feature; the exhaustive reference
+(options, JSON outputs, pitfalls) lives in each feature's sheet
+(`docs/features/`), also displayed in the proof report (`make proof`).
 
-## Contrat de sortie
+## Output contract
 
-Par défaut, le CLI imprime du JSON compact sur une ligne, optimisé pour
-l'agent et le coût token. `--pretty` restaure l'affichage humain indenté.
-Les champs volumineux sont bornés par défaut (`--limit`, métadonnées
-`*_truncated`); `--full` demande explicitement le détail complet. Les flux
-(`console --follow`, journaux `record`) utilisent du NDJSON compact.
-Détail du contrat (codes de sortie, connexion, `CDPX_ORIGINS`): section
-« Contrat CLI » du [README](../README.md).
+By default, the CLI prints compact single-line JSON, optimized for the
+agent and token cost. `--pretty` restores indented human-readable output.
+Large fields are bounded by default (`--limit`, `*_truncated` metadata);
+`--full` explicitly requests the complete detail. Streams (`console
+--follow`, `record` logs) use compact NDJSON.
+Contract details (exit codes, connection, `CDPX_ORIGINS`): the "CLI
+Contract" section of the [README](../README.md).
 
-Toutes les commandes navigateur exigent une session supervisée, un `run-id`,
-un `target` attribué et une allowlist d'origines explicite. L'identité triple se
-fournit par options ou via `CDPX_SESSION`, `CDPX_RUN_ID` et `CDPX_TARGET`; le
-manifest est la seule source de l'endpoint loopback. Chaque objet de sortie
-porte `_cdpx.content_trust: "untrusted"` et l'autorité `observation`,
-`interaction` ou `privileged` s'applique avant tout effet CDP. Le contenu page
-ne fait jamais autorité sur ces paramètres.
+All browser commands require a supervised session, a `run-id`, an assigned
+`target`, and an explicit origin allowlist. The identity triple is supplied
+via options or via `CDPX_SESSION`, `CDPX_RUN_ID`, and `CDPX_TARGET`; the
+manifest is the sole source of the loopback endpoint. Every output object
+carries `_cdpx.content_trust: "untrusted"`, and the `observation`,
+`interaction`, or `privileged` authority applies before any CDP effect. Page
+content never has authority over these parameters.
 
-## Navigation et synchronisation — [fiche](features/browser-navigation.md)
+## Navigation and synchronization — [sheet](features/browser-navigation.md)
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx tabs list` | inspecter l'unique target attribué à la session | confirmer l'attestation sans exposer le lifecycle des targets |
-| `cdpx version` | vérifier le Chrome ciblé avant d'agir | ne jamais agir sur un navigateur inconnu |
-| `cdpx goto <url> [--wait load\|domcontentloaded\|none]` | se déplacer et savoir quand la page est prête | sans attente de cycle de vie, l'agent observe des états intermédiaires |
-| `cdpx wait <selector>` | attendre un élément (SPA, contenu injecté) | fixture `spa.html`: `#late-content` n'existe qu'après 300ms; le load event ne suffit pas |
+| `cdpx tabs list` | inspect the single target assigned to the session | confirm the attestation without exposing target lifecycle |
+| `cdpx version` | check the targeted Chrome before acting | never act on an unknown browser |
+| `cdpx goto <url> [--wait load\|domcontentloaded\|none]` | navigate and know when the page is ready | without a lifecycle wait, the agent observes intermediate states |
+| `cdpx wait <selector>` | wait for an element (SPA, injected content) | fixture `spa.html`: `#late-content` only exists after 300ms; the load event isn't enough |
 
-`tabs list` retourne un objet `{tabs, count}` afin de respecter le contrat JSON
-racine et d'appliquer réellement `--limit` avec les métadonnées de troncature.
+`tabs list` returns a `{tabs, count}` object in order to respect the root
+JSON contract and to actually apply `--limit` with truncation metadata.
 
 ```bash
 cdpx goto http://shop.localhost/produit-42
 cdpx --timeout 5 wait "#offcanvas-cart"
 ```
 
-## Inspection du DOM et actions utilisateur — [fiche](features/dom-interaction.md)
+## DOM inspection and user actions — [sheet](features/dom-interaction.md)
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx text [selector]` | innerText — vision sémantique low-cost | 100x moins de tokens qu'un screenshot pour vérifier un contenu |
-| `cdpx html [selector]` | outerHTML — inspection structurelle | vérifier attributs, classes, data-* |
-| `cdpx count <selector>` | assertion cheap ("il y a bien 12 produits") | boucle vérif rapide après une action |
-| `cdpx eval <js> [--await]` | primitive racine: tout le reste | échappatoire universelle; dernier recours (fragile, non typée) |
-| `cdpx click <selector>` | cliquer via Input domain (trusted) | exige attached, visible, enabled, stable, boîte non nulle et hit-test au centre |
-| `cdpx type <selector> --secret-env NOM [--clear]` | remplir un champ depuis une référence d'environnement | évite le secret dans argv; exige un contrôle visible/éditable, puis `Input.insertText` IME-safe |
-| `cdpx key <touche>` | validation, effacement, navigation clavier | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown et quatre flèches |
+| `cdpx text [selector]` | innerText — low-cost semantic vision | 100x fewer tokens than a screenshot to verify content |
+| `cdpx html [selector]` | outerHTML — structural inspection | check attributes, classes, data-* |
+| `cdpx count <selector>` | cheap assertion ("there really are 12 products") | quick check loop after an action |
+| `cdpx eval <js> [--await]` | root primitive: everything else | universal escape hatch; last resort (fragile, untyped) |
+| `cdpx click <selector>` | click via the Input domain (trusted) | requires attached, visible, enabled, stable, a non-zero box, and a center hit-test |
+| `cdpx type <selector> --secret-env NOM [--clear]` | fill a field from an environment reference | avoids the secret in argv; requires a visible/editable control, then IME-safe `Input.insertText` |
+| `cdpx key <touche>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
 
 ```bash
 cdpx type "#name" --secret-env CUSTOMER_NAME --clear
@@ -59,16 +59,16 @@ cdpx key Enter
 cdpx text "#result"
 ```
 
-## Capture et observabilité — [fiche](features/browser-capture-observability.md)
+## Capture and observability — [sheet](features/browser-capture-observability.md)
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx screenshot [-o f.png] [--full-page] [--format png\|jpeg]` | vision pixel: bugs CSS, rendus | quand le texte ne suffit pas; JPEG pour alléger |
-| `cdpx pdf [-o f.pdf]` | figer une page en PDF | preuve d'état imprimable, rendu print |
-| `cdpx console [--duration s]` | logs + exceptions JS | LE feedback manquant: un front cassé se voit d'abord en console |
-| `cdpx console --follow --max N` | stream NDJSON des logs | boucle continue agentique, bornable par `--max` |
-| `cdpx network <url> [--settle s]` | naviguer en capturant l'activité réseau | XHR 500, assets 404, poids: résumé + détail par requête |
-| `cdpx metrics` | Performance.getMetrics (heap, nodes, layouts) | objectiver une dérive (fuite DOM, heap qui gonfle) |
+| `cdpx screenshot [-o f.png] [--full-page] [--format png\|jpeg]` | pixel vision: CSS bugs, rendering | when text isn't enough; JPEG to lighten the load |
+| `cdpx pdf [-o f.pdf]` | freeze a page as PDF | printable proof of state, print rendering |
+| `cdpx console [--duration s]` | logs + JS exceptions | THE missing feedback: a broken front end shows up in the console first |
+| `cdpx console --follow --max N` | NDJSON stream of logs | continuous agentic loop, boundable via `--max` |
+| `cdpx network <url> [--settle s]` | navigate while capturing network activity | XHR 500s, 404 assets, weight: summary + per-request detail |
+| `cdpx metrics` | Performance.getMetrics (heap, nodes, layouts) | objectify a drift (DOM leak, growing heap) |
 
 ```bash
 cdpx network http://shop.localhost/checkout
@@ -76,64 +76,64 @@ cdpx console --duration 3
 cdpx screenshot -o etat.jpg --format jpeg
 ```
 
-## État et session — [fiche](features/state-session.md)
+## State and session — [sheet](features/state-session.md)
 
-Architecture, processus Chrome, profil, surfaces exposées et teardown sont
-détaillés dans la [référence des sessions supervisées](SESSION-LIFECYCLE.md).
+Architecture, Chrome process, profile, exposed surfaces, and teardown are
+detailed in the [supervised sessions reference](SESSION-LIFECYCLE.md).
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx session start\|status\|stop` | attribuer une session navigateur jetable et exclusive à un run | lifecycle hors matrice d'autorité CDP: `start` crée le grant; `status`/`stop` exigent le manifest privé et son identité run/target exacte |
-| `cdpx session start ... --export` | installer la triple identité en une commande via `eval "$(...)"` | lignes `export` quotées à la `ssh-agent`; exception documentée au contrat stdout-JSON |
-| `cdpx cookies get [--show-values]` | inspecter la session (masqué par défaut) | sécurité: cf. HARNESS.md §2 |
-| `cdpx cookies set --name n --value-env NOM --url u` / `clear` | préparer un scénario sans exposer la valeur dans argv | reproductibilité; `clear` = Storage.clearCookies avec repli |
-| `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, valeurs masquées par défaut | panier invité, consentement, caches front |
+| `cdpx session start\|status\|stop` | assign a disposable, exclusive browser session to a run | lifecycle outside the CDP authority matrix: `start` creates the grant; `status`/`stop` require the private manifest and its exact run/target identity |
+| `cdpx session start ... --export` | install the identity triple in one command via `eval "$(...)"` | `export` lines quoted `ssh-agent`-style; documented exception to the stdout-JSON contract |
+| `cdpx cookies get [--show-values]` | inspect the session (redacted by default) | security: see HARNESS.md §2 |
+| `cdpx cookies set --name n --value-env NOM --url u` / `clear` | prepare a scenario without exposing the value in argv | reproducibility; `clear` = Storage.clearCookies with a fallback |
+| `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, values redacted by default | guest cart, consent, front-end caches |
 
 ```bash
 cdpx session start --run-id demo --authority interaction --origins "http://127.0.0.1:*" --ttl 1800 --export
 ```
 
-## Audits SEO, performance, accessibilité — [fiche](features/seo-performance-accessibility.md)
+## SEO, performance, accessibility audits — [sheet](features/seo-performance-accessibility.md)
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx seo [url]` | contrat SEO du DOM **rendu**: title/metas/canonical/robots/h1/hreflang/JSON-LD/alt/liens + findings, px estimés, doublons | seul le DOM final fait foi côté rendering Googlebot |
-| `cdpx vitals <url> [--click sel]` | LCP/CLS/INP basiques | objectiver la perf perçue, interaction pour INP |
-| `cdpx a11y` | arbre d'accessibilité compacté | vision sémantique structurée low-cost |
-| `cdpx coverage <url>` | JS/CSS mort par fichier | dette front mesurée, pas devinée |
+| `cdpx seo [url]` | SEO contract of the **rendered** DOM: title/metas/canonical/robots/h1/hreflang/JSON-LD/alt/links + findings, estimated px, duplicates | only the final DOM is authoritative on the Googlebot rendering side |
+| `cdpx vitals <url> [--click sel]` | basic LCP/CLS/INP | objectify perceived performance, interaction for INP |
+| `cdpx a11y` | compacted accessibility tree | low-cost structured semantic vision |
+| `cdpx coverage <url>` | dead JS/CSS per file | front-end debt measured, not guessed |
 
-Portée exacte : `seo` est un diagnostic on-page du DOM rendu, pas un crawl ni
-une preuve d'indexation ; `vitals` est une mesure locale bornée, pas une
-méthodologie lab/field complète ; `a11y` est une vue compacte de l'AXTree, pas
-un audit RGAA exhaustif.
+Exact scope: `seo` is an on-page diagnostic of the rendered DOM, not a crawl
+or proof of indexing; `vitals` is a bounded local measurement, not a
+complete lab/field methodology; `a11y` is a compact view of the AXTree, not
+an exhaustive RGAA audit.
 
 ```bash
 cdpx seo https://www.exemple.fr/collection/robes
 cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 ```
 
-## Diagnostics développeur — [fiche](features/dev-profiler-diff.md)
+## Developer diagnostics — [sheet](features/dev-profiler-diff.md)
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx profiler <url> [--settle s] [--panels ...]` | parser les panels du Web Profiler de la dernière requête (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, temps, logs) | N+1, duplicats SQL et exceptions chiffrés par l'agent sans ouvrir le browser; `X-Debug-Token-Link` + repli `X-Debug-Token`, HTML des panels parsé (aucune API JSON côté Symfony) |
-| `cdpx dom-diff -- <action>` | snapshot avant/après une action → diff structurel stable | voir exactement ce qu'un clic a changé dans le DOM |
+| `cdpx profiler <url> [--settle s] [--panels ...]` | parse the Web Profiler panels of the last request (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) | N+1s, SQL duplicates, and exceptions quantified by the agent without opening the browser; `X-Debug-Token-Link` + `X-Debug-Token` fallback, panel HTML parsed (no JSON API on the Symfony side) |
+| `cdpx dom-diff -- <action>` | before/after snapshot of an action → stable structural diff | see exactly what a click changed in the DOM |
 
 ```bash
 cdpx profiler http://app.localhost/api/panier
 cdpx dom-diff -- click "#submit-btn"
 ```
 
-## Interception, émulation, orchestration — [fiche](features/orchestration-control.md)
+## Interception, emulation, orchestration — [sheet](features/orchestration-control.md)
 
-| CLI | Usecase | Pourquoi |
+| CLI | Use case | Why |
 |---|---|---|
-| `cdpx intercept --rule "PATTERN => 503\|block\|continue" -- goto <url>` | mocker/bloquer des requêtes pendant une navigation | commande composée: `Fetch.enable` meurt avec la connexion |
-| `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | device mobile, throttling réseau/CPU | forme composée obligatoire pour agir sous émulation: les overrides meurent avec la connexion |
-| `cdpx frame <selector>` | lire dans une iframe same-origin — le sélecteur vise un élément **dans** le document de l'iframe, pas la balise `<iframe>` | contenus embarqués (paiement, consentement) |
-| `cdpx record [-o j.ndjson] -- <action>` | exécuter UNE action et écrire un journal `cdpx.record/v2` redacted | `type` rejouable via `@env:NOM`; eval/littéraux sensibles non rejouables |
-| `cdpx replay <j.ndjson>` | prévalider puis rejouer, stop à la première divergence | relit l'URL réelle après navigation et avant mutation; budget `--max-actions` |
-| `cdpx scenario run <fichier.yml>` | exécuter un parcours métier déclaratif | verdict unique pass/fail, findings et dossier de preuves |
+| `cdpx intercept --rule "PATTERN => 503\|block\|continue" -- goto <url>` | mock/block requests during a navigation | composed command: `Fetch.enable` dies with the connection |
+| `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | mobile device, network/CPU throttling | composed form mandatory to act under emulation: overrides die with the connection |
+| `cdpx frame <selector>` | read inside a same-origin iframe — the selector targets an element **inside** the iframe's document, not the `<iframe>` tag | embedded content (payment, consent) |
+| `cdpx record [-o j.ndjson] -- <action>` | run ONE action and write a redacted `cdpx.record/v2` log | `type` replayable via `@env:NOM`; eval/sensitive literals not replayable |
+| `cdpx replay <j.ndjson>` | pre-validate then replay, stop at first divergence | rereads the actual URL after navigation and before mutation; `--max-actions` budget |
+| `cdpx scenario run <fichier.yml>` | run a declarative business journey | single pass/fail verdict, findings, and proof bundle |
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
@@ -143,35 +143,36 @@ cdpx --max-actions 20 replay parcours.ndjson
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
-Une règle d'interception n'accepte que `continue`, `block` ou un statut
-`200..599`; toute faute de frappe est refusée au parsing. Dans un scénario,
-`wait_visible` vérifie réellement attachement, display/visibility et boîte non
-nulle, et un step `type` exige `secret_ref` (la forme `[selector, text]` en
-clair est refusée à la validation). Le drainage final
-console/réseau précède les assertions.
+An interception rule accepts only `continue`, `block`, or a `200..599`
+status; any typo is rejected at parse time. In a scenario, `wait_visible`
+genuinely checks attachment, display/visibility, and a non-zero box, and a
+`type` step requires `secret_ref` (the plain `[selector, text]` form is
+rejected at validation). The final console/network drain precedes the
+assertions.
 
-Limites : `network` n'est pas un HAR (pas de corps ni de chronologie complète)
-et `replay` compare seulement les champs enregistrés non volatils. Un rejeu
-vert ne prouve un effet métier que si le journal ou le scénario porte une
-assertion observable correspondante.
+Limits: `network` is not a HAR (no body or complete timeline), and `replay`
+only compares recorded non-volatile fields. A green replay only proves a
+business effect if the log or scenario carries a matching observable
+assertion.
 
-Notes de compatibilité : une rupture de transport pendant la collecte passive
-d'évènements est désormais une erreur diagnostiquée (exit 1), plus un succès
-partiel silencieux — un scénario interrompu à mi-course ne rend donc plus de
-verdict tronqué. Les journaux pré-schema dont un pas `type` portait un
-résultat historique `typed: "<texte>"` divergent au rejeu (l'adaptateur de
-cet ancien contrat a été retiré) : ré-enregistrer le journal.
+Compatibility notes: a transport break during passive event collection is
+now a diagnosed error (exit 1), no longer a silent partial success — a
+scenario interrupted mid-course therefore no longer returns a truncated
+verdict. Pre-schema logs where a `type` step carried a historical
+`typed: "<texte>"` result diverge on replay (the adapter for that old
+contract has been removed): re-record the log.
 
-## Harness et cockpit de preuve — [fiche](features/harness-proof-cockpit.md)
+## Harness and proof cockpit — [sheet](features/harness-proof-cockpit.md)
 
-Portails qualité (`make check`, `make test-e2e`, images Docker) et génération
-du rapport de preuve (`make proof` → `.proof/proof-report.html`), qui sert de
-documentation humaine du produit: doc utilisateur par feature, scénarios,
-tests, preuves, gaps. Voir la fiche pour chaque cible make.
+Quality gates (`make check`, `make test-e2e`, Docker images) and generation
+of the proof report (`make proof` → `.proof/proof-report.html`), which
+serves as human-facing product documentation: per-feature user docs,
+scenarios, tests, proofs, gaps. See the sheet for each make target.
 
-## Règle d'ajout
+## Addition rule
 
-Nouvelle primitive = usecase écrit ici D'ABORD (une ligne de tableau), puis
-test mock, puis implémentation, puis fixture si e2e pertinent, puis section
-`### cdpx <cmd>` dans la fiche feature (vérifié mécaniquement: une commande
-sans doc utilisateur casse `make proof`). Cf. CLAUDE.md « Definition of Done ».
+New primitive = use case written here FIRST (one table row), then mock
+test, then implementation, then fixture if e2e is relevant, then a
+`### cdpx <cmd>` section in the feature sheet (mechanically verified: a
+command without user documentation breaks `make proof`). See CLAUDE.md's
+"Definition of Done".

@@ -57,11 +57,11 @@ def test_catalog_tree_follows_filesystem_and_applies_labels():
 
     #: chaque niveau du filesystem reçoit son libellé humain, et les huit
     #: fiches sont rangées sous le nœud des spécifications fonctionnelles
-    assert tree["label"] == "Documentation produit"
+    assert tree["label"] == "Product documentation"
     docs = next(child for child in tree["children"] if child["path"] == "docs")
-    assert docs["label"] == "Références"
+    assert docs["label"] == "References"
     features = next(child for child in docs["children"] if child["path"] == "docs/features")
-    assert features["label"] == "Spécifications fonctionnelles"
+    assert features["label"] == "Feature specifications"
     assert len(features["documents"]) == 8
 
 

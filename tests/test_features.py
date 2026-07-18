@@ -36,7 +36,7 @@ tests = ["tests/test_demo.py::test_demo"]
 expected_proofs = ["junit"]
 +++
 
-## Intention
+## Intent
 Demo.
 
 ## Usage
@@ -45,16 +45,16 @@ Demo.
 
 Lance la démo. Sortie: `{"demo": true}`.
 
-## Parcours utilisateur
+## User journeys
 Demo.
 
 ## Validation
 Demo.
 
-## Preuves
+## Proofs
 Demo.
 
-## Limites connues
+## Known limitations
 Demo.
 """
 
@@ -111,7 +111,7 @@ def test_usage_heading_outside_usage_section_does_not_count(tmp_path):
     path = tmp_path / "demo.md"
     moved = DEMO_DOC.replace('### `cdpx demo`\n\nLance la démo. Sortie: `{"demo": true}`.\n', "")
     moved = moved.replace(
-        "## Limites connues\nDemo.", "## Limites connues\nDemo.\n\n### `cdpx demo`\n"
+        "## Known limitations\nDemo.", "## Known limitations\nDemo.\n\n### `cdpx demo`\n"
     )
     #: garde-fou du montage: le heading existe toujours dans le document
     assert "### `cdpx demo`" in moved  # bien présent, mais hors section Usage

@@ -1,0 +1,34 @@
+{
+  "docs": {
+    "files": 9,
+    "lines": 13
+  },
+  "fixtures": {
+    "files": 13,
+    "lines": 43
+  },
+  "meta": {
+    "files": 9,
+    "lines": 78
+  },
+  "root-docs": {
+    "files": 0,
+    "lines": 0
+  },
+  "scripts": {
+    "files": 17,
+    "lines": 98
+  },
+  "site": {
+    "files": 2,
+    "lines": 279
+  },
+  "src": {
+    "files": 64,
+    "lines": 865
+  },
+  "tests": {
+    "files": 30,
+    "lines": 2829
+  }
+}

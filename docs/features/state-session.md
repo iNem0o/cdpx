@@ -1,8 +1,8 @@
 +++
 id = "state-session"
-title = "État et contrôles de session"
+title = "Session state and controls"
 status = "validated"
-summary = "Attribuer une session navigateur supervisée et inspecter cookies/localStorage/sessionStorage sans fuite de secrets par défaut."
+summary = "Assign a supervised browser session and inspect cookies/localStorage/sessionStorage without leaking secrets by default."
 entrypoints = ["cdpx cookies", "cdpx storage", "cdpx session"]
 path_globs = ["src/cdpx/session.py", "src/cdpx/policy.py", "src/cdpx/artifacts.py", "src/cdpx/security/*.py", "src/cdpx/primitives/state.py", "src/cdpx/testing/mock_session.py", "tests/test_session.py", "tests/test_policy.py", "tests/test_session_cli.py", "tests/test_artifacts.py", "tests/test_redaction.py", "tests/test_security_integration.py", "tests/e2e/test_e2e_sessions.py", "tests/fixtures/storage.html", "src/cdpx/sessions/*.py", "src/cdpx/private_files.py", "tests/test_private_files.py"]
 test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*", "tests/e2e/test_e2e_sessions.py::*", "tests/test_private_files.py::*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
@@ -11,161 +11,161 @@ expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
 id = "read-session"
-title = "Inspecter l'état de session du navigateur"
+title = "Inspect the browser's session state"
 entrypoint = "cdpx cookies"
 
 [[journeys]]
 id = "prepare-session"
-title = "Poser ou purger des cookies pour un scénario répétable"
+title = "Set or clear cookies for a repeatable scenario"
 entrypoint = "cdpx cookies"
 
 [[journeys]]
 id = "isolate-session-runs"
-title = "Attribuer un navigateur jetable et exclusif à chaque run"
+title = "Assign a disposable, exclusive browser to each run"
 entrypoint = "cdpx session"
 
 [[journeys]]
 id = "exercise-session-without-chrome"
-title = "Exercer le contrat supervisé avec le backend mock"
+title = "Exercise the supervised contract with the mock backend"
 entrypoint = "cdpx session"
 
 [[journeys]]
 id = "teardown-supervisor-signal"
-title = "Détruire le navigateur et le profil lors de l'arrêt du superviseur"
+title = "Destroy the browser and profile when the supervisor stops"
 entrypoint = "cdpx session"
 
 [[scenarios]]
 id = "read-session-state"
 journey = "read-session"
-title = "Lire l'état de session du navigateur en sécurité"
-ui_text = "L'utilisateur peut inspecter cookies et storage sans exposer les valeurs secrètes par défaut."
-report_text = "Ce scénario prouve que l'état de session du navigateur est observable tout en gardant les valeurs de cookies et de storage masquées, sauf demande explicite."
-given = "Une fixture de storage locale pose des cookies et des valeurs de storage navigateur."
-when = "cdpx lit les cookies, le localStorage ou le sessionStorage."
-then = "La sortie est structurée et sûre à relire dans le rapport de preuve."
+title = "Safely read the browser's session state"
+ui_text = "The user can inspect cookies and storage without exposing secret values by default."
+report_text = "This scenario proves that the browser's session state is observable while keeping cookie and storage values redacted, unless explicitly requested."
+given = "A local storage fixture sets cookies and browser storage values."
+when = "cdpx reads the cookies, localStorage, or sessionStorage."
+then = "The output is structured and safe to review in the proof report."
 tests = ["tests/test_cli.py::test_cookies*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "prepare-repeatable-session"
 journey = "prepare-session"
-title = "Préparer un état de session navigateur répétable"
-ui_text = "L'agent peut poser ou purger l'état de session avant d'exécuter un scénario."
-report_text = "Ce scénario prouve que les workflows navigateur répétables peuvent préparer les cookies avant l'action, en conservant la même traçabilité de revue."
-given = "Une cible navigateur accepte la mutation de cookies via CDP."
-when = "cdpx pose ou purge les cookies pour l'origine cible."
-then = "Les étapes suivantes s'exécutent sur un état de session contrôlé."
+title = "Prepare a repeatable browser session state"
+ui_text = "The agent can set or clear the session state before running a scenario."
+report_text = "This scenario proves that repeatable browser workflows can prepare cookies before the action, while keeping the same review traceability."
+given = "A browser target accepts cookie mutation via CDP."
+when = "cdpx sets or clears the cookies for the target origin."
+then = "The following steps run on a controlled session state."
 tests = ["tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*"]
 expected_proofs = ["junit"]
 
 [[scenarios]]
 id = "isolate-supervised-session-runs"
 journey = "isolate-session-runs"
-title = "Isoler et détruire les sessions navigateur supervisées"
-ui_text = "Chaque run reçoit un profil, un target, une autorité et un endpoint loopback distincts, utilisables par une seule commande à la fois."
-report_text = "Ce scénario prouve sur Chrome réel l'isolation de trois runs, l'absence de partage cookies/storage, la matrice d'autorités, le lease exclusif et le teardown des profils/endpoints."
-given = "Trois runs démarrent des sessions supervisées avec les autorités observation, interaction et privileged."
-when = "Le CLI exécute lectures, interactions et opérations privilégiées, tente un lease concurrent puis arrête chaque session."
-then = "Les états navigateur restent isolés, les autorités sont appliquées, le second lease échoue et chaque profil/endpoint disparaît au teardown."
+title = "Isolate and destroy supervised browser sessions"
+ui_text = "Each run receives a distinct profile, target, authority, and loopback endpoint, usable by only one command at a time."
+report_text = "This scenario proves on real Chrome the isolation of three runs, the absence of cookie/storage sharing, the authority matrix, the exclusive lease, and the teardown of profiles/endpoints."
+given = "Three runs start supervised sessions with the observation, interaction, and privileged authorities."
+when = "The CLI performs reads, interactions, and privileged operations, attempts a concurrent lease, then stops each session."
+then = "The browser states remain isolated, the authorities are enforced, the second lease fails, and each profile/endpoint disappears at teardown."
 tests = ["tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/e2e/test_e2e_sessions.py::test_supervised_sessions_are_isolated_authorized_and_torn_down", "tests/test_private_files.py::*"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "run-supervised-mock-session"
 journey = "exercise-session-without-chrome"
-title = "Utiliser le backend mock à travers une session supervisée"
-ui_text = "Le développeur peut démarrer une session au premier plan sans Chrome et utiliser la même identité triple que partout ailleurs."
-report_text = "Ce scénario prouve que le mock crée un manifest privé, atteste un target et applique le même contrat session/run/target avant de tout supprimer."
-given = "Chrome réel n'est pas nécessaire et le backend mock CDP est disponible sur loopback."
-when = "Une session mock supervisée démarre, exécute une commande puis s'arrête."
-then = "La commande passe par le manifest attribué et le teardown supprime les ressources privées."
+title = "Use the mock backend through a supervised session"
+ui_text = "The developer can start a session in the foreground without Chrome and use the same identity triple as everywhere else."
+report_text = "This scenario proves that the mock creates a private manifest, attests a target, and applies the same session/run/target contract before deleting everything."
+given = "Real Chrome is not required and the mock CDP backend is available on loopback."
+when = "A supervised mock session starts, runs a command, then stops."
+then = "The command goes through the assigned manifest and the teardown deletes the private resources."
 tests = ["tests/test_session.py::test_mock_backend_uses_supervised_session_contract"]
 expected_proofs = ["junit"]
 
 [[scenarios]]
 id = "mark-page-content-untrusted"
 journey = "read-session"
-title = "Marquer le contenu de page comme non fiable"
-ui_text = "Toute donnée lue dans une page revient étiquetée untrusted, jamais comme une instruction à suivre."
-report_text = "Ce scénario prouve qu'une lecture sous autorité observation reste confinée à l'origine autorisée et que la sortie porte content_trust=untrusted, même quand la page tente d'injecter une consigne au harnais."
-given = "Une page servie sur l'origine autorisée renvoie un texte qui imite une consigne d'injection."
-when = "cdpx lit le texte de la page sous autorité observation en session supervisée."
-then = "Le texte est restitué comme donnée accompagnée du bloc _cdpx content_trust=untrusted, sans jamais être exécuté."
+title = "Mark page content as untrusted"
+ui_text = "Any data read from a page comes back labeled untrusted, never as an instruction to follow."
+report_text = "This scenario proves that a read under the observation authority stays confined to the allowed origin and that the output carries content_trust=untrusted, even when the page tries to inject an instruction to the harness."
+given = "A page served on the allowed origin returns text that mimics an injection instruction."
+when = "cdpx reads the page text under the observation authority in a supervised session."
+then = "The text is returned as data accompanied by the _cdpx content_trust=untrusted block, without ever being executed."
 tests = ["tests/test_session_cli.py::test_session_observation_is_scoped_and_emits_untrusted_metadata"]
 expected_proofs = ["junit", "command"]
 
 [[scenarios]]
 id = "redact-sensitive-session-data"
 journey = "read-session"
-title = "Empêcher un canari de sortir du run sécurisé"
-ui_text = "Cookies, storage, URL, headers, console, profiler, journal et artefacts sont nettoyés avant partage."
-report_text = "Ce scénario prouve que les canaris connus sont absents des sorties et artefacts, que le texte ordinaire reste lisible et que les permissions privées sont imposées."
-given = "Le mock CDP expose un secret canari dans plusieurs surfaces navigateur."
-when = "cdpx observe, journalise et construit un staging partageable."
-then = "Le protocole peut recevoir la valeur en mémoire mais stdout, stderr, journal et artefacts partageables n'en contiennent pas."
+title = "Prevent a canary from leaving the secured run"
+ui_text = "Cookies, storage, URL, headers, console, profiler, log, and artifacts are cleaned before sharing."
+report_text = "This scenario proves that known canaries are absent from outputs and artifacts, that ordinary text stays readable, and that private permissions are enforced."
+given = "The mock CDP exposes a canary secret across several browser surfaces."
+when = "cdpx observes, logs, and builds a shareable staging area."
+then = "The protocol may receive the value in memory, but stdout, stderr, log, and shareable artifacts do not contain it."
 tests = ["tests/test_cli.py::test_cookies_masked_output", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence"]
 expected_proofs = ["junit", "json"]
 
 [[scenarios]]
 id = "teardown-on-supervisor-signal"
 journey = "teardown-supervisor-signal"
-title = "Nettoyer une session après SIGTERM du superviseur"
-ui_text = "Un arrêt supervisé ferme le navigateur, le port CDP et supprime le profil privé sans exiger une seconde commande."
-report_text = "Ce scénario prouve sur Chrome réel que le bloc de teardown du superviseur s'exécute aussi lors d'un SIGTERM normal."
-given = "Une session supervisée est active avec un target et un profil jetable."
-when = "Le processus superviseur reçoit SIGTERM."
-then = "Manifest, profil et dossier disparaissent, et le port loopback n'accepte plus de connexion."
+title = "Clean up a session after a SIGTERM from the supervisor"
+ui_text = "A supervised shutdown closes the browser, the CDP port, and deletes the private profile without requiring a second command."
+report_text = "This scenario proves on real Chrome that the supervisor's teardown block also runs on a normal SIGTERM."
+given = "A supervised session is active with a target and a disposable profile."
+when = "The supervisor process receives SIGTERM."
+then = "The manifest, profile, and folder disappear, and the loopback port no longer accepts connections."
 tests = ["tests/e2e/test_e2e_sessions.py::test_supervisor_signal_still_tears_down_chrome_and_private_files"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "supervise-lifecycle-without-chrome"
 journey = "exercise-session-without-chrome"
-title = "Dérouler le cycle supervisé complet sans Chrome réel"
-ui_text = "Le superviseur atteste le bootstrap, publie le manifest, ferme les targets surnuméraires puis détruit la session à l'arrêt, même avec un navigateur simulé."
-report_text = "Ce scénario prouve, sans Chrome réel, que le superviseur refuse une attestation invalide sans effet, écrit un manifest rechargeable pointant le target assigné et le port découvert, ferme l'onglet initial puis la cible au teardown sans toucher au worker, termine puis tue le navigateur récalcitrant et supprime la session exactement une fois au SIGTERM."
-given = "Un bootstrap attesté décrit une session dont le Chrome et la discovery HTTP sont simulés."
-when = "Le superviseur reçoit d'abord une attestation invalide, puis l'attestation correcte, et va jusqu'au SIGTERM."
-then = "L'attestation invalide échoue sans toucher aux fichiers, le manifest publié est rechargeable, les targets surnuméraires sont fermés et la session est détruite une seule fois."
+title = "Run the full supervised lifecycle without real Chrome"
+ui_text = "The supervisor attests the bootstrap, publishes the manifest, closes surplus targets, then destroys the session at shutdown, even with a simulated browser."
+report_text = "This scenario proves, without real Chrome, that the supervisor rejects an invalid attestation with no side effect, writes a reloadable manifest pointing at the assigned target and discovered port, closes the initial tab and then the target at teardown without touching the worker, terminates and then kills an unresponsive browser, and deletes the session exactly once on SIGTERM."
+given = "An attested bootstrap describes a session whose Chrome and HTTP discovery are simulated."
+when = "The supervisor first receives an invalid attestation, then the correct attestation, and runs through to SIGTERM."
+then = "The invalid attestation fails without touching any files, the published manifest is reloadable, the surplus targets are closed, and the session is destroyed only once."
 tests = ["tests/test_session.py::test_supervisor_builds_manifest_closes_extra_target_and_cleans_up"]
 expected_proofs = ["junit"]
 
 [[scenarios]]
 id = "report-redacted-startup-diagnostics"
 journey = "exercise-session-without-chrome"
-title = "Remonter des diagnostics de démarrage redactés avant nettoyage"
-ui_text = "Quand la session n'est pas prête à temps, la fin des logs superviseur et Chrome revient dans l'erreur, valeurs secrètes masquées, avant que le runtime privé ne disparaisse."
-report_text = "Ce scénario prouve qu'un démarrage qui expire nomme les deux logs et l'étape de readiness atteinte, masque la valeur secrète issue de l'environnement (*** à la place du token) et n'effectue le nettoyage qu'après lecture des tails."
-given = "Un superviseur simulé stagne au stade wait_devtools en écrivant un secret dans ses logs."
-when = "start_session dépasse son budget de démarrage."
-then = "Le PolicyError cite supervisor.log et chrome-stderr.log, le secret est remplacé par ***, puis la session privée est supprimée."
+title = "Report redacted startup diagnostics before cleanup"
+ui_text = "When the session is not ready in time, the tail of the supervisor and Chrome logs comes back in the error, with secret values redacted, before the private runtime disappears."
+report_text = "This scenario proves that a startup that times out names both logs and the readiness step reached, redacts the secret value coming from the environment (*** instead of the token), and only cleans up after reading the tails."
+given = "A simulated supervisor stalls at the wait_devtools stage while writing a secret into its logs."
+when = "start_session exceeds its startup budget."
+then = "The PolicyError cites supervisor.log and chrome-stderr.log, the secret is replaced with ***, and then the private session is deleted."
 tests = ["tests/test_session.py::test_start_session_timeout_reports_redacted_log_tails_before_cleanup"]
 expected_proofs = ["junit", "logs"]
 
 [[scenarios]]
 id = "public-manifest-hides-control-levers"
 journey = "isolate-session-runs"
-title = "Restreindre la vue publique du manifest à l'identité logique"
-ui_text = "La sortie publique de session start livre l'identité du run et du target mais jamais l'endpoint websocket, le chemin du profil ni le PID du navigateur."
-report_text = "Ce scénario prouve que public_dict expose run_id, target_id et le profil éphémère tout en omettant websocket_url, profile_dir et browser_pid — les leviers de prise de contrôle du navigateur restent privés (invariant 5)."
-given = "Un manifest de session supervisée complet est construit."
-when = "L'appelant lit la vue publique du manifest."
-then = "L'identité logique est présente et aucune capacité d'attaque du navigateur ou de son profil ne fuit dans la sortie par défaut."
+title = "Restrict the public manifest view to the logical identity"
+ui_text = "The public output of session start reveals the run and target identity but never the websocket endpoint, the profile path, or the browser PID."
+report_text = "This scenario proves that public_dict exposes run_id, target_id, and the ephemeral profile while omitting websocket_url, profile_dir, and browser_pid — the browser takeover levers stay private (invariant 5)."
+given = "A complete supervised session manifest is built."
+when = "The caller reads the public view of the manifest."
+then = "The logical identity is present and no browser or profile attack capability leaks into the default output."
 tests = ["tests/test_session.py::test_public_manifest_omits_capabilities_and_physical_profile"]
 expected_proofs = ["junit", "json"]
 +++
 
-## Intention
+## Intent
 
-Attribuer à chaque run une session navigateur jetable, exclusive et
-supervisée, puis permettre des scénarios répétables sans fuite accidentelle.
-Ce contrat est l'unique porte d'entrée des commandes navigateur, avec Chrome
-réel comme avec le backend mock. Cookies et storage sont masqués par défaut ;
-les afficher est un acte volontaire et privilégié.
+Assign each run a disposable, exclusive, supervised browser session, then
+enable repeatable scenarios without accidental leaks. This contract is
+the sole entry point for browser commands, with real Chrome as with the
+mock backend. Cookies and storage are redacted by default; showing them
+is a deliberate, privileged act.
 
 ## Usage
 
-Options globales et codes de sortie : voir la section Contrat CLI du README.
+Global options and exit codes: see the CLI Contract section of the README.
 
 ### `cdpx session`
 
@@ -175,21 +175,22 @@ usage: cdpx session status --session PATH --run-id RUN --target ID
 usage: cdpx session stop --session PATH --run-id RUN --target ID
 ```
 
-`start` lance un Chrome headless sur loopback avec port dynamique, profil
-jetable, target unique et superviseur. Le manifest privé associe ces ressources
-au run, à l'autorité et à l'allowlist. La sortie publique omet les PID, les
-chemins profil/artefacts et l'URL WebSocket ; elle fournit le chemin du manifest
-et l'identité nécessaire aux commandes.
+`start` launches a headless Chrome on loopback with a dynamic port, a
+disposable profile, a single target, and a supervisor. The private
+manifest associates these resources with the run, the authority, and the
+allowlist. The public output omits the PIDs, the profile/artifact paths,
+and the WebSocket URL; it provides the manifest path and the identity
+needed by the commands.
 
-La sélection du binaire, la ligne de commande exacte, l'arbre des processus,
-les fichiers privés, les surfaces exposées et tous les chemins de teardown sont
-documentés dans [Sessions supervisées et processus Chrome](../SESSION-LIFECYCLE.md).
-Le cold start dispose par défaut de 60 secondes, dans une limite stricte de
-300 secondes. Le parent attend ce budget puis une courte marge de transmission,
-sans courir contre le timeout interne du superviseur. Sur un runner CI, Chrome
-évite le `/dev/shm` souvent borné. Si le démarrage échoue, les tails
-`supervisor.log` et `chrome-stderr.log` sont bornés, redacted puis remontés dans
-le diagnostic avant le teardown; les fichiers privés bruts restent supprimés.
+The binary selection, the exact command line, the process tree, the
+private files, the exposed surfaces, and every teardown path are
+documented in [Supervised sessions and Chrome processes](../SESSION-LIFECYCLE.md).
+Cold start defaults to 60 seconds, within a strict 300-second limit. The
+parent waits out this budget plus a short handoff margin, without racing
+the supervisor's internal timeout. On a CI runner, Chrome avoids the
+often-bounded `/dev/shm`. If startup fails, the `supervisor.log` and
+`chrome-stderr.log` tails are bounded, redacted, and then surfaced in the
+diagnostic before teardown; the raw private files are still deleted.
 
 ```bash
 cdpx session start --run-id checkout-17 --authority interaction --origins "http://*.test,http://127.0.0.1:*" --ttl 1800
@@ -197,17 +198,17 @@ cdpx session status --session /tmp/cdpx-session/manifest.json --run-id checkout-
 cdpx session stop --session /tmp/cdpx-session/manifest.json --run-id checkout-17 --target ABC123
 ```
 
-Les trois identifiants peuvent être exportés une fois. `--export` remplace le
-JSON de démarrage par les trois lignes `export` quotées (`CDPX_SESSION`,
-`CDPX_RUN_ID`, `CDPX_TARGET`) — c'est l'exception documentée au contrat
-stdout-JSON, destinée à `eval` façon `ssh-agent` :
+The three identifiers can be exported at once. `--export` replaces the
+startup JSON with the three quoted `export` lines (`CDPX_SESSION`,
+`CDPX_RUN_ID`, `CDPX_TARGET`) — this is the documented exception to the
+stdout-JSON contract, meant for `eval`, `ssh-agent`-style:
 
 ```bash
 eval "$(cdpx session start --run-id checkout-17 --authority interaction --origins "http://*.test" --export)"
 cdpx text "#cart"
 ```
 
-Les exports manuels depuis la sortie JSON restent possibles :
+Manual exports from the JSON output are still possible:
 
 ```bash
 export CDPX_SESSION=/tmp/cdpx-session/manifest.json
@@ -216,14 +217,16 @@ export CDPX_TARGET=ABC123
 cdpx text "#cart"
 ```
 
-Le manifest est `0600`, son dossier/profil/artefacts sont privés, et un lease
-non bloquant empêche deux commandes de piloter le target simultanément. Le
-superviseur détruit la session sur `stop`, TTL ou disparition de
-`--owner-pid`. L'endpoint vient uniquement du manifest, l'allowlist ne peut pas
-être vide et chaque sortie porte `_cdpx.content_trust: "untrusted"`.
+The manifest is `0600`, its folder/profile/artifacts are private, and a
+non-blocking lease prevents two commands from driving the target at the
+same time. The supervisor destroys the session on `stop`, TTL, or the
+disappearance of `--owner-pid`. The endpoint comes only from the
+manifest, the allowlist cannot be empty, and every output carries
+`_cdpx.content_trust: "untrusted"`.
 
-`make mock` lance le même cycle au premier plan avec un navigateur simulé,
-affiche les trois exports et nettoie la session sur `Ctrl-C`.
+`make mock` runs the same cycle in the foreground with a simulated
+browser, prints the three exports, and cleans up the session on
+`Ctrl-C`.
 
 ### `cdpx cookies`
 
@@ -231,9 +234,9 @@ affiche les trois exports et nettoie la session sur `Ctrl-C`.
 usage: cdpx cookies {get,set,clear} [--show-values] [--name NAME] [--value-env NOM] [--url URL]
 ```
 
-Lit, pose ou purge les cookies du profil jetable. `get` masque toutes les
-valeurs par défaut. `set` exige `--name`, `--value-env` et `--url`; la valeur
-n'est jamais acceptée littéralement sur la ligne de commande.
+Reads, sets, or clears the cookies of the disposable profile. `get`
+redacts all values by default. `set` requires `--name`, `--value-env`,
+and `--url`; the value is never accepted literally on the command line.
 
 ```bash
 cdpx cookies get
@@ -242,18 +245,18 @@ cdpx cookies set --name PHPSESSID --value-env CHECKOUT_SESSION --url http://demo
 cdpx cookies clear
 ```
 
-Sortie de lecture :
+Read output:
 
 ```json
 {"cookies": [{"name": "PHPSESSID", "value": "***", "domain": "demo.test", "path": "/"}], "count": 1, "values_masked": true, "_cdpx": {"content_trust": "untrusted"}}
 ```
 
-`--show-values` est une élévation volontaire : sa sortie ne va ni dans un
-commit, ni dans un ticket, ni dans une preuve. La redaction transversale reste
-prioritaire et remasque donc un secret déjà enregistré, même avec cette option.
-`clear` purge tout le profil attribué. Un repli vers
-`Network.clearBrowserCookies` maintient la compatibilité avec les versions de
-Chrome qui ne proposent pas encore `Storage.clearCookies`.
+`--show-values` is a deliberate elevation: its output does not belong in
+a commit, a ticket, or a proof. Cross-cutting redaction still takes
+priority and therefore re-masks a secret that was already recorded, even
+with this option. `clear` purges the entire assigned profile. A fallback
+to `Network.clearBrowserCookies` maintains compatibility with Chrome
+versions that do not yet offer `Storage.clearCookies`.
 
 ### `cdpx storage`
 
@@ -261,8 +264,9 @@ Chrome qui ne proposent pas encore `Storage.clearCookies`.
 usage: cdpx storage [--kind {local,session}] [--show-values]
 ```
 
-Lit le `localStorage` ou le `sessionStorage` de la page courante. Les chaînes
-sont masquées par défaut, sans tenter de distinguer panier et token.
+Reads the `localStorage` or `sessionStorage` of the current page. Strings
+are redacted by default, with no attempt to distinguish a cart value
+from a token.
 
 ```bash
 cdpx storage
@@ -273,31 +277,33 @@ cdpx storage --kind session
 {"kind": "session", "entries": {"cart": "***", "consent": "***"}, "count": 2, "values_masked": true, "_cdpx": {"content_trust": "untrusted"}}
 ```
 
-## Parcours utilisateur
+## User journeys
 
-- Démarrer une session, exporter son identité, l'inspecter puis l'arrêter.
-- Exercer exactement ce cycle sans Chrome réel avec `make mock`.
-- Lire cookies et storage avec valeurs masquées par défaut.
-- Poser un cookie depuis une référence d'environnement ou purger le profil.
+- Start a session, export its identity, inspect it, then stop it.
+- Exercise this exact cycle without real Chrome using `make mock`.
+- Read cookies and storage with values redacted by default.
+- Set a cookie from an environment reference, or purge the profile.
 
 ## Validation
 
-Les tests unitaires mock imposent identité triple, métadonnées, masquage,
-références de secrets, allowlist, matrice d'autorité, manifests privés, lease
-et confinement des artefacts. L'E2E multi-session lance trois Chrome et vérifie
-profils/targets distincts, isolation d'état, autorités et teardown. Un scénario
-unitaire dédié prouve que le backend mock emprunte le même chemin supervisé.
+The mock unit tests enforce the identity triple, metadata, redaction,
+secret references, allowlist, authority matrix, private manifests,
+lease, and artifact confinement. The multi-session e2e launches three
+Chrome instances and checks distinct profiles/targets, state isolation,
+authorities, and teardown. A dedicated unit scenario proves that the
+mock backend takes the same supervised path.
 
-## Preuves
+## Proofs
 
-Preuves attendues : JUnit, JSON d'isolation/teardown et screenshots locaux
-`opaque-restricted` pour les scénarios Chrome réel ; JUnit pour le cycle mock.
+Expected proofs: JUnit, isolation/teardown JSON, and local
+`opaque-restricted` screenshots for the real Chrome scenarios; JUnit for
+the mock cycle.
 
-## Limites connues
+## Known limitations
 
-- `--show-values` contourne volontairement le masquage et ne doit pas être
-  persisté.
-- `cookies clear` est global au profil jetable attribué, sans purge ciblée par
-  origine.
-- Le superviseur couvre les terminaisons gérées ; après un arrêt machine brutal,
-  le répertoire runtime privé peut nécessiter un nettoyage au redémarrage.
+- `--show-values` deliberately bypasses redaction and must not be
+  persisted.
+- `cookies clear` is global to the assigned disposable profile, with no
+  origin-targeted purge.
+- The supervisor covers managed terminations; after an abrupt machine
+  shutdown, the private runtime directory may need cleanup on restart.

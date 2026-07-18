@@ -38,15 +38,15 @@ FEATURE_STATUSES = {"planned", "active", "validated", "deprecated"}
 # recroisse jamais.
 UNDOCUMENTED_SCENARIO_WARNING_BUDGET = 0
 
-# Sections obligatoires du corps Markdown (FR, affichées telles quelles dans
+# Sections obligatoires du corps Markdown (affichées telles quelles dans
 # le rapport de preuve). "Usage" porte la doc utilisateur par entrypoint.
 REQUIRED_SECTIONS = (
-    "Intention",
+    "Intent",
     "Usage",
-    "Parcours utilisateur",
+    "User journeys",
     "Validation",
-    "Preuves",
-    "Limites connues",
+    "Proofs",
+    "Known limitations",
 )
 
 

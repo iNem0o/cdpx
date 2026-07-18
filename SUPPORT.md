@@ -1,22 +1,21 @@
 # Support
 
-cdpx est un projet open source maintenu au mieux des disponibilités. Aucun délai
-de réponse ni support professionnel n'est garanti.
+cdpx is an open source project maintained on a best-effort basis. No
+response time or professional support is guaranteed.
 
-Avant de demander de l'aide :
+Before asking for help:
 
-1. consultez le [README](README.md), le
-   [catalogue des primitives](docs/PRIMITIVES.md) et la
-   [documentation de validation](docs/VALIDATION.md) ;
-2. vérifiez que Chrome utilise un profil jetable et que le port CDP reste sur
-   loopback ;
-3. reproduisez avec la dernière version ou la branche par défaut ;
-4. cherchez une [issue existante](https://github.com/inem0o/cdpx/issues).
+1. check the [README](README.md), the
+   [primitives catalog](docs/PRIMITIVES.md), and the
+   [validation documentation](docs/VALIDATION.md);
+2. verify that Chrome uses a disposable profile and that the CDP port stays
+   on loopback;
+3. reproduce with the latest version or the default branch;
+4. search for an [existing issue](https://github.com/inem0o/cdpx/issues).
 
-Si le problème persiste, ouvrez une issue avec la version de cdpx, le système,
-la version de Chrome, la commande minimale et les diagnostics stderr. Masquez
-les cookies, tokens, URL privées et données de session.
+If the problem persists, open an issue with the cdpx version, the system,
+the Chrome version, the minimal command, and the stderr diagnostics. Redact
+cookies, tokens, private URLs, and session data.
 
-Les propositions fonctionnelles passent aussi par les issues. Les
-vulnérabilités suivent exclusivement [SECURITY.md](SECURITY.md) et ne doivent
-jamais être décrites publiquement.
+Feature proposals also go through issues. Vulnerabilities exclusively
+follow [SECURITY.md](SECURITY.md) and must never be described publicly.

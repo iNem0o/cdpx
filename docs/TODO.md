@@ -1,110 +1,144 @@
-# Travail en cours
+# Work in progress
 
-Le socle fonctionnel M0-M6 est livré. La priorité actuelle est la première
-publication open source sur GitHub sous licence MIT. Le plan détaillé est
-[docs/RELEASE-PLAN.md](RELEASE-PLAN.md).
+The M0-M6 functional foundation has shipped. The current priority is the
+first open source release on GitHub under the MIT license. The detailed
+plan is [docs/RELEASE-PLAN.md](RELEASE-PLAN.md).
 
-## Contrat de session supervisée — validé
+## Supervised session contract — validated
 
-Les mécanismes ci-dessous sont implémentés et validés par les portails ciblés,
-le portail intégré et le paquet installé :
+The mechanisms below are implemented and validated by the targeted gates,
+the integrated gate, and the installed package:
 
-- [x] Valider ensemble le lifecycle `session start/status/stop`, trois profils
-      simultanés, target/run explicites, lease exclusif et teardown TTL/owner.
-- [x] Valider la matrice `observation` / `interaction` / `privileged`, le
-      loopback obligatoire et l'allowlist d'origines fail-closed.
-- [x] Faire de la session supervisée l'unique contrat : identité triple avant
-      discovery, aucun endpoint/target implicite et lifecycle réservé au
-      superviseur.
-- [x] Faire passer `make mock` par le même manifest supervisé que Chrome réel.
-- [x] Aligner HARNESS, catalogue, fiches features, matrice de validation et
-      cockpit de preuve sur ce contrat unique.
-- [x] Valider les canaris de bout en bout : stdout/stderr, URL/headers,
-      console, storage, profiler, journal v2, scénarios et staging de preuve.
-- [x] Valider le staging `.proof/shareable/`, les modes `0600`/`0700`, le
-      manifeste de classification/rétention et l'exclusion des binaires opaques.
-- [x] Valider dans le wheel installé la surface publique de 31 commandes après
-      ajout de `cdpx session` (`make dist` au sein du portail intégré).
-- [x] Documenter intégralement le lancement et le lifecycle Chrome, puis exposer
-      un portail CommonMark/Mermaid hors ligne dans le cockpit sans dissocier
-      les fiches features de leur rôle de spécification du harness.
+- [x] Validate together the `session start/status/stop` lifecycle, three
+      simultaneous profiles, explicit target/run, exclusive lease, and
+      TTL/owner teardown.
+- [x] Validate the `observation` / `interaction` / `privileged` matrix, the
+      mandatory loopback, and the fail-closed origin allowlist.
+- [x] Make the supervised session the sole contract: identity triple before
+      discovery, no implicit endpoint/target, and lifecycle reserved to the
+      supervisor.
+- [x] Route `make mock` through the same supervised manifest as real
+      Chrome.
+- [x] Align HARNESS, the catalog, feature sheets, the validation matrix,
+      and the proof cockpit with this single contract.
+- [x] Validate the end-to-end canaries: stdout/stderr, URL/headers,
+      console, storage, profiler, journal v2, scenarios, and proof
+      staging.
+- [x] Validate the `.proof/shareable/` staging, the `0600`/`0700` modes,
+      the classification/retention manifest, and the exclusion of opaque
+      binaries.
+- [x] Validate, in the installed wheel, the public surface of 31 commands
+      after adding `cdpx session` (`make dist` within the integrated
+      gate).
+- [x] Fully document Chrome launch and lifecycle, then expose an offline
+      CommonMark/Mermaid gate in the cockpit without separating feature
+      sheets from their role as harness specification.
 
-`SecureArtifactWriter` redige automatiquement texte, JSON et fichiers textuels
-enregistrés; le scanner de canaris reste le dernier verrou de publication pour
-les secrets connus. Les preuves locales expirées sont purgées automatiquement
-au début de chaque `make proof`, selon les TTL du manifeste de rétention.
+`SecureArtifactWriter` automatically redacts text, JSON, and saved text
+files; the canary scanner remains the last publication lock for known
+secrets. Expired local proofs are automatically purged at the start of
+every `make proof`, according to the retention manifest's TTLs.
 
-## Préparation open source
+## Open source preparation
 
-- [x] Refaire le README pour un utilisateur extérieur avec quickstart local,
-      statut pré-1.0, sécurité et catalogue de la surface CLI.
-- [x] Ajouter les politiques de contribution, sécurité, conduite et support.
-- [x] Retirer de la documentation produit les références privées ou client.
-- [x] Finaliser la relicence MIT et les métadonnées de paquet après validation
-      du détenteur du copyright.
-- [x] Remplacer GitLab CI par des workflows GitHub Actions à permissions
-      minimales et actions épinglées.
-- [x] Ne plus versionner `.proof/`; publier les rapports comme artefacts CI.
-- [x] Vérifier le contenu exact du wheel et du sdist, y compris la licence et
-      l'absence de fichiers internes.
-- [x] Installer le wheel dans un environnement propre et recompter les 31
-      commandes depuis l'artefact.
-- [x] Exécuter `make release` sur l'état intégré puis confirmer les mêmes
-      portails sur un vrai runner GitHub.
-- [x] Préparer la version de publication `0.2.0`, cohérente avec les changements
-      de contrat pré-1.0 ; aucun tag n'est autorisé à ce stade.
+- [x] Rewrite the README for an outside user with a local quickstart,
+      pre-1.0 status, security, and a catalog of the CLI surface.
+- [x] Add the contribution, security, conduct, and support policies.
+- [x] Remove private or client references from the product documentation.
+- [x] Finalize the MIT relicensing and package metadata after validation
+      by the copyright holder.
+- [x] Replace GitLab CI with GitHub Actions workflows with minimal
+      permissions and pinned actions.
+- [x] Stop versioning `.proof/`; publish reports as CI artifacts.
+- [x] Verify the exact contents of the wheel and the sdist, including the
+      license and the absence of internal files.
+- [x] Install the wheel in a clean environment and recount the 31
+      commands from the artifact.
+- [x] Run `make release` on the integrated state, then confirm the same
+      gates on a real GitHub runner.
+- [x] Prepare release version `0.2.0`, consistent with the pre-1.0
+      contract changes; no tag is authorized at this stage.
 
-## Cockpit de preuve v2 — livré
+## Proof cockpit v2 — shipped
 
-Refonte UX/UI/DX du système de preuves (collecte, stockage, cockpit) :
+UX/UI/DX overhaul of the proof system (collection, storage, cockpit):
 
-- [x] Extraire la présentation du cockpit vers `src/cdpx/proofing/cockpit/`
-      (shell.html, cockpit.css, js/ en parties ordonnées — livrés dans le
+- [x] Extract the cockpit presentation to `src/cdpx/proofing/cockpit/`
+      (shell.html, cockpit.css, js/ in ordered parts — shipped in the
       wheel).
-- [x] Relier chaque test à son intention écrite dans le code : docstring =
-      intention de la méthode, commentaires `#:` = déroulé annoté par
-      assertion, corrélé à la ligne d'échec et rendu hiérarchiquement.
-- [x] Fermer la taxonomie des artefacts et donner à chaque type un visualiseur
-      dédié dans une modal contextuelle (screenshot zoomable, console filtrée
-      par niveau, table réseau, arbre JSON, logs surlignés, transcript de
-      commande, player cast xterm.js).
-- [x] Ajouter les preuves secondaires : `attach_command_output`,
+- [x] Link each test to its intention written in the code: docstring =
+      the method's intention, `#:` comments = an annotated walkthrough
+      per assertion, correlated to the failing line and rendered
+      hierarchically.
+- [x] Close the artifact taxonomy and give each type a dedicated viewer
+      in a contextual modal (zoomable screenshot, console filtered by
+      level, network table, JSON tree, highlighted logs, command
+      transcript, xterm.js cast player).
+- [x] Add the secondary proofs: `attach_command_output`,
       `attach_log_excerpt`, `attach_cast`.
-- [x] Rendre la preuve cast obligatoire : enregistreur natif stdlib (pty →
-      asciicast v2, ni asciinema ni agg), portail bloquant dans `make proof`,
-      casts inlinés et joués dans xterm.js vendoré (MIT, SHA-256 vérifié).
-- [x] Guider la lecture du pack : « À lire d'abord » quand le verdict est
-      rouge, timeline des commandes, badges par type de preuve, compteurs.
-- [x] Généraliser docstrings + `#:` à toutes les suites : 430/430 tests ont
-      une intention, 428/428 tests à assertions ont un déroulé annoté
-      (`tests/test_intent.py` reste exclu — témoins à lignes figées). Diff
-      prouvé purement additif (AST identique hors docstrings).
-- [x] Phase 2 preuves secondaires : dérouler le backlog
-      `docs/milestones/attach-backlog.json` (61 opportunités relevées pendant
-      l'annotation — `attach_cli_run`, `attach_json`, `attach_cast`,
-      marqueurs `scenario` candidats), par petits lots avec `make check-local`
-      systématique car ces ajouts changent le code exécuté. Livré en 12 lots :
-      69 attachs, 27 marqueurs `scenario` (4 scénarios de fiche nouveaux),
-      `.ndjson` inlinable, backlog vidé — voir
-      `docs/milestones/M9-preuves-secondaires.md`.
+- [x] Make the cast proof mandatory: native stdlib recorder (pty →
+      asciicast v2, neither asciinema nor agg), blocking gate in
+      `make proof`, casts inlined and played in a vendored xterm.js
+      (MIT, SHA-256 verified).
+- [x] Guide the reading of the pack: "Read first" when the verdict is
+      red, a command timeline, badges per proof type, counters.
+- [x] Generalize docstrings + `#:` to all suites: 430/430 tests have an
+      intention, 428/428 tests with assertions have an annotated
+      walkthrough (`tests/test_intent.py` remains excluded — frozen-line
+      witnesses). Diff proven purely additive (identical AST outside
+      docstrings).
+- [x] Phase 2 secondary proofs: work through the
+      `docs/milestones/attach-backlog.json` backlog (61 opportunities
+      identified during annotation — `attach_cli_run`, `attach_json`,
+      `attach_cast`, candidate `scenario` markers), in small batches with
+      `make check-local` run systematically since these additions change
+      the executed code. Delivered in 12 batches: 69 attachments, 27
+      `scenario` markers (4 new sheet scenarios), inlinable `.ndjson`,
+      backlog emptied — see `docs/milestones/M9-preuves-secondaires.md`.
 
-## Dette technique continue
+## Migration to English (open source)
 
-- [x] Épingler les images de validation par digest et confier leur mise à jour
-      mensuelle à Dependabot.
-- [ ] Instaurer un mécanisme ExecPlan (plans d'exécution tracés dans le dépôt,
-      cf. [docs/leverage-log.md](leverage-log.md)) : évolution du harness
-      volontairement reportée, à traiter dans une session dédiée.
+Strategy: glossary first ([docs/GLOSSARY.md](GLOSSARY.md)), pure
+translation commits (never mixed with a refactor), exact ratchet
+(`scripts/language_ratchet.py`, committed baseline, blocking test).
 
-### Règles de veille
+- [x] Phase 0 — FR→EN glossary + language ratchet with a per-zone
+      baseline.
+- [x] Phase 1 — docs with no code coupling (CONTEXT, ROADMAP,
+      RELEASE-PLAN, GITHUB, leverage-log, milestones, CONTRIBUTING,
+      SECURITY, SUPPORT, CODE_OF_CONDUCT, CHANGELOG). LICENSE and
+      THIRD_PARTY_NOTICES were already in English.
+- [ ] Phase 2 — docs coupled to the guards (PRIMITIVES, feature sheets,
+      TODO, VALIDATION, SESSION-LIFECYCLE) then HARNESS/AGENTS
+      (reinforced review: operational rules). Refresh the
+      `#preuve-dans-github-actions` anchor referenced by CONTRIBUTING.
+- [ ] Phase 3 — code strings (CLI help, error messages, docstrings) in
+      tandem with the tests that assert them. Switch the `@env:NOM` →
+      `@env:NAME` placeholder everywhere in a single commit; translate
+      the UI string « Contenu non embarqué » (cockpit js/10-viewers.js +
+      e2e + quote in M9).
+- [ ] Phase 4 — test intention docstrings, in waves.
+- [ ] Phase 5 — regenerate the artifacts (casts via `make site-casts`,
+      proof, homepage) and aim for a ratchet at 0.
 
-Règles permanentes, sans état à cocher — elles s'appliquent à chaque session :
+## Ongoing technical debt
 
-- `KEY_MAP` ne s'étend au-delà du jeu testé (édition/navigation, Space et
-  quatre flèches) qu'avec un besoin réel, un test mock et un scénario
-  navigateur.
-- Un usage de `eval` qui revient au moins trois fois est promu en primitive
-  nommée.
+- [x] Pin the validation images by digest and hand their monthly update
+      off to Dependabot.
+- [ ] Introduce an ExecPlan mechanism (execution plans tracked in the
+      repository, cf. [docs/leverage-log.md](leverage-log.md)): harness
+      evolution deliberately deferred, to be handled in a dedicated
+      session.
 
-Cocher un item signifie : code et documentation alignés, tests proportionnés
-au risque, et `make check` vert.
+### Standing rules
+
+Permanent rules, with no checkbox state — they apply to every session:
+
+- `KEY_MAP` only extends beyond the tested set (editing/navigation,
+  Space, and the four arrow keys) given a real need, a mock test, and a
+  browser scenario.
+- A use of `eval` that recurs at least three times is promoted to a
+  named primitive.
+
+Checking an item off means: code and documentation aligned, tests
+proportionate to the risk, and `make check` green.

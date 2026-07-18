@@ -522,9 +522,9 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
         client,
         "location.hash = '#/docs/view/docs/features/state-session.md'",
     )
-    nav.wait_for(client, ".panel.doc #intention")
+    nav.wait_for(client, ".panel.doc #intent")
     #: la navigation hash vers une fiche feature fonctionne et le menu offline la référence
-    assert "État et contrôles de session" in js.evaluate(
+    assert "Session state and controls" in js.evaluate(
         client,
         "document.querySelector('#docsNav').innerText",
     )

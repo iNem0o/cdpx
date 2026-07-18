@@ -15,6 +15,6 @@ include = [
 exclude = []
 
 [labels]
-"." = "Documentation produit"
-"docs" = "Références"
-"docs/features" = "Spécifications fonctionnelles"
+"." = "Product documentation"
+"docs" = "References"
+"docs/features" = "Feature specifications"

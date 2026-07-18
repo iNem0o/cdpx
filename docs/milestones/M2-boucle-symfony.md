@@ -1,47 +1,47 @@
-# M2 — Boucle de dev Symfony/Shopware
+# M2 — Symfony/Shopware dev loop
 
-## Pourquoi
-C'est le milestone à plus forte valeur métier: transformer cdpx en boucle de
-feedback complète pour le dev Symfony. Un agent qui lit le profiler après
-chaque action détecte le N+1, la requête à 2s, l'exception avalée — sans
-que l'humain ouvre quoi que ce soit.
+## Why
+This is the milestone with the highest business value: turning cdpx into a
+complete feedback loop for Symfony dev. An agent that reads the profiler after
+each action detects the N+1, the 2s query, the swallowed exception — without
+the human opening anything.
 
 ## Primitives
 ### cdpx profiler
-- Comment: activer Network, naviguer/agir, lire le header `x-debug-token-link`
-  de la réponse principale (Network.responseReceived -> response.headers,
-  redirectResponse pour les 302), puis fetch
-  `http://app.test/_profiler/{token}?panel=db` et parser le HTML des panels.
-- Note d'évolution (post-M2): l'API JSON du profiler évoquée à l'origine
-  n'existe pas côté Symfony — l'adaptateur réel parse le HTML des panels
-  (voir `src/cdpx/primitives/profiler/`) et le fetch se fait DEPUIS
-  la page (fetch même origine), pas depuis cdpx: cookies et résolution d'hôte
-  du navigateur, indispensable derrière Docker.
-- Sortie: {token, url, panels: {db: {queries, statements, duplicates, ...},
+- How: enable Network, navigate/act, read the `x-debug-token-link` header
+  of the main response (Network.responseReceived -> response.headers,
+  redirectResponse for 302s), then fetch
+  `http://app.test/_profiler/{token}?panel=db` and parse the panels' HTML.
+- Evolution note (post-M2): the profiler JSON API originally mentioned
+  does not exist on the Symfony side — the real adapter parses the panels'
+  HTML (see `src/cdpx/primitives/profiler/`) and the fetch happens FROM
+  the page (same-origin fetch), not from cdpx: browser cookies and host
+  resolution, indispensable behind Docker.
+- Output: {token, url, panels: {db: {queries, statements, duplicates, ...},
   twig, cache, exception, http_client, messenger, router, time, logger}}.
-- Fixture: le serveur de fixtures gagne un endpoint `/api/profiler-sim` qui
-  émet le header et sert des panels HTML figés (markup WebProfilerBundle
-  réel élagué) -> testable sans Symfony.
-- Test mock: scripter Network.responseReceived avec le header; vérifier le
-  fetch page-context des panels et leur parsing.
+- Fixture: the fixture server gains an `/api/profiler-sim` endpoint that
+  emits the header and serves frozen HTML panels (real WebProfilerBundle
+  markup trimmed down) -> testable without Symfony.
+- Mock test: script Network.responseReceived with the header; verify the
+  page-context fetch of the panels and their parsing.
 
 ### cdpx console --follow
-- Comment: boucle collect_events sans durée fixe, sortie NDJSON (1 ligne =
-  1 entrée), arrêt Ctrl-C ou --max n. Contrat: NDJSON sur stdout est une
-  EXCEPTION documentée au "un objet JSON".
+- How: collect_events loop with no fixed duration, NDJSON output (1 line =
+  1 entry), stop via Ctrl-C or --max n. Contract: NDJSON on stdout is a
+  documented EXCEPTION to "one JSON object".
 
 ### cdpx dom-diff
-- Comment: `snapshot avant` (sérialisation normalisée: tag, id, classes triées,
-  attributs data-*), action, `snapshot après`, diff unifié.
-- Usecase: "qu'est-ce que ce click a changé dans le DOM ?" — réponse exacte.
-- Fixture: form.html suffit (data-state passe de idle à submitted).
+- How: `snapshot before` (normalized serialization: tag, id, sorted classes,
+  data-* attributes), action, `snapshot after`, unified diff.
+- Usecase: "what did this click change in the DOM?" — exact answer.
+- Fixture: form.html suffices (data-state goes from idle to submitted).
 
 ## Definition of Done
-- [x] profiler testé contre fixture simulant le header + contre un vrai
-      Symfony demo (`make docker-symfony-e2e`: vrais collecteurs Doctrine,
-      cache, HTTP client, Messenger — panels parsés, plus aucun signal
-      X-CDPX fabriqué)
-- [x] follow: NDJSON documenté dans PRIMITIVES.md (exception au contrat "un
-      objet JSON" explicitée, testée dans `tests/test_cli.py`)
-- [x] dom-diff: diff stable (2 runs = même diff — normalisation triée du
-      snapshot, prouvé par test mock dans `tests/test_primitives.py`)
+- [x] profiler tested against a fixture simulating the header + against a real
+      Symfony demo (`make docker-symfony-e2e`: real Doctrine, cache, HTTP
+      client, Messenger collectors — panels parsed, no more fabricated
+      X-CDPX signal)
+- [x] follow: NDJSON documented in PRIMITIVES.md (exception to the "one
+      JSON object" contract made explicit, tested in `tests/test_cli.py`)
+- [x] dom-diff: stable diff (2 runs = same diff — sorted snapshot
+      normalization, proven by a mock test in `tests/test_primitives.py`)

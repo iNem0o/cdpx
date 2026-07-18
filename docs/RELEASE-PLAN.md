@@ -1,67 +1,67 @@
-# Plan de publication open source
+# Open source publication plan
 
-Ce document suit la transition du dépôt vers GitHub et MIT. Il remplace le plan
-historique de release propriétaire, désormais obsolète. Aucune étape ne donne
-par elle-même l'autorisation de pousser, taguer ou publier.
+This document tracks the repository's transition to GitHub and MIT. It replaces the
+historical proprietary release plan, now obsolete. No step by itself grants
+authorization to push, tag or publish.
 
 ## Baseline
 
-- 31 commandes CLI regroupées en huit features documentées ;
-- contrat stdout JSON, stderr diagnostics et exit 0/1/2 ;
-- tests mock déterministes, Chrome réel et Symfony Dockerisé ;
-- `make check-local`, `make check`, `make proof` et `make release` comme sources
-  de vérité ;
-- wheel et sdist construits par `python -m build` puis contrôlés par Twine.
+- 31 CLI commands grouped into eight documented features;
+- stdout JSON, stderr diagnostics and exit 0/1/2 contract;
+- deterministic mock tests, real Chrome and Dockerized Symfony;
+- `make check-local`, `make check`, `make proof` and `make release` as sources
+  of truth;
+- wheel and sdist built by `python -m build` then checked by Twine.
 
-## 1. Licence et métadonnées
+## 1. License and metadata
 
-- [x] Confirmer que le détenteur indiqué dans la licence possède les droits
-      nécessaires à la relicence.
-- [x] Installer le texte MIT sans inventer de nom ni d'année.
-- [x] Aligner `pyproject.toml`, README, changelog et tests de packaging.
-- [x] Vérifier la licence dans le wheel et le sdist reconstruits.
+- [x] Confirm that the holder named in the license has the rights
+      necessary for relicensing.
+- [x] Install the MIT text without inventing a name or a year.
+- [x] Align `pyproject.toml`, README, changelog and packaging tests.
+- [x] Verify the license in the rebuilt wheel and sdist.
 
-## 2. Dépôt public
+## 2. Public repository
 
-- [x] README d'installation source et quickstart loopback reproductible.
-- [x] `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` et `SUPPORT.md`.
-- [x] Documentation débarrassée des références client et du statut GitLab
-      actif.
-- [x] Retirer les preuves générées de l'index et ignorer `.proof/`.
-- [x] Scanner l'état courant et tout l'historique avec un outil dédié avant le
-      premier push public.
+- [x] README for source installation and reproducible loopback quickstart.
+- [x] `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and `SUPPORT.md`.
+- [x] Documentation stripped of client references and of the active GitLab
+      status.
+- [x] Remove generated proofs from the index and ignore `.proof/`.
+- [x] Scan the current state and the entire history with a dedicated tool
+      before the first public push.
 
 ## 3. GitHub Actions
 
-- [x] Pull requests : appeler les cibles Make sans dupliquer leur logique.
-- [x] Conserver Docker, Chrome et Symfony comme portes obligatoires.
-- [x] Utiliser des permissions minimales et épingler les actions tierces.
-- [x] Publier uniquement le staging textuel manifesté `.proof/shareable/`
-      comme artefact temporaire; garder captures/PDF/binaires opaques privés.
-- [x] Valider localement la syntaxe des workflows avec `actionlint`.
-- [x] Exécuter les workflows sur un vrai runner GitHub.
+- [x] Pull requests: call the Make targets without duplicating their logic.
+- [x] Keep Docker, Chrome and Symfony as mandatory gates.
+- [x] Use minimal permissions and pin third-party actions.
+- [x] Publish only the manifested textual staging `.proof/shareable/`
+      as a temporary artifact; keep captures/PDFs/opaque binaries private.
+- [x] Validate workflow syntax locally with `actionlint`.
+- [x] Run the workflows on a real GitHub runner.
 
 ## 4. Distribution
 
-- [x] Construire wheel et sdist depuis l'état intégré et contrôler leur contenu.
-- [x] Installer le wheel dans un environnement vierge et vérifier
-      `cdpx --help`, `cdpx --version` et les 31 commandes.
-- [x] Préparer une GitHub Release sur tag sans la déclencher.
-- [x] Préparer PyPI Trusted Publishing par OIDC, sans token longue durée.
-- [x] Préparer la version `0.2.0`, adaptée aux changements pré-1.0.
-- [ ] Créer le tag uniquement après validation explicite du propriétaire.
+- [x] Build wheel and sdist from the integrated state and check their content.
+- [x] Install the wheel in a clean environment and verify
+      `cdpx --help`, `cdpx --version` and the 31 commands.
+- [x] Prepare a GitHub Release on tag without triggering it.
+- [x] Prepare PyPI Trusted Publishing via OIDC, without a long-lived token.
+- [x] Prepare version `0.2.0`, suited to pre-1.0 changes.
+- [ ] Create the tag only after explicit validation from the owner.
 
-## Portail final
+## Final gate
 
-Avant toute ouverture ou publication :
+Before any opening or publication:
 
-1. `make release` vert dans l'état intégré ;
-2. Docker construit depuis un contexte propre ;
-3. Chrome réel et les scénarios Symfony sans skip ;
-4. cockpit de preuve vert et non versionné ;
-5. wheel/sdist inspectés et contrôlés par Twine ;
-6. GitHub Actions vertes sur le dépôt distant ;
-7. paramètres GitHub de signalement privé et Trusted Publishing activés.
+1. `make release` green in the integrated state;
+2. Docker built from a clean context;
+3. real Chrome and Symfony scenarios without skip;
+4. proof cockpit green and not versioned;
+5. wheel/sdist inspected and checked by Twine;
+6. GitHub Actions green on the remote repository;
+7. GitHub private reporting settings and Trusted Publishing enabled.
 
-Les limites de laboratoire des vitals et le statut beta pré-1.0 restent
-documentés; ils ne bloquent pas une publication honnête.
+The lab limitations of the vitals and the pre-1.0 beta status remain
+documented; they do not block an honest publication.

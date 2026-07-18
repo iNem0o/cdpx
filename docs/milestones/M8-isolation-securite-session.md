@@ -1,85 +1,90 @@
-# M8 — Sessions supervisées et frontière de confiance
+# M8 — Supervised sessions and trust boundary
 
-## Pourquoi
+## Why
 
-Une première page implicite et un Chrome partagé deviennent non déterministes
-dès que plusieurs agents travaillent en parallèle. Ce jalon attribue une
-capacité navigateur complète à chaque run, en fait le seul contrat public et
-ferme les frontières de confiance, de secrets et d'artefacts.
+An implicit first page and a shared Chrome become non-deterministic as soon
+as several agents work in parallel. This milestone assigns a full browser
+capability to each run, makes it the sole public contract, and closes the
+trust, secrets and artifacts boundaries.
 
-## Contrats implémentés
+## Implemented contracts
 
-### Session attribuée
+### Assigned session
 
-`cdpx session start` crée un profil jetable, un port loopback dynamique et un
-target page unique. Le manifest privé lie `session_id`, `run_id`, `target_id`,
-autorité, origines, TTL, backend et superviseur. Chaque commande navigateur
-exige `--session`, `--run-id`, `--target`, explicitement ou par environnement ;
-l'endpoint n'est pas surchargeable et un lease exclusif refuse les commandes
-concurrentes.
+`cdpx session start` creates a disposable profile, a dynamic loopback port
+and a single page target. The private manifest ties together `session_id`,
+`run_id`, `target_id`, authority, origins, TTL, backend and supervisor. Every
+browser command requires `--session`, `--run-id`, `--target`, explicitly or
+via environment; the endpoint cannot be overridden and an exclusive lease
+refuses concurrent commands.
 
-La connexion directe, le choix implicite de la première page et les opérations
-publiques de lifecycle des targets sont supprimés. `tabs list` inspecte
-uniquement le target attesté. `make mock` crée le même manifest et le même
-cycle supervisé avec un backend simulé.
+Direct connection, the implicit choice of the first page and public target
+lifecycle operations are removed. `tabs list` inspects only the attested
+target. `make mock` creates the same manifest and the same supervised cycle
+with a simulated backend.
 
-`stop`, expiration, disparition de l'owner et terminaison supervisée passent
-par le teardown : target fermé, Chrome terminé, profil et dossier supprimés.
+`stop`, expiration, owner disappearance and supervised termination all go
+through the teardown: target closed, Chrome terminated, profile and folder
+deleted.
 
-### Autorités et origines
+### Authorities and origins
 
-- `observation` : navigations/lectures/captures, jamais `eval` ;
-- `interaction` : observation + clic/saisie/clavier ;
-- `privileged` : eval, cookies, storage, profiler, interception, émulation et
-  opérations sensibles.
+- `observation`: navigation/reads/captures, never `eval`;
+- `interaction`: observation + click/input/keyboard;
+- `privileged`: eval, cookies, storage, profiler, interception, emulation and
+  sensitive operations.
 
-Les commandes composées sont préflightées au niveau maximal. Une allowlist
-HTTP(S) non vide est obligatoire; destination et origine réelle sont contrôlées
-avant/après navigation et avant mutation. Toute sortie indique
+Composed commands are preflighted at the maximum level. A non-empty HTTP(S)
+allowlist is mandatory; destination and actual origin are checked
+before/after navigation and before mutation. Every output indicates
 `_cdpx.content_trust: "untrusted"`.
 
-### Secrets et preuves
+### Secrets and proofs
 
-Saisies CLI, cookies, scénarios et journaux utilisent des références
-d'environnement.
-La redaction couvre secrets connus, credentials, URL/query, headers, console,
-réseau, profiler et erreurs. Les preuves privées sont classifiées; seul le
-staging textuel manifesté peut être envoyé, après scan de canaris.
+CLI inputs, cookies, scenarios and journals use environment references.
+Redaction covers known secrets, credentials, URL/query, headers, console,
+network, profiler and errors. Private proofs are classified; only the
+manifested text staging can be sent, after a canary scan.
 
-### Interactions et orchestration
+### Interactions and orchestration
 
-`wait_visible` vérifie la visibilité réelle. `click` exige actionability et
-hit-test; `type --clear` sélectionne puis émet Backspace. Replay bloque les
-redirections hors origine et l'interception refuse les actions inconnues. Les
-assertions de scénario arrivent après le drainage final.
+`wait_visible` checks actual visibility. `click` requires actionability and
+a hit-test; `type --clear` selects then emits Backspace. Replay blocks
+off-origin redirects and interception refuses unknown actions. Scenario
+assertions come after the final drain.
 
-## Preuves ciblées présentes
+## Targeted proofs present
 
-- unitaires : policy, session, journal, redaction, artefacts, CLI supervisé,
-  scénarios et interactions ;
-- intégration sécurité : canaris dans stdout/stderr simulés, URL, headers,
-  console, storage, profiler, journal et artefacts, plus modes `0600`/`0700` ;
-- Chrome réel : trois sessions simultanées prouvent profils/targets/états
-  isolés, autorités, lease et `stop`; un second scénario envoie SIGTERM au
-  superviseur et prouve suppression du profil et fermeture du port. Chaque
-  scénario attache un screenshot local classé `opaque-restricted` et un JSON.
-- backend mock : un scénario dédié prouve manifest privé, attestation du
-  target, commande sous identité triple et teardown sans Chrome réel.
+- unit: policy, session, journal, redaction, artifacts, supervised CLI,
+  scenarios and interactions;
+- security integration: canaries in simulated stdout/stderr, URL, headers,
+  console, storage, profiler, journal and artifacts, plus `0600`/`0700`
+  modes;
+- real Chrome: three simultaneous sessions prove isolated
+  profiles/targets/states, authorities, lease and `stop`; a second scenario
+  sends SIGTERM to the supervisor and proves profile deletion and port
+  closure. Each scenario attaches a local screenshot classified
+  `opaque-restricted` and a JSON.
+- mock backend: a dedicated scenario proves private manifest, target
+  attestation, command under identity triple and teardown without real
+  Chrome.
 
-La cible locale `make test-e2e` est verte avec ces scénarios intégrés. La suite
-Symfony possède son portail Docker séparé et bloquant pour le verdict complet.
+The local `make test-e2e` target is green with these scenarios integrated.
+The Symfony suite has its own separate, blocking Docker gate for the full
+verdict.
 
-## Validation intégrée
+## Integrated validation
 
-Le jalon est validé par `make check`, par les scénarios session Chrome et mock
-collectés dans `make proof`, par `make cov` au-dessus du seuil de 85 %, et par
-l'installation isolée du wheel qui expose les 31 commandes attendues. Le
-HARNESS, les fiches features, la matrice de validation et le cockpit décrivent
-le même contrat. Les cases correspondantes sont closes dans `docs/TODO.md`.
+The milestone is validated by `make check`, by the Chrome and mock session
+scenarios collected in `make proof`, by `make cov` above the 85% threshold,
+and by the isolated wheel installation that exposes the 31 expected
+commands. The HARNESS, the feature sheets, the validation matrix and the
+cockpit describe the same contract. The corresponding checkboxes are closed
+in `docs/TODO.md`.
 
-## Limites assumées
+## Accepted limitations
 
-- Un arrêt machine brutal peut laisser un dossier runtime privé à nettoyer.
-- Le TTL des preuves locales est manifesté mais sans daemon global de purge.
-- La redaction ne devine pas toute PII ni tout secret inconnu; les contenus
-  opaques restent non partageables par défaut.
+- An abrupt machine shutdown can leave a private runtime folder to clean up.
+- The TTL of local proofs is manifested but without a global purge daemon.
+- Redaction does not guess every PII or unknown secret; opaque content
+  remains unshareable by default.

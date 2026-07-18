@@ -1,45 +1,44 @@
-# Politique de sécurité
+# Security Policy
 
-## Versions prises en charge
+## Supported Versions
 
-Avant la première publication, les correctifs de sécurité ciblent uniquement la
-branche `master`. Après publication, ils ciblent la dernière release et la
-branche par défaut. Les versions pré-1.0 plus anciennes peuvent ne pas recevoir
-de correctif rétroporté.
+Before the first release, security fixes target only the `master` branch.
+After release, they target the latest release and the default branch.
+Older pre-1.0 versions may not receive a backported fix.
 
-## Signaler une vulnérabilité
+## Reporting a Vulnerability
 
-N'ouvrez pas d'issue publique et ne publiez pas de preuve d'exploitation.
-Utilisez le formulaire privé GitHub :
+Do not open a public issue and do not publish proof of exploitation. Use
+GitHub's private form:
 
-[Signaler une vulnérabilité en privé](https://github.com/inem0o/cdpx/security/advisories/new)
+[Report a vulnerability privately](https://github.com/inem0o/cdpx/security/advisories/new)
 
-Ce canal est visible uniquement par les mainteneurs autorisés du dépôt. Si le
-formulaire n'est pas disponible, n'exposez pas les détails publiquement :
-attendez que le propriétaire du dépôt active **Private vulnerability
-reporting** dans les paramètres GitHub.
+This channel is visible only to the repository's authorized maintainers. If
+the form is not available, do not expose the details publicly: wait for the
+repository owner to enable **Private vulnerability reporting** in the
+GitHub settings.
 
-Le rapport devrait contenir, sans données personnelles ni secrets réels :
+The report should contain, without personal data or real secrets:
 
-- la version ou le commit concerné ;
-- le scénario de reproduction minimal ;
-- l'impact estimé ;
-- une proposition de mitigation si elle est connue.
+- the affected version or commit;
+- the minimal reproduction scenario;
+- the estimated impact;
+- a proposed mitigation if known.
 
-Les mainteneurs qualifient le rapport dans GitHub, coordonnent le correctif et
-la divulgation, puis créditent le signalant s'il le souhaite. Aucun délai de
-réponse ou programme de récompense n'est garanti.
+Maintainers triage the report in GitHub, coordinate the fix and the
+disclosure, then credit the reporter if they wish. No response time or
+bounty program is guaranteed.
 
-## Périmètre sensible
+## Sensitive Scope
 
-cdpx peut exécuter du JavaScript, lire l'état d'une page et piloter des actions
-trusted dans le Chrome ciblé. Sont notamment considérés comme sensibles :
+cdpx can execute JavaScript, read page state, and drive trusted actions in
+the targeted Chrome. The following are notably considered sensitive:
 
-- un contournement de `CDPX_ORIGINS` ;
-- une fuite de cookies ou d'en-têtes malgré le masquage par défaut ;
-- une connexion involontaire à un navigateur non jetable ;
-- une exécution de commande système à partir d'une entrée navigateur ;
-- une corruption ou une traversée de chemin lors de l'écriture d'artefacts.
+- a bypass of `CDPX_ORIGINS`;
+- a leak of cookies or headers despite redaction by default;
+- an unintended connection to a non-disposable browser;
+- a system command execution triggered from browser input;
+- a corruption or path traversal when writing artifacts.
 
-Les erreurs d'usage sans impact de sécurité peuvent être signalées dans les
-[issues publiques](https://github.com/inem0o/cdpx/issues).
+Usage errors with no security impact can be reported in the
+[public issues](https://github.com/inem0o/cdpx/issues).

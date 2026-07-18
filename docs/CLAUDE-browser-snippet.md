@@ -1,19 +1,19 @@
-# Snippet CLAUDE.md — outillage navigateur cdpx
+# Snippet CLAUDE.md — cdpx browser tooling
 
-Utiliser cdpx uniquement contre un Chrome de dev à profil jetable:
+Use cdpx only against a dev Chrome with a disposable profile:
 
 ```bash
 chromium --headless=new --remote-debugging-port=9222 \
   --user-data-dir=$(mktemp -d /tmp/cdpx-XXXX) --no-first-run
 ```
 
-Contrat agentique:
-- stdout JSON compact par défaut; `--pretty` seulement pour lecture humaine.
-- Sorties volumineuses bornées; utiliser `--full` seulement si nécessaire.
-- Streams/traces en NDJSON compact (`console --follow`, `record`).
-- Cookies masqués par défaut; ne pas utiliser `--show-values` dans un log partagé.
+Agentic contract:
+- compact stdout JSON by default; `--pretty` only for human reading.
+- Large outputs bounded; use `--full` only when necessary.
+- Streams/traces in compact NDJSON (`console --follow`, `record`).
+- Cookies redacted by default; do not use `--show-values` in a shared log.
 
-Commandes de boucle:
+Loop commands:
 
 ```bash
 cdpx goto http://app.test/
@@ -24,11 +24,11 @@ cdpx dom-diff -- click "#submit"
 cdpx seo http://app.test/produit
 ```
 
-Garde-fou autonome:
+Autonomous guard:
 
 ```bash
 export CDPX_ORIGINS="http://*.test,http://localhost:*,http://127.0.0.1:*"
 ```
 
-Avec `CDPX_ORIGINS`, les lectures restent permises, mais les mutations
-(`click`, `type`, `eval`, `intercept`, `replay`) sont refusées hors allowlist.
+With `CDPX_ORIGINS`, reads remain permitted, but mutations
+(`click`, `type`, `eval`, `intercept`, `replay`) are refused outside the allowlist.

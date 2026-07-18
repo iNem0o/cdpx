@@ -1,158 +1,159 @@
 # Changelog
 
-Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
-Ce projet suit un versionnage sémantique.
+Format inspired by [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
+This project follows semantic versioning.
 
-## [Non publié]
+## [Unreleased]
 
-### Ajouté
+### Added
 
-- Portail **Docs** dans le cockpit de preuve : catalogue curaté et hiérarchique,
-  rendu CommonMark sûr, huit spécifications features et diagrammes Mermaid
-  hors ligne. Une référence dédiée décrit le cycle complet des sessions et des
-  processus Chrome.
-- Nouvelle commande `cdpx session start|status|stop` : profil navigateur
-  jetable loopback, port dynamique, target unique, manifest privé, lease
-  exclusif, TTL/owner et teardown supervisé. La surface publique passe de 30 à
-  31 commandes.
-- `make mock` démarre une session supervisée au premier plan avec le même
-  contrat manifest/run/target que Chrome réel, affiche les exports nécessaires
-  et nettoie ses ressources sur `Ctrl-C`.
-- Politique d'autorités `observation`, `interaction`, `privileged`; les
-  commandes composées, replay et scénarios sont préflightés au niveau maximal
-  requis et toute capacité non classée est refusée.
-- Références de secrets : `type --secret-env`, `cookies set --value-env`,
-  `record type ... @env:NOM` et `scenario type.secret_ref`.
-- Redaction transversale des secrets enregistrés, Bearer/JWT, URL/query,
-  headers sensibles, console, réseau, profiler, erreurs, journaux et scénarios.
-  `SecureArtifactWriter` réapplique ce nettoyage aux textes, JSON et fichiers
-  textuels enregistrés. Les artefacts portent classification, SHA-256,
-  politique de redaction, TTL et décision d'upload dans un manifest privé.
+- **Docs** gate in the proof cockpit: curated, hierarchical catalog, safe
+  CommonMark rendering, eight feature specifications and offline Mermaid
+  diagrams. A dedicated reference describes the full session and Chrome
+  process lifecycle.
+- New command `cdpx session start|status|stop`: disposable loopback browser
+  profile, dynamic port, single target, private manifest, exclusive lease,
+  TTL/owner and supervised teardown. The public surface goes from 30 to
+  31 commands.
+- `make mock` starts a supervised session in the foreground with the same
+  manifest/run/target contract as real Chrome, prints the required exports
+  and cleans up its resources on `Ctrl-C`.
+- Authority policy `observation`, `interaction`, `privileged`; composed
+  commands, replay and scenarios are preflighted at the maximum authority
+  required and any unclassified capability is refused.
+- Secret references: `type --secret-env`, `cookies set --value-env`,
+  `record type ... @env:NAME` and `scenario type.secret_ref`.
+- Cross-cutting redaction of recorded secrets, Bearer/JWT, URL/query,
+  sensitive headers, console, network, profiler, errors, logs and scenarios.
+  `SecureArtifactWriter` reapplies this cleanup to recorded text, JSON and
+  text files. Artifacts carry classification, SHA-256, redaction policy, TTL
+  and upload decision in a private manifest.
 
-### Modifié
+### Changed
 
-- Le cockpit préserve désormais son bundle Mermaid après redaction : les
-  propriétés JavaScript minifiées ne sont plus confondues avec des Data URLs,
-  et le rapport pré-nettoyé traverse le staging sans mutation du code.
-- `session start --startup-timeout` sépare désormais le budget de cold start
-  Chrome (60 secondes par défaut, 300 maximum) des timeouts CDP. Le superviseur
-  et son parent partagent ce budget sans course d'expiration; les runners CI
-  contournent leur `/dev/shm` borné et les erreurs conservent des tails de logs
-  bornés et redacted avant le teardown privé.
-- **Breaking** : la session supervisée devient l'unique contrat d'exécution.
-  `--session`, `--run-id` et `--target` (ou leurs variables d'environnement)
-  sont requis avant discovery ; la connexion directe par `--host`/`--port`, le
-  target implicite et l'allowlist optionnelle sont supprimés.
-- **Breaking** : `tabs` expose uniquement `list`; création, activation et
-  fermeture des targets appartiennent au superviseur de session.
-- **Breaking** : `storage` masque désormais toutes les valeurs par défaut et
-  expose `values_masked`; `--show-values` devient l'opt-in explicite, comme
-  pour les cookies.
-- **Breaking** : `type` ne retourne plus le texte saisi mais
-  `typed:true,value_masked:true`. `record` écrit le schéma
-  `cdpx.record/v2` : la saisie CLI exige `--secret-env`, `record type` exige
-  `@env:NOM`, un scénario exige `secret_ref`, et `eval` reste redacted et non
-  rejouable. Les évènements v1 sensibles sont refusés.
-- **Breaking** : screenshots, PDF, journaux et preuves de scénarios sont
-  toujours confinés sous les artefacts privés de la session ; l'option
-  `scenario --evidence-dir` et les chemins de sortie arbitraires disparaissent.
-- `click` exige désormais un élément attaché, visible, activé, stable, de
-  taille non nulle et recevant le hit-test central. `type --clear` sélectionne
-  le contenu puis émet Backspace avant `Input.insertText`; `wait_visible`
-  teste réellement la visibilité. `key` couvre désormais Backspace/Delete,
-  Home/End, PageUp/PageDown, Space et les quatre flèches en plus du jeu initial.
-- Les assertions console/réseau des scénarios sont évaluées après un drainage
-  final. Les preuves de scénario sont privées, manifestées et classifiées;
-  screenshots/PDF/binaires sont `opaque-restricted`.
-- La CI PR publie uniquement `.proof/shareable/` pendant 14 jours. La preuve
-  release est conservée 30 jours et les distributions 90 jours.
+- The cockpit now preserves its Mermaid bundle after redaction: minified
+  JavaScript properties are no longer mistaken for Data URLs, and the
+  pre-cleaned report traverses staging without code mutation.
+- `session start --startup-timeout` now separates the Chrome cold-start
+  budget (60 seconds by default, 300 maximum) from CDP timeouts. The
+  supervisor and its parent share this budget without a race on expiry; CI
+  runners work around their bounded `/dev/shm` and errors keep bounded,
+  redacted log tails before the private teardown.
+- **Breaking**: the supervised session becomes the sole execution contract.
+  `--session`, `--run-id` and `--target` (or their environment variables)
+  are required before discovery; direct connection via `--host`/`--port`,
+  the implicit target and the optional allowlist are removed.
+- **Breaking**: `tabs` exposes only `list`; creation, activation and closing
+  of targets belong to the session supervisor.
+- **Breaking**: `storage` now masks all values by default and exposes
+  `values_masked`; `--show-values` becomes the explicit opt-in, as for
+  cookies.
+- **Breaking**: `type` no longer returns the typed text but
+  `typed:true,value_masked:true`. `record` writes the `cdpx.record/v2`
+  schema: CLI input requires `--secret-env`, `record type` requires
+  `@env:NAME`, a scenario requires `secret_ref`, and `eval` stays redacted
+  and non-replayable. Sensitive v1 events are refused.
+- **Breaking**: screenshots, PDF, logs and scenario proofs are always
+  confined under the session's private artifacts; the `scenario
+  --evidence-dir` option and arbitrary output paths disappear.
+- `click` now requires an element that is attached, visible, enabled,
+  stable, of non-zero size and receiving the central hit-test. `type
+  --clear` selects the content then emits Backspace before
+  `Input.insertText`; `wait_visible` actually tests visibility. `key` now
+  covers Backspace/Delete, Home/End, PageUp/PageDown, Space and the four
+  arrow keys in addition to the initial set.
+- Scenario console/network assertions are evaluated after a final drain.
+  Scenario proofs are private, manifested and classified;
+  screenshots/PDF/binaries are `opaque-restricted`.
+- PR CI publishes only `.proof/shareable/` for 14 days. The release proof
+  is kept for 30 days and distributions for 90 days.
 
-### Sécurité
+### Security
 
-- Toute commande navigateur impose loopback, affectation exacte
-  session/run/target, exclusivité par lease et métadonnée
-  `_cdpx.content_trust:"untrusted"` sur les sorties. Les destinations et
-  origines réelles sont contrôlées en fail-closed.
-- `replay` relit `window.location.href` après chaque navigation et avant la
-  mutation suivante : une redirection vers une origine interdite ne peut plus
-  recevoir le clic suivant.
-- Le parseur d'interception refuse toute action autre que `continue`, `block`
-  ou un statut HTTP `200..599`; une faute de frappe ne continue plus
-  silencieusement la requête.
-- Les sorties publiques de découverte ne contiennent plus les URL WebSocket de
-  débogage. Le staging de preuve exclut les fichiers opaques et échoue fermé si
-  un canari connu subsiste.
+- Every browser command enforces loopback, exact session/run/target
+  assignment, exclusivity via lease and the `_cdpx.content_trust:"untrusted"`
+  metadata on outputs. Real destinations and origins are checked fail-closed.
+- `replay` re-reads `window.location.href` after each navigation and before
+  the next mutation: a redirect to a forbidden origin can no longer receive
+  the next click.
+- The interception parser refuses any action other than `continue`, `block`
+  or an HTTP status `200..599`; a typo no longer silently continues the
+  request.
+- Public discovery outputs no longer contain debugging WebSocket URLs. Proof
+  staging excludes opaque files and fails closed if a known canary remains.
 
 ## [0.2.0] — 2026-07-11
 
-### Modifié
+### Changed
 
-- Le projet est désormais publié sous licence MIT, avec inem0o comme
-  détenteur du copyright établi pour 2026.
-- GitHub devient la plateforme publique principale du projet à l'adresse
+- The project is now published under the MIT license, with inem0o as the
+  copyright holder established for 2026.
+- GitHub becomes the project's main public platform at
   `https://github.com/inem0o/cdpx`.
-- GitHub Actions appelle les portails Make avec permissions minimales et actions
-  épinglées ; la publication PyPI est préparée par Trusted Publishing OIDC.
-- Les images Docker de validation sont épinglées par digest et suivies par
-  Dependabot. Les preuves `.proof/` deviennent des artefacts CI non versionnés.
-- Le wheel et le sdist sont inspectés avant une installation propre du wheel ;
-  la notice MIT de Symfony accompagne les fixtures WebProfiler dérivées.
-- Le portail standard `make check` exige désormais Docker, Chrome et Symfony;
-  la boucle courte est explicitement `make check-local`. `make release` ajoute
-  un cockpit de preuve vert sans skip Symfony et les artefacts wheel/sdist.
-  Docker/Symfony indisponible n'est plus un succès dégradé de `make proof`.
-- L'image de validation embarque les métadonnées de packaging et l'intégralité
-  de l'outillage `.[dev]`; la CI exécute Chrome, Symfony et proof sur merge
-  request, tag et pipeline planifié avant le job de build.
-- L'outillage de distribution exige une version de `packaging` compatible avec
-  les métadonnées PEP 639 (`License-Expression`/`License-File`) produites par
-  setuptools récent.
-- **Breaking**: `tabs list` retourne désormais `{tabs, count}` au lieu d'une
-  liste racine, ce qui rend `--limit` effectif et maintient stdout sous forme
-  d'objet JSON pour toutes les commandes.
-- La garde `CDPX_ORIGINS` couvre aussi cookies, `vitals --click`, la destination
-  d'interception et chaque mutation rejouée après navigation. `replay` valide
-  tout le journal avant action et compare les résultats enregistrés.
-- Les erreurs de navigation CDP deviennent des exit 1, le SEO accepte les
-  racines JSON-LD tableaux/scalaires, les preuves masquent les headers sensibles
-  et la couverture JS expose les octets utilisés/inutilisés par ressource.
+- GitHub Actions calls the Make gates with minimal permissions and pinned
+  actions; PyPI publishing is prepared via Trusted Publishing OIDC.
+- Validation Docker images are pinned by digest and tracked by Dependabot.
+  `.proof/` proofs become unversioned CI artifacts.
+- The wheel and sdist are inspected before a clean wheel install; Symfony's
+  MIT notice accompanies the derived WebProfiler fixtures.
+- The standard `make check` gate now requires Docker, Chrome and Symfony;
+  the short loop is explicitly `make check-local`. `make release` adds a
+  green proof cockpit with no Symfony skip and the wheel/sdist artifacts.
+  Docker/Symfony unavailable is no longer a degraded success for
+  `make proof`.
+- The validation image embeds the packaging metadata and the full `.[dev]`
+  tooling; CI runs Chrome, Symfony and proof on merge request, tag and
+  scheduled pipeline before the build job.
+- The distribution tooling requires a `packaging` version compatible with
+  the PEP 639 metadata (`License-Expression`/`License-File`) produced by
+  recent setuptools.
+- **Breaking**: `tabs list` now returns `{tabs, count}` instead of a root
+  list, which makes `--limit` effective and keeps stdout as a JSON object
+  for all commands.
+- The `CDPX_ORIGINS` guard now also covers cookies, `vitals --click`, the
+  interception destination and every mutation replayed after navigation.
+  `replay` validates the whole log before acting and compares recorded
+  results.
+- CDP navigation errors become exit 1, SEO accepts array/scalar JSON-LD
+  roots, proofs mask sensitive headers and JS coverage exposes used/unused
+  bytes per resource.
 
-- **Breaking**: `cdpx profiler` parse désormais les vrais panels HTML du
-  WebProfilerBundle (db, twig, cache, exception, http_client, messenger,
-  router, time, logger) récupérés par `fetch()` dans la page. `panels` est
-  un objet structuré par panel (`available`/`parse_error`, jamais
-  d'exception de parsing); nouvelle option `--panels all|none|liste`.
-- **Breaking**: suppression des champs `signals` (en-têtes fabriqués
-  `X-CDPX-Profiler-*`) et `profiler_bytes` de la sortie de `cdpx profiler`
-  et de l'artefact `profiler` des scénarios: les métriques viennent des
-  panels réels, plus de signaux de fixtures.
+- **Breaking**: `cdpx profiler` now parses the real WebProfilerBundle HTML
+  panels (db, twig, cache, exception, http_client, messenger, router, time,
+  logger) retrieved via `fetch()` in the page. `panels` is a structured
+  object per panel (`available`/`parse_error`, never a parsing exception);
+  new option `--panels all|none|list`.
+- **Breaking**: removal of the `signals` fields (fabricated
+  `X-CDPX-Profiler-*` headers) and `profiler_bytes` from `cdpx profiler`
+  output and from the scenarios' `profiler` artifact: metrics now come from
+  the real panels, no more fixture signals.
 
 ## [0.1.0] — 2026-07-05
 
-Release initiale.
+Initial release.
 
-### Ajouté
+### Added
 
-- 30 sous-commandes CLI sur le Chrome DevTools Protocol, organisées en 8
-  features documentées (navigation, DOM/actions, capture/observabilité,
-  état/session, audits SEO/perf/a11y, diagnostics Symfony, orchestration,
-  harness/preuve). Contrat stable: stdout = un objet JSON, stderr =
+- 30 CLI subcommands on the Chrome DevTools Protocol, organized into 8
+  documented features (navigation, DOM/actions, capture/observability,
+  state/session, SEO/perf/a11y audits, Symfony diagnostics, orchestration,
+  harness/proof). Stable contract: stdout = a JSON object, stderr =
   diagnostics, exit 0/1/2.
-- Rejeu réel des parcours: `record` exécute et journalise chaque action
-  (NDJSON), `replay` valide le journal puis rejoue contre le navigateur et
-  s'arrête à la première divergence.
-- Forme composée `emulate <preset> -- <action>`: agir sous émulation dans la
-  même connexion CDP (les overrides meurent avec la connexion).
-- `screenshot --format png|jpeg`; `emulate --reset` restaure aussi
-  l'user-agent; `profiler_status` reflète le statut HTTP réel du profiler.
-- Garde d'origine `CDPX_ORIGINS` étendue aux commandes composées
-  (classement par verbe d'action) et à `replay`.
-- Cockpit de preuve `make proof`: documentation utilisateur par feature
-  embarquée, vues Features / CLI / Validation / Gaps / Run, politique Symfony
-  explicite (`CDPX_PROOF_REQUIRE_SYMFONY=1`), ratchet de dette narrative à 0.
-- Garde-fous documentation mécaniques (`tests/test_docs.py`): commandes
-  toutes documentées, fiches routées depuis le README, exemples `cdpx`
-  validés contre le parseur réel.
-- Packaging: version unique (`cdpx.__version__`), wheel+sdist via
-  `make dist`, licence propriétaire, extras `dev`, couverture avec seuil,
-  cible `typecheck` mypy, CI GitLab en matrice 3.11/3.12 avec artefacts.
+- Real replay of journeys: `record` executes and logs each action (NDJSON),
+  `replay` validates the log then replays it against the browser and stops
+  at the first divergence.
+- Composed form `emulate <preset> -- <action>`: act under emulation within
+  the same CDP connection (overrides die with the connection).
+- `screenshot --format png|jpeg`; `emulate --reset` also restores the
+  user-agent; `profiler_status` reflects the profiler's real HTTP status.
+- `CDPX_ORIGINS` origin guard extended to composed commands (classified by
+  action verb) and to `replay`.
+- Proof cockpit `make proof`: embedded per-feature user documentation,
+  Features / CLI / Validation / Gaps / Run views, explicit Symfony policy
+  (`CDPX_PROOF_REQUIRE_SYMFONY=1`), narrative debt ratchet at 0.
+- Mechanical documentation guards (`tests/test_docs.py`): all commands
+  documented, sheets routed from the README, `cdpx` examples validated
+  against the real parser.
+- Packaging: single version (`cdpx.__version__`), wheel+sdist via
+  `make dist`, proprietary license, `dev` extras, coverage with threshold,
+  mypy `typecheck` target, GitLab CI matrix on 3.11/3.12 with artifacts.

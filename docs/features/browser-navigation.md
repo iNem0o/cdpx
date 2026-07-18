@@ -1,8 +1,8 @@
 +++
 id = "browser-navigation"
-title = "Navigation et synchronisation"
+title = "Navigation and synchronization"
 status = "validated"
-summary = "Inspecter le target attribué, ouvrir des pages et attendre des états navigateur déterministes avant de lire ou d'agir."
+summary = "Inspect the assigned target, open pages, and wait for deterministic browser states before reading or acting."
 entrypoints = ["cdpx tabs", "cdpx version", "cdpx goto", "cdpx wait"]
 path_globs = ["src/cdpx/discovery.py", "src/cdpx/client.py", "src/cdpx/primitives/nav.py", "tests/test_discovery_and_client.py", "tests/fixtures/index.html", "tests/fixtures/spa.html", "src/cdpx/cdp_types.py"]
 test_globs = ["tests/test_discovery_and_client.py::*", "tests/test_primitives.py::test_navigate*", "tests/test_primitives.py::test_wait*", "tests/test_cli.py::test_tabs*", "tests/test_cli.py::test_goto*", "tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_cli_browser_lifecycle*", "tests/test_primitives.py::test_event_primitives_reject_negative_budgets*", "tests/test_cli.py::test_connection_failure_exits_1*", "tests/test_cli.py::test_send_failure_exits_1*", "tests/test_cli.py::test_transport_failure_exits_1*"]
@@ -11,101 +11,102 @@ expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
 id = "open-page"
-title = "Ouvrir une page cible et confirmer la fin du cycle de vie"
+title = "Open a target page and confirm the end of the lifecycle"
 entrypoint = "cdpx goto"
 
 [[journeys]]
 id = "wait-spa-content"
-title = "Attendre le contenu injecté après le chargement initial"
+title = "Wait for content injected after the initial load"
 entrypoint = "cdpx wait"
 
 [[scenarios]]
 id = "open-page-success"
 journey = "open-page"
-title = "Ouvrir une page cible avec succès"
-ui_text = "Le navigateur ouvre une URL locale et confirme que la page a atteint un état exploitable."
-report_text = "Ce scénario prouve qu'un utilisateur peut demander une navigation et obtenir un état navigateur déterministe sans inspection manuelle."
-given = "Une page fixture locale est disponible et Chrome expose un target débogable."
-when = "cdpx goto ouvre l'URL et attend la fin du cycle de vie de la page."
-then = "La commande retourne un payload de succès compact et la page peut être capturée par le run de preuve."
+title = "Successfully open a target page"
+ui_text = "The browser opens a local URL and confirms that the page reached a usable state."
+report_text = "This scenario proves that a user can request a navigation and obtain a deterministic browser state without manual inspection."
+given = "A local fixture page is available and Chrome exposes a debuggable target."
+when = "cdpx goto opens the URL and waits for the end of the page lifecycle."
+then = "The command returns a compact success payload and the page can be captured by the proof run."
 tests = ["tests/test_cli.py::test_goto", "tests/test_primitives.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_navigate*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "wait-for-rendered-state"
 journey = "wait-spa-content"
-title = "Attendre le contenu rendu avant de lire l'état"
-ui_text = "L'agent attend que le contenu soit présent dans le DOM avant de le lire ou d'agir."
-report_text = "Ce scénario prouve la synchronisation entre l'attestation du target attribué et le contenu DOM rendu tardivement."
-given = "Un onglet cible existe et une fixture peut injecter du contenu après le chargement initial."
-when = "cdpx attend un sélecteur ou inspecte le target attribué à la session."
-then = "Le target est attribué et le sélecteur attendu est attaché au DOM pour les primitives suivantes."
+title = "Wait for rendered content before reading the state"
+ui_text = "The agent waits for the content to be present in the DOM before reading or acting on it."
+report_text = "This scenario proves the synchronization between the assigned target's attestation and DOM content rendered late."
+given = "A target tab exists and a fixture can inject content after the initial load."
+when = "cdpx waits for a selector or inspects the target assigned to the session."
+then = "The target is assigned and the expected selector is attached to the DOM for the following primitives."
 tests = ["tests/test_discovery_and_client.py::*", "tests/test_cli.py::test_tabs*", "tests/test_primitives.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_wait*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
 id = "diagnose-transport-failures"
 journey = "open-page"
-title = "Diagnostiquer les échecs de transport et refuser les budgets invalides"
-ui_text = "Une connexion ou un envoi CDP qui échoue devient un diagnostic exit 1, et un budget de temps négatif est refusé avant toute I/O."
-report_text = "Ce scénario prouve que les échecs de transport CDP sortent en erreur diagnostiquée sur stderr (jamais un succès partiel trompeur) et que les budgets de temps invalides sont rejetés avant de toucher le navigateur."
-given = "Un transport CDP scripté pour échouer à la connexion, à l'envoi ou pendant la collecte, et des budgets de temps négatifs."
-when = "Le CLI exécute une commande navigateur et les primitives valident leur budget avant d'émettre."
-then = "Chaque échec de transport rend exit 1 avec son motif sur stderr et aucun message CDP n'est émis pour un budget invalide."
+title = "Diagnose transport failures and reject invalid budgets"
+ui_text = "A CDP connection or send that fails becomes an exit 1 diagnostic, and a negative time budget is rejected before any I/O."
+report_text = "This scenario proves that CDP transport failures exit with a diagnosed error on stderr (never a misleading partial success) and that invalid time budgets are rejected before touching the browser."
+given = "A CDP transport scripted to fail at connection, at send, or during collection, and negative time budgets."
+when = "The CLI runs a browser command and the primitives validate their budget before emitting."
+then = "Every transport failure returns exit 1 with its reason on stderr and no CDP message is emitted for an invalid budget."
 tests = ["tests/test_cli.py::test_connection_failure_exits_1*", "tests/test_cli.py::test_send_failure_exits_1*", "tests/test_cli.py::test_transport_failure_exits_1*", "tests/test_primitives.py::test_event_primitives_reject_negative_budgets*"]
 expected_proofs = ["junit"]
 
 +++
 
-## Intention
+## Intent
 
-Donner à l'agent (ou au dev qui le pilote) un target Chrome attribué de façon
-déterministe, puis lui permettre de naviguer et d'attendre un état utile
-avant toute lecture ou action. Pendant la construction d'une app Symfony ou
-e-commerce, une page « en cours de chargement » est un piège : l'agent qui lit
-trop tôt observe un état intermédiaire et en tire de fausses conclusions.
-`goto` attend le cycle de vie de la page ; `wait` couvre le rendu côté client
-(SPA, contenu injecté en JS) ; `tabs` et `version` ancrent la session sur le
-bon navigateur et le bon onglet.
+Give the agent (or the dev driving it) a Chrome target assigned
+deterministically, then let it navigate and wait for a useful state
+before any reading or action. While building a Symfony or e-commerce
+app, a page "still loading" is a trap: an agent that reads too early
+observes an intermediate state and draws false conclusions from it.
+`goto` waits for the page lifecycle; `wait` covers client-side rendering
+(SPA, content injected via JS); `tabs` and `version` anchor the session
+on the right browser and the right tab.
 
 ## Usage
 
-Options globales et codes de sortie: voir la section Contrat CLI du README.
+Global options and exit codes: see the CLI Contract section of the README.
 
 ### `cdpx tabs`
 
-Synopsis : `cdpx tabs list`
+Synopsis: `cdpx tabs list`
 
-Inspecte via `/json` l'unique target `page` attribué à la session. Le manifest,
-le run et le target sont obligatoires, explicitement ou par environnement ; la
-commande filtre la découverte sur cette attestation exacte. Le lifecycle des
-targets appartient au superviseur de `cdpx session` et n'est pas exposé comme
-action publique.
+Inspects, via `/json`, the single `page` target assigned to the
+session. The manifest, the run, and the target are required, either
+explicitly or via environment; the command filters discovery on this
+exact attestation. The lifecycle of targets belongs to the `cdpx
+session` supervisor and is not exposed as a public action.
 
 ```bash
 cdpx tabs list
 ```
 
-Sortie de `list` (collection bornable par `--limit`, avec le nombre total) :
+Output of `list` (collection boundable by `--limit`, with the total count):
 
 ```json
 {"tabs":[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Produit 42","url":"http://demo.test/produit-42"}],"count":1,"_cdpx":{"content_trust":"untrusted"}}
 ```
 
-Erreurs : exit 1 si l'endpoint attesté devient injoignable ou si le target ne
-correspond plus au manifest ; exit 2 si un identifiant de session manque ou si
-une autre action est demandée. cdpx ne cible jamais un Chrome personnel : le
-profil jetable est créé et détruit par le superviseur.
+Errors: exit 1 if the attested endpoint becomes unreachable or if the
+target no longer matches the manifest; exit 2 if a session identifier is
+missing or if another action is requested. cdpx never targets the
+user's personal Chrome: the disposable profile is created and destroyed
+by the supervisor.
 
 ### `cdpx version`
 
-Synopsis : `cdpx version`
+Synopsis: `cdpx version`
 
-Retourne les informations du navigateur (`/json/version`). Sert de « ping » de
-session : vérifier que le port de debug répond et identifier la version de
-Chrome avant d'attribuer un comportement au protocole.
+Returns browser information (`/json/version`). Serves as a session
+"ping": checking that the debug port responds and identifying the
+Chrome version before attributing a behavior to the protocol.
 
-Options propres à la commande : aucune.
+Command-specific options: none.
 
 ```bash
 cdpx version
@@ -115,22 +116,23 @@ cdpx version
 {"Browser":"Chrome/126.0.6478.61","Protocol-Version":"1.3","User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36","V8-Version":"12.6.228.13","WebKit-Version":"537.36"}
 ```
 
-Erreurs (exit 1) : le navigateur supervisé ne répond plus sur son endpoint
-attesté (`/json/version`).
+Errors (exit 1): the supervised browser no longer responds on its
+attested endpoint (`/json/version`).
 
 ### `cdpx goto`
 
-Synopsis : `cdpx goto <url> [--wait {load,domcontentloaded,none}]`
+Synopsis: `cdpx goto <url> [--wait {load,domcontentloaded,none}]`
 
-Navigue vers une URL et attend l'évènement de cycle de vie demandé avant de
-rendre la main. C'est ce qui évite à l'agent de lire des états intermédiaires :
-la commande ne retourne que quand la page a réellement atteint l'état demandé.
+Navigates to a URL and waits for the requested lifecycle event before
+returning control. This is what keeps the agent from reading
+intermediate states: the command only returns once the page has
+actually reached the requested state.
 
-Options propres à la commande :
+Command-specific options:
 
-- `url` (positionnel, requis) : URL cible.
-- `--wait` : évènement attendu — `load` (défaut), `domcontentloaded`, ou
-  `none` (retour immédiat après acceptation de la navigation).
+- `url` (positional, required): target URL.
+- `--wait`: expected event — `load` (default), `domcontentloaded`, or
+  `none` (immediate return after the navigation is accepted).
 
 ```bash
 cdpx goto http://demo.test/produit-42
@@ -141,30 +143,32 @@ cdpx goto http://demo.test/panier --wait domcontentloaded
 {"url":"http://demo.test/produit-42","frameId":"7C93","loaderId":"A1F0","errorText":null,"waited":"load","ok":true,"elapsed_ms":48.2}
 ```
 
-Erreurs et pièges : si Chrome refuse la navigation (DNS, connexion refusée),
-la sortie porte `"ok":false` avec `errorText` renseigné (ex.
-`net::ERR_CONNECTION_REFUSED`) — vérifier `ok`, pas seulement le code de
-sortie. Un cycle de vie qui n'arrive jamais dans le délai imparti (option
-globale `--timeout`) provoque un exit 1. `--wait none` ne garantit rien sur
-l'état du DOM : à réserver aux cas où l'on enchaîne avec `cdpx wait`.
-La destination est contrôlée avant connexion puis `window.location.href` est
-relu après navigation : une redirection hors allowlist transforme la commande
-en échec avant toute action suivante.
+Errors and gotchas: if Chrome refuses the navigation (DNS, connection
+refused), the output carries `"ok":false` with `errorText` populated
+(e.g. `net::ERR_CONNECTION_REFUSED`) — check `ok`, not just the exit
+code. A lifecycle event that never arrives within the allotted time
+(global `--timeout` option) triggers an exit 1. `--wait none` guarantees
+nothing about the DOM state: reserve it for cases chained with `cdpx
+wait`. The destination is checked before connecting, then
+`window.location.href` is read back after navigation: a redirect
+outside the allowlist turns the command into a failure before any
+following action.
 
 ### `cdpx wait`
 
-Synopsis : `cdpx wait <selector>`
+Synopsis: `cdpx wait <selector>`
 
-Attend qu'un sélecteur CSS existe dans le DOM, par polling léger
-(`Runtime.evaluate`, sans état résiduel injecté dans la page). C'est la
-synchronisation pour les SPA et le contenu rendu côté client : la fixture
-`spa.html` du site témoin injecte `#late-content` 300 ms après le `load`, et
-`wait` est ce qui permet de le lire de façon fiable.
+Waits for a CSS selector to exist in the DOM, via lightweight polling
+(`Runtime.evaluate`, with no residual state injected into the page).
+This is the synchronization for SPAs and client-side rendered content:
+the `spa.html` fixture from the reference site injects `#late-content`
+300 ms after `load`, and `wait` is what makes it possible to read it
+reliably.
 
-Options propres à la commande :
+Command-specific options:
 
-- `selector` (positionnel, requis) : sélecteur CSS à attendre. Le délai
-  maximal vient de l'option globale `--timeout` (défaut 15 s).
+- `selector` (positional, required): CSS selector to wait for. The
+  maximum delay comes from the global `--timeout` option (default 15s).
 
 ```bash
 cdpx wait "#late-content"
@@ -174,34 +178,36 @@ cdpx wait "#late-content"
 {"found":true,"selector":"#late-content","elapsed_ms":312.4}
 ```
 
-Erreurs et pièges : sélecteur toujours absent à l'échéance → exit 1 avec
-diagnostic sur stderr (`sélecteur introuvable après Ns`). `wait` teste
-l'existence dans le DOM, pas la visibilité : un élément présent mais
-`display:none` est considéré comme trouvé. Toujours citer le sélecteur
-(`"#id"`) pour éviter que le shell n'interprète `#` comme un commentaire.
-Le step YAML `wait_visible` utilise une primitive distincte : il exige en plus
-un élément connecté, `display`/`visibility` visibles et une boîte non nulle.
+Errors and gotchas: selector still absent at the deadline → exit 1
+with a diagnostic on stderr (`sélecteur introuvable après Ns`). `wait`
+tests for existence in the DOM, not visibility: an element that is
+present but `display:none` is considered found. Always quote the
+selector (`"#id"`) to keep the shell from interpreting `#` as a
+comment. The `wait_visible` YAML step uses a distinct primitive: it
+additionally requires a connected element, visible
+`display`/`visibility`, and a non-zero box.
 
-## Parcours utilisateur
+## User journeys
 
-- Ouvrir une URL et recevoir un résultat de navigation JSON compact.
-- Attendre un sélecteur qui apparaît après le rendu côté client.
-- Inspecter l'unique target attribué sans pouvoir modifier son lifecycle.
+- Open a URL and receive a compact JSON navigation result.
+- Wait for a selector that appears after client-side rendering.
+- Inspect the single assigned target without being able to modify its
+  lifecycle.
 
 ## Validation
 
-La validation combine des tests protocolaires sur mock CDP (la séquence de
-commandes émises EST la spec) et des tests e2e sur Chrome réel contre les
-fixtures locales, dont `spa.html` pour le contenu tardif.
+Validation combines protocol tests on mock CDP (the sequence of
+emitted commands IS the spec) with e2e tests on real Chrome against
+local fixtures, including `spa.html` for late content.
 
-## Preuves
+## Proofs
 
-Preuves attendues : rapports JUnit, plus captures d'écran e2e pour les
-parcours visibles dans le navigateur.
+Expected proofs: JUnit reports, plus e2e screenshots for the
+journeys visible in the browser.
 
-## Limites connues
+## Known limitations
 
-`wait` CLI ne teste que la présence DOM, pas la visibilité ni
-l'interactivité ; `scenario wait_visible` couvre la visibilité, tandis que
-l'actionability complète reste vérifiée au moment de `click`/`type`. Le contenu
-retourné par la page est non fiable et ne peut pas choisir un autre target.
+The `wait` CLI only tests DOM presence, not visibility or
+interactivity; `scenario wait_visible` covers visibility, while full
+actionability remains verified at `click`/`type` time. Content returned
+by the page is untrusted and cannot choose another target.

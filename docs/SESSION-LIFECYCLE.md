@@ -1,32 +1,32 @@
-# Sessions supervisées et processus Chrome
+# Supervised sessions and Chrome processes
 
-Cette référence décrit le contrat réel de `cdpx session`, depuis la sélection
-du binaire jusqu'à la destruction du profil. Elle s'adresse à la fois aux
-utilisateurs du CLI, aux personnes qui exploitent les runners et aux
-mainteneurs du superviseur.
+This reference describes the actual contract of `cdpx session`, from
+binary selection to profile destruction. It is aimed at CLI users, the
+people operating the runners and the supervisor's maintainers.
 
-## Contrat en une phrase
+## Contract in one sentence
 
-Une session attribue à un run un Chrome headless, un profil jetable, un port
-CDP loopback et un unique target `page`. Le manifest privé relie ces ressources
-à une autorité, une allowlist d'origines et une durée de vie immuables.
+A session assigns a run a headless Chrome, a disposable profile, a
+loopback CDP port and a single `page` target. The private manifest
+ties these resources to an immutable authority, origin allowlist and
+lifetime.
 
 ```mermaid
 flowchart LR
-    accTitle: Architecture et surfaces exposées d'une session cdpx
-    accDescr: Le CLI démarre un superviseur privé qui lance Chrome avec un profil jetable et publie uniquement une identité bornée au run.
-    U["Agent ou développeur"] -->|"session start"| C["CLI cdpx"]
-    C -->|"bootstrap 0600 + attestation"| S["Superviseur Python"]
-    S -->|"profil dédié + flags bornés"| B["Chrome headless"]
-    B -->|"CDP dynamique"| L["127.0.0.1:port"]
-    S -->|"manifest 0600"| M["Identité session / run / target"]
-    C -->|"stdout JSON borné"| U
-    M -->|"lease exclusif"| C
+    accTitle: Architecture and exposed surfaces of a cdpx session
+    accDescr: The CLI starts a private supervisor that launches Chrome with a disposable profile and publishes only an identity bounded to the run.
+    U["Agent or developer"] -->|"session start"| C["cdpx CLI"]
+    C -->|"0600 bootstrap + attestation"| S["Python supervisor"]
+    S -->|"dedicated profile + bounded flags"| B["Headless Chrome"]
+    B -->|"dynamic CDP"| L["127.0.0.1:port"]
+    S -->|"0600 manifest"| M["Session / run / target identity"]
+    C -->|"bounded JSON stdout"| U
+    M -->|"exclusive lease"| C
     B --> P["profile/ 0700"]
     C --> A["artifacts/ 0700"]
 ```
 
-## Démarrer et utiliser une session
+## Starting and using a session
 
 ```bash
 cdpx session start \
@@ -37,10 +37,11 @@ cdpx session start \
   --startup-timeout 90
 ```
 
-Le démarrage retourne notamment `manifest`, `run_id` et `target_id`. Ces trois
-valeurs sont obligatoires pour toute commande navigateur. Le plus simple est
-`--export`, qui remplace le JSON de démarrage par trois lignes `export` quotées
-à évaluer dans le shell courant, façon `ssh-agent` :
+Startup returns, among other things, `manifest`, `run_id` and
+`target_id`. These three values are mandatory for every browser
+command. The simplest approach is `--export`, which replaces the
+startup JSON with three quoted `export` lines to evaluate in the
+current shell, `ssh-agent` style:
 
 ```bash
 eval "$(cdpx session start --run-id review-42 --authority interaction \
@@ -51,8 +52,8 @@ cdpx session status
 cdpx session stop
 ```
 
-Sans `--export`, les trois valeurs de la sortie JSON peuvent être passées
-explicitement à chaque commande ou exportées à la main :
+Without `--export`, the three values from the JSON output can be
+passed explicitly to each command or exported by hand:
 
 ```bash
 export CDPX_SESSION=/run/user/1000/cdpx/SESSION/manifest.json
@@ -60,40 +61,42 @@ export CDPX_RUN_ID=review-42
 export CDPX_TARGET=TARGET_ID
 ```
 
-Les arguments explicites gagnent sur l'environnement. Une valeur vide, un run
-différent ou un target différent est refusé avant toute commande CDP.
+Explicit arguments win over the environment. An empty value, a
+different run or a different target is rejected before any CDP
+command.
 
-### Paramètres de durée de vie
+### Lifetime parameters
 
-| Paramètre | Défaut | Effet |
+| Parameter | Default | Effect |
 | --- | ---: | --- |
-| `--ttl` | 3600 s | expiration absolue de la session et de son profil |
-| `--startup-timeout` | 60 s | budget partagé du cold start, borné à 300 s |
-| `--owner-pid` | absent | détruit la session lorsque ce processus disparaît |
-| `--timeout` global | 15 s | borne les commandes CDP et l'attente de `stop` |
+| `--ttl` | 3600 s | absolute expiration of the session and its profile |
+| `--startup-timeout` | 60 s | shared cold-start budget, bounded to 300 s |
+| `--owner-pid` | absent | destroys the session when this process disappears |
+| global `--timeout` | 15 s | bounds CDP commands and the wait for `stop` |
 
-Le TTL commence avant le lancement du superviseur. Le budget de startup couvre
-le fichier `DevToolsActivePort`, l'endpoint discovery, la création du target et
-son attestation. En cas d'échec, les fins de `supervisor.log` et
-`chrome-stderr.log` sont bornées, redacted, renvoyées sur stderr, puis le
-dossier privé est supprimé.
+The TTL starts before the supervisor is launched. The startup budget
+covers the `DevToolsActivePort` file, the discovery endpoint, target
+creation and its attestation. On failure, the tails of
+`supervisor.log` and `chrome-stderr.log` are bounded, redacted,
+returned on stderr, then the private directory is deleted.
 
-## Binaire Chrome et ligne de commande
+## Chrome binary and command line
 
-Sans `--chrome`, cdpx cherche le premier exécutable disponible dans le `PATH` :
+Without `--chrome`, cdpx looks for the first available executable in
+`PATH`:
 
-1. `chromium` ;
-2. `chromium-browser` ;
-3. `google-chrome` ;
-4. `google-chrome-stable` ;
+1. `chromium`;
+2. `chromium-browser`;
+3. `google-chrome`;
+4. `google-chrome-stable`;
 5. `chrome`.
 
-`--chrome NOM` résout le nom dans le `PATH`. Une valeur contenant un séparateur
-est traitée comme un chemin, vérifiée puis rendue absolue. Aucun Chrome trouvé
-est une erreur de démarrage ; cdpx ne se rabat jamais sur une session
-personnelle déjà ouverte.
+`--chrome NAME` resolves the name in `PATH`. A value containing a
+separator is treated as a path, verified then made absolute. No
+Chrome found is a startup error; cdpx never falls back to an
+already-open personal session.
 
-Le processus navigateur reçoit toujours :
+The browser process always receives:
 
 ```text
 CHROME
@@ -107,50 +110,53 @@ CHROME
   about:blank
 ```
 
-`--no-sandbox` est ajouté lorsque cdpx tourne comme root ou sous `CI`.
-`--disable-dev-shm-usage` est ajouté sous `CI` afin que les conteneurs à petit
-`/dev/shm` utilisent le profil privé sur disque. Ces options ne doivent pas
-être interprétées comme une permission d'attacher cdpx à un profil réel.
+`--no-sandbox` is added when cdpx runs as root or under `CI`.
+`--disable-dev-shm-usage` is added under `CI` so that containers with
+a small `/dev/shm` use the private on-disk profile. These options
+must not be interpreted as permission to attach cdpx to a real
+profile.
 
-## Arbre des processus
+## Process tree
 
-`session start` ne garde pas le CLI appelant en vie. Il lance un superviseur
-Python avec `start_new_session=True`, attend son manifest ou son erreur, puis
-se termine. Le superviseur reste propriétaire du Chrome jusqu'au teardown.
+`session start` does not keep the calling CLI alive. It launches a
+Python supervisor with `start_new_session=True`, waits for its
+manifest or its error, then exits. The supervisor stays the owner of
+Chrome until teardown.
 
 ```mermaid
 sequenceDiagram
-    accTitle: Séquence de démarrage d'une session Chrome
-    accDescr: Le parent valide la politique et crée les dossiers, puis le superviseur lance Chrome, découvre son port, atteste le target et publie le manifest.
-    participant Caller as Appelant
+    accTitle: Startup sequence of a Chrome session
+    accDescr: The parent validates the policy and creates the directories, then the supervisor launches Chrome, discovers its port, attests the target and publishes the manifest.
+    participant Caller as Caller
     participant CLI as cdpx session start
-    participant Sup as Superviseur
-    participant Chrome as Chrome headless
+    participant Sup as Supervisor
+    participant Chrome as Headless Chrome
     participant Disc as Discovery loopback
-    Caller->>CLI: run, autorité, origines, TTL
-    CLI->>CLI: valider avant tout effet
-    CLI->>CLI: créer session/profile/artifacts
-    CLI->>Sup: bootstrap privé + SHA-256 d'attestation
-    Sup->>Sup: revalider chemins, modes et politique
-    Sup->>Chrome: lancer avec port 0 et user-data-dir dédié
+    Caller->>CLI: run, authority, origins, TTL
+    CLI->>CLI: validate before any effect
+    CLI->>CLI: create session/profile/artifacts
+    CLI->>Sup: private bootstrap + SHA-256 attestation
+    Sup->>Sup: revalidate paths, modes and policy
+    Sup->>Chrome: launch with port 0 and a dedicated user-data-dir
     Chrome-->>Sup: profile/DevToolsActivePort
     Sup->>Disc: GET /json/version
     Sup->>Disc: PUT /json/new?about:blank
     Disc-->>Sup: target id + WebSocket
-    Sup->>Sup: vérifier PID, argv, port et target unique
+    Sup->>Sup: verify PID, argv, port and unique target
     Sup-->>CLI: manifest.json 0600
-    CLI-->>Caller: JSON public + chemin du manifest
+    CLI-->>Caller: public JSON + manifest path
 ```
 
-Le backend mock remplace Chrome par
-`python -m cdpx.testing.mock_cdp`, mais conserve le même profil, le même port
-dynamique, le même manifest, la même identité triple et le même teardown.
+The mock backend replaces Chrome with
+`python -m cdpx.testing.mock_cdp`, but keeps the same profile, the
+same dynamic port, the same manifest, the same identity triple and
+the same teardown.
 
-## Dossiers, profil et fichiers privés
+## Directories, profile and private files
 
-La racine vaut `$XDG_RUNTIME_DIR/cdpx` lorsqu'elle est disponible, sinon
-`/tmp/cdpx-UID`. Chaque session reçoit un identifiant aléatoire de 24 caractères
-hexadécimaux :
+The root is `$XDG_RUNTIME_DIR/cdpx` when available, otherwise
+`/tmp/cdpx-UID`. Each session receives a random 24-character
+hexadecimal identifier:
 
 ```text
 RUNTIME_ROOT/
@@ -165,108 +171,115 @@ RUNTIME_ROOT/
     └── artifacts/              mode 0700
 ```
 
-Avant readiness, `bootstrap.json` existe en `0600`. Il est supprimé juste après
-la publication du manifest. Un fichier `SESSION_ID.error` peut exister
-transitoirement dans la racine pour transmettre une erreur du superviseur au
-parent ; le parent le lit puis le supprime.
+Before readiness, `bootstrap.json` exists as `0600`. It is deleted
+right after the manifest is published. A `SESSION_ID.error` file may
+exist transiently in the root to pass a supervisor error to the
+parent; the parent reads it then deletes it.
 
-Le profil contient cookies, storage, caches et préférences de ce seul Chrome.
-Il n'est ni chiffré ni effacé bit à bit : sa confidentialité dépend des modes
-Unix et sa rétention de la suppression de l'arbre de session.
+The profile contains cookies, storage, caches and preferences for
+this single Chrome. It is neither encrypted nor wiped bit by bit: its
+confidentiality depends on Unix modes and its retention on the
+deletion of the session tree.
 
-## Ce qui est exposé
+## What is exposed
 
-| Surface | Données exposées |
+| Surface | Exposed data |
 | --- | --- |
-| stdout de `start` | schéma, session/run, identifiant de profil éphémère, backend, autorité, origines, hôte/port, target, timestamps et chemin du manifest |
-| stdout de `status` | mêmes données publiques, plus `browser_running` et `supervisor_running` |
-| stdout de `stop` | session, run et confirmation `stopped` |
-| manifest privé | URL WebSocket, PID et identité de démarrage des processus, owner, chemins session/profil/artefacts |
-| endpoint réseau | discovery et WebSocket uniquement sur `127.0.0.1:PORT` |
-| contenu navigateur | données non fiables, toujours marquées `_cdpx.content_trust: untrusted` |
+| `start` stdout | schema, session/run, ephemeral profile identifier, backend, authority, origins, host/port, target, timestamps and manifest path |
+| `status` stdout | same public data, plus `browser_running` and `supervisor_running` |
+| `stop` stdout | session, run and `stopped` confirmation |
+| private manifest | WebSocket URL, PID and process startup identity, owner, session/profile/artifact paths |
+| network endpoint | discovery and WebSocket only on `127.0.0.1:PORT` |
+| browser content | untrusted data, always marked `_cdpx.content_trust: untrusted` |
 
-Le port loopback n'est pas une authentification cryptographique. Un processus
-local capable de scanner le port peut tenter de parler directement à Chrome.
-La protection repose sur l'absence d'exposition réseau distante, le profil
-jetable, les permissions privées et l'usage obligatoire du manifest par le
-CLI. Ne lancez pas de navigation non fiable comme root en dehors d'un
-environnement isolé.
+The loopback port is not cryptographic authentication. A local
+process able to scan the port can attempt to talk directly to Chrome.
+The protection relies on the absence of remote network exposure, the
+disposable profile, private permissions and the CLI's mandatory use
+of the manifest. Do not launch untrusted navigation as root outside
+an isolated environment.
 
-## Lease et attestation avant chaque commande
+## Lease and attestation before each command
 
-Une commande charge le manifest en exigeant l'identité exacte, ouvre
-`command.lock` sans suivre de symlink et tente un `flock` exclusif non bloquant.
-Si une autre commande possède le lease, la seconde échoue immédiatement.
+A command loads the manifest while requiring the exact identity,
+opens `command.lock` without following a symlink and attempts a
+non-blocking exclusive `flock`. If another command holds the lease,
+the second one fails immediately.
 
-Après acquisition, cdpx vérifie :
+After acquisition, cdpx verifies:
 
-- modes, propriétaire et confinement des chemins ;
-- TTL et owner éventuel ;
-- PID, instant de démarrage et marqueurs argv du superviseur et du navigateur ;
-- égalité entre `DevToolsActivePort` et le port du manifest ;
-- unique target `page`, identifiant et WebSocket exacts ;
-- autorité requise, destination déclarée et origine réelle avant/après action.
+- modes, ownership and confinement of the paths;
+- TTL and any owner;
+- PID, start time and argv markers of the supervisor and the
+  browser;
+- equality between `DevToolsActivePort` and the manifest's port;
+- unique `page` target, exact identifier and WebSocket;
+- required authority, declared destination and real origin
+  before/after action.
 
 ```mermaid
 flowchart TD
-    accTitle: Flux d'autorisation d'une commande navigateur
-    accDescr: Une commande doit acquérir le lease puis réattester tous les liens de la session avant de pouvoir envoyer du CDP.
-    A["Commande cdpx"] --> B{"session + run + target exacts ?"}
-    B -->|non| R["Refus sans CDP"]
-    B -->|oui| C{"lease disponible ?"}
-    C -->|non| R
-    C -->|oui| D{"manifest, processus, port et target attestés ?"}
-    D -->|non| R
-    D -->|oui| E{"autorité et origine autorisées ?"}
-    E -->|non| R
-    E -->|oui| F["Commande CDP"]
-    F --> G["Relecture origine et sortie redacted"]
-    G --> H["Libération du lease"]
+    accTitle: Authorization flow of a browser command
+    accDescr: A command must acquire the lease then re-attest every link of the session before it can send CDP.
+    A["cdpx command"] --> B{"exact session + run + target?"}
+    B -->|"no"| R["Refusal without CDP"]
+    B -->|"yes"| C{"lease available?"}
+    C -->|"no"| R
+    C -->|"yes"| D{"manifest, processes, port and target attested?"}
+    D -->|"no"| R
+    D -->|"yes"| E{"authority and origin allowed?"}
+    E -->|"no"| R
+    E -->|"yes"| F["CDP command"]
+    F --> G["Origin re-read and redacted output"]
+    G --> H["Lease release"]
 ```
 
-La combinaison PID + instant de démarrage empêche de confondre un PID réutilisé
-avec le processus attribué. Les marqueurs argv, notamment `--user-data-dir`,
-empêchent `stop` de tuer un processus arbitraire portant seulement le même PID.
+The PID + start-time combination prevents mistaking a reused PID for
+the assigned process. The argv markers, notably `--user-data-dir`,
+prevent `stop` from killing an arbitrary process that merely shares
+the same PID.
 
-## Cycle de vie et teardown
+## Lifecycle and teardown
 
 ```mermaid
 stateDiagram-v2
-    accTitle: Cycle de vie d'une session supervisée
-    accDescr: La session passe de la validation au démarrage puis à l'état actif, avant un teardown déclenché par stop, TTL, owner, signal, sortie Chrome ou anomalie.
+    accTitle: Lifecycle of a supervised session
+    accDescr: The session goes from validation to startup then to the active state, before a teardown triggered by stop, TTL, owner, signal, Chrome exit or anomaly.
     [*] --> Validation
-    Validation --> Startup: politique et dossiers valides
-    Validation --> Echec: validation refusée
-    Startup --> Active: manifest publié
-    Startup --> Echec: timeout ou readiness invalide
-    Active --> Teardown: stop demandé
-    Active --> Teardown: TTL expiré
-    Active --> Teardown: owner disparu
-    Active --> Teardown: SIGTERM ou SIGINT
-    Active --> Teardown: Chrome arrêté
-    Active --> Teardown: target supplémentaire persistant
-    Teardown --> [*]: target fermé, Chrome terminé, arbre supprimé
-    Echec --> [*]: diagnostic redacted, processus stoppés, arbre supprimé
+    Validation --> Startup: valid policy and directories
+    Validation --> Failure: validation refused
+    Startup --> Active: manifest published
+    Startup --> Failure: timeout or invalid readiness
+    Active --> Teardown: stop requested
+    Active --> Teardown: TTL expired
+    Active --> Teardown: owner gone
+    Active --> Teardown: SIGTERM or SIGINT
+    Active --> Teardown: Chrome stopped
+    Active --> Teardown: persistent extra target
+    Teardown --> [*]: target closed, Chrome terminated, tree deleted
+    Failure --> [*]: redacted diagnostic, processes stopped, tree deleted
 ```
 
-Pendant l'état actif, le superviseur contrôle toutes les 250 ms le signal
-d'arrêt, le processus Chrome, le fichier `stop`, l'owner, le TTL et l'unicité du
-target. Un popup est fermé ; s'il persiste, la session échoue fermée.
+During the active state, the supervisor checks every 250 ms the stop
+signal, the Chrome process, the `stop` file, the owner, the TTL and
+the uniqueness of the target. A popup is closed; if it persists, the
+session fails closed.
 
-`session stop` prend lui aussi le lease, écrit `stop`, puis attend la disparition
-du dossier. À expiration de son timeout, il ne termine les PID qu'après avoir
-revérifié start-time et argv, puis supprime uniquement l'arbre attesté. Le
-teardown normal ferme le target, envoie TERM à Chrome, attend cinq secondes,
-puis utilise KILL si nécessaire.
+`session stop` also takes the lease, writes `stop`, then waits for
+the directory to disappear. When its timeout expires, it only
+terminates the PIDs after re-checking start-time and argv, then
+deletes only the attested tree. The normal teardown closes the
+target, sends TERM to Chrome, waits five seconds, then uses KILL if
+needed.
 
-SIGTERM et SIGINT du superviseur passent par ce teardown. SIGKILL, panne machine
-ou coupure brutale ne peuvent pas exécuter `finally` : un dossier runtime et,
-exceptionnellement, un Chrome orphelin peuvent rester. Il n'existe pas encore de
-daemon global de purge.
+SIGTERM and SIGINT of the supervisor go through this teardown.
+SIGKILL, a machine failure or an abrupt power cut cannot run
+`finally`: a runtime directory and, in rare cases, an orphaned Chrome
+may remain. There is not yet a global purge daemon.
 
-## Exploitation et diagnostic
+## Operations and diagnostics
 
-Commencez toujours par l'interface publique :
+Always start with the public interface:
 
 ```bash
 cdpx session status \
@@ -275,40 +288,43 @@ cdpx session status \
   --target TARGET_ID
 ```
 
-| Symptôme | Interprétation | Action |
+| Symptom | Interpretation | Action |
 | --- | --- | --- |
-| Chrome/Chromium introuvable | aucun candidat et aucun `--chrome` valide | installer Chrome ou fournir un chemin explicite |
-| timeout de démarrage | `DevToolsActivePort`, discovery ou target non prêt dans le budget | lire les tails redacted, augmenter au plus à 300 s, vérifier sandbox et `/dev/shm` |
-| manifest trop ouvert ou symbolique | capacité privée altérée | corriger la cause, ne pas contourner le contrôle |
-| session déjà utilisée | lease détenu par une autre commande | laisser finir la commande puis réessayer |
-| browser/supervisor `false` | snapshot de processus non conforme | arrêter/recréer la session ; ne pas réutiliser le manifest |
-| session expirée ou owner absent | fin de vie attendue | démarrer une nouvelle session |
-| target supplémentaire persistant | Chrome refuse de fermer un popup | considérer la session compromise et la recréer |
+| Chrome/Chromium not found | no candidate and no valid `--chrome` | install Chrome or provide an explicit path |
+| startup timeout | `DevToolsActivePort`, discovery or target not ready within the budget | read the redacted tails, increase up to 300 s at most, check sandbox and `/dev/shm` |
+| manifest too open or symbolic | impaired private capability | fix the cause, do not bypass the check |
+| session already in use | lease held by another command | let the command finish then retry |
+| browser/supervisor `false` | non-compliant process snapshot | stop/recreate the session; do not reuse the manifest |
+| expired session or missing owner | expected end of life | start a new session |
+| persistent extra target | Chrome refuses to close a popup | consider the session compromised and recreate it |
 
-`status` est un snapshot de processus, pas une réservation : seule une commande
-sous lease effectue l'attestation complète et garde l'exclusivité jusqu'à sa
-fin.
+`status` is a process snapshot, not a reservation: only a command
+under lease performs the full attestation and keeps exclusivity until
+it finishes.
 
-Après un crash machine, ne supprimez un dossier résiduel qu'après avoir vérifié
-qu'aucun processus ne porte encore son marqueur `--user-data-dir`. Ciblez un
-identifiant de session précis ; ne supprimez jamais arbitrairement toute la
-racine runtime d'un autre utilisateur.
+After a machine crash, only delete a leftover directory after
+verifying that no process still carries its `--user-data-dir` marker.
+Target a specific session identifier; never arbitrarily delete
+another user's entire runtime root.
 
-## Garanties validées et limites
+## Validated guarantees and limits
 
-Les tests mock couvrent protocole émis, permissions, attestation, PID réutilisé,
-lease, erreurs de startup, redaction et confinement. Les E2E lancent trois
-Chrome réels simultanés et prouvent l'isolation cookies/storage, la matrice
-d'autorités, le target unique, le teardown explicite, TTL/owner et SIGTERM.
+The mock tests cover the emitted protocol, permissions, attestation,
+reused PID, lease, startup errors, redaction and confinement. The
+E2Es launch three simultaneous real Chromes and prove cookies/storage
+isolation, the authority matrix, the unique target, explicit
+teardown, TTL/owner and SIGTERM.
 
-Ces garanties ne font pas de cdpx un bac à sable pour contenu hostile :
+These guarantees do not make cdpx a sandbox for hostile content:
 
-- le port CDP reste accessible aux processus locaux ;
-- Chrome lancé root/CI utilise `--no-sandbox` ;
-- le profil est supprimé, pas effacé cryptographiquement ;
-- une mort non gérée peut laisser des ressources ;
-- l'allowlist borne cdpx, pas tous les logiciels présents sur la machine.
+- the CDP port remains accessible to local processes;
+- Chrome launched as root/CI uses `--no-sandbox`;
+- the profile is deleted, not cryptographically wiped;
+- an unhandled death can leave resources behind;
+- the allowlist bounds cdpx, not every piece of software present on
+  the machine.
 
-Le contrat normatif de sécurité reste décrit dans [HARNESS.md](../HARNESS.md),
-la surface CLI dans [PRIMITIVES.md](PRIMITIVES.md), et les scénarios de preuve
-dans la [fiche État et contrôles de session](features/state-session.md).
+The normative security contract remains described in
+[HARNESS.md](../HARNESS.md), the CLI surface in
+[PRIMITIVES.md](PRIMITIVES.md), and the proof scenarios in the
+[Session state and controls sheet](features/state-session.md).

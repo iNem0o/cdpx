@@ -149,6 +149,18 @@ def attach_session_screenshot(
     evidence_case.attach_file(path, label, "screenshot")
 
 
+def removed_within(path: Path, timeout: float = 10) -> bool:
+    """Attente bornée de la suppression: le superviseur nettoie dans son
+    propre processus et peut rendre la main après le retour du CLI stop
+    sur une machine chargée (runners CI 2 cœurs)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not path.exists():
+            return True
+        time.sleep(0.05)
+    return not path.exists()
+
+
 def port_is_closed(port: int, timeout: float = 2) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -382,14 +394,15 @@ def test_supervised_sessions_are_isolated_authorized_and_torn_down(
             closed = port_is_closed(manifest.port)
             teardown = {
                 **result,
-                "manifest_removed": not path.exists(),
-                "profile_removed": not profile_dir.exists(),
-                "session_dir_removed": not session_dir.exists(),
+                "manifest_removed": removed_within(path),
+                "profile_removed": removed_within(profile_dir),
+                "session_dir_removed": removed_within(session_dir),
                 "port_closed": closed,
             }
             proof["teardown"].append(teardown)
             #: l'arrêt ne laisse aucune trace: manifest, profil et répertoire
-            #: privés supprimés, endpoint CDP loopback fermé
+            #: privés supprimés (attente bornée: le superviseur nettoie dans
+            #: son propre processus), endpoint CDP loopback fermé
             assert all(
                 teardown[key]
                 for key in (

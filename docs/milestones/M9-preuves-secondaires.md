@@ -1,62 +1,63 @@
-# M9 — Preuves secondaires généralisées
+# M9 — Generalized secondary proofs
 
-## Pourquoi
+## Why
 
-L'annotation d'intention (430/430 docstrings, déroulés `#:`) avait rendu le
-cockpit lisible, mais beaucoup de tests prouvaient sans montrer : la pièce à
-conviction (journal redacté, manifest d'allowlist, transcript CLI, capture)
-restait dans le sandbox du run. Ce jalon déroule le backlog des 61
-opportunités relevées pendant l'annotation (`attach-backlog.json`) pour que
-chaque affirmation forte du harness soit visible dans le modal du cockpit.
+Intent annotation (430/430 docstrings, `#:` walkthroughs) had made the
+cockpit readable, but many tests proved without showing: the piece of
+evidence (redacted journal, allowlist manifest, CLI transcript, capture)
+stayed in the run's sandbox. This milestone works through the backlog of 61
+opportunities identified during annotation (`attach-backlog.json`) so that
+every strong claim of the harness is visible in the cockpit modal.
 
-## État livré
+## Delivered state
 
-### Attachs sur toutes les suites
+### Attachments across all suites
 
-69 appels de preuve secondaire ajoutés (12 lots, un commit par lot) :
-`attach_text`/`attach_json` pour les sorties redactées et manifests,
-`attach_file` pour journaux ndjson et binaires, `attach_command_output` pour
-les exécutions CLI in-process, `attach_cli_run` pour les sous-processus e2e,
-`attach_log_excerpt` et `attach_cast` côté pipeline de preuve. Tous les
-attachs sont gardés par `if evidence_case is not None:` — les suites restent
-déterministes sans `--cdpx-evidence-dir`.
+69 secondary proof calls added (12 batches, one commit per batch):
+`attach_text`/`attach_json` for redacted outputs and manifests, `attach_file`
+for ndjson journals and binaries, `attach_command_output` for in-process CLI
+executions, `attach_cli_run` for e2e subprocesses, `attach_log_excerpt` and
+`attach_cast` on the proof pipeline side. All attachments are guarded by
+`if evidence_case is not None:` — the suites remain deterministic without
+`--cdpx-evidence-dir`.
 
-### `.ndjson` inlinable
+### Inlineable `.ndjson`
 
-Les journaux record/eval attachés tombaient en type `file` opaque, donc
-invisibles dans le cockpit. `.ndjson` est désormais typé `logs`, textuel,
-copié redacté et classé `internal` : le modal montre le journal qui prouve
-que seule la référence `@env:` est persistée.
+Attached record/eval journals used to fall into the opaque `file` type, so
+were invisible in the cockpit. `.ndjson` is now typed `logs`, textual, copied
+redacted and classified `internal`: the modal shows the journal that proves
+only the `@env:` reference is persisted.
 
-### Rattachement aux features
+### Reattachment to features
 
-27 marqueurs `@pytest.mark.scenario` ajoutés (23 → 50), en privilégiant les
-scénarios existants des fiches ; 4 scénarios nouveaux documentés dans
-`state-session.md` (contenu de page untrusted, cycle superviseur sans Chrome,
-diagnostics de démarrage redactés, manifest public sans leviers de contrôle).
-Inventaire features et ratchet legacy restés à zéro violation.
+27 `@pytest.mark.scenario` markers added (23 → 50), favoring the existing
+scenarios from the sheets; 4 new scenarios documented in `state-session.md`
+(untrusted page content, supervisor cycle without Chrome, redacted startup
+diagnostics, public manifest without control levers). Features inventory
+and legacy ratchet stayed at zero violations.
 
-### Sécurité des preuves
+### Proof security
 
-Chaque lot a vérifié au grep l'absence des canaris/secrets dans l'arbre
-d'évidence produit. Les sorties `--show-values` ne sont jamais attachées
-brutes : la preuve dérivée démontre le contraste masqué/révélé sans exposer
-de valeur. Les binaires (captures, PDF) restent `opaque-restricted`, doublés
-d'un JSON lisible (droits, signatures, tailles) pour la trace cockpit.
+Each batch grep-checked the absence of canaries/secrets in the produced
+evidence tree. `--show-values` outputs are never attached raw: the derived
+proof demonstrates the redacted/revealed contrast without exposing a value.
+Binaries (captures, PDF) remain `opaque-restricted`, backed by a readable
+JSON (permissions, signatures, sizes) for the cockpit trace.
 
-## Preuves
+## Proofs
 
-Backlog `attach-backlog.json` vidé (61/61, suppression au fil des lots).
-`make check-local` vert après chaque lot ; `make test-e2e` vert sur les lots
-Chrome ; `make docker-symfony-e2e` vert sur le lot Symfony (7/7) ;
-`make check` et `make proof` verts en clôture, nouvelles preuves visibles
-dans les pages features (contenu inliné dans le modal, pas de repli
-« Contenu non embarqué » pour le textuel).
+`attach-backlog.json` backlog emptied (61/61, removed as batches progressed).
+`make check-local` green after each batch; `make test-e2e` green on the
+Chrome batches; `make docker-symfony-e2e` green on the Symfony batch (7/7);
+`make check` and `make proof` green at closing, new proofs visible on the
+feature pages (content inlined in the modal, no « Contenu non embarqué »
+fallback for text).
 
 ## Definition of Done
 
-- [x] 61 entrées du backlog traitées ou reclassées, backlog à `[]` ;
-- [x] tests verts avec et sans dossier d'évidence, intent 430/430 préservé ;
-- [x] scenario_ids tous résolus par l'inventaire features (ratchet 0) ;
-- [x] aucun canari/secret dans les artefacts d'évidence attachés ;
-- [x] `make check` + `make proof` verts en fin de parcours.
+- [x] 61 backlog entries processed or reclassified, backlog at `[]`;
+- [x] tests green with and without an evidence folder, intent 430/430
+      preserved;
+- [x] scenario_ids all resolved by the features inventory (ratchet 0);
+- [x] no canary/secret in the attached evidence artifacts;
+- [x] `make check` + `make proof` green at the end of the run.

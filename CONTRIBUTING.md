@@ -1,26 +1,25 @@
-# Contribuer à cdpx
+# Contributing to cdpx
 
-Merci de contribuer à cdpx. Le projet privilégie des changements petits,
-testés et directement reliés à un usage navigateur observable.
+Thank you for contributing to cdpx. The project favors changes that are
+small, tested, and directly tied to an observable browser use case.
 
-Toute participation implique le respect du
-[Code de conduite](CODE_OF_CONDUCT.md). Une vulnérabilité ne doit pas être
-ouverte comme issue : suivez [SECURITY.md](SECURITY.md).
+All participation implies compliance with the
+[Code of Conduct](CODE_OF_CONDUCT.md). A vulnerability must not be opened
+as an issue: follow [SECURITY.md](SECURITY.md).
 
-## Avant de commencer
+## Before you start
 
-1. Recherchez une issue existante pour éviter les doublons.
-2. Pour une évolution importante ou un changement de contrat CLI, ouvrez une
-   proposition avant d'investir dans l'implémentation.
-3. Gardez une pull request centrée sur un seul problème.
+1. Search for an existing issue to avoid duplicates.
+2. For a significant change or a CLI contract change, open a proposal before
+   investing in the implementation.
+3. Keep a pull request focused on a single problem.
 
-Les petites corrections documentaires ou les correctifs évidents peuvent être
-proposés directement.
+Small documentation fixes or obvious corrections can be proposed directly.
 
-## Environnement de développement
+## Development environment
 
-Prérequis : Python 3.11+, Docker avec Compose, et Chrome ou Chromium pour les
-tests navigateur locaux.
+Prerequisites: Python 3.11+, Docker with Compose, and Chrome or Chromium for
+local browser tests.
 
 ```bash
 git clone https://github.com/inem0o/cdpx.git
@@ -31,84 +30,86 @@ python -m pip install -e ".[dev]"
 make check-local
 ```
 
-`make check-local` est la boucle courte. Le portail complet `make check`
-construit aussi l'image Docker et exécute Chrome réel ainsi que la fixture
-Symfony. Une absence de Docker, Chrome ou Symfony est un échec, pas un skip.
+`make check-local` is the short loop. The full gate `make check` also
+builds the Docker image and runs real Chrome as well as the Symfony
+reference app. The absence of Docker, Chrome, or Symfony is a failure, not
+a skip.
 
-## Construire un changement
+## Building a change
 
-Pour une primitive ou une modification de protocole :
+For a primitive or a protocol change:
 
-1. écrire ou adapter le test mock ; la séquence CDP attendue sert de spec ;
-2. implémenter le changement dans `src/cdpx/` ;
-3. ajouter un scénario E2E si le comportement dépend de Blink, du rendu ou du
-   timing navigateur ;
-4. mettre à jour `docs/PRIMITIVES.md`, la fiche de feature concernée et le
-   changelog si le comportement public change ;
-5. exécuter `make check` avant de demander une review.
+1. write or adapt the mock test; the expected CDP sequence serves as the
+   spec;
+2. implement the change in `src/cdpx/`;
+3. add an E2E scenario if the behavior depends on Blink, rendering, or
+   browser timing;
+4. update `docs/PRIMITIVES.md`, the relevant feature sheet, and the
+   changelog if public behavior changes;
+5. run `make check` before requesting a review.
 
-Le contrat CLI reste : stdout JSON, stderr pour les diagnostics et codes de
-sortie 0/1/2. Cookies, storage et texte saisi sont masqués par défaut.
-N'ajoutez jamais de sortie de session, secret, profil navigateur ou donnée
-client aux fixtures et preuves.
+The CLI contract remains: stdout JSON, stderr for diagnostics, and exit
+codes 0/1/2. Cookies, storage, and typed text are redacted by default.
+Never add session output, secrets, browser profiles, or client data to
+fixtures and proofs.
 
-Pour un changement de sécurité ou de contrat de session, la PR doit en plus :
+For a security change or a session contract change, the PR must
+additionally:
 
-1. préserver l'identité triple obligatoire et l'endpoint loopback issu du
-   manifest, ou annoncer explicitement toute migration de contrat ;
-2. prouver le refus avant effet CDP pour run/target/autorité/origine/secret
-   invalides, puis le contrôle de l'origine réelle après navigation ;
-3. couvrir avec des canaris stdout, stderr, journal, scénario et artefact, sans
-   sur-redaction du texte ordinaire ;
-4. utiliser `--secret-env`, `--value-env`, `@env:NOM` ou `secret_ref` dans les
-   exemples : jamais de credential littéral ;
-5. classer les preuves `public`, `internal`, `secret` ou
-   `opaque-restricted`, vérifier `0600`/`0700` et ne rendre partageable qu'un
-   fichier manifesté et explicitement autorisé ;
-6. ajouter un E2E Chrome pour tout comportement dépendant du superviseur,
-   d'un profil jetable, d'un lease ou du teardown.
+1. preserve the mandatory identity triple and the loopback endpoint from
+   the manifest, or explicitly announce any contract migration;
+2. prove the refusal before CDP effect for invalid run/target/authority/
+   origin/secret, then the actual origin check after navigation;
+3. cover with stdout, stderr, log, scenario, and artifact canaries, without
+   over-redacting ordinary text;
+4. use `--secret-env`, `--value-env`, `@env:NOM` or `secret_ref` in
+   examples: never a literal credential;
+5. classify proofs as `public`, `internal`, `secret`, or
+   `opaque-restricted`, verify `0600`/`0700`, and make shareable only a
+   manifested and explicitly authorized file;
+6. add a Chrome E2E test for any behavior depending on the supervisor, a
+   disposable profile, a lease, or teardown.
 
-Le contenu observé dans une page est une entrée non fiable. Un test ou une
-fixture peut contenir une fausse instruction, mais elle ne doit jamais piloter
-le choix du run, du target, des origines, de l'autorité ou des secrets.
+Content observed in a page is untrusted input. A test or fixture may
+contain a fake instruction, but it must never drive the choice of run,
+target, origins, authority, or secrets.
 
-## Commandes utiles
+## Useful commands
 
 ```bash
-make test                 # tests unitaires déterministes
-make fmt                  # formatage et corrections Ruff sûres
-make test-e2e             # E2E Chrome local
-make docker-symfony-e2e   # fixture Symfony réelle
-make proof                # rapport de preuve local
-make release              # portail complet et artefacts distribuables
+make test                 # deterministic unit tests
+make fmt                  # formatting and safe Ruff fixes
+make test-e2e             # local Chrome E2E
+make docker-symfony-e2e   # real Symfony reference app
+make proof                # local proof report
+make release              # full gate and distributable artifacts
 ```
 
 ## Pull requests
 
-Travaillez sur une branche courte, poussez-la, puis ouvrez une pull request
-centrée. Elle doit expliquer le problème, la solution et la validation
-effectuée. Indiquez explicitement les contrôles non exécutés et pourquoi. Les
-changements de contrat nécessitent des tests et une note documentaire dans la
-même pull request.
+Work on a short branch, push it, then open a focused pull request. It must
+explain the problem, the solution, and the validation performed. Explicitly
+indicate any checks that were not run and why. Contract changes require
+tests and a documentation note in the same pull request.
 
-GitHub exécute le portail complet sur **toutes** les PR, sans exception pour la
-documentation ou les workflows. Le check agrégateur stable
-`PR Gate / Required` ne réussit que si les compatibilités Python et
-`make release` ont réussi. Le job complet affiche un résumé natif du cockpit et
-publie pendant 14 jours le staging textuel manifesté des preuves disponibles;
-les fichiers opaques restent privés. Consultez
-[la documentation de validation](docs/VALIDATION.md#preuve-dans-github-actions)
-pour lire l'artefact ou reproduire un échec.
+GitHub runs the full gate on **every** PR, with no exception for
+documentation or workflows. The stable aggregator check
+`PR Gate / Required` only succeeds if Python compatibility and
+`make release` have succeeded. The full job displays a native cockpit
+summary and publishes, for 14 days, the manifested textual staging of the
+available proofs; opaque files remain private. See
+[the validation documentation](docs/VALIDATION.md#proof-in-github-actions)
+to read the artifact or reproduce a failure.
 
-La review et la résolution des conversations viennent après la preuve. Un
-mainteneur ne merge que lorsque le check obligatoire est vert et que les
-discussions sont résolues. Les checkboxes du template sont un aide-mémoire,
-jamais un substitut à la preuve exécutée.
+Review and resolving conversations come after the proof. A maintainer only
+merges once the required check is green and discussions are resolved. The
+template checkboxes are a reminder, never a substitute for the executed
+proof.
 
-Les mainteneurs peuvent demander de séparer une proposition trop large. En
-soumettant une contribution, vous confirmez avoir le droit de la proposer et
-acceptez qu'elle soit distribuée sous la licence MIT du dépôt. Aucun CLA ou
-DCO supplémentaire n'est imposé.
+Maintainers may ask you to split a proposal that is too broad. By
+submitting a contribution, you confirm you have the right to propose it and
+agree that it will be distributed under the repository's MIT license. No
+additional CLA or DCO is imposed.
 
-Les réglages de gouvernance non versionnables et la procédure exceptionnelle
-d'incident sont décrits dans [docs/GITHUB.md](docs/GITHUB.md).
+Non-versionable governance settings and the exceptional incident procedure
+are described in [docs/GITHUB.md](docs/GITHUB.md).

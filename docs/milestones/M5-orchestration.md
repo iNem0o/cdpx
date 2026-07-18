@@ -1,55 +1,55 @@
-# M5 — Orchestration et garde-fous
+# M5 — Orchestration and guardrails
 
-## Pourquoi
+## Why
 
-Composer les primitives en parcours de recette bornés, rejouables et
-observables, sans créer un langage de macros illimité.
+Compose primitives into bounded, replayable and observable recipe flows,
+without creating an unlimited macro language.
 
-## État livré
+## Delivered state
 
 ### `record` / `replay`
 
-`record` exécute une action et écrit une ligne `cdpx.record/v2` privée. Actions,
-résultats et erreurs sont redacted. Une saisie littérale est refusée,
-`type ... @env:NOM` persiste seulement la référence et permet un rejeu, tandis
-que `eval` reste non rejouable. Une référence absente est refusée avant effet
-CDP.
+`record` executes one action and writes a private `cdpx.record/v2` line.
+Actions, results and errors are redacted. A literal input is refused,
+`type ... @env:NAME` persists only the reference and allows a replay, while
+`eval` remains non-replayable. A missing reference is refused before any CDP
+effect.
 
-`replay` valide tout le journal, sa rejouabilité, les secrets et
-`--max-actions` avant la première action. Il compare les résultats enregistrés
-hors champs volatils, relit l'URL réelle après navigation et bloque une
-redirection hors origine avant la mutation suivante. Une comparaison verte ne
-remplace pas une assertion métier explicite.
+`replay` validates the whole journal, its replayability, the secrets and
+`--max-actions` before the first action. It compares recorded results outside
+volatile fields, re-reads the real URL after navigation and blocks an
+off-origin redirect before the next mutation. A green comparison does not
+replace an explicit business assertion.
 
-### Scénarios YAML
+### YAML scenarios
 
-Le runner compose `goto`, `wait_visible`, `wait_text`, `click`, `type`, `key`
-et `eval`, puis assertions et captures. `wait_visible` vérifie rendu/boîte non
-nulle; une saisie exige `secret_ref`; le drainage console/réseau final
-précède le verdict. Les artefacts sont privés et classifiés.
+The runner composes `goto`, `wait_visible`, `wait_text`, `click`, `type`, `key`
+and `eval`, then assertions and captures. `wait_visible` checks rendering/a
+non-null box; an input requires `secret_ref`; the final console/network drain
+precedes the verdict. Artifacts are private and classified.
 
 ### `frame`
 
-La lecture parcourt les `contentDocument` des iframes same-origin et retourne
-le premier match. Elle n'utilise pas de contextId CDP et ne traverse pas la
-frontière cross-origin.
+The read walks the `contentDocument` of same-origin iframes and returns the
+first match. It does not use a CDP contextId and does not cross the
+cross-origin boundary.
 
-### Garde-fous
+### Guardrails
 
-- Manifest/run/target et allowlist sont obligatoires ; toutes les origines
-  consultées sont fail-closed et l'autorité maximale du fichier est
-  préflightée. L'isolation complète du navigateur appartient au M8.
-- `--max-actions` borne un replay donné, pas un compteur cumulatif de session.
+- Manifest/run/target and the allowlist are mandatory; every origin consulted
+  is fail-closed and the file's maximum authority is preflighted. Full browser
+  isolation belongs to M8.
+- `--max-actions` bounds a given replay, not a cumulative session counter.
 
-## Preuves
+## Proofs
 
-Mock CDP : parsing, protocole, journal v2, références de secrets, divergences,
-origines et drainage. Chrome réel : record/replay, scénarios pass/fail,
-interactions et preuves. Symfony Docker : scénarios contre l'application témoin.
+Mock CDP: parsing, protocol, v2 journal, secret references, divergences,
+origins and drain. Real Chrome: record/replay, pass/fail scenarios,
+interactions and proofs. Symfony Docker: scenarios against the reference app.
 
 ## Definition of Done
 
-- [x] parcours record/replay complet sur fixtures mock et Chrome réel ;
-- [x] allowlist obligatoire et contrôles de redirection testés ;
-- [x] scénarios YAML, assertions et preuves documentés ;
-- [x] garde-fous exécutables décrits dans HARNESS.md.
+- [x] full record/replay flow on mock fixtures and real Chrome;
+- [x] mandatory allowlist and redirect controls tested;
+- [x] YAML scenarios, assertions and proofs documented;
+- [x] executable guardrails described in HARNESS.md.
