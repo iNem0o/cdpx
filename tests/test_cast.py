@@ -1,4 +1,4 @@
-"""Producteur cast natif (pty → asciicast v2) — portail bloquant, jamais d'exception."""
+"""Native cast producer (pty -> asciicast v2) — blocking gate, never an exception."""
 
 import json
 import sys
@@ -14,37 +14,37 @@ def _events(cast_path):
 
 
 def test_record_cast_produces_valid_asciicast_v2(tmp_path, evidence_case):
-    """L'enregistreur natif produit un .cast v2 lisible par le player, sans
-    binaire externe: header conforme, évènements 'o' horodatés croissants."""
+    """The native recorder produces a .cast v2 readable by the player, without
+    an external binary: compliant header, 'o' events with increasing timestamps."""
     cast_path = tmp_path / "demo.cast"
 
     entry = cast.record_cast(
         "demo",
-        [sys.executable, "-c", "print('ligne un'); print('ligne deux')"],
+        [sys.executable, "-c", "print('line one'); print('line two')"],
         cast_path,
         env={"PATH": "/usr/bin"},
     )
 
-    #: l'enregistrement aboutit et pointe vers le fichier écrit
+    #: the recording succeeds and points to the written file
     assert entry["status"] == "generated"
     assert entry["path"] == str(cast_path)
     header, events = _events(cast_path)
-    #: le header respecte le contrat asciicast v2 attendu par le player xterm
+    #: the header follows the asciicast v2 contract expected by the xterm player
     assert header["version"] == 2
     assert header["width"] == cast.CAST_WIDTH and header["height"] == cast.CAST_HEIGHT
-    #: chaque évènement est une sortie 'o' et le temps ne recule jamais
+    #: every event is an 'o' output and time never goes backwards
     assert events and all(event[1] == "o" for event in events)
     times = [event[0] for event in events]
     assert times == sorted(times)
-    assert "ligne un" in "".join(event[2] for event in events)
+    assert "line one" in "".join(event[2] for event in events)
 
     if evidence_case is not None:
-        evidence_case.attach_cast(cast_path, "Enregistrement asciicast v2 (demo)")
+        evidence_case.attach_cast(cast_path, "asciicast v2 recording (demo)")
 
 
 def test_record_cast_runs_on_a_real_pty(tmp_path):
-    """La commande enregistrée voit un vrai TTY: c'est ce qui rend le cast
-    fidèle (couleurs, largeur) contrairement à une capture de pipe."""
+    """The recorded command sees a real TTY: that is what makes the cast
+    faithful (colors, width) unlike a pipe capture."""
     cast_path = tmp_path / "tty.cast"
 
     entry = cast.record_cast(
@@ -55,17 +55,17 @@ def test_record_cast_runs_on_a_real_pty(tmp_path):
     )
 
     _header, events = _events(cast_path)
-    #: le sous-processus s'est bien exécuté attaché à un pseudo-terminal
+    #: the subprocess did run attached to a pseudo-terminal
     assert entry["status"] == "generated"
     assert "True" in "".join(event[2] for event in events)
 
 
 def test_record_cast_degrades_on_failure_size_and_timeout(tmp_path, monkeypatch):
-    """Tout échec retourne un statut dégradé sans lever ni laisser de fichier:
-    le portail juge les statuts, l'enregistreur reste inoffensif."""
+    """Any failure returns a degraded status without raising or leaving a file
+    behind: the gate judges statuses, the recorder stays harmless."""
     cast_path = tmp_path / "demo.cast"
 
-    #: une commande qui sort en erreur ne produit pas de preuve
+    #: a command that exits with an error produces no evidence
     entry = cast.record_cast(
         "demo", [sys.executable, "-c", "raise SystemExit(3)"], cast_path, env={}
     )
@@ -73,13 +73,13 @@ def test_record_cast_degrades_on_failure_size_and_timeout(tmp_path, monkeypatch)
     assert not cast_path.exists()
 
     monkeypatch.setattr(cast, "MAX_CAST_BYTES", 10)
-    #: un cast trop gros est supprimé plutôt que d'alourdir la preuve
+    #: a cast that is too large is deleted rather than weighing down the evidence
     entry = cast.record_cast("demo", [sys.executable, "-c", "print('x' * 64)"], cast_path, env={})
     assert entry["status"] == "too-large"
     assert not cast_path.exists()
     monkeypatch.setattr(cast, "MAX_CAST_BYTES", 2 * 1024 * 1024)
 
-    #: le timeout tue l'enregistrement et le marque indisponible
+    #: the timeout kills the recording and marks it unavailable
     entry = cast.record_cast(
         "demo",
         [sys.executable, "-c", "import time; time.sleep(30)"],
@@ -92,17 +92,17 @@ def test_record_cast_degrades_on_failure_size_and_timeout(tmp_path, monkeypatch)
 
 
 def test_record_cast_degrades_when_command_cannot_start(tmp_path):
-    """Un binaire introuvable est un statut dégradé, pas une exception."""
+    """A missing binary is a degraded status, not an exception."""
     entry = cast.record_cast("demo", ["/nonexistent/binary"], tmp_path / "demo.cast", env={})
 
-    #: OSError au démarrage => unavailable, aucun fichier laissé derrière
+    #: OSError at startup => unavailable, no file left behind
     assert entry["status"] == "unavailable"
     assert not (tmp_path / "demo.cast").exists()
 
 
 def test_record_cast_redacts_and_secures_the_recording(tmp_path):
-    """Le .cast écrit sur disque est redacté avant toute lecture par le
-    cockpit et reste privé (0600)."""
+    """The .cast written to disk is redacted before any read by the
+    cockpit and stays private (0600)."""
     cast_path = tmp_path / "demo.cast"
     context = RedactionContext.from_secrets(["proof-canary-42"])
 
@@ -116,38 +116,38 @@ def test_record_cast_redacts_and_secures_the_recording(tmp_path):
 
     assert entry["status"] == "generated"
     content = cast_path.read_text(encoding="utf-8")
-    #: le canari n'atteint jamais le disque, le marqueur de redaction si
+    #: the canary never reaches disk, the redaction marker does
     assert "proof-canary-42" not in content
     assert "***" in content
     assert oct(cast_path.stat().st_mode & 0o777) == "0o600"
 
 
 def test_collect_cast_evidence_records_every_demo_command(tmp_path, monkeypatch):
-    """La collecte n'est plus opt-in: chaque commande de CAST_COMMANDS produit
-    une entrée jugée par le portail, sans variable d'environnement."""
+    """Collection is no longer opt-in: every command in CAST_COMMANDS produces
+    an entry judged by the gate, without an environment variable."""
     monkeypatch.setattr(
         cast,
         "CAST_COMMANDS",
         (
-            ("un", [sys.executable, "-c", "print('un')"]),
-            ("deux", [sys.executable, "-c", "print('deux')"]),
+            ("one", [sys.executable, "-c", "print('one')"]),
+            ("two", [sys.executable, "-c", "print('two')"]),
         ),
     )
 
     entries = cast.collect_cast_evidence(tmp_path, env={})
 
-    #: une entrée par commande de démonstration, toutes générées
-    assert [entry["id"] for entry in entries] == ["un", "deux"]
+    #: one entry per demo command, all generated
+    assert [entry["id"] for entry in entries] == ["one", "two"]
     assert [entry["status"] for entry in entries] == ["generated", "generated"]
-    assert (tmp_path / "un.cast").is_file() and (tmp_path / "deux.cast").is_file()
+    assert (tmp_path / "one.cast").is_file() and (tmp_path / "two.cast").is_file()
 
 
 def test_cast_commands_include_cli_help_and_mock_demo():
-    """Les démos embarquées restent bon marché et sans navigateur: l'aide CLI
-    et la session mock supervisée."""
+    """The embedded demos stay cheap and browser-free: the CLI help
+    and the supervised mock session."""
     ids = [cast_id for cast_id, _argv in cast.CAST_COMMANDS]
 
-    #: le contrat des démonstrations enregistrées est explicite
+    #: the contract of the recorded demos is explicit
     assert ids == ["cli-help", "mock-session-demo"]
     for _cast_id, argv in cast.CAST_COMMANDS:
         assert argv[0] == sys.executable

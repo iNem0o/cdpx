@@ -1,5 +1,5 @@
-name: Signaler un bug
-description: Signaler un comportement reproductible de cdpx.
+name: Report a bug
+description: Report a reproducible cdpx behavior.
 title: "[Bug] "
 labels:
   - bug
@@ -7,77 +7,77 @@ body:
   - type: markdown
     attributes:
       value: |
-        Merci de fournir un cas minimal reproductible sans secret, cookie ou donnée de session.
+        Please provide a minimal reproducible case without any secret, cookie or session data.
   - type: textarea
     id: command
     attributes:
-      label: Commande exécutée
-      description: Donnez la commande exacte après avoir retiré toute valeur sensible.
+      label: Command run
+      description: Give the exact command after removing any sensitive value.
       render: shell
     validations:
       required: true
   - type: textarea
     id: problem
     attributes:
-      label: Comportement observé
-      description: Décrivez ce qui s'est passé et le résultat obtenu.
-      placeholder: cdpx retourne…
+      label: Observed behavior
+      description: Describe what happened and the result you got.
+      placeholder: cdpx returns…
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Comportement attendu
-      description: Décrivez le résultat attendu.
+      label: Expected behavior
+      description: Describe the expected result.
     validations:
       required: true
   - type: textarea
     id: stdout-stderr
     attributes:
-      label: stdout et stderr expurgés
-      description: Collez les sorties utiles sans cookie, token, en-tête ou donnée de session.
+      label: Redacted stdout and stderr
+      description: Paste the useful outputs without any cookie, token, header or session data.
       render: shell
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Reproduction minimale
-      description: Commandes, fixture locale et étapes nécessaires. Masquez toute valeur sensible.
+      label: Minimal reproduction
+      description: Commands, local fixture and required steps. Redact any sensitive value.
       render: shell
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version de cdpx
-      description: Sortie de `cdpx --version`.
+      label: cdpx version
+      description: Output of `cdpx --version`.
       placeholder: cdpx 0.2.0
     validations:
       required: true
   - type: dropdown
     id: browser
     attributes:
-      label: Navigateur
+      label: Browser
       options:
         - Chromium
         - Google Chrome
-        - Non applicable
+        - Not applicable
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
-      label: Environnement
-      description: OS et version, Python, Chrome/Chromium et mode Docker éventuel.
+      label: Environment
+      description: OS and version, Python, Chrome/Chromium and Docker mode if any.
     validations:
       required: true
   - type: checkboxes
     id: safety
     attributes:
-      label: Vérifications
+      label: Checks
       options:
-        - label: J'ai retiré les secrets, cookies et données de session de ce rapport.
+        - label: I removed secrets, cookies and session data from this report.
           required: true
-        - label: J'ai vérifié qu'aucune issue ouverte ne décrit déjà ce problème.
+        - label: I checked that no open issue already describes this problem.
           required: true

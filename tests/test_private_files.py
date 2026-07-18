@@ -1,4 +1,4 @@
-"""Contrat commun de publication atomique des fichiers privés."""
+"""Common contract for atomic publication of private files."""
 
 import stat
 

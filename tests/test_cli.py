@@ -1,5 +1,5 @@
-"""Le CLI de bout en bout (in-process): parsing args -> découverte -> WS ->
-primitive -> JSON sur stdout + exit code. C'est le contrat vu par l'agent."""
+"""The CLI end-to-end (in-process): args parsing -> discovery -> WS ->
+primitive -> JSON on stdout + exit code. This is the contract seen by the agent."""
 
 import json
 import pathlib
@@ -40,8 +40,8 @@ def run(mock, capsys, *argv):
 
 
 def test_prepare_builds_immutable_typed_invocation(cli_manifest, mock):
-    """La préparation normalise les options dans un contexte explicite sans
-    enrichir le Namespace argparse avec des attributs privés cachés."""
+    """Preparation normalizes options into an explicit context without
+    enriching the argparse Namespace with hidden private attributes."""
     manifest = cli_manifest
     namespace = build_parser().parse_args(
         [
@@ -103,34 +103,34 @@ def test_command_options_reject_invalid_domain_values(field, value):
 
 
 def test_tabs_list(mock, capsys):
-    """L'inventaire d'onglets restitue en JSON la cible supervisée unique,
-    identifiable par l'agent (type page + id), avec un exit succès."""
+    """The tab inventory returns the single supervised target in JSON,
+    identifiable by the agent (type page + id), with a success exit."""
     code, out, _ = run(mock, capsys, "tabs", "list")
-    #: le contrat stdout est tenu: exit 0 et un objet JSON parseable
+    #: the stdout contract is kept: exit 0 and a parseable JSON object
     assert code == 0
     payload = json.loads(out)
-    #: la session supervisée n'expose qu'une page, avec de quoi la cibler
+    #: the supervised session exposes only one page, with enough to target it
     assert payload["count"] == 1
     assert payload["tabs"][0]["type"] == "page" and "id" in payload["tabs"][0]
 
 
 @pytest.mark.parametrize("action", ["new", "activate", "close"])
 def test_tabs_lifecycle_actions_are_absent(action):
-    """Les actions de cycle de vie d'onglet (new/activate/close) ont été
-    retirées du CLI: argparse les rejette avant toute connexion."""
-    #: la sous-commande retirée échoue au parsing, sans toucher CDP
+    """Tab lifecycle actions (new/activate/close) have been removed from
+    the CLI: argparse rejects them before any connection."""
+    #: the removed subcommand fails at parsing, without touching CDP
     with pytest.raises(SystemExit) as exc:
         main(["tabs", action])
-    #: exit 2 = erreur d'usage, pas une erreur runtime déguisée
+    #: exit 2 = usage error, not a disguised runtime error
     assert exc.value.code == 2
 
 
 def test_goto(mock, capsys):
-    """Une navigation réussie renvoie ok + l'évènement attendu en JSON avec
-    exit 0: le signal minimal dont l'agent a besoin pour enchaîner."""
+    """A successful navigation returns ok + the expected event in JSON with
+    exit 0: the minimal signal the agent needs to keep going."""
     code, out, _ = run(mock, capsys, "goto", "http://site.test/")
     data = json.loads(out)
-    #: la sortie dit explicitement que load a été atteint, pas juste "ok"
+    #: the output explicitly states that load was reached, not just "ok"
     assert code == 0 and data["ok"] is True and data["waited"] == "load"
 
 
@@ -141,8 +141,8 @@ def test_goto(mock, capsys):
     proves=["A CDP navigation error is surfaced as runtime exit 1."],
 )
 def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
-    """Un échec de navigation CDP (errorText) devient exit 1 avec le motif
-    sur stderr, au lieu d'un JSON trompeusement vert sur stdout."""
+    """A CDP navigation failure (errorText) becomes exit 1 with the reason
+    on stderr, instead of a deceptively green JSON on stdout."""
 
     def fail_navigation(*_args, **_kwargs):
         raise nav.NavigationError(
@@ -155,13 +155,13 @@ def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
 
     monkeypatch.setattr("cdpx.commands.navigation.nav.navigate", fail_navigation)
     code, _, err = run(mock, capsys, "goto", "http://bad.test")
-    #: l'erreur réseau remonte comme échec runtime diagnostiqué sur stderr
+    #: the network error propagates as a diagnosed runtime failure on stderr
     assert code == 1 and "ERR_NAME_NOT_RESOLVED" in err
 
 
 def test_transport_failure_exits_1_instead_of_returning_partial_success(mock, capsys, monkeypatch):
     def fail_transport(*_args, **_kwargs):
-        raise CDPTransportError("transport interrompu pendant collecte")
+        raise CDPTransportError("transport interrupted during collection")
 
     monkeypatch.setattr("cdpx.commands.navigation.nav.navigate", fail_transport)
 
@@ -169,12 +169,12 @@ def test_transport_failure_exits_1_instead_of_returning_partial_success(mock, ca
 
     assert code == 1
     assert out == ""
-    assert "transport interrompu" in err
+    assert "transport interrupted" in err
 
 
 def test_connection_failure_exits_1_with_transport_diagnostic(mock, capsys, monkeypatch):
     def fail_connect(*_args, **_kwargs):
-        raise CDPTransportError("connexion CDP impossible vers le target")
+        raise CDPTransportError("CDP connection to target impossible")
 
     monkeypatch.setattr("cdpx.commands.shared.CDPClient", fail_connect)
 
@@ -182,12 +182,12 @@ def test_connection_failure_exits_1_with_transport_diagnostic(mock, capsys, monk
 
     assert code == 1
     assert out == ""
-    assert "connexion CDP impossible" in err
+    assert "CDP connection" in err
 
 
 def test_send_failure_exits_1_with_transport_diagnostic(mock, capsys, monkeypatch):
     def fail_send(*_args, **_kwargs):
-        raise CDPTransportError("transport interrompu pendant envoi Page.enable")
+        raise CDPTransportError("transport interrupted while sending Page.enable")
 
     monkeypatch.setattr("cdpx.client.CDPClient.send", fail_send)
 
@@ -195,24 +195,24 @@ def test_send_failure_exits_1_with_transport_diagnostic(mock, capsys, monkeypatc
 
     assert code == 1
     assert out == ""
-    assert "envoi Page.enable" in err
+    assert "sending Page.enable" in err
 
 
 def test_eval(mock, capsys):
-    """eval restitue la valeur JS calculée dans la page et l'étiquette comme
-    contenu non fiable, distinct des données produites par le harnais."""
+    """eval returns the JS value computed in the page and labels it as
+    untrusted content, distinct from data produced by the harness."""
     mock.on_eval("6 * 7", 42)
     code, out, _ = run(mock, capsys, "eval", "6 * 7")
     payload = json.loads(out)
-    #: la valeur évaluée côté page revient telle quelle à l'agent
+    #: the value evaluated page-side comes back unchanged to the agent
     assert code == 0 and payload["value"] == 42
-    #: tout contenu issu de la page porte le marqueur untrusted
+    #: any content coming from the page carries the untrusted marker
     assert payload["_cdpx"]["content_trust"] == "untrusted"
 
 
 def test_pretty_output_is_explicit(mock, capsys):
-    """L'indentation du JSON est opt-in: le CLI reste compact par défaut
-    pour les agents, et n'indente que sur demande explicite --pretty."""
+    """JSON indentation is opt-in: the CLI stays compact by default for
+    agents, and only indents on the explicit --pretty request."""
     manifest = mock.cli_manifest
     code = main(
         [
@@ -228,14 +228,14 @@ def test_pretty_output_is_explicit(mock, capsys):
         ]
     )
     out = capsys.readouterr().out
-    #: le flag produit un JSON multi-lignes, preuve qu'il a bien agi
+    #: the flag produces multi-line JSON, proof that it took effect
     assert code == 0
     assert out.startswith("{\n")
 
 
 def test_agent_output_bounds_large_lists(mock, capsys):
-    """--limit borne les listes volumineuses sans perte silencieuse: la
-    troncature et le total réel sont annoncés, l'agent sait ce qui manque."""
+    """--limit bounds large lists without silent loss: the truncation and
+    the real total are announced, the agent knows what's missing."""
     events = []
     for i in range(3):
         events.append(
@@ -251,8 +251,8 @@ def test_agent_output_bounds_large_lists(mock, capsys):
     mock.script_network(events)
     code, out, _ = run(mock, capsys, "--limit", "2", "network", "http://s.test/")
     data = json.loads(out)
-    #: la liste est coupée à la limite demandée, et la sortie avoue la
-    #: coupe en donnant le décompte réel des requêtes observées
+    #: the list is cut to the requested limit, and the output admits the
+    #: cut by giving the real count of observed requests
     assert code == 0
     assert len(data["requests"]) == 2
     assert data["requests_truncated"] is True
@@ -260,8 +260,8 @@ def test_agent_output_bounds_large_lists(mock, capsys):
 
 
 def test_console_follow_outputs_compact_ndjson(mock, capsys):
-    """console --follow émet un objet NDJSON compact par message, dans
-    l'ordre d'arrivée, chaque ligne étant marquée contenu non fiable."""
+    """console --follow emits one compact NDJSON object per message, in
+    arrival order, each line marked as untrusted content."""
     mock.script_console(
         [
             {
@@ -278,20 +278,20 @@ def test_console_follow_outputs_compact_ndjson(mock, capsys):
     )
     code, out, _ = run(mock, capsys, "console", "--follow", "--max", "2")
     lines = [json.loads(line) for line in out.splitlines()]
-    #: chaque ligne stdout est un objet autonome, restitué dans l'ordre
-    #: d'émission des messages console
+    #: each stdout line is a self-contained object, returned in the
+    #: emission order of the console messages
     assert code == 0
     assert [(item["type"], item["text"]) for item in lines] == [
         ("log", "one"),
         ("error", "two"),
     ]
-    #: les messages viennent de la page: tous étiquetés untrusted
+    #: the messages come from the page: all labeled untrusted
     assert all(item["_cdpx"]["content_trust"] == "untrusted" for item in lines)
 
 
 def test_seo_with_navigation(mock, capsys):
-    """seo <url> navigue d'abord vers la page à auditer puis l'analyse: une
-    page SEO complète ne produit aucun finding parasite."""
+    """seo <url> first navigates to the page to audit then analyzes it: a
+    healthy SEO page produces no stray finding."""
     payload = {
         "url": "u",
         "lang": "fr",
@@ -308,9 +308,9 @@ def test_seo_with_navigation(mock, capsys):
     mock.on_eval("__cdpx_seo", json.dumps(payload))
     code, out, _ = run(mock, capsys, "seo", "http://site.test/seo.html")
     data = json.loads(out)
-    #: l'audit d'une page saine reste muet: pas de faux positifs
+    #: auditing a healthy page stays silent: no false positives
     assert code == 0 and data["findings"] == []
-    #: la navigation vers l'URL d'audit a réellement été émise au protocole
+    #: the navigation to the audited URL was actually emitted on the protocol
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/seo.html"}]
 
 
@@ -318,19 +318,19 @@ def test_seo_with_navigation(mock, capsys):
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
-    proves=["La valeur de cookie est masquée par défaut: aucun secret de session ne fuit."],
+    proves=["The cookie value is redacted by default: no session secret leaks."],
 )
 def test_cookies_masked_output(mock, capsys, evidence_case):
-    """Les valeurs de cookies sont masquées par défaut dans la sortie:
-    aucun secret de session ne fuit vers le transcript de l'agent."""
+    """Cookie values are redacted by default in the output: no session
+    secret leaks into the agent's transcript."""
     code, out, _ = run(mock, capsys, "cookies", "get")
     data = json.loads(out)
-    #: la valeur secrète n'apparaît que sous sa forme masquée
+    #: the secret value only appears in its redacted form
     assert code == 0 and data["cookies"][0]["value"] == "***"
-    # preuve secondaire: la sortie déjà masquée alimente le cockpit sans exposer le canari
+    # secondary proof: the already-masked output feeds the cockpit without exposing the canary
     if evidence_case is not None:
         evidence_case.attach_command_output(
-            "cookies get (valeurs masquées)",
+            "cookies get (redacted values)",
             ["cdpx", "cookies", "get"],
             out,
             "",
@@ -352,12 +352,12 @@ def test_cookies_masked_output(mock, capsys, evidence_case):
     proves=["Invalid conditional arguments fail with usage exit 2 before CDP."],
 )
 def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
-    """Une combinaison d'arguments invalide est tranchée en erreur d'usage
-    (exit 2) avec un motif explicite, avant toute découverte ou commande CDP."""
+    """An invalid argument combination is settled as a usage error
+    (exit 2) with an explicit reason, before any discovery or CDP command."""
     code, _, err = run(mock, capsys, *argv)
-    #: l'usage invalide sort en 2 avec un diagnostic actionnable
+    #: invalid usage exits with 2 and an actionable diagnostic
     assert code == 2 and ("required" in err or "not supported" in err)
-    #: le refus précède le protocole: rien n'a été émis vers Chrome
+    #: the refusal precedes the protocol: nothing was emitted to Chrome
     assert mock.commands == []
 
 
@@ -368,8 +368,8 @@ def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
     proves=["Mutating command variants cannot bypass the configured origin guard."],
 )
 def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkeypatch):
-    """Les variantes mutantes détournées (cookies set --url, vitals --click)
-    passent par le garde d'origine: hors liste, elles sont refusées."""
+    """Disguised mutating variants (cookies set --url, vitals --click) go
+    through the origin guard: off the list, they are refused."""
     monkeypatch.setenv("COOKIE_FLAG", "1")
     for argv in (
         (
@@ -385,8 +385,8 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
         ("vitals", "https://prod.example/", "--click", "#go"),
     ):
         code, _, err = run(mock, capsys, *argv)
-        #: chaque variante mutante est refusée avec le motif d'origine,
-        #: aucune ne contourne le garde configuré
+        #: each mutating variant is refused with the origin reason, none
+        #: bypasses the configured guard
         assert code == 1 and "origin rejected" in err
 
 
@@ -394,12 +394,12 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
     feature="orchestration-control",
     journey="intercept-network",
     scenario_id="orchestration-control.intercept-network-request",
-    proves=["Le garde d'origine juge la destination du goto composé, pas l'onglet initial."],
+    proves=["The origin guard judges the destination of the composed goto, not the initial tab."],
 )
 def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monkeypatch):
-    """Le garde d'origine d'intercept juge l'URL de destination du goto
-    composé, pas l'onglet initial: un onglet permis ne blanchit pas une
-    navigation vers une origine interdite."""
+    """intercept's origin guard judges the destination URL of the composed
+    goto, not the initial tab: an allowed tab does not whitewash a
+    navigation to a forbidden origin."""
     monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
     tid = next(iter(mock.targets))
     mock.targets[tid]["url"] = "http://allowed.test/"
@@ -413,8 +413,8 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
         "goto",
         "https://prod.example/",
     )
-    #: la destination interdite est refusée malgré l'onglet permis, et
-    #: le refus tombe avant la moindre commande CDP
+    #: the forbidden destination is refused despite the allowed tab, and
+    #: the refusal happens before any CDP command
     assert code == 1 and "origin rejected" in err
     assert mock.commands == []
 
@@ -426,83 +426,83 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
     proves=["A mutating click on a disallowed origin is refused before the input protocol."],
 )
 def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
-    """Une mutation (click) visant une origine non autorisée est refusée
-    avant d'atteindre le protocole d'entrée: la page reste intouchée."""
+    """A mutation (click) targeting a non-allowed origin is refused before
+    reaching the input protocol: the page stays untouched."""
     target = next(iter(mock.targets))
     mock.targets[target]["url"] = "https://prod.example/"
     code, _, err = run(mock, capsys, "click", "#submit")
-    #: le refus est une erreur runtime motivée sur stderr
+    #: the refusal is a runtime error diagnosed on stderr
     assert code == 1
     assert "origin rejected" in err
-    #: aucun évènement souris n'a été dispatché vers la page
+    #: no mouse event was dispatched to the page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_origin_guard_blocks_dom_diff(mock, capsys, monkeypatch):
-    """dom-diff exécute une vraie action mutante: l'enveloppe subit le même
-    garde d'origine que la mutation qu'elle transporte."""
-    # dom-diff exécute de vraies mutations (click/type/key/eval): même garde que click.
+    """dom-diff executes a real mutating action: the wrapper undergoes the
+    same origin guard as the mutation it carries."""
+    # dom-diff executes real mutations (click/type/key/eval): same guard as click.
     target = next(iter(mock.targets))
     mock.targets[target]["url"] = "https://prod.example/"
     code, _, err = run(mock, capsys, "dom-diff", "--", "click", "#x")
-    #: envelopper la mutation dans dom-diff n'offre aucun contournement
+    #: wrapping the mutation in dom-diff offers no bypass
     assert code == 1
     assert "origin rejected" in err
-    #: le click enveloppé n'a jamais atteint la page
+    #: the wrapped click never reached the page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_origin_guard_allows_dom_diff_on_allowed_origin(mock, capsys, monkeypatch):
-    """Sur une origine explicitement permise, dom-diff exécute l'action
-    enveloppée et rapporte la mutation du DOM observée."""
+    """On an explicitly allowed origin, dom-diff executes the wrapped
+    action and reports the observed DOM mutation."""
     monkeypatch.setenv("CDPX_ORIGINS", "http://*.test")
     tid = next(iter(mock.targets))
     mock.targets[tid]["url"] = "http://demo.test/page"
     mock.on_eval("__cdpx_dom_snapshot", json.dumps(["<body>"]), json.dumps(["<body>", "  <p>"]))
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     code, out, _ = run(mock, capsys, "dom-diff", "--", "click", "#x")
-    #: le garde laisse passer l'origine listée et le diff voit le changement
+    #: the guard lets the listed origin through and the diff sees the change
     assert code == 0 and json.loads(out)["changed"] is True
 
 
 def test_screenshot(mock, capsys, tmp_path):
-    """screenshot capture en png via le protocole et range le fichier dans
-    les artefacts supervisés de la session, pas au chemin brut demandé."""
+    """screenshot captures png via the protocol and files the output in
+    the session's supervised artifacts, not at the raw requested path."""
     dest = tmp_path / "s.png"
     code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest))
     data = json.loads(out)
-    #: le fichier vit dans les artefacts supervisés; le chemin brut -o
-    #: n'est jamais écrit directement
+    #: the file lives in the supervised artifacts; the raw -o path is
+    #: never written directly
     assert code == 0 and Path(data["path"]).exists() and not dest.exists()
-    #: le protocole a bien reçu une demande de capture png
+    #: the protocol did receive a png capture request
     assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "png"
 
 
 def test_screenshot_format_jpeg(mock, capsys, tmp_path):
-    """--format jpeg se propage jusqu'à la commande CDP de capture et
-    jusqu'au champ format de la sortie JSON."""
+    """--format jpeg propagates all the way to the CDP capture command and
+    to the format field of the JSON output."""
     dest = tmp_path / "s.jpg"
     code, out, _ = run(mock, capsys, "screenshot", "-o", str(dest), "--format", "jpeg")
     data = json.loads(out)
-    #: le format demandé est reflété dans la sortie et le fichier écrit
+    #: the requested format is reflected in the output and the written file
     assert code == 0 and Path(data["path"]).exists() and data["format"] == "jpeg"
-    #: la capture CDP a été émise en jpeg, pas avec le png par défaut
+    #: the CDP capture was emitted as jpeg, not with the default png
     assert mock.commands_for("Page.captureScreenshot")[0]["format"] == "jpeg"
 
 
 RECT = json.dumps({"x": 0, "y": 0, "width": 10, "height": 10})
 
-# Filet de dispatch: chaque sous-commande traverse argparse -> _client -> primitive
-# -> JSON stdout, et émet au moins sa commande CDP signature (contrat protocole).
-# Format: (id, argv, règles on_eval, méthode CDP attendue, prédicat sur la sortie)
+# Dispatch net: each subcommand traverses argparse -> _client -> primitive
+# -> JSON stdout, and emits at least its signature CDP command (protocol contract).
+# Format: (id, argv, on_eval rules, expected CDP method, predicate on the output)
 DISPATCH_CASES = [
     ("wait", ["wait", "#late"], {"querySelector": True}, "Runtime.evaluate", lambda d: d["found"]),
     (
         "text",
         ["text"],
-        {"innerText": "Bonjour"},
+        {"innerText": "Hello"},
         "Runtime.evaluate",
-        lambda d: d["text"] == "Bonjour",
+        lambda d: d["text"] == "Hello",
     ),
     (
         "html",
@@ -553,9 +553,9 @@ DISPATCH_CASES = [
     (
         "frame",
         ["frame", "#m"],
-        {"contentDocument": "texte iframe"},
+        {"contentDocument": "iframe text"},
         "Runtime.evaluate",
-        lambda d: d["text"] == "texte iframe",
+        lambda d: d["text"] == "iframe text",
     ),
     (
         "vitals",
@@ -593,41 +593,41 @@ DISPATCH_CASES = [
 def test_cli_dispatch_emits_protocol_and_json(
     mock, capsys, monkeypatch, case_id, argv, rules, method, check
 ):
-    """Filet de dispatch: chaque sous-commande du catalogue traverse
-    argparse -> client -> primitive -> JSON stdout, et émet au moins sa
-    commande CDP signature (le protocole attendu EST la spec)."""
+    """Dispatch net: each catalog subcommand traverses argparse -> client
+    -> primitive -> JSON stdout, and emits at least its signature CDP
+    command (the expected protocol IS the spec)."""
     monkeypatch.setenv("CLI_TEXT", "Léo")
     for substring, value in rules.items():
         mock.on_eval(substring, value)
     code, out, err = run(mock, capsys, *argv)
-    #: la sous-commande aboutit; stderr est joint au diagnostic sinon
+    #: the subcommand succeeds; stderr is joined to the diagnostic otherwise
     assert code == 0, f"{case_id}: exit {code}, stderr={err}"
     data = json.loads(out)
-    #: la sortie JSON porte la donnée signature attendue pour ce cas
-    assert check(data), f"{case_id}: sortie inattendue {data}"
+    #: the JSON output carries the signature data expected for this case
+    assert check(data), f"{case_id}: unexpected output {data}"
     if method:
-        #: la commande CDP signature du cas a réellement été émise
-        assert mock.commands_for(method), f"{case_id}: {method} jamais émis"
+        #: the case's signature CDP command was actually emitted
+        assert mock.commands_for(method), f"{case_id}: {method} never emitted"
 
 
 def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path, evidence_case):
-    """pdf produit un vrai document (signature %PDF) via la commande CDP
-    d'impression, rangé dans les artefacts supervisés de la session."""
+    """pdf produces a real document (%PDF signature) via the CDP print
+    command, filed in the session's supervised artifacts."""
     dest = tmp_path / "page.pdf"
     code, out, _ = run(mock, capsys, "pdf", "-o", str(dest))
     data = json.loads(out)
-    #: la sortie annonce un contenu non vide, pas un fichier fantôme
+    #: the output announces non-empty content, not a phantom file
     assert code == 0 and data["bytes"] > 0
-    #: le fichier écrit est un PDF réel et vit dans les artefacts
-    #: supervisés, jamais au chemin brut -o
+    #: the written file is a real PDF and lives in the supervised
+    #: artifacts, never at the raw -o path
     assert Path(data["path"]).read_bytes().startswith(b"%PDF") and not dest.exists()
-    #: l'impression est passée par le protocole, pas par un raccourci
+    #: the print went through the protocol, not through a shortcut
     assert mock.commands_for("Page.printToPDF")
-    # preuve secondaire: le PDF binaire (opaque, non inliné) + un résumé lisible dans le modal
+    # secondary proof: the binary PDF (opaque, not inlined) + a readable summary in the modal
     if evidence_case is not None:
-        evidence_case.attach_file(data["path"], "PDF imprimé (signature %PDF)")
+        evidence_case.attach_file(data["path"], "Printed PDF (%PDF signature)")
         evidence_case.attach_json(
-            "Signature PDF observée",
+            "Observed PDF signature",
             {
                 "signature": "%PDF",
                 "bytes": data["bytes"],
@@ -637,21 +637,22 @@ def test_pdf_cli_writes_valid_signature(mock, capsys, tmp_path, evidence_case):
 
 
 def test_dom_diff_accepts_action_with_or_without_separator(mock, capsys):
-    """dom-diff accepte l'action composée avec ou sans `--`, et masque les
-    arguments de l'action dans la sortie (l'expression peut être secrète)."""
+    """dom-diff accepts the composed action with or without `--`, and
+    redacts the action's arguments in the output (the expression may be
+    secret)."""
     mock.on_eval("__cdpx_dom_snapshot", json.dumps(["<body>"]))
     mock.on_eval("2 + 2", 4)
     code, out, _ = run(mock, capsys, "dom-diff", "eval", "2 + 2")
-    #: sans séparateur, l'action passe et ses arguments sont masqués
+    #: without a separator, the action passes and its arguments are redacted
     assert code == 0 and json.loads(out)["action"] == ["eval", "***"]
     code, out, _ = run(mock, capsys, "dom-diff", "--", "eval", "2 + 2")
-    #: avec `--`, même contrat: le séparateur ne change rien au résultat
+    #: with `--`, same contract: the separator changes nothing about the result
     assert code == 0 and json.loads(out)["action"] == ["eval", "***"]
 
 
 def test_profiler_cli_panels_flag(mock, capsys):
-    """--panels db récupère et résume le panel Doctrine du profiler Symfony
-    sans jamais exposer le token de debug ni les champs du mode global."""
+    """--panels db retrieves and summarizes the Symfony profiler's Doctrine
+    panel without ever exposing the debug token or the global-mode fields."""
     db_html = (pathlib.Path(__file__).parent / "fixtures" / "profiler" / "db.html").read_text(
         encoding="utf-8"
     )
@@ -680,29 +681,29 @@ def test_profiler_cli_panels_flag(mock, capsys):
     )
     data = json.loads(out)
     assert code == 0
-    #: le token est signalé présent mais sa valeur secrète ne fuit jamais
+    #: the token is reported present but its secret value never leaks
     assert data["token_present"] is True and "token" not in data
-    #: le panel demandé est parsé jusqu'au décompte des requêtes SQL
+    #: the requested panel is parsed all the way to the SQL query count
     assert data["panels"]["db"]["queries"] == 6
-    #: le mode panels reste ciblé: pas d'analyse globale embarquée
+    #: panels mode stays targeted: no global analysis embedded
     assert "signals" not in data and "profiler_bytes" not in data
 
 
 def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
-    """Un panel de profiler inexistant est rejeté en erreur d'usage avec un
-    message nommant le problème, avant toute navigation."""
-    #: le panel inconnu échoue au parsing en exit 2
+    """A nonexistent profiler panel is rejected as a usage error with a
+    message naming the problem, before any navigation."""
+    #: the unknown panel fails at parsing with exit 2
     with pytest.raises(SystemExit) as exc:
         run(mock, capsys, "profiler", "http://s.test/", "--panels", "doctrine")
     assert exc.value.code == 2
-    #: le diagnostic nomme la cause pour corriger l'invocation
+    #: the diagnostic names the cause to fix the invocation
     assert "unknown panel(s)" in capsys.readouterr().err
 
 
 def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
-    """intercept applique plusieurs règles simultanées (la règle qui matche
-    répond) et refuse toute action composée autre que goto avant d'armer
-    la moindre interception."""
+    """intercept applies several simultaneous rules (the matching rule
+    responds) and refuses any composed action other than goto before
+    arming the slightest interception."""
     mock.script_network(
         [
             {
@@ -729,43 +730,43 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
         "http://s.test/",
     )
     data = json.loads(out)
-    #: les deux règles sont armées et la requête api interceptée a
-    #: réellement reçu le 503 promis via le protocole Fetch
+    #: both rules are armed and the intercepted api request actually
+    #: received the promised 503 via the Fetch protocol
     assert code == 0 and len(data["rules"]) == 2
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
-    # action non-goto: erreur d'usage AVANT toute commande Fetch
+    # non-goto action: usage error BEFORE any Fetch command
     mock.commands.clear()
     code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "click", "#x")
-    #: l'action non supportée est refusée sans émettre de commande
+    #: the unsupported action is refused without emitting a command
     assert code == 1 and "intercept supports" in err and mock.commands == []
 
 
 def test_emulate_requires_preset_or_reset(mock, capsys):
-    """emulate sans preset ni --reset échoue avec un motif nommé: pas
-    d'émulation implicite silencieuse."""
+    """emulate without a preset or --reset fails with a named reason: no
+    silent implicit emulation."""
     code, _, err = run(mock, capsys, "emulate")
-    #: l'absence de preset est un échec runtime explicite, pas un no-op
+    #: the missing preset is an explicit runtime failure, not a no-op
     assert code == 1 and "unknown preset" in err
 
 
 def test_record_cli_executes_and_journals(mock, capsys, tmp_path):
-    """record exécute réellement l'action composée et journalise chaque
-    évènement en NDJSON rejouable, sans laisser fuir le séparateur `--`."""
+    """record actually executes the composed action and journals each
+    event in replayable NDJSON, without leaking the `--` separator."""
     journal = tmp_path / "j.ndjson"
     code, out, _ = run(mock, capsys, "record", "-o", str(journal), "--", "goto", "http://a.test/")
     data = json.loads(out)
-    #: l'action a tourné et exactement un évènement a été journalisé
+    #: the action ran and exactly one event was journaled
     assert code == 0 and data["ok"] is True and data["recorded"] == 1
-    #: la navigation enregistrée a réellement été émise au protocole
+    #: the recorded navigation was actually emitted on the protocol
     assert mock.commands_for("Page.navigate") == [{"url": "http://a.test/"}]
     event = json.loads(Path(data["path"]).read_text().splitlines()[0])
-    #: le journal capture l'action nettoyée, rejouable telle quelle
-    assert event["action"] == ["goto", "http://a.test/"]  # le `--` ne fuit pas dans le journal
+    #: the journal captures the cleaned action, replayable as-is
+    assert event["action"] == ["goto", "http://a.test/"]  # the `--` does not leak into the journal
 
 
 def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path, evidence_case):
-    """Un replay qui diverge (sélecteur disparu) sort en 1 tout en gardant
-    un JSON structuré qui localise l'évènement fautif."""
+    """A replay that diverges (selector gone) exits with 1 while keeping a
+    structured JSON that locates the faulty event."""
     journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
     journal.parent.mkdir(parents=True, mode=0o700)
     journal.write_text('{"action":["click","#gone"],"ok":true}\n', encoding="utf-8")
@@ -773,14 +774,14 @@ def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path, evidenc
     mock.on_eval("getBoundingClientRect", None)
     code, out, _ = run(mock, capsys, "replay", str(journal))
     data = json.loads(out)
-    #: la divergence est une erreur d'exécution, pas une erreur d'usage
-    assert code == 1  # divergence = erreur d'exécution, JSON structuré conservé
-    #: le JSON survit à l'échec et pointe l'évènement divergent
+    #: divergence is an execution error, not a usage error
+    assert code == 1  # divergence = execution error, structured JSON kept
+    #: the JSON survives the failure and points at the diverging event
     assert data["ok"] is False and data["divergence"].startswith("event 0:")
-    # preuve secondaire: le JSON de divergence structuré (event 0:) illustre le contrat replay
+    # secondary proof: the structured divergence JSON (event 0:) illustrates the replay contract
     if evidence_case is not None:
         evidence_case.attach_command_output(
-            "replay divergent (exit 1, event 0:)",
+            "diverging replay (exit 1, event 0:)",
             ["cdpx", "replay", journal.name],
             out,
             "",
@@ -789,134 +790,135 @@ def test_replay_cli_divergence_exits_1_with_json(mock, capsys, tmp_path, evidenc
 
 
 def test_replay_cli_green_journal_exits_0(mock, capsys, tmp_path):
-    """Un journal rejoué sans divergence sort en 0 avec le décompte complet
-    des évènements joués: la preuve du rejeu est chiffrée."""
+    """A journal replayed without divergence exits with 0 and the full
+    count of played events: the proof of the replay is quantified."""
     journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
     journal.parent.mkdir(parents=True, mode=0o700)
     journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
     journal.chmod(0o600)
     code, out, _ = run(mock, capsys, "replay", str(journal))
     data = json.loads(out)
-    #: le rejeu vert identifie le journal source dans sa sortie
+    #: the green replay identifies the source journal in its output
     assert code == 0 and data["path"] == str(journal)
-    #: tous les évènements ont été joués, aucun sauté silencieusement
+    #: all events were played, none silently skipped
     assert data["events"] == 1 and data["played"] == 1 and data["ok"] is True
 
 
 def test_emulate_composed_action_runs_in_same_connection(mock, capsys):
-    """emulate <preset> -- <action> pose les overrides puis joue l'action
-    dans la même connexion WS: l'action voit l'émulation active (les
-    overrides meurent à la déconnexion)."""
+    """emulate <preset> -- <action> sets the overrides then plays the
+    action in the same WS connection: the action sees emulation active
+    (the overrides die at disconnection)."""
     code, out, _ = run(mock, capsys, "emulate", "mobile", "--", "goto", "http://a.test/")
     data = json.loads(out)
-    #: l'émulation et l'action composée réussissent toutes les deux
+    #: both the emulation and the composed action succeed
     assert code == 0 and data["applied"] is True
     assert data["action"]["result"]["ok"] is True
-    # le preset est posé AVANT l'action, dans la même connexion
+    # the preset is set BEFORE the action, in the same connection
     methods = [m for (_t, m, _p) in mock.commands]
-    #: l'ordre protocole prouve que le preset précède la navigation,
-    #: donc que la page chargée subit bien l'émulation
+    #: the protocol order proves that the preset precedes navigation, so
+    #: the loaded page does undergo emulation
     assert methods.index("Emulation.setDeviceMetricsOverride") < methods.index("Page.navigate")
 
 
 def test_origin_guard_composed_commands_follow_action_verb(mock, capsys, monkeypatch, tmp_path):
-    """Le garde d'origine des commandes composées (record/replay) juge le
-    verbe de l'action enveloppée: mutation refusée, lecture permise, et le
-    rejeu est gardé séquentiellement plutôt que sur l'onglet initial."""
+    """The origin guard for composed commands (record/replay) judges the
+    verb of the wrapped action: mutation refused, read allowed, and
+    replay is guarded sequentially rather than on the initial tab."""
     journal = Path(mock.cli_manifest.artifacts_dir) / "journals" / "j.ndjson"
     target = next(iter(mock.targets))
     mock.targets[target]["url"] = "https://prod.example/"
-    # record avec verbe mutant: refusé (aucune commande CDP émise)
+    # record with a mutating verb: refused (no CDP command emitted)
     code, _, err = run(mock, capsys, "record", "-o", str(journal), "--", "click", "#x")
-    #: le verbe mutant enveloppé est refusé avant d'atteindre la page
+    #: the wrapped mutating verb is refused before reaching the page
     assert code == 1 and "origin rejected" in err
     assert mock.commands_for("Input.dispatchMouseEvent") == []
-    # replay est gardé séquentiellement: une navigation de lecture vers une
-    # origine permise n'est plus refusée à cause de l'onglet initial about:blank.
+    # replay is guarded sequentially: a read navigation to an allowed
+    # origin is no longer refused because of the initial about:blank tab.
     journal.parent.mkdir(parents=True, mode=0o700)
     journal.write_text('{"action":["goto","http://a.test/"],"ok":true}\n', encoding="utf-8")
     journal.chmod(0o600)
     mock.on_eval("window.location.href", "http://a.test/")
     code, out, err = run(mock, capsys, "replay", str(journal))
-    #: la navigation de lecture rejouée passe malgré l'onglet initial
-    #: about:blank: le garde suit la séquence, pas l'état de départ
+    #: the replayed read navigation passes despite the initial
+    #: about:blank tab: the guard follows the sequence, not the starting state
     assert code == 0 and json.loads(out)["ok"] is True and not err
-    # record avec verbe de lecture: permis même hors liste
+    # record with a read verb: allowed even off the list
     code, out, _ = run(mock, capsys, "record", "-o", str(journal), "--", "goto", "http://a.test/")
-    #: un verbe de lecture n'exige pas d'origine listée pour record
+    #: a read verb does not require a listed origin for record
     assert code == 0 and json.loads(out)["ok"] is True
 
 
 def test_error_path_exit_code_and_stderr(mock, capsys):
-    """Une exception JS levée dans la page devient exit 1 avec le message
-    d'erreur sur stderr, stdout restant réservé au JSON."""
+    """A JS exception thrown in the page becomes exit 1 with the error
+    message on stderr, stdout staying reserved for JSON."""
     mock.on_eval("kaboom", {"raw": {"exceptionDetails": {"text": "TypeError: kaboom"}}})
     code, _, err = run(mock, capsys, "eval", "kaboom()")
-    #: l'exception de la page remonte en échec runtime diagnostiqué
+    #: the page's exception propagates as a diagnosed runtime failure
     assert code == 1 and "kaboom" in err
 
 
 def test_missing_session_fails_before_discovery(capsys, monkeypatch):
-    """Sans session supervisée (variables CDPX_* absentes), le CLI échoue en
-    erreur d'usage nommant la variable manquante, avant toute découverte."""
+    """Without a supervised session (CDPX_* variables absent), the CLI
+    fails as a usage error naming the missing variable, before any discovery."""
     for name in ("CDPX_SESSION", "CDPX_RUN_ID", "CDPX_TARGET"):
         monkeypatch.delenv(name, raising=False)
     code = main(["tabs", "list"])
     err = capsys.readouterr().err
-    #: l'absence de session est un exit 2 qui dit quoi exporter
+    #: the absent session is an exit 2 that says what to export
     assert code == 2 and "CDPX_SESSION" in err
 
 
 def test_invalid_action_argv_without_session_stays_usage_error(capsys, monkeypatch):
-    """Un argv d'action invalide ne court-circuite pas le diagnostic de
-    session: la redaction se construit sans parser l'action, et l'absence
-    d'identité reste une erreur d'usage propre, jamais un traceback."""
+    """An invalid action argv does not short-circuit the session
+    diagnostic: redaction is built without parsing the action, and the
+    missing identity stays a clean usage error, never a traceback."""
     for name in ("CDPX_SESSION", "CDPX_RUN_ID", "CDPX_TARGET"):
         monkeypatch.delenv(name, raising=False)
     code = main(["dom-diff", "--", "bogus", "x"])
     captured = capsys.readouterr()
-    #: l'identité manquante prime sur l'action illisible: exit 2 documenté
+    #: the missing identity takes priority over the unreadable action:
+    #: documented exit 2
     assert code == 2 and "CDPX_SESSION" in captured.err
-    #: le diagnostic reste un message cdpx, pas un ValueError brut
+    #: the diagnostic stays a cdpx message, not a raw ValueError
     assert "Traceback" not in captured.err and captured.out == ""
 
 
 def test_invalid_action_argv_with_session_is_diagnosed(mock, capsys):
-    """Avec une session valide, un argv d'action inconnu échoue au préflight
-    en erreur diagnostiquée sur stderr, stdout restant vide."""
+    """With a valid session, an unknown action argv fails preflight as a
+    diagnosed error on stderr, stdout staying empty."""
     code, out, err = run(mock, capsys, "dom-diff", "--", "bogus", "x")
-    #: le préflight rejette l'action inconnue avec son usage, exit 1
+    #: preflight rejects the unknown action with its usage, exit 1
     assert code == 1 and "cdpx:" in err and "action" in err
-    #: pas de traceback brut ni de JSON trompeur sur stdout
+    #: no raw traceback nor misleading JSON on stdout
     assert "Traceback" not in err and out == ""
 
 
 @pytest.mark.parametrize("option", ["--host", "--port"])
 def test_direct_connection_options_are_removed(option):
-    """Les options de connexion directe (--host/--port) ont disparu du CLI:
-    seule la session supervisée peut désigner le Chrome cible."""
-    #: l'option retirée est rejetée au parsing comme argument inconnu
+    """Direct connection options (--host/--port) have disappeared from the
+    CLI: only the supervised session can designate the target Chrome."""
+    #: the removed option is rejected at parsing as an unknown argument
     with pytest.raises(SystemExit) as exc:
         main([option, "1", "tabs", "list"])
-    #: exit 2 confirme que la connexion directe n'existe plus
+    #: exit 2 confirms that direct connection no longer exists
     assert exc.value.code == 2
 
 
 def test_usage_error_exit_2():
-    """Un argument positionnel manquant est tranché par argparse en exit 2,
-    distinct des erreurs runtime (exit 1) du contrat CLI."""
-    #: goto sans url échoue au parsing, avant toute connexion
+    """A missing positional argument is settled by argparse as exit 2,
+    distinct from the CLI contract's runtime errors (exit 1)."""
+    #: goto without a url fails at parsing, before any connection
     with pytest.raises(SystemExit) as exc:
-        main(["goto"])  # url manquante
+        main(["goto"])  # missing url
     assert exc.value.code == 2
 
 
 def test_cdpx_version(capsys):
-    """--version imprime exactement `cdpx <version>` et sort en 0: le numéro
-    vient de la source unique __version__ du paquet."""
+    """--version prints exactly `cdpx <version>` and exits with 0: the
+    number comes from the package's single __version__ source."""
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
-    #: demander la version est un succès, pas une erreur d'usage
+    #: requesting the version is a success, not a usage error
     assert exc.value.code == 0
-    #: la sortie reflète la version unique du paquet, rien d'autre
+    #: the output reflects the package's single version, nothing else
     assert capsys.readouterr().out == f"cdpx {__version__}\n"

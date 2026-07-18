@@ -1,42 +1,42 @@
-## Problème résolu
+## Problem solved
 
-Décrivez le problème observable, la décision prise et son impact utilisateur.
+Describe the observable problem, the decision made and its user impact.
 
-## Type de changement
+## Type of change
 
-- [ ] Correctif
-- [ ] Nouvelle primitive ou évolution fonctionnelle
-- [ ] Documentation ou processus
-- [ ] CI, packaging ou maintenance
+- [ ] Bug fix
+- [ ] New primitive or functional evolution
+- [ ] Documentation or process
+- [ ] CI, packaging or maintenance
 
-## Contrat CLI et protocole CDP
+## CLI contract and CDP protocol
 
-- Impact sur stdout JSON, stderr et les codes de sortie 0/1/2 :
-- Commandes CDP attendues (méthodes, paramètres et ordre), ou `N/A` motivé :
+- Impact on stdout JSON, stderr and the 0/1/2 exit codes:
+- Expected CDP commands (methods, parameters and order), or a justified `N/A`:
 
-## Tests et documentation
+## Tests and documentation
 
-- Tests ajoutés ou modifiés :
-- Fixture et scénario Chrome/Symfony E2E, ou raison pour laquelle ils sont `N/A` :
-- Documentation (`docs/PRIMITIVES.md`, fiche feature, changelog) mise à jour :
+- Tests added or modified:
+- Fixture and Chrome/Symfony E2E scenario, or the reason they are `N/A`:
+- Documentation (`docs/PRIMITIVES.md`, feature sheet, changelog) updated:
 
-## Sécurité et redaction
+## Security and redaction
 
-- Risques liés aux cookies, tokens, profils ou données de session :
-- Mesures de masquage et vérification du diff/des preuves :
+- Risks related to cookies, tokens, profiles or session data:
+- Redaction measures and verification of the diff/proofs:
 
-## Validation locale
+## Local validation
 
-Listez les commandes réellement exécutées et leur résultat. Signalez clairement
-tout contrôle non exécuté et pourquoi.
+List the commands actually run and their result. Clearly flag any check that
+was not run and why.
 
 - [ ] `make check-local`
-- [ ] `make check` (Docker, Chrome réel et Symfony sans skip)
+- [ ] `make check` (Docker, real Chrome and Symfony without skips)
 - [ ] `make release`
 
-## Preuve GitHub automatique
+## Automatic GitHub proof
 
-Toutes les PR, y compris documentaires, CI et packaging, doivent obtenir le
-check stable **`PR Gate / Required`**. Le run publie un résumé natif et
-l'artefact cockpit (JSON, HTML, JUnit, logs, captures et distributions
-disponibles). Une checkbox déclarative ne remplace jamais ce check obligatoire.
+Every PR, including documentation, CI and packaging ones, must obtain the
+stable **`PR Gate / Required`** check. The run publishes a native summary and
+the cockpit artifact (JSON, HTML, JUnit, logs, captures and available
+distributions). A declarative checkbox never replaces this mandatory check.

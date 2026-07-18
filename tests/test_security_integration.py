@@ -57,9 +57,10 @@ def test_observation_outputs_redact_url_console_storage_and_errors(
     capsys,
     evidence_case,
 ):
-    """Toutes les sorties d'observation (console, storage, réseau, erreurs)
-    sont purgées du canari avant sérialisation et jusqu'aux flux
-    stdout/stderr réels, sans appauvrir les diagnostics anodins."""
+    """All observation outputs (console, storage, network, errors) are
+    purged of the canary before serialization and all the way to the
+    real stdout/stderr streams, without impoverishing ordinary
+    diagnostics."""
     context = RedactionContext.from_secrets([CANARY])
     mock.on_eval(
         "Object.entries(localStorage)",
@@ -118,35 +119,35 @@ def test_observation_outputs_redact_url_console_storage_and_errors(
     }
     serialized = json.dumps(output, ensure_ascii=False)
 
-    #: le canari n'apparaît nulle part dans la sortie agrégée sérialisée
+    #: the canary appears nowhere in the serialized aggregated output
     assert CANARY not in serialized
-    #: les diagnostics anodins survivent partout: la redaction n'appauvrit
-    #: pas la valeur d'observation des sorties
+    #: ordinary diagnostics survive everywhere: redaction does not
+    #: impoverish the observation value of the outputs
     assert ORDINARY_TEXT in console_result["entries"][0]["text"]
     assert ORDINARY_TEXT in network_result["requests"][0]["failed"]
     assert ORDINARY_TEXT in safe_error["error"]
-    #: le storage est masqué clé par clé: c'est un réservoir de sessions
+    #: storage is masked key by key: it is a reservoir of sessions
     assert storage_result["entries"] == {"session": MASK, "diagnostic": MASK}
-    #: les URLs réseau perdent credentials et tokens mais restent corrélables
+    #: network URLs lose credentials and tokens but stay correlatable
     assert network_result["url"] == "http://app.test/report?token=***"
     assert network_result["requests"][0]["url"] == ("http://app.test/api/orders?access_token=***")
-    #: le navigateur a reçu l'URL intacte: la redaction n'altère que la
-    #: sortie, jamais l'action demandée
+    #: the browser received the URL intact: redaction only alters the
+    #: output, never the requested action
     assert mock.commands_for("Page.navigate")[-1] == {"url": navigation_url}
     assert redact_text(ORDINARY_TEXT, context=context) == ORDINARY_TEXT
 
     print(serialized)
     print(safe_error["error"], file=sys.stderr)
     emitted = capsys.readouterr()
-    #: à la frontière réelle stdout/stderr, le canari est absent et le
-    #: diagnostic anodin toujours présent
+    #: at the real stdout/stderr boundary, the canary is absent and the
+    #: ordinary diagnostic is still present
     assert CANARY not in emitted.out
     assert CANARY not in emitted.err
     assert ORDINARY_TEXT in emitted.out and ORDINARY_TEXT in emitted.err
 
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Sortie d'observation agrégée redactée",
+            "Redacted aggregated observation output",
             output,
         )
 
@@ -163,11 +164,11 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
     tmp_path,
     evidence_case,
 ):
-    """Le token du profiler Symfony, découvert en cours de route, rejoint le
-    contexte partagé: URLs, headers et panneaux SQL sortent nettoyés, et
-    l'artefact écrit reste privé et exempt de canari."""
-    # Le token n'est pas pré-enregistré: la primitive profiler doit l'ajouter
-    # au contexte partagé avant le nettoyage transversal de la sortie.
+    """The Symfony profiler token, discovered along the way, joins the
+    shared context: URLs, headers, and SQL panels come out cleaned, and
+    the written artifact stays private and canary-free."""
+    # The token is not pre-registered: the profiler primitive must add it
+    # to the shared context before the cross-cutting cleanup of the output.
     context = RedactionContext()
     navigation_url = f"http://app.test/report?session={CANARY}"
     profiler_link = f"http://app.test/_profiler/{CANARY}?transport={CANARY}#trace"
@@ -218,28 +219,28 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
         settle=0.01,
         context=OrchestrationContext.from_origins("http://*.test", redaction=context),
     )
-    # Même frontière que le CLI avant stdout ou persistance d'un artefact.
+    # Same boundary as the CLI before stdout or artifact persistence.
     result = redact_tree(primitive_result, context=context)
     serialized = json.dumps(result, ensure_ascii=False)
 
-    #: la sortie brute de la primitive contient encore le token: c'est bien
-    #: la frontière redact_tree qui protège, pas un hasard amont
+    #: the primitive's raw output still contains the token: it is indeed
+    #: the redact_tree boundary that protects, not upstream luck
     assert CANARY in json.dumps(primitive_result["panels"], ensure_ascii=False)
-    #: après la frontière, plus aucun canari dans la sortie sérialisée
+    #: past the boundary, no more canary in the serialized output
     assert CANARY not in serialized
-    #: URLs de navigation et de profiler perdent le token découvert en route
+    #: navigation and profiler URLs lose the token discovered along the way
     assert result["url"] == "http://app.test/report?session=***"
     assert result["profiler_url"] == "http://app.test/_profiler/***?transport=***"
-    #: les headers d'auth sont masqués, le diagnostic anodin survit dans le
-    #: header libre comme dans le SQL du panneau
+    #: auth headers are masked, the ordinary diagnostic survives in the
+    #: free header as well as in the panel's SQL
     assert result["response_headers"]["authorization"] == MASK
     assert result["response_headers"]["set-cookie"] == MASK
     assert ORDINARY_TEXT in result["response_headers"]["x-diagnostic"]
     assert ORDINARY_TEXT in result["panels"]["db"]["list"][0]["sql"]
-    #: le token n'est jamais retourné, seule sa présence est attestée
+    #: the token is never returned, only its presence is attested
     assert "token" not in result and result["token_present"] is True
-    #: côté protocole le vrai token a circulé: la redaction n'a pas dégradé
-    #: l'interrogation effective du profiler
+    #: on the protocol side the real token did circulate: redaction did not
+    #: degrade the profiler's actual interrogation
     assert CANARY in mock.commands_for("Runtime.evaluate")[-1]["expression"]
     assert mock.commands_for("Page.navigate")[-1] == {"url": navigation_url}
 
@@ -251,8 +252,8 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
         upload_allowed=True,
     )
     shareable = writer.build_shareable(tmp_path / "shareable")
-    #: ni l'artefact ni sa copie partageable ne contiennent le canari, et
-    #: leurs arborescences restent privées (0700/0600)
+    #: neither the artifact nor its shareable copy contains the canary, and
+    #: their directory trees stay private (0700/0600)
     run_dir_scan = scan_canaries(writer.run_dir, [CANARY])
     shareable_scan = scan_canaries(shareable, [CANARY])
     assert run_dir_scan == []
@@ -263,11 +264,11 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
     if evidence_case is not None:
         evidence_case.attach_file(
             shareable / "profiler.json",
-            "Artefact profiler partageable redacté",
+            "Redacted shareable profiler artifact",
             "profiler",
         )
         evidence_case.attach_json(
-            "Scan canari des artefacts profiler",
+            "Canary scan of profiler artifacts",
             {"run_dir": run_dir_scan, "shareable": shareable_scan},
         )
 
@@ -286,9 +287,9 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     capsys,
     evidence_case,
 ):
-    """Un secret injecté via @env: atteint le navigateur mais n'apparaît
-    jamais ailleurs: le journal ne stocke que la référence, et artefacts,
-    stdout et stderr restent exempts de la valeur secrète."""
+    """A secret injected via @env: reaches the browser but never appears
+    anywhere else: the journal stores only the reference, and artifacts,
+    stdout, and stderr stay free of the secret value."""
     monkeypatch.setenv("CHECKOUT_PASSWORD", CANARY)
     mock.on_eval(
         "__cdpx_actionability focus",
@@ -320,19 +321,20 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
         context=context,
     )
 
-    #: la valeur secrète a bien été tapée dans la page: la protection ne
-    #: sacrifie pas la fonctionnalité de saisie
+    #: the secret value was indeed typed into the page: protection does not
+    #: sacrifice input functionality
     assert mock.commands_for("Input.insertText") == [{"text": CANARY}]
     journal_text = record_path.read_text(encoding="utf-8")
-    #: le journal rejouable ne contient que la référence d'environnement,
-    #: jamais la valeur secrète elle-même
+    #: the replayable journal contains only the environment reference,
+    #: never the secret value itself
     assert CANARY not in journal_text
     event = json.loads(journal_text)
     assert event["action"]["input"] == {
         "secret_ref": "CHECKOUT_PASSWORD",
         "source": "env",
     }
-    #: le journal est créé privé dès l'écriture, sans resserrage a posteriori
+    #: the journal is created private from the moment it is written,
+    #: with no after-the-fact tightening
     assert _mode(record_path.parent) == 0o700
     assert _mode(record_path) == 0o600
 
@@ -351,22 +353,22 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     )
     shareable = writer.build_shareable(tmp_path / "staging")
 
-    #: aucun canari dans les artefacts ni la copie partageable, arborescences
-    #: privées de bout en bout
+    #: no canary in the artifacts nor the shareable copy, private
+    #: directory trees end to end
     assert scan_canaries(writer.run_dir, [CANARY]) == []
     assert scan_canaries(shareable, [CANARY]) == []
     _assert_private_tree(writer.root)
     _assert_private_tree(shareable)
-    #: le journal interne non uploadable est exclu de la copie partageable
+    #: the non-uploadable internal journal is excluded from the shareable copy
     assert not (shareable / "journal" / "record.ndjson").exists()
 
     if evidence_case is not None:
         evidence_case.attach_file(
             record_path,
-            "Journal record NDJSON (secret_ref uniquement)",
+            "NDJSON record journal (secret_ref only)",
         )
         evidence_case.attach_json(
-            "Arborescence partageable (journal interne exclu)",
+            "Shareable directory tree (internal journal excluded)",
             {
                 "files": sorted(
                     path.relative_to(shareable).as_posix()
@@ -379,8 +381,8 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
     print(json.dumps(result, ensure_ascii=False))
     print(safe_error["error"], file=sys.stderr)
     emitted = capsys.readouterr()
-    #: aux frontières stdout/stderr, le canari est absent mais le diagnostic
-    #: anodin passe encore
+    #: at the stdout/stderr boundaries, the canary is absent but the
+    #: ordinary diagnostic still gets through
     assert CANARY not in emitted.out and CANARY not in emitted.err
     assert ORDINARY_TEXT in emitted.err
 
@@ -398,9 +400,9 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
     monkeypatch,
     evidence_case,
 ):
-    """Un rejeu dont la référence de secret n'existe plus dans
-    l'environnement s'arrête net avant la première action: divergence
-    explicite et zéro effet CDP."""
+    """A replay whose secret reference no longer exists in the
+    environment stops flat before the first action: explicit divergence
+    and zero CDP effect."""
     monkeypatch.delenv("MISSING_CHECKOUT_PASSWORD", raising=False)
     record_path = tmp_path / "journal" / "record.ndjson"
     journal.append_event(
@@ -436,16 +438,16 @@ def test_missing_secret_ref_is_rejected_before_any_cdp_effect(
         context=OrchestrationContext.from_origins("http://*.test"),
     )
 
-    #: le rejeu échoue sans jouer aucune action et la divergence nomme la
-    #: référence manquante pour un correctif immédiat
+    #: the replay fails without playing any action and the divergence names
+    #: the missing reference for an immediate fix
     assert result["ok"] is False
     assert result["played"] == 0
     assert "MISSING_CHECKOUT_PASSWORD" in result["divergence"]
-    #: aucune commande n'a atteint le navigateur: le refus précède tout effet
+    #: no command reached the browser: the refusal precedes any effect
     assert mock.commands == []
 
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Divergence du rejeu fail-closed",
+            "Fail-closed replay divergence",
             {"replay": result, "cdp_commands": mock.commands},
         )

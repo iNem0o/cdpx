@@ -1,4 +1,4 @@
-"""Découverte HTTP (/json) et client WebSocket, validés contre le mock CDP."""
+"""HTTP discovery (/json) and WebSocket client, validated against the CDP mock."""
 
 import json
 
@@ -15,38 +15,38 @@ def _connect(mock) -> CDPClient:
     return CDPClient(target["webSocketDebuggerUrl"], timeout=5)
 
 
-# -- découverte ------------------------------------------------------------------
+# -- discovery -------------------------------------------------------------------
 
 
 def test_list_targets(mock):
-    """La découverte /json expose la page unique du mock avec un endpoint
-    WebSocket de débogage strictement loopback, prêt pour le client."""
+    """Discovery /json exposes the mock's single page with a strictly
+    loopback debugging WebSocket endpoint, ready for the client."""
     targets = discovery.list_targets("127.0.0.1", mock.http_port)
-    #: une seule cible de type page est découvrable, et son URL de pilotage
-    #: reste confinée à l'interface loopback
+    #: a single page-type target is discoverable, and its control URL
+    #: stays confined to the loopback interface
     assert len(targets) == 1
     assert targets[0]["type"] == "page"
     assert targets[0]["webSocketDebuggerUrl"].startswith("ws://127.0.0.1:")
 
 
 def test_version(mock):
-    """/json/version annonce la version de protocole CDP que le client
-    sait parler — le contrat minimal avant tout dialogue WebSocket."""
+    """/json/version announces the CDP protocol version the client knows
+    how to speak — the minimal contract before any WebSocket dialogue."""
     v = discovery.version("127.0.0.1", mock.http_port)
-    #: la version annoncée correspond au protocole implémenté par le client
+    #: the announced version matches the protocol implemented by the client
     assert v["Protocol-Version"] == "1.3"
 
 
 def test_loopback_discovery_ignores_environment_proxy(mock, monkeypatch):
-    """Un proxy hostile déclaré dans l'environnement ne détourne jamais le
-    trafic de découverte: les appels /json restent en connexion directe."""
+    """A hostile proxy declared in the environment never hijacks discovery
+    traffic: /json calls stay on a direct connection."""
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
     monkeypatch.delenv("NO_PROXY", raising=False)
     monkeypatch.delenv("no_proxy", raising=False)
 
-    #: la découverte aboutit alors qu'un proxy injoignable est imposé par
-    #: l'environnement, preuve que le loopback le contourne
+    #: discovery succeeds even though an unreachable proxy is imposed by
+    #: the environment, proof that loopback bypasses it
     assert discovery.version("127.0.0.1", mock.http_port)["Protocol-Version"] == "1.3"
 
 
@@ -112,15 +112,16 @@ def test_list_decode_error_keeps_http_context(monkeypatch):
 
 
 def test_new_activate_close_tab(mock):
-    """Le cycle de vie complet d'un onglet — création sur une URL, activation,
-    fermeture — passe par l'API HTTP /json et laisse l'inventaire cohérent."""
+    """A tab's complete lifecycle — creation on a URL, activation, closing —
+    goes through the HTTP /json API and leaves the inventory consistent."""
     tab = discovery.new_tab("127.0.0.1", mock.http_port, "http://example.test/x")
-    #: l'onglet naît sur l'URL demandée et s'ajoute à l'inventaire des cibles
+    #: the tab is born on the requested URL and is added to the target
+    #: inventory
     assert tab["url"] == "http://example.test/x"
     assert len(discovery.list_targets("127.0.0.1", mock.http_port)) == 2
     discovery.activate_tab("127.0.0.1", mock.http_port, tab["id"])
     discovery.close_tab("127.0.0.1", mock.http_port, tab["id"])
-    #: la fermeture retire réellement la cible: retour à l'état initial
+    #: closing actually removes the target: back to the initial state
     assert len(discovery.list_targets("127.0.0.1", mock.http_port)) == 1
 
 
@@ -204,34 +205,36 @@ def test_new_tab_malformed_legacy_get_response_keeps_fallback_context(monkeypatc
 
 
 def test_pick_page_by_id_and_missing(mock):
-    """pick_page résout une cible par identifiant exact et refuse un
-    identifiant inconnu au lieu de se rabattre sur une autre page."""
+    """pick_page resolves a target by exact id and refuses an unknown id
+    instead of falling back to another page."""
     tid = next(iter(mock.targets))
-    #: l'identifiant demandé est résolu tel quel, sans substitution
+    #: the requested id is resolved as-is, without substitution
     assert discovery.pick_page("127.0.0.1", mock.http_port, tid)["id"] == tid
-    #: une cible absente lève l'erreur de découverte dédiée plutôt qu'un
-    #: repli silencieux vers une page arbitraire
+    #: a missing target raises the dedicated discovery error rather than a
+    #: silent fallback to an arbitrary page
     with pytest.raises(discovery.DiscoveryError):
         discovery.pick_page("127.0.0.1", mock.http_port, "NOPE")
 
 
-# -- client ---------------------------------------------------------------------
+# -- client -----------------------------------------------------------------
 
 
 def test_send_and_result(mock, evidence_case):
-    """Un aller-retour commande/réponse aboutit et la trame émise sur le fil
-    est exactement celle demandée: sortie ET protocole sont prouvés."""
+    """A command/response round trip succeeds and the frame emitted on the
+    wire is exactly the one requested: output AND protocol are proven."""
     with _connect(mock) as c:
-        #: la réponse (vide) du domaine activé revient corrélée à l'appel
+        #: the (empty) response from the enabled domain comes back
+        #: correlated to the call
         assert c.send("Page.enable") == {}
-    #: côté fil, le mock a reçu une unique commande sans paramètre — c'est
-    #: le protocole réellement émis qui est jugé, pas seulement le retour
+    #: on the wire side, the mock received a single command with no
+    #: parameters — it's the protocol actually emitted that's being judged,
+    #: not just the return value
     assert mock.commands_for("Page.enable") == [{}]
 
     if evidence_case is not None:
-        # Preuve du protocole émis: la trace mock des commandes Page.enable.
+        # Proof of the emitted protocol: the mock's trace of Page.enable commands.
         evidence_case.attach_json(
-            "Trace protocolaire du mock (Page.enable)",
+            "Mock protocol trace (Page.enable)",
             {"Page.enable": mock.commands_for("Page.enable")},
         )
 
@@ -268,9 +271,9 @@ def test_send_failure_is_wrapped_with_method_context():
 
 
 def test_send_nowait_allows_event_before_command_response(mock):
-    """L'envoi sans attente laisse consommer un évènement arrivé avant la
-    réponse de commande — condition nécessaire à l'interception réseau, où
-    l'évènement Fetch précède la fin de la navigation."""
+    """Sending without waiting lets an event that arrived before the
+    command response be consumed — a necessary condition for network
+    interception, where the Fetch event precedes the end of navigation."""
     mock.script_network(
         [
             {
@@ -282,17 +285,17 @@ def test_send_nowait_allows_event_before_command_response(mock):
     with _connect(mock) as c:
         c.send_nowait("Page.navigate", {"url": "http://x.test/"})
         ev = c.next_event(timeout=2)
-    #: l'évènement d'interception est lisible avant la réponse de navigation,
-    #: ce qu'un envoi bloquant rendrait impossible (deadlock d'interception)
+    #: the interception event is readable before the navigation response,
+    #: which a blocking send would make impossible (interception deadlock)
     assert ev["method"] == "Fetch.requestPaused"
-    #: la commande de navigation a néanmoins bien été émise sur le fil
+    #: the navigation command was nonetheless indeed emitted on the wire
     assert mock.commands_for("Page.navigate") == [{"url": "http://x.test/"}]
 
 
 def test_wait_response_survives_event_consumption(mock):
-    """La réponse d'une commande reste corrélée par identifiant même quand
-    des évènements sont consommés entre l'envoi et wait_response: rien ne se
-    perd dans l'entrelacement évènements/réponses."""
+    """A command's response stays correlated by id even when events are
+    consumed between the send and wait_response: nothing is lost in the
+    events/responses interleaving."""
     mock.script_network(
         [
             {
@@ -303,39 +306,39 @@ def test_wait_response_survives_event_consumption(mock):
     )
     with _connect(mock) as c:
         command_id = c.send_nowait("Page.navigate", {"url": "http://x.test/"})
-        #: un évènement intermédiaire est consommé en premier, sans que cela
-        #: détruise la réponse encore en attente
+        #: an intermediate event is consumed first, without destroying the
+        #: response still pending
         assert c.next_event(timeout=1)["method"] == "Fetch.requestPaused"
         response = c.wait_response(command_id)
-        #: la réponse retrouvée après coup porte bien les identifiants de
-        #: frame scriptés pour cette navigation précise
+        #: the response retrieved afterward does carry the frame ids
+        #: scripted for this exact navigation
         assert response["frameId"] == "FRAME1" and response["loaderId"] == "LOADER1"
 
 
 def test_cdp_error_raised(mock):
-    """Une erreur protocolaire renvoyée par le navigateur devient une
-    CDPError typée qui conserve le code JSON-RPC d'origine, jamais un
-    résultat vide silencieux."""
-    #: une méthode inconnue déclenche l'exception dédiée au protocole
+    """A protocol error returned by the browser becomes a typed CDPError
+    that keeps the original JSON-RPC code, never a silent empty result."""
+    #: an unknown method triggers the exception dedicated to the protocol
     with _connect(mock) as c, pytest.raises(CDPError) as exc:
         c.send("Bogus.method")
-    #: le code JSON-RPC «méthode introuvable» survit jusqu'au diagnostic
+    #: the "method not found" JSON-RPC code survives all the way to the
+    #: diagnostic
     assert exc.value.code == -32601
 
 
 def test_events_buffered_then_waited(mock):
-    """Attendre un évènement précis ne détruit pas ceux arrivés avant lui:
-    le buffer permet de les consommer après coup, dans n'importe quel ordre."""
+    """Waiting for a specific event does not destroy those that arrived
+    before it: the buffer allows consuming them afterward, in any order."""
     with _connect(mock) as c:
         c.send("Page.navigate", {"url": "http://x.test/"})
         ev = c.wait_event("Page.loadEventFired", timeout=2)
-        #: l'attente ciblée saute par-dessus domContentEventFired et retrouve
-        #: bien l'évènement load scripté par le mock
+        #: the targeted wait skips over domContentEventFired and does find
+        #: the load event scripted by the mock
         assert ev["params"]["timestamp"] == 1.2
-        # domContentEventFired est resté dans le buffer, consommable après coup
+        # domContentEventFired stayed in the buffer, consumable afterward
         ev2 = c.wait_event("Page.domContentEventFired", timeout=0.5)
-        #: l'évènement antérieur, non réclamé au premier passage, est toujours
-        #: disponible — preuve que rien n'a été jeté en route
+        #: the earlier event, unclaimed on the first pass, is still
+        #: available — proof that nothing was dropped along the way
         assert ev2["params"]["timestamp"] == 1.0
 
 
@@ -351,10 +354,10 @@ def test_wait_event_preserves_interleaved_command_response(mock):
 
 
 def test_wait_event_timeout(mock):
-    """L'attente d'un évènement qui ne vient jamais échoue en temps borné
-    par une exception dédiée: pas de blocage possible du CLI."""
-    #: sans navigation, aucun load n'arrive: le délai court lève CDPTimeout
-    #: au lieu de suspendre indéfiniment l'appelant
+    """Waiting for an event that never comes fails within a bounded time
+    via a dedicated exception: no possible CLI blocking."""
+    #: without navigation, no load arrives: the short delay raises
+    #: CDPTimeout instead of suspending the caller indefinitely
     with _connect(mock) as c, pytest.raises(CDPTimeout):
         c.wait_event("Page.loadEventFired", timeout=0.3)
 
@@ -390,15 +393,16 @@ def test_negative_timeouts_are_rejected_before_io(mock):
 
 
 def test_collect_events_filters_and_drains(mock):
-    """La collecte fenêtrée ne retient que les méthodes demandées et vide le
-    buffer au passage: aucun évènement ne fuit vers la commande suivante."""
+    """The windowed collection retains only the requested methods and
+    drains the buffer along the way: no event leaks into the next command."""
     mock.script_console([{"type": "log", "args": [{"type": "string", "value": "x"}]}])
     with _connect(mock) as c:
         c.send("Runtime.enable")
         got = c.collect_events(0.3, ("Runtime.consoleAPICalled",))
-        #: seul l'évènement console scripté franchit le filtre de méthodes
+        #: only the scripted console event crosses the method filter
         assert len(got) == 1
-        #: le buffer interne ressort vide: la fenêtre d'écoute a tout drainé
+        #: the internal buffer comes out empty: the listening window drained
+        #: everything
         assert c.events == []
 
 
@@ -429,7 +433,7 @@ def test_collect_events_rejects_negative_duration_without_draining(mock):
     ],
 )
 def test_collect_events_surfaces_transport_and_frame_failures(received, message):
-    """Une collecte interrompue n'est jamais présentée comme un succès partiel."""
+    """An interrupted collection is never presented as a partial success."""
 
     class ScriptedSocket:
         def recv(self, *, timeout):

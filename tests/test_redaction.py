@@ -12,21 +12,21 @@ from cdpx.security.redaction import (
 
 
 def test_secret_registry_stays_in_memory_and_hides_values_from_repr():
-    """Le registre connaît ses secrets pour pouvoir les masquer, mais aucune
-    introspection accidentelle (repr loggé, debugger) ne les révèle."""
+    """The registry knows its secrets so it can mask them, but no accidental
+    introspection (logged repr, debugger) reveals them."""
     registry = SecretRegistry(["longer-secret", "secret"])
 
-    #: le registre a bien retenu chaque valeur fournie
+    #: the registry did retain every provided value
     assert len(registry) == 2
-    #: la représentation debug ne trahit aucune des valeurs stockées
+    #: the debug representation betrays none of the stored values
     assert "longer-secret" not in repr(registry)
     assert "secret" not in repr(registry)
 
 
 def test_redact_url_removes_userinfo_fragment_and_masks_repeated_query_values():
-    """Une URL sensible perd ses identifiants et son fragment, et chaque
-    occurrence d'un paramètre suspect est masquée — même répétée ou vide —
-    pendant que le rapport trace chaque champ nettoyé."""
+    """A sensitive URL loses its credentials and fragment, and every
+    occurrence of a suspect parameter is masked — even repeated or empty —
+    while the report traces each cleaned field."""
     context = RedactionContext()
 
     value = redact_url(
@@ -35,10 +35,10 @@ def test_redact_url_removes_userinfo_fragment_and_masks_repeated_query_values():
         path="$.url",
     )
 
-    #: identifiants et fragment disparaissent; chaque occurrence du paramètre
-    #: sensible est masquée, y compris la valeur vide
+    #: credentials and fragment disappear; every occurrence of the
+    #: sensitive parameter is masked, including the empty value
     assert value == "https://example.test:8443/path?Token=***&Token=***&empty=***"
-    #: le rapport énumère précisément chaque champ nettoyé, pour l'audit
+    #: the report precisely enumerates each cleaned field, for the audit
     assert context.report.as_dict() == {
         "redacted": True,
         "count": 4,
@@ -52,25 +52,25 @@ def test_redact_url_removes_userinfo_fragment_and_masks_repeated_query_values():
 
 
 def test_redact_url_reduces_data_payload_and_is_idempotent():
-    """Le payload d'un data: URL est réduit à un marqueur, et une seconde
-    passe de redaction est un no-op: plusieurs frontières peuvent filtrer
-    la même valeur sans double comptage."""
+    """The payload of a data: URL is reduced to a marker, and a second
+    redaction pass is a no-op: several boundaries can filter the same
+    value without double counting."""
     context = RedactionContext()
     source = "data:text/plain;name=private.txt;base64,c2VjcmV0"
 
     once = redact_url(source, context=context, path="$.src")
     twice = redact_url(once, context=context, path="$.src")
 
-    #: le contenu embarqué est remplacé par le marqueur dédié
+    #: the embedded content is replaced with the dedicated marker
     assert once == "data:text/plain;cdpx-redacted,***"
-    #: rejouer le filtre ne change rien et le champ n'est compté qu'une fois
+    #: replaying the filter changes nothing and the field is counted only once
     assert twice == once
     assert context.report.fields == ("$.src.data",)
 
 
 def test_redact_url_masks_known_secrets_in_host_and_percent_encoded_path():
-    """Un secret enregistré est masqué où qu'il se cache dans l'URL, hostname
-    ou chemin percent-encodé: l'encodage ne fait pas échapper au filtre."""
+    """A registered secret is masked wherever it hides in the URL, hostname,
+    or percent-encoded path: encoding does not let it escape the filter."""
     context = RedactionContext.from_secrets(["private-tenant", "encoded-secret"])
 
     value = redact_url(
@@ -79,27 +79,27 @@ def test_redact_url_masks_known_secrets_in_host_and_percent_encoded_path():
         path="$.url",
     )
 
-    #: le tenant privé du host et le secret encodé du chemin sont masqués
-    #: malgré leurs représentations différentes
+    #: the private tenant in the host and the encoded secret in the path are
+    #: masked despite their different representations
     assert value == "https://***.example.test/reset/***?next=***"
     assert {"$.url.netloc", "$.url.path", "$.url.query.next"} <= set(context.report.fields)
 
 
 def test_redact_url_fails_closed_for_malformed_values():
-    """Une URL que le parseur ne sait pas décomposer est masquée en bloc:
-    l'échec d'analyse ferme le filtre, il ne le contourne pas."""
+    """A URL that the parser cannot decompose is masked wholesale: parsing
+    failure closes the filter, it does not bypass it."""
     for value in ("https://[::1/path", "https://example.test/%ZZ", "https://bad host/path"):
         context = RedactionContext()
-        #: chaque forme malformée est remplacée entièrement et signalée
-        #: comme telle dans le rapport
+        #: each malformed form is replaced entirely and flagged
+        #: as such in the report
         assert redact_url(value, context=context, path="$.url") == MASK
         assert context.report.fields == ("$.url.malformed",)
 
 
 def test_redact_headers_is_case_insensitive_and_sanitizes_location():
-    """Les en-têtes porteurs de credentials sont masqués quelle que soit la
-    casse, Location est nettoyé comme une URL au lieu d'être perdu, et les
-    en-têtes anodins passent intacts."""
+    """Headers carrying credentials are masked regardless of case,
+    Location is cleaned like a URL instead of being lost, and
+    ordinary headers pass through intact."""
     context = RedactionContext()
     headers = {
         "AUTHORIZATION": "Bearer top-secret",
@@ -112,8 +112,8 @@ def test_redact_headers_is_case_insensitive_and_sanitizes_location():
 
     redacted = redact_headers(headers, context=context, path="$.headers")
 
-    #: seuls les en-têtes sensibles sont masqués; Location reste exploitable
-    #: pour suivre la redirection mais perd identifiants, code et fragment
+    #: only sensitive headers are masked; Location stays usable
+    #: to follow the redirect but loses credentials, code, and fragment
     assert redacted == {
         "AUTHORIZATION": MASK,
         "Cookie": MASK,
@@ -122,7 +122,7 @@ def test_redact_headers_is_case_insensitive_and_sanitizes_location():
         "Location": "https://example.test/next?code=***",
         "Content-Type": "application/json",
     }
-    #: le rapport détaille aussi les sous-champs nettoyés de Location
+    #: the report also details the cleaned sub-fields of Location
     assert set(context.report.fields) == {
         "$.headers.AUTHORIZATION",
         "$.headers.Cookie",
@@ -135,9 +135,9 @@ def test_redact_headers_is_case_insensitive_and_sanitizes_location():
 
 
 def test_redact_headers_masks_token_secret_and_csrf_name_families():
-    """La détection par nom couvre les familles token/secret/csrf dans leurs
-    variantes (tirets, camelCase) sans masquer un en-tête qui contient le
-    mot token par simple coïncidence."""
+    """Name-based detection covers the token/secret/csrf families in their
+    variants (hyphenated, camelCase) without masking a header that contains
+    the word token by mere coincidence."""
     headers = {
         "X-Debug-Token-Link": "https://example.test/_profiler/value",
         "X-Client-Secret": "secret-value",
@@ -147,8 +147,8 @@ def test_redact_headers_masks_token_secret_and_csrf_name_families():
         "X-Tokenizer-Version": "ordinary",
     }
 
-    #: chaque famille sensible est masquée; le nom Tokenizer passe car le mot
-    #: token n'y apparaît pas de façon isolée
+    #: every sensitive family is masked; the name Tokenizer passes through
+    #: because the word token does not appear in it in isolation
     assert redact_headers(headers) == {
         "X-Debug-Token-Link": MASK,
         "X-Client-Secret": MASK,
@@ -160,9 +160,9 @@ def test_redact_headers_masks_token_secret_and_csrf_name_families():
 
 
 def test_redact_text_masks_registered_secrets_bearer_jwt_and_sensitive_urls():
-    """Le texte libre est purgé de quatre familles de fuites: secret exact
-    enregistré, jeton Bearer, JWT reconnu par sa structure, et URL porteuse
-    de credentials."""
+    """Free text is purged of four families of leaks: exact registered
+    secret, Bearer token, JWT recognized by its structure, and URL carrying
+    credentials."""
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"
     context = RedactionContext.from_secrets(["exact-private-value"])
     text = (
@@ -172,32 +172,32 @@ def test_redact_text_masks_registered_secrets_bearer_jwt_and_sensitive_urls():
 
     redacted = redact_text(text, context=context, path="$.message")
 
-    #: aucune des valeurs sensibles ne survit, sous aucune de ses formes
+    #: none of the sensitive values survive, in any of their forms
     assert "exact-private-value" not in redacted
     assert "bearer-token" not in redacted
     assert jwt not in redacted
     assert "alice" not in redacted and "pass" not in redacted
-    #: l'URL de callback reste corrélable et le compte de masques prouve
-    #: l'absence de surmasquage
+    #: the callback URL stays correlatable and the mask count proves
+    #: the absence of over-masking
     assert "callback=https://example.test/cb?code=***" in redacted
     assert redacted.count(MASK) == 4
-    #: le rapport pointe le champ texte dans son ensemble, pas un détail
+    #: the report points to the text field as a whole, not a detail
     assert context.report.fields == ("$.message",)
 
 
 def test_redact_text_avoids_aggressive_email_and_number_masking():
-    """Emails et identifiants numériques ordinaires ne sont pas des secrets:
-    le filtre n'appauvrit pas les diagnostics légitimes."""
+    """Ordinary emails and numeric identifiers are not secrets: the filter
+    does not impoverish legitimate diagnostics."""
     value = "contact=alice@example.test order=123456 status=ready"
 
-    #: le texte anodin ressort strictement identique — zéro faux positif
+    #: ordinary text comes out strictly identical — zero false positives
     assert redact_text(value) == value
 
 
 def test_redact_text_distinguishes_javascript_data_properties_from_data_urls():
-    """La réduction des data: URLs ne confond pas la propriété JavaScript
-    nommée data avec le schéma data:, seul ce dernier transporte un payload
-    à masquer."""
+    """The reduction of data: URLs does not confuse the JavaScript property
+    named data with the data: scheme, only the latter carries a payload
+    to mask."""
     value = (
         "const selection={data:function(value){return value},meta:{data:[1,2]}};"
         'const icon = "data:image/png;base64,cHJpdmF0ZQ==";'
@@ -205,16 +205,16 @@ def test_redact_text_distinguishes_javascript_data_properties_from_data_urls():
 
     redacted = redact_text(value)
 
-    #: les constructions JavaScript autour du mot data restent intactes
+    #: JavaScript constructs around the word data stay intact
     assert "{data:function(value)" in redacted
     assert "{data:[1,2]}" in redacted
-    #: le véritable data: URL est, lui, réduit à son marqueur
+    #: the actual data: URL, on the other hand, is reduced to its marker
     assert '"data:image/png;cdpx-redacted,***"' in redacted
 
 
 def test_environment_secret_discovery_is_name_scoped_and_ignores_tiny_values():
-    """Seules les variables au nom évocateur et à la valeur non triviale
-    alimentent le registre: pas d'aspiration aveugle de l'environnement."""
+    """Only variables with an evocative name and a non-trivial value
+    feed the registry: no blind vacuuming of the environment."""
     values = secret_values_from_environment(
         {
             "CHECKOUT_PASSWORD": "private-password",
@@ -225,31 +225,32 @@ def test_environment_secret_discovery_is_name_scoped_and_ignores_tiny_values():
         }
     )
 
-    #: les noms de la famille password/token sont retenus; nom anodin, valeur
-    #: d'un seul caractère et PATH sont écartés du registre
+    #: names in the password/token family are retained; an ordinary name, a
+    #: single-character value, and PATH are excluded from the registry
     assert values == ["private-password", "token-value"]
 
 
 def test_redact_action_masks_type_eval_and_cookie_values():
-    """Chaque verbe journalisé a sa politique: type masque le texte saisi,
-    eval masque toute l'expression, cookies set masque la valeur et nettoie
-    l'URL — l'action reste identifiable sans livrer la valeur secrète."""
+    """Each logged verb has its own policy: type masks the typed text,
+    eval masks the whole expression, cookies set masks the value and cleans
+    the URL — the action stays identifiable without delivering the secret
+    value."""
     type_context = RedactionContext()
     eval_context = RedactionContext()
     cookie_context = RedactionContext()
 
-    #: le texte tapé est masqué, sélecteur et options restent lisibles
+    #: the typed text is masked, selector and options stay readable
     assert redact_action(
         ["type", "#password", "hunter2", "--clear"],
         context=type_context,
     ) == ["type", "#password", MASK, "--clear"]
-    #: une expression eval est opaque: chaque argument est masqué en bloc
+    #: an eval expression is opaque: every argument is masked wholesale
     assert redact_action(
         ["eval", "window.secret", "+", "document.cookie"],
         context=eval_context,
     ) == ["eval", MASK, MASK, MASK]
-    #: la valeur du cookie est masquée et son URL nettoyée; le nom du cookie
-    #: reste utile à la corrélation
+    #: the cookie value is masked and its URL cleaned; the cookie name
+    #: stays useful for correlation
     assert redact_action(
         [
             "cookies",
@@ -272,15 +273,15 @@ def test_redact_action_masks_type_eval_and_cookie_values():
         "--url",
         "https://example.test/?token=***",
     ]
-    #: chaque contexte rapporte exactement les positions argv touchées
+    #: each context reports exactly the argv positions touched
     assert type_context.report.fields == ("$[2]",)
     assert eval_context.report.fields == ("$[1]", "$[2]", "$[3]")
     assert set(cookie_context.report.fields) == {"$[5]", "$[7].query.token"}
 
 
 def test_redact_action_supports_structured_actions():
-    """La redaction d'action s'applique aussi à la forme dict du journal:
-    texte masqué et URL nettoyée sans casser la structure rejouable."""
+    """Action redaction also applies to the dict form of the log:
+    masked text and cleaned URL without breaking the replayable structure."""
     context = RedactionContext()
 
     action = redact_action(
@@ -294,8 +295,8 @@ def test_redact_action_supports_structured_actions():
         path="$.action",
     )
 
-    #: seuls le texte saisi et le paramètre sensible de l'URL sont masqués,
-    #: le reste de l'action demeure exploitable
+    #: only the typed text and the sensitive URL parameter are masked,
+    #: the rest of the action remains usable
     assert action == {
         "verb": "type",
         "selector": "#password",
@@ -309,9 +310,9 @@ def test_redact_action_supports_structured_actions():
 
 
 def test_redact_tree_uses_context_for_headers_actions_urls_and_sensitive_keys():
-    """Le nettoyage transversal d'un arbre JSON applique la règle adaptée à
-    chaque nœud (URL, headers, action, clé sensible, texte libre), y compris
-    en profondeur dans les listes imbriquées."""
+    """The cross-cutting cleanup of a JSON tree applies the rule suited to
+    each node (URL, headers, action, sensitive key, free text), including
+    deep within nested lists."""
     context = RedactionContext.from_secrets(["known-secret"])
     payload = {
         "url": "https://example.test/path?token=known-secret#fragment",
@@ -329,8 +330,9 @@ def test_redact_tree_uses_context_for_headers_actions_urls_and_sensitive_keys():
 
     redacted = redact_tree(payload, context=context)
 
-    #: chaque famille de nœuds reçoit son traitement dédié; le message libre
-    #: perd le secret connu mais garde son sens, l'anodin survit
+    #: each family of nodes receives its dedicated treatment; the free
+    #: message loses the known secret but keeps its meaning, the ordinary
+    #: value survives
     assert redacted == {
         "url": "https://example.test/path?token=***",
         "headers": {"authorization": MASK, "Content-Type": "text/plain"},
@@ -341,14 +343,14 @@ def test_redact_tree_uses_context_for_headers_actions_urls_and_sensitive_keys():
         "nested": [{"href": "https://example.test/next?page=***"}],
         "ok": True,
     }
-    #: le rapport global atteste l'ampleur réelle du nettoyage effectué
+    #: the overall report attests to the real extent of the cleanup performed
     assert context.report.redacted is True
     assert context.report.count >= 8
 
 
 def test_redact_tree_normalizes_camel_case_sensitive_keys():
-    """La détection des clés sensibles comprend le camelCase des payloads CDP
-    sans masquer les clés ordinaires voisines."""
+    """Sensitive key detection understands the camelCase of CDP payloads
+    without masking neighboring ordinary keys."""
     payload = {
         "clientSecret": "one",
         "accessToken": "two",
@@ -357,8 +359,8 @@ def test_redact_tree_normalizes_camel_case_sensitive_keys():
         "ordinaryValue": "kept",
     }
 
-    #: les clés camelCase des familles secret/token/csrf/debugger sont
-    #: masquées, la clé ordinaire est conservée
+    #: camelCase keys from the secret/token/csrf/debugger families are
+    #: masked, the ordinary key is kept
     assert redact_tree(payload) == {
         "clientSecret": MASK,
         "accessToken": MASK,
@@ -369,9 +371,9 @@ def test_redact_tree_normalizes_camel_case_sensitive_keys():
 
 
 def test_redaction_is_idempotent_for_a_complete_tree_and_report():
-    """Rejouer la redaction sur une sortie déjà nettoyée est un no-op total:
-    ni double masquage ni gonflement du rapport quand primitive, CLI et
-    artefact filtrent successivement la même donnée."""
+    """Replaying redaction on an already-cleaned output is a total no-op:
+    neither double masking nor report inflation when primitive, CLI, and
+    artifact successively filter the same data."""
     context = RedactionContext.from_secrets(["private-value"])
     payload = {
         "url": "https://user:pass@example.test/?token=private-value#fragment",
@@ -384,6 +386,6 @@ def test_redaction_is_idempotent_for_a_complete_tree_and_report():
     report_once = context.report
     twice = redact_tree(once, context=context)
 
-    #: la seconde passe ne modifie ni l'arbre ni le rapport accumulé
+    #: the second pass modifies neither the tree nor the accumulated report
     assert twice == once
     assert context.report == report_once

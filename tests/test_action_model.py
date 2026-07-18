@@ -1,4 +1,4 @@
-"""Contrat du langage d'actions composé, parsé une seule fois aux frontières."""
+"""Contract of the composed action language, parsed once at the boundaries."""
 
 import pytest
 

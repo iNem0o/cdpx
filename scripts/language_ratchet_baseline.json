@@ -8,8 +8,8 @@
     "lines": 43
   },
   "meta": {
-    "files": 9,
-    "lines": 78
+    "files": 5,
+    "lines": 34
   },
   "root-docs": {
     "files": 0,
@@ -28,7 +28,7 @@
     "lines": 0
   },
   "tests": {
-    "files": 30,
-    "lines": 2734
+    "files": 6,
+    "lines": 21
   }
 }

@@ -1,7 +1,7 @@
-"""Extraction statique d'intention (docstring + `#:`) — tests unitaires.
+"""Static intent extraction (docstring + `#:`) — unit tests.
 
-Les fonctions ``sample_*`` sont des témoins volontairement figés: leur source
-EST la fixture. Ne pas les reformater sans adapter les assertions de lignes.
+The ``sample_*`` functions are deliberately frozen witnesses: their source
+IS the fixture. Do not reformat them without adapting the line assertions.
 """
 
 import functools
@@ -20,16 +20,16 @@ from cdpx.testing.intent import (
 
 
 def sample_documented():
-    """Vérifie que la valeur brute
-    ne fuit jamais dans la sortie."""
+    """Checks that the raw value
+    never leaks into the output."""
 
     value = {"cookie": "***"}
 
-    #: la valeur brute est remplacée par un masque
+    #: the raw value is replaced by a mask
     assert value["cookie"] == "***"
 
-    #: le dictionnaire ne contient
-    #: aucune autre clé sensible
+    #: the dictionary contains
+    #: no other sensitive key
     assert list(value) == ["cookie"]
 
 
@@ -39,16 +39,16 @@ def sample_without_docstring():
 
 
 def sample_inline_and_steps():
-    payload = json.dumps({"ok": True})  #: la sérialisation reste déterministe
+    payload = json.dumps({"ok": True})  #: serialization stays deterministic
 
-    #: préparer la charge utile décodée
+    #: prepare the decoded payload
     decoded = json.loads(payload)
 
-    #: l'accès à une clé absente doit lever
+    #: accessing a missing key must raise
     with pytest.raises(KeyError):
         decoded["absent"]
 
-    #: note orpheline en fin de fonction
+    #: orphan note at the end of the function
 
 
 def _traced(func):
@@ -61,16 +61,16 @@ def _traced(func):
 
 @_traced
 def sample_decorated():
-    """Intention derrière décorateur."""
+    """Intent behind a decorator."""
 
-    #: l'assertion reste localisée malgré le wrapper
+    #: the assertion stays located despite the wrapper
     assert True
 
 
 async def sample_async():
-    """Intention asynchrone."""
+    """Async intent."""
 
-    #: l'extraction couvre les coroutines
+    #: extraction covers coroutines
     assert True
 
 
@@ -111,18 +111,18 @@ def test_extract_intent_reads_docstring_and_grouped_comments():
     intent = extract_intent(sample_documented)
 
     assert intent is not None
-    assert intent.docstring.startswith("Vérifie que la valeur brute")
-    #: la docstring est nettoyée (cleandoc), pas de retrait résiduel
-    assert "\n    ne fuit" not in intent.docstring
+    assert intent.docstring.startswith("Checks that the raw value")
+    #: the docstring is cleaned (cleandoc), no residual indentation
+    assert "\n    never leaks" not in intent.docstring
 
     kinds = [assertion.kind for assertion in intent.assertions]
     assert kinds == ["assert", "assert"]
     first, second = intent.assertions
-    assert first.text == "la valeur brute est remplacée par un masque"
-    #: les commentaires `#:` consécutifs sont fusionnés en une seule intention
-    assert second.text == "le dictionnaire ne contient aucune autre clé sensible"
+    assert first.text == "the raw value is replaced by a mask"
+    #: consecutive `#:` comments are merged into a single intent
+    assert second.text == "the dictionary contains no other sensitive key"
     assert first.code_excerpt.startswith("assert value[")
-    #: les lignes sont absolues dans le fichier de test
+    #: lines are absolute within the test file
     assert first.line > 20
 
 
@@ -140,21 +140,21 @@ def test_extract_intent_covers_inline_steps_raises_and_orphans():
     assert intent is not None
     by_text = {assertion.text: assertion for assertion in intent.assertions}
 
-    #: un commentaire en fin de ligne annote l'instruction qui le porte
-    inline = by_text["la sérialisation reste déterministe"]
+    #: a trailing comment annotates the statement carrying it
+    inline = by_text["serialization stays deterministic"]
     assert inline.kind == "step"
     assert inline.code_excerpt.startswith("payload = json.dumps")
 
-    #: une étape non-assert reçoit kind="step"
-    step = by_text["préparer la charge utile décodée"]
+    #: a non-assert step receives kind="step"
+    step = by_text["prepare the decoded payload"]
     assert step.kind == "step"
 
-    #: pytest.raises compte comme une assertion
+    #: pytest.raises counts as an assertion
     raises = next(a for a in intent.assertions if a.code_excerpt.startswith("with pytest.raises"))
     assert raises.kind == "assert"
 
-    #: un commentaire sans instruction suivante devient une note visible
-    orphan = by_text["note orpheline en fin de fonction"]
+    #: a comment without a following statement becomes a visible note
+    orphan = by_text["orphan note at the end of the function"]
     assert orphan.kind == "note"
     assert orphan.code_excerpt == ""
 
@@ -162,16 +162,16 @@ def test_extract_intent_covers_inline_steps_raises_and_orphans():
 def test_extract_intent_unwraps_decorators_and_supports_async():
     decorated = extract_intent(sample_decorated)
     assert decorated is not None
-    assert decorated.docstring == "Intention derrière décorateur."
+    assert decorated.docstring == "Intent behind a decorator."
     assert decorated.assertions[0].kind == "assert"
 
     coroutine = extract_intent(sample_async)
     assert coroutine is not None
-    assert coroutine.assertions[0].text == "l'extraction couvre les coroutines"
+    assert coroutine.assertions[0].text == "extraction covers coroutines"
 
 
 def test_extract_intent_fails_open_when_source_is_unavailable():
-    #: une builtin n'a pas de source: aucune exception, juste None
+    #: a builtin has no source: no exception, just None
     assert extract_intent(len) is None
     assert extract_intent(42) is None
 
@@ -185,14 +185,14 @@ def test_evidence_session_extracts_intent_once_for_parametrized_items(tmp_path):
         FakeItem("tests/test_intent.py::sample_documented[b]", sample_documented)
     )
 
-    assert first.intent.startswith("Vérifie")
+    assert first.intent.startswith("Checks")
     assert second.intent == first.intent
     assert len(session._intent_cache) == 1
-    #: chaque case possède ses propres dicts d'assertions (corrélation isolée)
+    #: each case owns its assertion dicts (isolated correlation)
     assert first.assertions is not second.assertions
     assert first.assertions == second.assertions
 
-    #: un item sans fonction (plugin exotique) ne casse pas la collecte
+    #: an item without a function (exotic plugin) does not break collection
     bare = session.case_for_item(FakeItem("tests/test_intent.py::no_function"))
     assert bare.intent == ""
 
@@ -201,11 +201,11 @@ def test_failure_location_only_trusts_the_test_file():
     in_test = FakeReport(longrepr=FakeLongrepr("/repo/tests/test_demo.py", 42))
     assert failure_location(in_test, "tests/test_demo.py") == 42
 
-    #: un échec dans un helper ne doit jamais incriminer une assertion du test
+    #: a failure in a helper must never incriminate a test assertion
     in_helper = FakeReport(longrepr=FakeLongrepr("/repo/src/cdpx/testing/e2e.py", 99))
     assert failure_location(in_helper, "tests/test_demo.py") == 0
 
-    #: repli sur le texte du longrepr quand reprcrash est absent
+    #: fall back to the longrepr text when reprcrash is absent
     fallback = FakeReport(
         longrepr=None,
         longreprtext="E assert 1 == 2\ntests/test_demo.py:57: AssertionError",
@@ -226,10 +226,10 @@ def test_mark_failed_assertion_targets_the_covering_statement():
 
     mark_failed_assertion(entries, 23)
 
-    #: l'instruction la plus interne couvrant la ligne est incriminée, pas le bloc
+    #: the innermost statement covering the line is incriminated, not the block
     assert [entry["status"] for entry in entries] == ["", "", "failed", ""]
 
-    #: une ligne hors de toute annotation ne marque rien
+    #: a line outside any annotation marks nothing
     fresh = [assertion.as_dict() for assertion in assertions]
     mark_failed_assertion(fresh, 5)
     assert all(entry["status"] == "" for entry in fresh)
@@ -259,9 +259,9 @@ def test_intent_fields_are_redacted_in_case_payload(tmp_path):
     context = RedactionContext.from_secrets(["proof-canary-999"])
 
     def sample_secret():
-        """Docstring avec proof-canary-999 dedans."""
+        """Docstring with proof-canary-999 inside."""
 
-        #: le commentaire cite proof-canary-999
+        #: the comment cites proof-canary-999
         assert True
 
     session = EvidenceSession(tmp_path, ttl=3600, redaction_context=context)

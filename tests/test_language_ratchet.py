@@ -1,9 +1,9 @@
-"""Ratchet de langue: la migration vers l'anglais ne recule jamais.
+"""Language ratchet: the migration to English never regresses.
 
-Le baseline commité (scripts/language_ratchet_baseline.json) est exact:
-toute dérive — hausse comme baisse — exige de le régénérer dans le même
-commit (`python3 scripts/language_ratchet.py --write-baseline`), pour que
-chaque traduction soit verrouillée et chaque régression bruyante.
+The committed baseline (scripts/language_ratchet_baseline.json) is exact:
+any drift — increase as well as decrease — requires regenerating it in the
+same commit (`python3 scripts/language_ratchet.py --write-baseline`), so
+that every translation is locked in and every regression is noisy.
 """
 
 from pathlib import Path
@@ -20,8 +20,8 @@ from scripts.language_ratchet import (
 
 
 def test_french_line_count_detects_accents_and_plain_french_words(tmp_path):
-    """Le compteur voit le français accentué comme non accentué, et ignore
-    l'anglais ainsi que les lignes purement techniques."""
+    """The counter sees accented as well as unaccented French, and ignores
+    English as well as purely technical lines."""
 
     sample = tmp_path / "sample.md"
     sample.write_text(
@@ -38,8 +38,8 @@ def test_french_line_count_detects_accents_and_plain_french_words(tmp_path):
         encoding="utf-8",
     )
 
-    #: trois lignes françaises: une par accents, deux par mots non
-    #: accentués à haute précision («chaque», «aucun»)
+    #: three French lines: one by accents, two by high-precision
+    #: unaccented words ("chaque", "aucun")
     assert french_line_count(sample) == 3
 
 
@@ -49,15 +49,16 @@ def test_french_line_count_detects_accents_and_plain_french_words(tmp_path):
     "ne se mesure que sur un checkout complet",
 )
 def test_language_baseline_matches_current_measurement():
-    """Le baseline commité égale la mesure courante, zone par zone — sur un
-    checkout complet uniquement: l'image Docker copie un arbre volontairement
-    partiel (.dockerignore) où la mesure serait fausse."""
+    """The committed baseline equals the current measurement, area by
+    area — on a complete checkout only: the Docker image copies a
+    deliberately partial tree (.dockerignore) where the measurement would
+    be wrong."""
 
     current = measure(REPO_ROOT)
     baseline = load_baseline()
 
-    #: toute différence produit un message actionnable: régénérer le
-    #: baseline dans le commit qui change la quantité de français
+    #: any difference produces an actionable message: regenerate the
+    #: baseline in the commit that changes the amount of French
     assert current == baseline, (
         "la mesure de français a dérivé du baseline; si c'est volontaire: "
         "python3 scripts/language_ratchet.py --write-baseline"
@@ -65,14 +66,14 @@ def test_language_baseline_matches_current_measurement():
 
 
 def test_migration_tooling_is_excluded_from_the_scan():
-    """Les fichiers outils de la migration (glossaire, ratchet) ne polluent
-    pas la mesure: sans cette exclusion, le zéro serait inatteignable."""
+    """The migration tooling files (glossary, ratchet) do not pollute the
+    measurement: without this exclusion, zero would be unreachable."""
 
     glossary = Path(REPO_ROOT, "docs", "GLOSSARY.md")
 
-    #: le glossaire FR→EN contient du français par construction…
+    #: the FR→EN glossary contains French by construction…
     assert french_line_count(glossary) > 0
-    #: …mais n'est balayé dans aucune zone, pas plus que le ratchet lui-même
+    #: …but is scanned in no area, no more than the ratchet itself
     assert glossary not in area_files(REPO_ROOT, AREAS["docs"])
     ratchet_test = Path(REPO_ROOT, "tests", "test_language_ratchet.py")
     assert ratchet_test not in area_files(REPO_ROOT, AREAS["tests"])

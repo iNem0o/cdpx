@@ -1,8 +1,8 @@
-"""Parseurs des panels du Web Profiler validés sur du HTML committé (fixtures
-capturées depuis la vraie app Symfony), plus le fetch page-context via le mock.
+"""Web Profiler panel parsers validated against committed HTML (fixtures
+captured from the real Symfony app), plus the page-context fetch via the mock.
 
-Le contrat: comptes/classes/routes/statuts exacts, durées jamais assertées en
-valeur (seulement leur type), et JAMAIS d'exception de parsing.
+The contract: exact counts/classes/routes/statuses, durations never asserted
+by value (only by type), and NEVER a parsing exception.
 """
 
 import json
@@ -36,77 +36,77 @@ def client(mock):
 
 
 def test_parse_db_counts_duplicates_and_queries():
-    """Le panel Doctrine capturé sur la vraie app est réduit à des comptes
-    exacts (requêtes, statements, doublons) et à du SQL lisible; les durées ne
-    sont garanties qu'en type."""
+    """The Doctrine panel captured on the real app is reduced to exact
+    counts (queries, statements, duplicates) and readable SQL; durations are
+    only guaranteed by type."""
     res = profiler.parse_panel("db", 200, read("db.html"))
-    #: la fixture réelle encode 6 exécutions pour 2 statements uniques, donc
-    #: 4 doublons: le parseur distingue exécutions et requêtes distinctes
+    #: the real fixture encodes 6 executions for 2 unique statements, hence
+    #: 4 duplicates: the parser distinguishes executions from distinct queries
     assert res["available"] is True
     assert res["queries"] == 6
     assert res["statements"] == 2
     assert res["duplicates"] == 4
-    #: les durées varient d'une capture à l'autre: seul leur type est un contrat
+    #: durations vary from one capture to another: only their type is a contract
     assert isinstance(res["time_ms"], float)
-    #: le SQL extrait est le vrai texte des requêtes, pas un résumé tronqué
+    #: the extracted SQL is the queries' actual text, not a truncated summary
     assert [q["sql"].startswith("SELECT") for q in res["list"]] == [True, True]
     assert "FROM book" in res["list"][0]["sql"]
     assert isinstance(res["list"][0]["duration_ms"], float)
 
 
 def test_parse_twig_counts_and_templates():
-    """Le panel Twig est réduit aux compteurs de rendu (templates, blocks,
-    macros) et aux chemins logiques des templates, la durée de rendu n'étant
-    contractuelle qu'en type."""
+    """The Twig panel is reduced to render counters (templates, blocks,
+    macros) and the templates' logical paths, the render duration being
+    contractual only by type."""
     res = profiler.parse_panel("twig", 200, read("twig.html"))
-    #: les compteurs proviennent bien des métriques Twig et pas d'un autre
-    #: bloc du HTML: y compris les zéros, qui doivent rester des zéros
+    #: the counters really come from the Twig metrics and not from some
+    #: other block of the HTML: including zeros, which must stay zeros
     assert res["available"] is True
     assert res["templates"] == 3
     assert res["blocks"] == 0
     assert res["macros"] == 0
     assert isinstance(res["render_ms"], float)
     #: la liste restitue les chemins logiques applicatifs, exploitables pour
-    #: repérer un template inattendu
+    #: spotting an unexpected template
     assert res["list"] == ["scenario/base.html.twig", "scenario/_row.html.twig"]
 
 
 def test_parse_cache_totals_and_pools():
-    """Le panel cache livre les six totaux globaux et la ventilation par pool,
-    fidèles à la capture réelle: c'est ce qui permet de diagnostiquer un
-    hit/miss anormal pool par pool."""
+    """The cache panel delivers the six global totals and the per-pool
+    breakdown, faithful to the real capture: this is what allows diagnosing
+    an abnormal hit/miss pool by pool."""
     res = profiler.parse_panel("cache", 200, read("cache.html"))
-    #: les totaux forment un ensemble cohérent (reads = hits + misses):
-    #: une confusion de colonnes dans le parseur casserait cette arithmétique
+    #: the totals form a coherent set (reads = hits + misses): a column mix-up
+    #: in the parser would break this arithmetic
     assert res["available"] is True
     assert (res["calls"], res["reads"], res["hits"]) == (5, 4, 3)
     assert (res["misses"], res["writes"], res["deletes"]) == (1, 1, 0)
-    #: la ventilation est adressable par le nom applicatif du pool
+    #: the breakdown is addressable by the pool's application name
     assert res["pools"]["app.scenario_pool"]["hits"] == 3
     assert res["pools"]["app.scenario_pool"]["misses"] == 1
 
 
 def test_parse_exception_absent_then_raised():
-    """Le panel exception distingue 'rien à signaler' (structure explicite à
-    None) d'une exception levée dont classe et message sont extraits tels
-    quels."""
+    """The exception panel distinguishes 'nothing to report' (structure
+    explicitly set to None) from a raised exception whose class and message
+    are extracted as-is."""
     res = profiler.parse_panel("exception", 200, read("exception.html"))
-    #: l'absence d'exception est une structure complète et fermée, pas un
-    #: dict amputé que l'appelant devrait deviner
+    #: the absence of an exception is a complete, closed structure, not an
+    #: amputated dict the caller would have to guess
     assert res == {"available": True, "raised": False, "class": None, "message": None}
     raised = profiler.parse_panel("exception", 200, read("exception-raised.html"))
-    #: l'exception réelle remonte sa classe qualifiée et son message exact,
-    #: matière première du diagnostic 404
+    #: the real exception surfaces its qualified class and exact message,
+    #: raw material for the 404 diagnosis
     assert raised["raised"] is True
     assert raised["class"].endswith("NotFoundHttpException")
     assert raised["message"] == "cdpx scenario 404"
 
 
 def test_parse_exception_global_class_without_namespace():
-    """Une classe d'exception globale (sans namespace) est extraite telle
-    quelle: le parseur ne présuppose pas un FQCN avec antislashs, cas
-    rencontré sur la vraie route routing-500."""
-    # \RuntimeException: classe globale, pas de FQCN — le cas routing-500 réel.
+    """A global exception class (without a namespace) is extracted as-is:
+    the parser does not assume an FQCN with backslashes, a case encountered
+    on the real routing-500 route."""
+    # \RuntimeException: global class, no FQCN — the real routing-500 case.
     html = (
         '<div class="exception-summary"><div class="exception-metadata">'
         '<h2 class="exception-hierarchy"><abbr title="RuntimeException">'
@@ -115,17 +115,17 @@ def test_parse_exception_global_class_without_namespace():
         '<h1 class="exception-message">cdpx scenario 500</h1></div></div>'
     )
     res = profiler.parse_panel("exception", 200, html)
-    #: la classe globale est restituée sans préfixe fantôme ni troncature:
-    #: un parseur qui exigerait un antislash rendrait class=None ici
+    #: the global class is returned without a phantom prefix or truncation:
+    #: a parser requiring a backslash would yield class=None here
     assert res["raised"] is True
     assert res["class"] == "RuntimeException"
     assert res["message"] == "cdpx scenario 500"
 
 
 def test_profiler_free_text_only_redacts_high_confidence_credentials(evidence_case):
-    """La redaction du texte libre des panels ne masque que les credentials à
-    haute confiance (Bearer, JWT, credentials et query d'URL): les identifiants
-    métier anodins survivent, sinon le rapport devient inexploitable."""
+    """Redaction of the panels' free text only masks high-confidence
+    credentials (Bearer, JWT, URL credentials and query): harmless business
+    identifiers survive, otherwise the report becomes unusable."""
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"
     exception_html = read("exception-raised.html").replace(
         "cdpx scenario 404",
@@ -152,109 +152,109 @@ def test_profiler_free_text_only_redacts_high_confidence_credentials(evidence_ca
     http = profiler.parse_panel("http_client", 200, http_html)
     serialized = json.dumps({"exception": exception, "db": db, "http": http})
 
-    #: aucune des valeurs secrètes injectées (Bearer, JWT, credentials d'URL)
-    #: ne survit à la sérialisation JSON complète du résultat, quel que soit
-    #: le panel qui les transportait
+    #: none of the injected secret values (Bearer, JWT, URL credentials)
+    #: survives the full JSON serialization of the result, regardless of
+    #: which panel carried them
     assert "exception-secret" not in serialized
     assert "sql-secret" not in serialized
     assert jwt not in serialized
     assert "alice" not in serialized and "password" not in serialized
-    #: le texte métier anodin n'est pas sur-redacté: message d'exception et
-    #: SQL restent lisibles pour le diagnostic
+    #: harmless business text is not over-redacted: exception message and
+    #: SQL stay readable for the diagnosis
     assert "order 123456" in exception["message"]
     assert "order 123456" in db["list"][0]["sql"]
-    #: l'URL sortante est nettoyée finement: credentials et fragment retirés,
-    #: paramètre sensible masqué, mais l'endpoint reste identifiable
+    #: the outgoing URL is finely cleaned: credentials and fragment removed,
+    #: sensitive parameter masked, but the endpoint stays identifiable
     assert http["list"][0]["url"] == "https://example.test/api?token=***"
 
-    # Preuve secondaire: la sérialisation des trois panels, où aucun credential
-    # à haute confiance ne survit.
+    # Secondary evidence: the serialization of the three panels, where no
+    # high-confidence credential survives.
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Panels profiler redactés (exception/db/http)",
+            "Redacted profiler panels (exception/db/http)",
             {"exception": exception, "db": db, "http": http},
         )
 
 
 def test_parse_http_client_requests_and_statuses():
-    """Le panel HTTP client compte requêtes, clients et erreurs, et décrit
-    chaque appel sortant par méthode, URL et statut: de quoi repérer un appel
-    externe imprévu."""
+    """The HTTP client panel counts requests, clients and errors, and
+    describes each outgoing call by method, URL and status: enough to spot
+    an unexpected external call."""
     res = profiler.parse_panel("http_client", 200, read("http_client.html"))
-    #: les compteurs globaux reflètent la capture réelle, zéro erreur compris
+    #: the global counters reflect the real capture, zero errors included
     assert res["available"] is True
     assert res["requests"] == 1
     assert res["clients"] == 1
     assert res["errors"] == 0
-    #: chaque appel sortant est identifiable: méthode, URL cible et statut
-    #: numérique, pas une chaîne brute
+    #: each outgoing call is identifiable: method, target URL and numeric
+    #: status, not a raw string
     assert res["list"][0]["method"] == "GET"
     assert res["list"][0]["url"] == "http://127.0.0.1:8000/api/echo"
     assert res["list"][0]["status"] == 200
 
 
 def test_parse_messenger_buses_and_classes():
-    """Le panel Messenger sépare messages dispatchés et traités, les ventile
-    par bus et nomme la classe de chaque message: le flux métier est
-    identifiable sans ouvrir le profiler."""
+    """The Messenger panel separates dispatched and handled messages, breaks
+    them down by bus and names the class of each message: the business flow
+    is identifiable without opening the profiler."""
     res = profiler.parse_panel("messenger", 200, read("messenger.html"))
-    #: dispatch et traitement sont comptés séparément — un message queué non
-    #: traité ferait diverger ces deux compteurs
+    #: dispatch and handling are counted separately — a queued but
+    #: unhandled message would make these two counters diverge
     assert res["available"] is True
     assert res["dispatched"] == 1
     assert res["handled"] == 1
-    #: la ventilation par bus et la classe FQCN désignent le message précis
+    #: the per-bus breakdown and the FQCN class designate the exact message
     assert res["buses"] == {"messenger.bus.default": 1}
     assert res["list"] == [{"class": "App\\Message\\SyncPing"}]
 
 
 def test_parse_router_route_controller_status():
-    """Le panel routing identifie route, contrôleur (FQCN::méthode), statut
-    HTTP et absence de redirection à partir du panel request réel."""
+    """The routing panel identifies route, controller (FQCN::method), HTTP
+    status and absence of redirection from the real request panel."""
     res = profiler.parse_panel("router", 200, read("request.html"))
-    #: route et contrôleur sont les identifiants exacts de la requête
-    #: profilée: c'est ce qui relie une mesure à son code applicatif
+    #: route and controller are the exact identifiers of the profiled
+    #: request: this is what links a measurement to its application code
     assert res["available"] is True
     assert res["route"] == "scenario_profiler"
     assert res["controller"] == "App\\Controller\\ScenarioController::profiler"
-    #: statut numérique et drapeau de redirection complètent le diagnostic
+    #: numeric status and redirection flag complete the diagnosis
     assert res["status_code"] == 200
     assert res["redirect"] is False
 
 
 def test_parse_time_metrics_and_timeline():
-    """Le panel temps expose des durées typées (jamais assertées en valeur)
-    et une timeline où les évènements attendus sont retrouvés par nom."""
+    """The time panel exposes typed durations (never asserted by value) and
+    a timeline where expected events are found by name."""
     res = profiler.parse_panel("time", 200, read("time.html"))
-    #: les durées ne sont contractuelles qu'en type: une valeur figée
-    #: rendrait le test dépendant de la machine de capture
+    #: durations are contractual only by type: a pinned value would make
+    #: the test dependent on the capture machine
     assert res["available"] is True
     assert isinstance(res["total_ms"], float)
     assert isinstance(res["init_ms"], float)
     names = [e["name"] for e in res["events"]]
-    #: la timeline contient le contrôleur et la section stopwatch applicative:
-    #: le parseur lit bien les évènements, pas seulement les totaux
+    #: the timeline contains the controller and the application stopwatch
+    #: section: the parser really reads the events, not just the totals
     assert "controller" in names and "cdpx.section-1" in names
 
 
 def test_parse_logger_counts():
-    """Le panel logs se réduit à trois compteurs (erreurs, warnings,
-    dépréciations) dans une structure fermée."""
+    """The logs panel reduces to three counters (errors, warnings,
+    deprecations) in a closed structure."""
     res = profiler.parse_panel("logger", 200, read("logger.html"))
-    #: l'égalité stricte fige le contrat: les dépréciations sont comptées et
-    #: aucun champ parasite ne peut s'inviter dans la sortie
+    #: the strict equality pins the contract: deprecations are counted and
+    #: no stray field can sneak into the output
     assert res == {"available": True, "errors": 0, "warnings": 0, "deprecations": 2}
 
 
-# -- tolérance (jamais d'exception) --------------------------------------------
+# -- tolerance (never an exception) ---------------------------------------------
 
 
 def test_panel_unavailable_on_non_200_or_empty():
-    """Un statut non-200 ou un corps vide se traduit en indisponibilité
-    structurée portant le statut HTTP, jamais en exception ni en parsing
-    partiel de HTML d'erreur."""
-    #: le statut d'origine est conservé dans le marqueur d'indisponibilité:
-    #: l'appelant sait si le profiler a répondu 404 ou renvoyé du vide
+    """A non-200 status or an empty body translates into a structured
+    unavailability carrying the HTTP status, never into an exception or a
+    partial parsing of error HTML."""
+    #: the original status is kept in the unavailability marker: the caller
+    #: knows whether the profiler answered 404 or returned nothing
     assert profiler.parse_panel("db", 404, "<html></html>") == {
         "available": False,
         "status": 404,
@@ -264,45 +264,45 @@ def test_panel_unavailable_on_non_200_or_empty():
 
 @pytest.mark.parametrize("key", profiler.ALL_PANELS)
 def test_parse_garbage_html_never_raises(key):
-    """Chaque panel du catalogue digère du HTML malformé sans lever: le
-    contrat 'jamais d'exception de parsing' tient pour tous les parseurs,
-    avec des champs à zéro/None plutôt qu'une erreur."""
-    res = profiler.parse_panel(key, 200, "<p>rien à voir <div><span>ici</p>")
-    #: quel que soit le panel, un HTML cassé reste 'available' sans champ
-    #: d'erreur: la tolérance est le contrat, pas un cas particulier
+    """Every panel in the catalog digests malformed HTML without raising:
+    the 'never a parsing exception' contract holds for every parser, with
+    fields set to zero/None rather than an error."""
+    res = profiler.parse_panel(key, 200, "<p>nothing to see <div><span>here</p>")
+    #: whatever the panel, broken HTML stays 'available' with no error
+    #: field: tolerance is the contract, not a special case
     assert res["available"] is True
-    assert "parse_error" not in res  # tolérant: champs à zéro/None, pas d'erreur
+    assert "parse_error" not in res  # tolerant: fields at zero/None, not an error
 
 
 def test_parse_panel_rejects_unknown_key():
-    """La tolérance de parsing ne s'étend pas aux erreurs d'appel: une clé de
-    panel inconnue lève immédiatement au lieu de retourner du vide."""
-    #: l'erreur de programmation est bruyante, contrairement au HTML cassé
-    #: qui, lui, doit être toléré
+    """Parsing tolerance does not extend to call errors: an unknown panel
+    key raises immediately instead of returning something empty."""
+    #: the programming error is loud, unlike broken HTML, which must be
+    #: tolerated
     with pytest.raises(ValueError, match="unknown panel"):
         profiler.parse_panel("nope", 200, "<html></html>")
 
 
 def test_normalize_panels_defaults_and_rejects():
-    """La normalisation de la sélection de panels fait de None 'tout le
-    catalogue', préserve une sélection valide et rejette une clé inconnue
-    avant tout fetch."""
-    #: None se déploie en catalogue complet et une sélection valide traverse
-    #: intacte, dans l'ordre demandé
+    """Normalizing the panel selection turns None into 'the whole
+    catalog', preserves a valid selection and rejects an unknown key before
+    any fetch."""
+    #: None expands into the full catalog and a valid selection passes
+    #: through intact, in the requested order
     assert profiler.normalize_panels(None) == list(profiler.ALL_PANELS)
     assert profiler.normalize_panels(["db", "twig"]) == ["db", "twig"]
-    #: une clé inconnue échoue à la validation, donc avant toute requête
-    #: vers le profiler
+    #: an unknown key fails validation, hence before any request to the
+    #: profiler
     with pytest.raises(ValueError, match=r"unknown panel\(s\)"):
         profiler.normalize_panels(["db", "doctrine"])
 
 
 def test_menu_lists_sidebar_panels():
-    """Le menu latéral du profiler est extractible du HTML de n'importe quel
-    panel: c'est lui qui révèle quels collecteurs la vraie app expose."""
+    """The profiler's sidebar menu is extractable from the HTML of any
+    panel: it is what reveals which collectors the real app exposes."""
     menu = _menu(read("db.html"))
-    #: les collecteurs clés du scénario Symfony figurent dans le menu extrait
-    #: d'une page panel quelconque (ici db)
+    #: the key collectors of the Symfony scenario appear in the menu
+    #: extracted from any panel page (here db)
     assert {"request", "db", "twig", "cache", "messenger"} <= menu
 
 
@@ -331,28 +331,28 @@ def _panel_payload(*keys: str) -> str:
 
 
 def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
-    """Le fetch page-context reconstruit l'URL de chaque panel depuis l'URL
-    profiler (querystring d'entrée écartée) et attend la Promise avec un
-    timeout borné côté navigateur."""
+    """The page-context fetch rebuilds each panel's URL from the profiler
+    URL (input querystring discarded) and awaits the Promise with a
+    browser-side bounded timeout."""
     mock.on_eval("__cdpx_profiler_panels", _panel_payload("db"))
     fetched = profiler.fetch_panels(
         client, "http://app.test/_profiler/fixed-token?x=1", ["db"], timeout=7
     )
-    #: le HTML du panel revient déjà parsé, associé à son statut d'origine
+    #: the panel's HTML comes back already parsed, paired with its original status
     assert fetched[0]["panel"] == "db" and fetched[0]["status"] == 200
     (call,) = mock.commands_for("Runtime.evaluate")
-    #: le protocole émis prouve le contrat: Promise attendue, URL ?panel=db
-    #: reconstruite sans la querystring d'entrée, et timeout traduit en
-    #: millisecondes dans AbortSignal — le fetch ne peut pas pendre
+    #: the emitted protocol proves the contract: Promise awaited, ?panel=db
+    #: URL rebuilt without the input querystring, and timeout translated to
+    #: milliseconds in AbortSignal — the fetch cannot hang
     assert call["awaitPromise"] is True
     assert '"http://app.test/_profiler/fixed-token?panel=db"' in call["expression"]
     assert "AbortSignal.timeout(7000)" in call["expression"]
 
 
 def test_collect_assembles_contract(mock, client, evidence_case):
-    """Le rapport assemblé par collect est le contrat de sortie de `cdpx
-    profiler`: panels parsés, token et headers sensibles masqués, aucune
-    valeur secrète ni champ interne dans le JSON final."""
+    """The report assembled by collect is the output contract of `cdpx
+    profiler`: parsed panels, masked token and sensitive headers, no secret
+    value or internal field in the final JSON."""
     mock.on_eval("__cdpx_profiler_panels", _panel_payload("db", "exception"))
     hit = {
         **HIT,
@@ -365,14 +365,14 @@ def test_collect_assembles_contract(mock, client, evidence_case):
     res = profiler.collect_profiler_report(
         client, hit, context=PROFILER_CONTEXT, panels=["db", "exception"]
     )
-    #: le token n'apparaît jamais en clair: seule sa présence est déclarée,
-    #: et l'URL profiler est masquée à l'endroit où il figurait
+    #: the token never appears in clear text: only its presence is
+    #: declared, and the profiler URL is masked where it used to appear
     assert "token" not in res and res["token_present"] is True
     assert res["url"] == HIT["url"]
     assert res["profiler_url"] == "http://app.test/_profiler/***"
     assert res["profiler_status"] == 200
-    #: chaque header sensible est masqué individuellement, et le JSON complet
-    #: ne contient aucune des valeurs secrètes injectées dans le hit
+    #: every sensitive header is masked individually, and the full JSON
+    #: contains none of the secret values injected into the hit
     assert res["response_headers"] == {
         "x-debug-token": "***",
         "Authorization": "***",
@@ -380,23 +380,24 @@ def test_collect_assembles_contract(mock, client, evidence_case):
     }
     assert "fixed-token" not in json.dumps(res)
     assert "header-secret" not in json.dumps(res)
-    #: les champs internes de collecte ne fuient pas dans le contrat de sortie
+    #: internal collection fields do not leak into the output contract
     assert "signals" not in res and "profiler_bytes" not in res
-    #: les panels demandés arrivent parsés en métriques, pas en HTML brut
+    #: the requested panels arrive parsed into metrics, not as raw HTML
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["exception"]["raised"] is False
 
-    # Preuve secondaire: le rapport collect masqué (token/headers à ***).
+    # Secondary evidence: the masked collect report (token/headers as ***).
     if evidence_case is not None:
-        evidence_case.attach_json("Rapport collect profiler (token/headers masqués)", res)
+        evidence_case.attach_json("Profiler collect report (masked token/headers)", res)
 
 
 def test_collect_without_panels_probes_token_only(mock, client):
-    """Sans panel demandé, collect se limite à la détection du token: aucune
-    évaluation JS n'est envoyée au navigateur."""
+    """With no panel requested, collect limits itself to token detection:
+    no JS evaluation is sent to the browser."""
     res = profiler.collect_profiler_report(client, HIT, context=PROFILER_CONTEXT, panels=[])
-    #: panels vides et statut None côté sortie, zéro Runtime.evaluate côté
-    #: protocole: la sonde ne coûte aucun aller-retour navigateur
+    #: empty panels and None status on the output side, zero
+    #: Runtime.evaluate on the protocol side: the probe costs no browser
+    #: round trip
     assert res["panels"] == {} and res["profiler_status"] is None
     assert mock.commands_for("Runtime.evaluate") == []
 
@@ -414,23 +415,23 @@ def test_collect_rejects_unknown_panel_before_fetch(mock, client):
 
 
 def test_collect_marks_missing_panels_unavailable(mock, client):
-    """Un panel demandé mais absent de la réponse du fetch est marqué
-    indisponible (statut 0) au lieu de disparaître du rapport ou de faire
-    échouer la collecte."""
-    # le fetch ne renvoie que db: twig demandé -> {"available": false}
+    """A panel that was requested but is absent from the fetch response is
+    marked unavailable (status 0) instead of disappearing from the report or
+    failing the collection."""
+    # the fetch only returns db: twig requested -> {"available": false}
     mock.on_eval("__cdpx_profiler_panels", _panel_payload("db"))
     res = profiler.collect_profiler_report(
         client, HIT, context=PROFILER_CONTEXT, panels=["db", "twig"]
     )
-    #: le manque est un marqueur explicite: statut 0 distingue 'jamais
-    #: récupéré' d'une vraie réponse HTTP en erreur
+    #: the gap is an explicit marker: status 0 distinguishes 'never
+    #: fetched' from a real HTTP error response
     assert res["panels"]["twig"] == {"available": False, "status": 0}
 
 
 def test_collect_resolves_relative_link_before_same_origin_fetch(mock, client):
-    """Un X-Debug-Token-Link relatif est résolu contre l'origine de la page
-    avant le fetch same-origin: la forme du header n'affecte pas la
-    collecte."""
+    """A relative X-Debug-Token-Link is resolved against the page's origin
+    before the same-origin fetch: the header's form does not affect the
+    collection."""
     hit = {**HIT, "link": "/_profiler/relative-token"}
     mock.on_eval(
         "__cdpx_profiler_panels",
@@ -439,30 +440,30 @@ def test_collect_resolves_relative_link_before_same_origin_fetch(mock, client):
 
     result = profiler.collect_profiler_report(client, hit, context=PROFILER_CONTEXT, panels=["db"])
 
-    #: le lien relatif n'empêche pas de détecter et suivre le token
+    #: the relative link does not prevent detecting and following the token
     assert result["token_present"] is True
     panel_calls = [
         call
         for call in mock.commands_for("Runtime.evaluate")
         if "__cdpx_profiler_panels" in call["expression"]
     ]
-    #: le fetch unique cible l'URL absolue résolue contre l'origine de la
-    #: page: la résolution a eu lieu avant l'envoi au navigateur
+    #: the single fetch targets the absolute URL resolved against the
+    #: page's origin: resolution happened before sending it to the browser
     assert len(panel_calls) == 1
     assert '"http://app.test/_profiler/relative-token?panel=db"' in panel_calls[0]["expression"]
 
 
 def test_collect_rejects_cross_origin_link_before_fetch(mock, client):
-    """Un lien profiler pointant vers une autre origine est refusé avant tout
-    fetch: un header piégé ne peut pas détourner le navigateur vers un hôte
-    attaquant."""
+    """A profiler link pointing to another origin is refused before any
+    fetch: a trapped header cannot redirect the browser toward an attacking
+    host."""
     hit = {**HIT, "link": "https://attacker.example/_profiler/stolen"}
 
     #: le refus est une erreur explicite nommant l'origine, pas un fetch qui
-    #: échouerait silencieusement
+    #: would fail silently
     with pytest.raises(ValueError, match="origin rejected"):
         profiler.collect_profiler_report(client, hit, context=PROFILER_CONTEXT, panels=["db"])
 
-    #: aucune commande n'est partie vers le navigateur: le rejet précède
-    #: toute action, c'est la garantie de sécurité
+    #: no command went out to the browser: the rejection precedes any
+    #: action, that is the security guarantee
     assert mock.commands_for("Runtime.evaluate") == []

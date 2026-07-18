@@ -36,19 +36,19 @@ class FakeMarker:
 
 
 def test_classify_nodeid_by_test_area():
-    """La suite de preuve se déduit du seul nodeid, sans marqueur ni
-    configuration: répertoire e2e, fichiers CLI en intégration, le reste en
-    unitaire."""
-    #: trois nodeids représentatifs suffisent à couvrir les trois suites
+    """The proof suite is deduced from the nodeid alone, without any marker
+    or configuration: e2e directory, CLI files in integration, the rest in
+    unit."""
+    #: three representative nodeids are enough to cover the three suites
     assert classify_nodeid("tests/e2e/test_e2e_chrome.py::test_x") == "e2e"
     assert classify_nodeid("tests/test_cli.py::test_x") == "integration"
     assert classify_nodeid("tests/test_primitives.py::test_x") == "unit"
 
 
 def test_evidence_case_attaches_artifacts(tmp_path):
-    """Chaque pièce jointe reçoit un type, une classification et un droit
-    d'upload cohérents, et tout est écrit sous le dossier privé du cas
-    avec des droits POSIX stricts."""
+    """Each attachment receives a consistent type, classification, and
+    upload right, and everything is written under the case's private
+    directory with strict POSIX permissions."""
     case = EvidenceCase(
         nodeid="tests/e2e/test_demo.py::test_records",
         root=tmp_path,
@@ -63,26 +63,26 @@ def test_evidence_case_attaches_artifacts(tmp_path):
     case.attach_text("stdout", "hello")
 
     data = case.as_dict()
-    #: chaque attache est typée d'après sa nature et rangée sous la racine du cas
+    #: each attachment is typed according to its nature and filed under the case root
     assert data["artifacts"][0]["type"] == "screenshot"
     assert data["artifacts"][1]["type"] == "json"
     assert data["artifacts"][2]["type"] == "logs"
     assert all(tmp_path.as_posix() in artifact["path"] for artifact in data["artifacts"])
-    #: le binaire opaque reste confiné en local tandis que le JSON redactable
-    #: peut être uploadé
+    #: the opaque binary stays confined locally while the redactable JSON
+    #: can be uploaded
     assert data["artifacts"][0]["classification"] == "opaque-restricted"
     assert data["artifacts"][0]["upload_allowed"] is False
     assert data["artifacts"][1]["classification"] == "internal"
     assert data["artifacts"][1]["upload_allowed"] is True
-    #: dossier privé et fichiers illisibles pour les autres comptes du système
+    #: private directory and files unreadable by other system accounts
     assert mode(case.artifact_dir) == 0o700
     assert all(mode(tmp_path / artifact["path"]) == 0o600 for artifact in data["artifacts"])
 
 
 def test_evidence_redacts_reports_and_textual_attachments(tmp_path):
-    """La valeur secrète injectée dans le rapport pytest et dans les pièces
-    textuelles n'atteint ni le manifeste sérialisé ni le disque: seule la
-    marque de redaction subsiste."""
+    """The secret value injected into the pytest report and into the
+    textual attachments reaches neither the serialized manifest nor
+    disk: only the redaction mark remains."""
     context = RedactionContext.from_secrets(["proof-canary-123"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_redaction",
@@ -107,8 +107,8 @@ def test_evidence_redacts_reports_and_textual_attachments(tmp_path):
     )
 
     serialized = json.dumps(case.as_dict(), ensure_ascii=False)
-    #: le canari a disparu de la sérialisation et des fichiers écrits,
-    #: remplacé partout par le marqueur de redaction
+    #: the canary has vanished from the serialization and the written files,
+    #: replaced everywhere by the redaction marker
     assert "proof-canary-123" not in serialized
     assert "proof-canary-123" not in (tmp_path / text_artifact["path"]).read_text()
     assert "proof-canary-123" not in (tmp_path / json_artifact["path"]).read_text()
@@ -116,8 +116,8 @@ def test_evidence_redacts_reports_and_textual_attachments(tmp_path):
 
 
 def test_attach_file_redacts_text_but_keeps_binary_restricted(tmp_path):
-    """Un fichier texte est copié redacté et devient uploadable; un binaire,
-    impossible à redacter, est classé opaque et interdit d'upload."""
+    """A text file is copied redacted and becomes uploadable; a binary,
+    impossible to redact, is classified opaque and forbidden from upload."""
     context = RedactionContext.from_secrets(["canary-value"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_file",
@@ -134,17 +134,17 @@ def test_attach_file_redacts_text_but_keeps_binary_restricted(tmp_path):
     text_entry = case.attach_file(source, "log")
     binary_entry = case.attach_file(binary, "binary")
 
-    #: la copie texte ne contient plus que le marqueur, donc l'upload est sûr
+    #: the text copy now contains only the marker, so the upload is safe
     assert (tmp_path / text_entry["path"]).read_text() == "***\n"
     assert text_entry["upload_allowed"] is True
-    #: faute de redaction possible, le binaire est condamné à rester local
+    #: with no redaction possible, the binary is doomed to stay local
     assert binary_entry["classification"] == ArtifactClassification.OPAQUE_RESTRICTED.value
     assert binary_entry["upload_allowed"] is False
 
 
 def test_attach_file_treats_ndjson_journal_as_textual_evidence(tmp_path):
-    """Un journal .ndjson est une preuve textuelle: copié redacté et classé
-    internal, donc inlinable par le cockpit au lieu de rester opaque."""
+    """An .ndjson journal is textual evidence: copied redacted and classified
+    internal, hence inlinable by the cockpit instead of staying opaque."""
     context = RedactionContext.from_secrets(["canary-value"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_ndjson",
@@ -158,17 +158,17 @@ def test_attach_file_treats_ndjson_journal_as_textual_evidence(tmp_path):
 
     entry = case.attach_file(source, "journal")
 
-    #: typé logs et classé internal: le cockpit peut inliner le journal
+    #: typed logs and classified internal: the cockpit can inline the journal
     assert entry["type"] == "logs"
     assert entry["classification"] == ArtifactClassification.INTERNAL.value
-    #: la copie est redactée, le journal attaché ne divulgue rien
+    #: the copy is redacted, the attached journal discloses nothing
     assert "canary-value" not in (tmp_path / entry["path"]).read_text()
 
 
 def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
-    """Le manifeste de session porte le schéma v2, une expiration postérieure
-    à la création et la version de la politique de redaction, le tout écrit
-    en fichiers privés."""
+    """The session manifest carries the v2 schema, an expiration later
+    than the creation, and the redaction policy version, all written
+    to private files."""
     session = EvidenceSession(tmp_path, ttl=3600)
     case = session.case_for_item(FakeItem("tests/test_cli.py::test_manifest"))
     case.attach_text("safe", "hello")
@@ -178,22 +178,22 @@ def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
 
     manifest_path = tmp_path / "evidence-manifest-integration.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    #: le contrat v2 est complet: TTL dans le futur, politique de redaction
-    #: versionnée et artefacts classifiés
+    #: the v2 contract is complete: TTL in the future, versioned redaction
+    #: policy, and classified artifacts
     assert manifest["schema"] == "cdpx.evidence/v2"
     assert manifest["expires_at"] > manifest["created_at"]
     assert manifest["redaction_policy"] == "1"
     assert any(item["classification"] == "internal" for item in manifest["artifacts"])
-    #: la racine de preuve et le manifeste échappent aux autres comptes
+    #: the proof root and the manifest are out of reach of other accounts
     assert mode(tmp_path) == 0o700
     assert mode(manifest_path) == 0o600
 
 
 def test_two_sessions_in_same_root_write_distinct_manifests(tmp_path):
-    """Deux sessions pytest écrivant dans le même dossier d'évidence (comme
-    les runs unit, e2e et symfony d'une même génération de preuve) produisent
-    des manifestes distincts nommés par leurs suites: la dernière session
-    n'écrase plus la classification déclarée par les précédentes."""
+    """Two pytest sessions writing into the same evidence directory (like
+    the unit, e2e, and symfony runs of the same proof generation) produce
+    distinct manifests named after their suites: the last session no longer
+    overwrites the classification declared by the previous ones."""
     first = EvidenceSession(tmp_path, ttl=3600)
     first.case_for_item(FakeItem("tests/test_cli.py::test_first")).status = "passed"
     first.write()
@@ -202,20 +202,20 @@ def test_two_sessions_in_same_root_write_distinct_manifests(tmp_path):
     second.write()
 
     manifests = sorted(path.name for path in tmp_path.glob("evidence-manifest*.json"))
-    #: chaque session possède son propre manifeste, nommé d'après sa suite
+    #: each session has its own manifest, named after its suite
     assert manifests == [
         "evidence-manifest-integration.json",
         "evidence-manifest-symfony.json",
     ]
-    #: les deux manifestes restent lisibles indépendamment et portent le schéma v2
+    #: both manifests remain independently readable and carry the v2 schema
     for name in manifests:
         payload = json.loads((tmp_path / name).read_text(encoding="utf-8"))
         assert payload["schema"] == "cdpx.evidence/v2"
 
 
 def test_evidence_session_uses_validated_proof_retention_environment(tmp_path, monkeypatch):
-    """La rétention déclarée dans l'environnement pilote réellement la
-    fenêtre created_at -> expires_at du manifeste écrit."""
+    """The retention declared in the environment actually drives the
+    created_at -> expires_at window of the written manifest."""
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "30")
     session = EvidenceSession(tmp_path)
     session.case_for_item(FakeItem("tests/test_cli.py::test_manifest")).status = "passed"
@@ -227,49 +227,49 @@ def test_evidence_session_uses_validated_proof_retention_environment(tmp_path, m
     )
     created = datetime.fromisoformat(manifest["created_at"])
     expires = datetime.fromisoformat(manifest["expires_at"])
-    #: la fenêtre d'expiration reflète exactement les jours demandés,
-    #: preuve que la variable est lue et appliquée
+    #: the expiration window exactly reflects the requested days,
+    #: proof that the variable is read and applied
     assert (expires - created).days == 30
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "1.5", " 14", "91", "abc"])
 def test_proof_retention_environment_is_strict_and_bounded(value, monkeypatch):
-    """Toute rétention hors contrat (zéro, négatif, décimal, espace parasite,
-    hors borne, non numérique) est rejetée bruyamment plutôt que corrigée en
-    silence."""
+    """Any retention outside the contract (zero, negative, decimal, stray
+    whitespace, out of bounds, non-numeric) is rejected loudly rather
+    than silently corrected."""
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", value)
 
-    #: le refus nomme la variable fautive pour un diagnostic immédiat,
-    #: quelle que soit la forme de la valeur invalide
+    #: the refusal names the faulty variable for an immediate diagnosis,
+    #: whatever the shape of the invalid value
     with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
         proof_retention_days()
 
 
 def test_proof_retention_defaults_to_fourteen_days(monkeypatch):
-    """Sans configuration, la preuve expire après la rétention documentée de
-    quatorze jours."""
+    """Without configuration, the proof expires after the documented
+    retention of fourteen days."""
     monkeypatch.delenv("CDPX_PROOF_RETENTION_DAYS", raising=False)
 
-    #: l'absence de variable retombe sur le défaut documenté, sans erreur
+    #: the absence of the variable falls back to the documented default, without error
     assert proof_retention_days() == 14
 
 
 def test_evidence_session_rejects_invalid_environment_retention(tmp_path, monkeypatch):
-    """Une rétention invalide bloque la session dès sa construction, avant
-    d'avoir créé le moindre artefact sur disque."""
+    """An invalid retention blocks the session right at construction,
+    before the slightest artifact has been created on disk."""
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "91")
 
-    #: la validation échoue à la construction, pas au moment d'écrire
+    #: validation fails at construction, not at write time
     with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
         EvidenceSession(tmp_path)
 
-    #: rien n'a été écrit: le refus précède tout effet de bord
+    #: nothing was written: the refusal precedes any side effect
     assert list(tmp_path.iterdir()) == []
 
 
 def test_attachment_filename_cannot_escape_private_case_dir(tmp_path):
-    """Un nom de pièce contenant une traversée de chemin est refusé et aucun
-    fichier ne s'échappe du dossier privé du cas."""
+    """A piece name containing a path traversal is refused and no file
+    escapes the case's private directory."""
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_traversal",
         root=tmp_path,
@@ -277,17 +277,17 @@ def test_attachment_filename_cannot_escape_private_case_dir(tmp_path):
         title="traversal",
     )
 
-    #: le nom traversant est rejeté avant toute écriture
+    #: the traversing name is rejected before any write
     with pytest.raises(ValueError, match="invalid proof name"):
         case.attach_text("unsafe", "value", "../escape.txt")
 
-    #: la cible hors du dossier privé n'a jamais été créée
+    #: the target outside the private directory was never created
     assert not (tmp_path.parent / "escape.txt").exists()
 
 
 def test_marker_metadata_captures_feature_and_journey():
-    """Les métadonnées du marqueur scenario (feature, journey, scenario_id)
-    sont recopiées telles quelles dans la preuve du cas."""
+    """The scenario marker's metadata (feature, journey, scenario_id)
+    is copied as-is into the case's proof."""
     item = FakeItem(
         "tests/test_cli.py::test_cli_contract",
         FakeMarker(
@@ -299,16 +299,16 @@ def test_marker_metadata_captures_feature_and_journey():
 
     data = marker_metadata(item)
 
-    #: le triplet déclaré sur le marqueur arrive intact dans la preuve,
-    #: c'est lui qui reliera le cas au cockpit de scénarios
+    #: the triple declared on the marker arrives intact in the proof,
+    #: it is what will link the case to the scenario cockpit
     assert data["feature"] == "harness-proof-cockpit"
     assert data["journey"] == "run-quality-gate"
     assert data["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"
 
 
 def test_attach_file_enforces_closed_artifact_taxonomy(tmp_path):
-    """La taxonomie des artefacts est fermée: un type inventé est refusé
-    net, tandis qu'un suffixe inconnu retombe sur le type générique."""
+    """The artifact taxonomy is closed: a made-up type is flatly refused,
+    while an unknown suffix falls back to the generic type."""
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_taxonomy",
         root=tmp_path,
@@ -318,17 +318,17 @@ def test_attach_file_enforces_closed_artifact_taxonomy(tmp_path):
     source = tmp_path / "trace.bin"
     source.write_bytes(b"\x00\x01")
 
-    #: un type hors taxonomie est une erreur explicite, pas un fourre-tout
+    #: a type outside the taxonomy is an explicit error, not a catch-all
     with pytest.raises(ValueError, match="unknown proof artifact type"):
-        case.attach_file(source, "libre", "banane")
+        case.attach_file(source, "open", "banana")
 
-    #: un suffixe inconnu retombe sur le type générique "file"
-    assert case.attach_file(source, "brut")["type"] == "file"
+    #: an unknown suffix falls back to the generic "file" type
+    assert case.attach_file(source, "raw")["type"] == "file"
 
 
 def test_attach_file_maps_known_suffixes_to_artifact_types(tmp_path):
-    """Chaque suffixe connu (png, cast, webm, log, ndjson, json) détermine seul
-    le type d'artefact, sans indication de l'appelant."""
+    """Each known suffix (png, cast, webm, log, ndjson, json) alone
+    determines the artifact type, without any hint from the caller."""
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_suffixes",
         root=tmp_path,
@@ -349,17 +349,18 @@ def test_attach_file_maps_known_suffixes_to_artifact_types(tmp_path):
             source.write_bytes(b"\x89BIN\x00")
         else:
             source.write_text("{}\n" if expected == "json" else "line\n", encoding="utf-8")
-        #: le suffixe suffit à typer l'artefact, quel que soit le contenu
+        #: the suffix is enough to type the artifact, whatever the content
         assert case.attach_file(source, name)["type"] == expected, name
 
-    #: le .cast est textuel (ndjson) donc redactable, mais jamais uploadable tel quel
+    #: the .cast is textual (ndjson) hence redactable, but never uploadable as-is
     cast = next(artifact for artifact in case.artifacts if artifact.type == "asciinema")
     assert cast.classification == ArtifactClassification.INTERNAL.value
 
 
 def test_attach_file_carries_redacted_excerpt_and_meta(tmp_path):
-    """L'extrait et les métadonnées fournis à l'attache sont redactés avant
-    sérialisation: ni argv ni extrait ne portent encore la valeur secrète."""
+    """The excerpt and metadata provided to the attachment are redacted
+    before serialization: neither argv nor excerpt still carry the secret
+    value."""
     context = RedactionContext.from_secrets(["canary-value"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_meta",
@@ -373,23 +374,23 @@ def test_attach_file_carries_redacted_excerpt_and_meta(tmp_path):
 
     entry = case.attach_file(
         source,
-        "commande",
+        "command",
         "logs",
         excerpt="tail canary-value tail",
         meta={"argv": ["cdpx", "--token", "canary-value"], "exit_code": 0},
     )
 
-    #: extrait et argv sont nettoyés du canari, mais les métadonnées
-    #: neutres (exit code) survivent intactes
+    #: excerpt and argv are cleaned of the canary, but the neutral
+    #: metadata (exit code) survives intact
     assert "canary-value" not in json.dumps(entry, ensure_ascii=False)
     assert entry["excerpt"].startswith("tail")
     assert entry["meta"]["exit_code"] == 0
 
 
 def test_attach_command_output_builds_redacted_transcript_with_excerpt(tmp_path):
-    """Une exécution CLI devient une preuve autonome: transcript complet
-    redacté sur disque, extrait tête+queue honnête sur l'omission, et
-    métadonnées d'exécution exploitables."""
+    """A CLI execution becomes a self-contained proof: full redacted
+    transcript on disk, honest head+tail excerpt about the omission, and
+    usable execution metadata."""
     context = RedactionContext.from_secrets(["canary-value"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_command",
@@ -410,8 +411,8 @@ def test_attach_command_output_builds_redacted_transcript_with_excerpt(tmp_path)
         excerpt_lines=20,
     )
 
-    #: la commande est un artefact interne uploadable, avec code de sortie
-    #: fidèle et durée arrondie au millième
+    #: the command is an uploadable internal artifact, with a faithful
+    #: exit code and duration rounded to the millisecond
     assert entry["type"] == "command"
     assert entry["classification"] == "internal"
     assert entry["upload_allowed"] is True
@@ -419,22 +420,22 @@ def test_attach_command_output_builds_redacted_transcript_with_excerpt(tmp_path)
     assert entry["meta"]["duration_s"] == 1.234
 
     transcript = (tmp_path / entry["path"]).read_text(encoding="utf-8")
-    #: le transcript porte argv, stdout, stderr et exit code, redactés
+    #: the transcript carries argv, stdout, stderr, and exit code, redacted
     assert transcript.startswith("$ cdpx --token *** version")
     assert "--- stdout ---" in transcript and "--- stderr ---" in transcript
     assert "--- exit_code: 3 ---" in transcript
     assert "canary-value" not in transcript
 
-    #: l'extrait tête+queue annonce honnêtement l'omission
+    #: the head+tail excerpt honestly announces the omission
     assert "lines omitted" in entry["excerpt"]
     assert entry["excerpt"].startswith("line-0")
     assert "canary-value" not in json.dumps(entry, ensure_ascii=False)
 
 
 def test_attach_log_excerpt_selects_pattern_range_and_absence(tmp_path):
-    """L'extrait de log sait cibler par motif avec contexte, par plage de
-    lignes, dire l'absence de correspondance et annoncer les troncatures —
-    mais refuse motif et plage à la fois."""
+    """The log excerpt can target by pattern with context, by line range,
+    state the absence of a match, and announce truncations — but refuses
+    pattern and range together."""
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_log_excerpt",
         root=tmp_path,
@@ -447,33 +448,33 @@ def test_attach_log_excerpt_selects_pattern_range_and_absence(tmp_path):
         encoding="utf-8",
     )
 
-    by_pattern = case.attach_log_excerpt(log, "erreurs", pattern="ERROR", context=1)
+    by_pattern = case.attach_log_excerpt(log, "errors", pattern="ERROR", context=1)
     assert by_pattern["type"] == "log-excerpt"
-    #: chaque ligne est préfixée source:numéro pour rester traçable
+    #: each line is prefixed source:number to stay traceable
     assert "app.log:31: entry 30 ERROR boom" in by_pattern["excerpt"]
     assert by_pattern["meta"]["matched_lines"] == [31]
     assert len(by_pattern["excerpt"].splitlines()) == 3
 
-    by_range = case.attach_log_excerpt(log, "plage", line_range=(1, 2))
-    #: la plage demandée est restituée exactement, bornes incluses
+    by_range = case.attach_log_excerpt(log, "range", line_range=(1, 2))
+    #: the requested range is returned exactly, bounds included
     assert by_range["excerpt"].splitlines() == ["app.log:1: entry 0", "app.log:2: entry 1"]
 
-    #: l'absence de correspondance est une preuve, pas une erreur
+    #: the absence of a match is a proof, not an error
     absent = case.attach_log_excerpt(log, "absent", pattern="FATAL")
     assert "no match for" in absent["excerpt"]
 
-    truncated = case.attach_log_excerpt(log, "tronque", max_lines=5)
-    #: la troncature dit combien de lignes manquent, la preuve reste honnête
+    truncated = case.attach_log_excerpt(log, "truncated", max_lines=5)
+    #: the truncation states how many lines are missing, the proof stays honest
     assert "(55 lines omitted)" in truncated["excerpt"]
 
-    #: motif et plage sont deux modes exclusifs: l'ambiguïté est refusée
+    #: pattern and range are two exclusive modes: the ambiguity is refused
     with pytest.raises(ValueError, match="mutually exclusive"):
-        case.attach_log_excerpt(log, "conflit", pattern="x", line_range=(1, 2))
+        case.attach_log_excerpt(log, "conflict", pattern="x", line_range=(1, 2))
 
 
 def test_attach_cast_keeps_cast_local_and_redacted(tmp_path):
-    """Un enregistrement asciicast attaché est redacté sur disque mais reste
-    interdit d'upload malgré sa nature textuelle."""
+    """An attached asciicast recording is redacted on disk but stays
+    forbidden from upload despite its textual nature."""
     context = RedactionContext.from_secrets(["canary-value"])
     case = EvidenceCase(
         nodeid="tests/test_demo.py::test_cast",
@@ -491,15 +492,15 @@ def test_attach_cast_keeps_cast_local_and_redacted(tmp_path):
     entry = case.attach_cast(cast, "make proof")
 
     assert entry["type"] == "asciinema"
-    #: textuel donc redacté, mais jamais uploadable (secret fragmentable en ndjson)
+    #: textual hence redacted, but never uploadable (secret fragmentable in ndjson)
     assert entry["classification"] == "internal"
     assert entry["upload_allowed"] is False
     assert "canary-value" not in (tmp_path / entry["path"]).read_text(encoding="utf-8")
 
 
 def test_evidence_session_writes_grouped_scenarios(tmp_path):
-    """La session regroupe les cas par suite dans des fichiers scenarios v2
-    distincts, et un cas marqué conserve son identité feature/scenario."""
+    """The session groups cases by suite into distinct scenarios v2 files,
+    and a marked case keeps its feature/scenario identity."""
     session = EvidenceSession(tmp_path)
     case = session.case_for_item(
         FakeItem(
@@ -516,16 +517,16 @@ def test_evidence_session_writes_grouped_scenarios(tmp_path):
 
     paths = session.write()
 
-    #: un fichier de scénarios par suite rencontrée, rien pour les suites
-    #: absentes de la session
+    #: one scenarios file per suite encountered, nothing for suites
+    #: absent from the session
     assert sorted(path.rsplit("/", 1)[-1] for path in paths) == [
         "e2e-scenarios.json",
         "integration-scenarios.json",
     ]
     for path in paths:
         payload = json.loads((tmp_path / path.rsplit("/", 1)[-1]).read_text(encoding="utf-8"))
-        #: chaque groupe publié respecte le schéma scenarios v2 du cockpit
+        #: each published group follows the cockpit's scenarios v2 schema
         assert payload["schema"] == "cdpx.scenarios/v2"
-    #: le marqueur scenario du test se retrouve dans la preuve du cas
+    #: the test's scenario marker is found again in the case's proof
     assert case.as_dict()["feature"] == "harness-proof-cockpit"
     assert case.as_dict()["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"

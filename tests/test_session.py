@@ -76,20 +76,20 @@ def manifest_for(root: Path) -> SessionManifest:
 
 
 def test_manifest_is_private_and_builds_execution_context(tmp_path):
-    """L'écriture du manifest impose des permissions privées et sa relecture
-    attestée restitue le même contenu, prêt à produire un contexte d'exécution
-    portant l'autorité déclarée."""
+    """Writing the manifest enforces private permissions and its attested
+    reread restores the same content, ready to produce an execution context
+    carrying the declared authority."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
-    #: dossier et fichier sont illisibles pour les autres utilisateurs,
-    #: condition d'admission au rechargement
+    #: directory and file are unreadable to other users, the admission
+    #: condition for reloading
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     loaded = load_manifest(path, run_id="R1", target_id="T1")
-    #: aucun champ ne se perd ni ne se transforme au passage sur disque
+    #: no field is lost or transformed by the round trip to disk
     assert loaded == manifest
     context = loaded.execution_context()
-    #: le contexte hérite de l'autorité et de l'identité de session du manifest
+    #: the context inherits the authority and session identity from the manifest
     assert context.authority.value == "interaction"
     assert context.session_id == SESSION_ID
 
@@ -104,9 +104,9 @@ def test_manifest_is_private_and_builds_execution_context(tmp_path):
     ],
 )
 def test_mock_backend_uses_supervised_session_contract(tmp_path):
-    """Le backend mock livré avec le paquet honore le même contrat de session
-    supervisée que Chrome: manifest attesté, endpoint loopback cohérent, arrêt
-    qui efface toute l'arborescence privée."""
+    """The mock backend shipped with the package honors the same supervised
+    session contract as Chrome: attested manifest, consistent loopback
+    endpoint, stop that erases the entire private tree."""
     manifest, path = start_session(
         run_id="mock-contract",
         authority="privileged",
@@ -118,12 +118,13 @@ def test_mock_backend_uses_supervised_session_contract(tmp_path):
     )
     session_dir = Path(manifest.session_dir)
     try:
-        #: le manifest décrit le backend mock avec une URL websocket dont le
-        #: port correspond à celui annoncé, comme pour un vrai Chrome
+        #: the manifest describes the mock backend with a websocket URL whose
+        #: port matches the announced one, just like a real Chrome
         assert manifest.browser_kind == "mock"
         assert manifest.port == int(manifest.websocket_url.split(":")[2].split("/")[0])
-        #: la discovery HTTP répond sur ce port en s'identifiant comme le mock,
-        #: et l'attestation d'activité passe avec le même code que pour Chrome
+        #: HTTP discovery responds on this port identifying itself as the
+        #: mock, and the activity attestation passes with the same code as
+        #: for Chrome
         assert session_mod.discovery.version(manifest.host, manifest.port)["Browser"].startswith(
             "MockChrome/"
         )
@@ -131,23 +132,23 @@ def test_mock_backend_uses_supervised_session_contract(tmp_path):
     finally:
         stop_session(path, run_id=manifest.run_id, target_id=manifest.target_id)
 
-    #: l'arrêt supprime le runtime privé sans laisser de trace
+    #: stopping removes the private runtime without leaving a trace
     assert not session_dir.exists()
 
 
 def test_manifest_refuses_permissions_and_assignment_mismatch(tmp_path):
-    """Le chargement du manifest échoue-fermé quand l'identité d'assignation
-    (run, target) ne correspond pas, ou quand le fichier est devenu lisible
-    par d'autres utilisateurs."""
+    """Loading the manifest fails closed when the assignment identity
+    (run, target) does not match, or when the file has become readable by
+    other users."""
     path = write_manifest(manifest_for(tmp_path))
-    #: un run étranger ne peut pas s'approprier la session d'un autre
+    #: a foreign run cannot appropriate another's session
     with pytest.raises(PolicyError, match="run"):
         load_manifest(path, run_id="OTHER", target_id="T1")
-    #: une cible non assignée à cette session est refusée de la même façon
+    #: a target not assigned to this session is refused the same way
     with pytest.raises(PolicyError, match="target"):
         load_manifest(path, run_id="R1", target_id="OTHER")
     path.chmod(0o644)
-    #: des permissions élargies invalident le manifest, même à contenu intact
+    #: widened permissions invalidate the manifest, even with intact content
     with pytest.raises(PolicyError, match="permissions"):
         load_manifest(path, run_id="R1", target_id="T1")
 
@@ -172,62 +173,62 @@ def test_manifest_rejects_malformed_typed_or_unbound_fields(
     value,
     message,
 ):
-    """Chaque champ critique du manifest est validé au chargement: valeur hors
-    domaine, type inattendu, datetime naïve ou URL websocket incohérente avec
-    le port/target déclarés sont tous rejetés."""
+    """Every critical manifest field is validated on load: out-of-domain
+    value, unexpected type, naive datetime, or a websocket URL inconsistent
+    with the declared port/target are all rejected."""
     path = write_manifest(manifest_for(tmp_path))
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload[field] = value
     path.write_text(json.dumps(payload), encoding="utf-8")
     path.chmod(0o600)
 
-    #: quelle que soit la corruption injectée, le champ fautif est nommé dans
-    #: l'erreur et aucun manifest n'est jamais retourné
+    #: whatever corruption is injected, the faulty field is named in the
+    #: error and no manifest is ever returned
     with pytest.raises(PolicyError, match=message):
         load_manifest(path)
 
 
 def test_manifest_rejects_tampered_session_paths(tmp_path):
-    """Un manifest dont un chemin interne pointe hors du dossier de session
-    est rejeté: impossible de rediriger cdpx vers un répertoire arbitraire en
-    éditant le fichier."""
+    """A manifest whose internal path points outside the session directory
+    is rejected: impossible to redirect cdpx to an arbitrary directory by
+    editing the file."""
     path = write_manifest(manifest_for(tmp_path))
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["profile_dir"] = "/tmp/unrelated-profile"
     path.write_text(json.dumps(payload), encoding="utf-8")
     path.chmod(0o600)
-    #: le profil déplacé hors de l'arbre de session bloque le chargement
+    #: the profile moved outside the session tree blocks loading
     with pytest.raises(PolicyError, match="outside the assigned directory"):
         load_manifest(path, run_id="R1", target_id="T1")
 
 
 def test_session_lease_is_non_blocking_and_owned_by_run(tmp_path):
-    """Le bail de session est exclusif et non bloquant: une seconde prise sur
-    la même session échoue immédiatement en PolicyError au lieu d'attendre la
-    libération du verrou."""
+    """The session lease is exclusive and non-blocking: a second attempt to
+    acquire the same session fails immediately with PolicyError instead of
+    waiting for the lock to be released."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
     with SessionLease(path, run_id="R1", target_id="T1", require_active=False):
-        #: la deuxième acquisition échoue tout de suite plutôt que de bloquer
-        #: la commande concurrente
+        #: the second acquisition fails right away instead of blocking the
+        #: concurrent command
         with pytest.raises(PolicyError, match="already in use by another command"):
             with SessionLease(path, run_id="R1", target_id="T1", require_active=False):
                 pass
 
 
 def test_session_lease_reattests_fresh_manifest_by_default(tmp_path, monkeypatch):
-    """Par défaut, prendre le bail ré-atteste que la session est vivante et
-    fournit le manifest fraîchement relu du disque."""
+    """By default, taking the lease re-attests that the session is alive and
+    provides the manifest freshly reread from disk."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
     checked = []
     monkeypatch.setattr(session_mod, "assert_session_active", checked.append)
 
     with SessionLease(path, run_id="R1", target_id="T1") as leased:
-        #: le bail expose le manifest relu du disque, pas une copie périmée
+        #: the lease exposes the manifest reread from disk, not a stale copy
         assert leased == manifest
 
-    #: l'attestation d'activité a été appelée une seule fois, sur ce manifest
+    #: the activity attestation was called exactly once, on this manifest
     assert checked == [manifest]
 
 
@@ -241,49 +242,49 @@ def test_session_lease_reattests_fresh_manifest_by_default(tmp_path, monkeypatch
     ],
 )
 def test_public_manifest_omits_capabilities_and_physical_profile(tmp_path, evidence_case):
-    """La vue publique du manifest expose l'identité logique (run, target,
-    profil éphémère) mais jamais les leviers de prise de contrôle: endpoint
-    websocket, chemin physique du profil, PID du navigateur."""
+    """The public view of the manifest exposes the logical identity (run,
+    target, ephemeral profile) but never the control-taking levers: websocket
+    endpoint, physical profile path, browser PID."""
     public = manifest_for(tmp_path).public_dict()
-    #: l'identité logique reste consultable par l'appelant
+    #: the logical identity remains readable by the caller
     assert public["run_id"] == "R1" and public["target_id"] == "T1"
     assert public["profile"] == {"id": PROFILE_ID, "ephemeral": True}
-    #: aucune capacité permettant d'attaquer le navigateur ou son profil ne
-    #: fuit dans la sortie par défaut
+    #: no capability that would allow attacking the browser or its profile
+    #: leaks into the default output
     assert "websocket_url" not in public
     assert "profile_dir" not in public
     assert "browser_pid" not in public
 
-    # Preuve secondaire: le contrat de sortie publique sérialisé, pièce du
-    # rapport documentant l'invariant 5 (aucune capacité/PID/chemin ne fuit).
+    # Secondary proof: the serialized public output contract, evidence for
+    # the report documenting invariant 5 (no capability/PID/path leaks).
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Vue publique du manifest de session",
+            "Public view of the session manifest",
             public,
             filename="public-manifest.json",
         )
 
 
 def test_export_lines_quote_hostile_values_for_eval(tmp_path):
-    """Les lignes `export` de la triple identité quotent toute valeur hostile
-    au shell: un chemin avec espace ou apostrophe survit à un round-trip
-    shlex sans injection ni troncature."""
+    """The `export` lines for the identity triple quote every value hostile
+    to the shell: a path with a space or apostrophe survives a shlex round
+    trip without injection or truncation."""
     manifest = replace(
         manifest_for(tmp_path),
         run_id="run 'quoted'",
     )
-    hostile_path = tmp_path / "dossier avec espaces" / "manifest.json"
+    hostile_path = tmp_path / "folder with spaces" / "manifest.json"
 
     lines = export_lines(manifest, hostile_path)
 
-    #: exactement les trois variables du contrat, dans l'ordre documenté
+    #: exactly the three contract variables, in the documented order
     assert [line.split("=", 1)[0] for line in lines] == [
         "export CDPX_SESSION",
         "export CDPX_RUN_ID",
         "export CDPX_TARGET",
     ]
-    #: chaque ligne redonne la valeur exacte après interprétation shell:
-    #: le quoting neutralise espaces et apostrophes au lieu de les émettre bruts
+    #: each line yields back the exact value after shell interpretation:
+    #: quoting neutralizes spaces and apostrophes instead of emitting them raw
     parsed = dict(shlex.split(line)[1].split("=", 1) for line in lines)
     assert parsed == {
         "CDPX_SESSION": str(hostile_path),
@@ -293,64 +294,63 @@ def test_export_lines_quote_hostile_values_for_eval(tmp_path):
 
 
 def test_chrome_command_forces_ephemeral_loopback_profile(tmp_path):
-    """La ligne de commande Chrome construite impose le confinement: debug
-    joignable uniquement en loopback sur un port choisi par l'OS, et profil
-    jetable dédié — jamais le Chrome personnel de l'utilisateur."""
+    """The constructed Chrome command line enforces confinement: debug
+    reachable only on loopback on a port chosen by the OS, and a dedicated
+    disposable profile — never the user's personal Chrome."""
     profile = tmp_path / "profile"
     command = build_chrome_command("/usr/bin/chromium", profile)
     assert command[0] == "/usr/bin/chromium"
-    #: le debug est confiné à la loopback avec un port éphémère attribué par
-    #: l'OS, donc non prévisible par un tiers
+    #: debug is confined to loopback with an ephemeral port assigned by the
+    #: OS, so it is not predictable by a third party
     assert "--remote-debugging-address=127.0.0.1" in command
     assert "--remote-debugging-port=0" in command
-    #: le profil utilisé est celui, jetable, de la session supervisée
+    #: the profile used is the disposable one from the supervised session
     assert f"--user-data-dir={profile}" in command
     assert "--no-first-run" in command
 
 
 def test_chrome_sandbox_is_disabled_only_for_root_or_ci(tmp_path, monkeypatch):
-    """Le sandbox Chrome n'est sacrifié que là où il ne peut pas fonctionner
-    (root ou CI): un utilisateur normal hors CI garde le sandbox complet."""
+    """The Chrome sandbox is sacrificed only where it cannot work (root or
+    CI): a normal user outside CI keeps the full sandbox."""
     monkeypatch.setattr(session_mod.os, "geteuid", lambda: 1000)
     monkeypatch.delenv("CI", raising=False)
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
-    #: utilisateur normal hors CI: le sandbox reste actif par défaut
+    #: normal user outside CI: the sandbox stays active by default
     assert "--no-sandbox" not in command
 
     monkeypatch.setenv("CI", "true")
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
-    #: en CI, sandbox coupé et /dev/shm contourné (conteneurs à mémoire
-    #: partagée réduite)
+    #: in CI, sandbox disabled and /dev/shm bypassed (containers with
+    #: reduced shared memory)
     assert "--no-sandbox" in command
     assert "--disable-dev-shm-usage" in command
 
     monkeypatch.setenv("CI", "false")
     monkeypatch.setattr(session_mod.os, "geteuid", lambda: 0)
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
-    #: root impose la coupure du sandbox même hors CI, mais sans
-    #: l'aménagement /dev/shm propre aux conteneurs
+    #: root forces the sandbox to be disabled even outside CI, but without
+    #: the /dev/shm accommodation specific to containers
     assert "--no-sandbox" in command
     assert "--disable-dev-shm-usage" not in command
 
 
 def test_cleanup_only_removes_the_manifest_session_tree(tmp_path):
-    """Le nettoyage de session est chirurgical: seul l'arbre décrit par le
-    manifest disparaît, les fichiers voisins du même parent restent intacts."""
+    """Session cleanup is surgical: only the tree described by the manifest
+    disappears, sibling files under the same parent remain intact."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
     keep = tmp_path / "keep.txt"
     keep.write_text("keep", encoding="utf-8")
     remove_session_files(path)
-    #: l'arbre de session est supprimé mais le fichier voisin survit intact,
-    #: preuve que la suppression ne remonte pas au parent
+    #: the session tree is removed but the sibling file survives intact,
+    #: proof that removal does not propagate up to the parent
     assert not Path(manifest.session_dir).exists()
     assert keep.read_text(encoding="utf-8") == "keep"
 
 
 def test_manifest_cannot_name_an_arbitrary_parent_as_its_session(tmp_path):
-    """Un manifest forgé déclarant un dossier existant quelconque comme
-    session_dir est rejeté au chargement, avant qu'un nettoyage puisse viser
-    ce dossier."""
+    """A forged manifest declaring any existing folder as session_dir is
+    rejected at load time, before any cleanup could target that folder."""
     project = tmp_path / "project"
     project.mkdir(mode=0o700)
     payload = manifest_for(tmp_path)
@@ -363,17 +363,18 @@ def test_manifest_cannot_name_an_arbitrary_parent_as_its_session(tmp_path):
     path.write_text(json.dumps(forged), encoding="utf-8")
     path.chmod(0o600)
 
-    #: la forge est refusée: le dossier visé n'appartient pas au runtime cdpx
+    #: the forgery is refused: the targeted folder does not belong to the
+    #: cdpx runtime
     with pytest.raises(PolicyError, match="outside the declared session directory"):
         load_manifest(path)
-    #: le répertoire ciblé par la forge n'a subi aucune destruction
+    #: the directory targeted by the forgery underwent no destruction
     assert project.exists()
 
 
 def test_stop_refuses_to_signal_a_reused_or_forged_pid(tmp_path):
-    """stop_session vérifie les marqueurs d'identité du processus avant tout
-    signal: un PID vivant mais qui n'est pas le Chrome de la session (PID
-    recyclé ou forgé) n'est jamais tué."""
+    """stop_session checks the process identity markers before any signal: a
+    live PID that is not the session's Chrome (recycled or forged PID) is
+    never killed."""
     manifest = manifest_for(tmp_path)
     process_start, _ = session_mod._process_identity(os.getpid())
     forged = replace(
@@ -383,18 +384,18 @@ def test_stop_refuses_to_signal_a_reused_or_forged_pid(tmp_path):
     )
     path = write_manifest(forged)
 
-    #: le processus courant, réel mais sans marqueur Chrome, est refusé avant
-    #: l'envoi du moindre signal
+    #: the current process, real but without a Chrome marker, is refused
+    #: before any signal is sent
     with pytest.raises(PolicyError, match="marker"):
         stop_session(path, run_id=forged.run_id, target_id=forged.target_id, timeout=0.001)
 
-    #: le refus laisse le manifest en place pour diagnostic
+    #: the refusal leaves the manifest in place for diagnosis
     assert path.exists()
 
 
 def test_stop_respects_the_exclusive_command_lease(tmp_path):
-    """stop_session passe par le même bail exclusif que les autres commandes:
-    impossible d'arrêter une session pendant qu'une commande la détient."""
+    """stop_session goes through the same exclusive lease as other commands:
+    impossible to stop a session while a command holds it."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
 
@@ -404,8 +405,8 @@ def test_stop_respects_the_exclusive_command_lease(tmp_path):
         target_id=manifest.target_id,
         require_active=False,
     ):
-        #: l'arrêt concurrent échoue-fermé tant que le bail est détenu par la
-        #: commande en cours
+        #: the concurrent stop fails closed as long as the lease is held by
+        #: the current command
         with pytest.raises(PolicyError, match="already in use by another command"):
             stop_session(
                 path,
@@ -416,12 +417,12 @@ def test_stop_respects_the_exclusive_command_lease(tmp_path):
 
 
 def test_stop_rejects_invalid_timeout_before_writing_stop_file(tmp_path):
-    """Un timeout non fini est rejeté par stop_session avant tout effet de
-    bord: aucun ordre d'arrêt n'est déposé dans la session."""
+    """A non-finite timeout is rejected by stop_session before any side
+    effect: no stop order is deposited into the session."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
 
-    #: la validation du paramètre précède toute écriture dans la session
+    #: parameter validation precedes any write into the session
     with pytest.raises(PolicyError, match="finite and strictly positive value required"):
         stop_session(
             path,
@@ -430,14 +431,14 @@ def test_stop_rejects_invalid_timeout_before_writing_stop_file(tmp_path):
             timeout=float("nan"),
         )
 
-    #: aucun fichier stop n'a été déposé malgré l'appel refusé
+    #: no stop file was deposited despite the refused call
     assert not (Path(manifest.session_dir) / session_mod.STOP_NAME).exists()
 
 
 def test_start_session_bootstraps_and_returns_supervised_manifest(tmp_path, monkeypatch):
-    """start_session délègue le lancement à un superviseur détaché via un
-    fichier bootstrap privé, puis retourne le manifest que ce superviseur a
-    écrit, avec le timeout demandé propagé tel quel."""
+    """start_session delegates launching to a detached supervisor via a
+    private bootstrap file, then returns the manifest that supervisor wrote,
+    with the requested timeout propagated as-is."""
     monkeypatch.setattr(
         session_mod.secrets,
         "token_hex",
@@ -494,23 +495,24 @@ def test_start_session_bootstraps_and_returns_supervised_manifest(tmp_path, monk
         timeout=1,
     )
 
-    #: le manifest rendu à l'appelant est celui produit par le superviseur,
-    #: avec la cible qu'il a assignée, au chemin canonique de la session
+    #: the manifest returned to the caller is the one produced by the
+    #: supervisor, with the target it assigned, at the session's canonical
+    #: path
     assert manifest.target_id == "TARGET"
     assert path == tmp_path / SESSION_ID / "manifest.json"
-    #: le superviseur est lancé comme module cdpx dans sa propre session de
-    #: processus, condition de survie après la mort du parent
+    #: the supervisor is launched as a cdpx module in its own process
+    #: session, a survival condition after the parent dies
     assert launched[0][0][:4] == [session_mod.sys.executable, "-m", "cdpx.session", "_supervise"]
     assert launched[0][1]["start_new_session"] is True
     bootstrap = json.loads(Path(launched[0][0][4]).read_text(encoding="utf-8"))
-    #: le timeout demandé arrive intact dans le bootstrap du superviseur
+    #: the requested timeout arrives intact in the supervisor's bootstrap
     assert bootstrap["startup_timeout"] == 1.0
 
 
 def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, monkeypatch):
-    """Un échec écrit par le superviseur pendant le bootstrap remonte tel quel
-    à l'appelant, le superviseur est avorté et le fichier d'erreur consommé;
-    un TTL nul est quant à lui rejeté avant tout lancement."""
+    """A failure written by the supervisor during bootstrap propagates as-is
+    to the caller, the supervisor is aborted and the error file consumed; a
+    zero TTL is meanwhile rejected before any launch."""
     monkeypatch.setattr(
         session_mod.secrets,
         "token_hex",
@@ -540,8 +542,8 @@ def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, mon
         "_abort_supervisor",
         lambda supervisor, path: aborted.append((supervisor.pid, path)),
     )
-    #: le message déposé par le superviseur est relayé à l'appelant, qui sait
-    #: donc pourquoi le démarrage a échoué
+    #: the message deposited by the supervisor is relayed to the caller, who
+    #: thus knows why startup failed
     with pytest.raises(PolicyError, match="synthetic bootstrap failure"):
         start_session(
             run_id="run-error",
@@ -551,11 +553,11 @@ def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, mon
             root=tmp_path,
             timeout=1,
         )
-    #: le superviseur fautif a été avorté et le fichier d'erreur consommé,
-    #: donc pas de processus zombie ni de résidu sur disque
+    #: the faulty supervisor was aborted and the error file consumed, so no
+    #: zombie process and no residue on disk
     assert aborted and not (tmp_path / f"{SESSION_ID}.error").exists()
 
-    #: un TTL nul est refusé d'emblée, sans même tenter un lancement
+    #: a zero TTL is refused outright, without even attempting a launch
     with pytest.raises(PolicyError, match="finite and strictly positive value required"):
         start_session(
             run_id="run-timeout",
@@ -581,9 +583,9 @@ def test_start_session_timeout_reports_redacted_log_tails_before_cleanup(
     monkeypatch,
     evidence_case,
 ):
-    """Quand la session n'est pas prête à temps, le diagnostic remonte la fin
-    des logs superviseur et Chrome — la valeur secrète y est masquée — et le
-    nettoyage n'intervient qu'après leur lecture."""
+    """When the session is not ready in time, the diagnostic surfaces the
+    tail of the supervisor and Chrome logs — the secret value is redacted
+    there — and cleanup happens only after they are read."""
     monkeypatch.setattr(
         session_mod.secrets,
         "token_hex",
@@ -639,32 +641,32 @@ def test_start_session_timeout_reports_redacted_log_tails_before_cleanup(
         )
 
     message = str(caught.value)
-    #: le diagnostic nomme l'échec de readiness et cite les deux logs avec
-    #: l'étape de démarrage atteinte, de quoi investiguer sans la session
+    #: the diagnostic names the readiness failure and quotes both logs with
+    #: the startup stage reached, enough to investigate without the session
     assert "browser session not ready" in message
     assert "supervisor.log" in message and "chrome-stderr.log" in message
     assert "startup_stage=wait_devtools" in message
-    #: la valeur secrète issue de l'environnement n'atteint jamais le message,
-    #: seul le marqueur de redaction y figure
+    #: the secret value coming from the environment never reaches the
+    #: message, only the redaction marker appears there
     assert secret not in message
     assert "***" in message
-    #: le nettoyage a bien eu lieu après lecture des logs, puis a tout retiré
+    #: cleanup did happen after reading the logs, then removed everything
     assert cleanup_observation == {"pid": 5151, "logs_present": True}
     assert not (tmp_path / SESSION_ID).exists()
 
-    # Preuve secondaire: le message d'erreur déjà redacté par la session, seul
-    # diagnostic exploitable une fois le runtime privé supprimé.
+    # Secondary proof: the error message already redacted by the session,
+    # the only usable diagnostic once the private runtime has been removed.
     if evidence_case is not None:
         evidence_case.attach_text(
-            "Diagnostic de démarrage redacté (PolicyError)",
+            "Redacted startup diagnostic (PolicyError)",
             message,
             filename="startup-timeout-diagnostic.txt",
         )
 
 
 def test_startup_diagnostics_refuse_symlinked_logs(tmp_path):
-    """Les diagnostics de démarrage ne suivent pas les symlinks: un log
-    pointant hors de la session est traité comme indisponible, jamais lu."""
+    """Startup diagnostics do not follow symlinks: a log pointing outside the
+    session is treated as unavailable, never read."""
     session_dir = tmp_path / "session"
     session_dir.mkdir(mode=0o700)
     outside = tmp_path / "outside.log"
@@ -673,9 +675,9 @@ def test_startup_diagnostics_refuse_symlinked_logs(tmp_path):
 
     diagnostics = session_mod._startup_diagnostic_tails(session_dir)
 
-    #: le contenu du fichier extérieur n'a pas été exfiltré via le symlink
+    #: the outside file's content was not exfiltrated via the symlink
     assert "must-not-be-read" not in diagnostics
-    #: le log détourné est présenté comme indisponible, pas comme une erreur
+    #: the hijacked log is presented as unavailable, not as an error
     assert "supervisor.log:\n<empty or unavailable>" in diagnostics
 
 
@@ -692,9 +694,9 @@ def test_start_session_rejects_non_finite_limits_before_creating_files(
     tmp_path,
     overrides,
 ):
-    """TTL et timeout non finis ou nuls sont rejetés avant toute création de
-    fichier: le runtime reste vierge quelle que soit la limite fautive."""
-    #: chaque limite invalide déclenche le même refus de politique explicite
+    """Non-finite or zero TTL and timeout are rejected before any file
+    creation: the runtime stays pristine regardless of the faulty limit."""
+    #: each invalid limit triggers the same explicit policy refusal
     with pytest.raises(PolicyError, match="finite and strictly positive value required"):
         start_session(
             run_id="run-invalid-limits",
@@ -703,14 +705,14 @@ def test_start_session_rejects_non_finite_limits_before_creating_files(
             root=tmp_path,
             **overrides,
         )
-    #: le refus précède la création du moindre fichier de session
+    #: the refusal precedes the creation of any session file
     assert list(tmp_path.iterdir()) == []
 
 
 def test_start_session_rejects_unbounded_startup_timeout(tmp_path):
-    """Le timeout de démarrage est aussi borné par le haut: une attente
-    au-delà du plafond est refusée avant tout effet sur le disque."""
-    #: dépasser le plafond est un refus de politique, pas une attente infinie
+    """The startup timeout is also bounded from above: a wait beyond the
+    ceiling is refused before any effect on disk."""
+    #: exceeding the ceiling is a policy refusal, not an infinite wait
     with pytest.raises(PolicyError, match="startup timeout out of range"):
         start_session(
             run_id="run-invalid-timeout",
@@ -719,14 +721,14 @@ def test_start_session_rejects_unbounded_startup_timeout(tmp_path):
             root=tmp_path,
             timeout=session_mod.MAX_STARTUP_TIMEOUT + 1,
         )
-    #: rien n'a été créé sur disque avant le refus
+    #: nothing was created on disk before the refusal
     assert list(tmp_path.iterdir()) == []
 
 
 def test_start_session_cleans_private_tree_when_supervisor_spawn_fails(tmp_path, monkeypatch):
-    """Si le spawn du superviseur échoue, start_session propage l'erreur
-    système d'origine mais supprime d'abord l'arborescence privée déjà
-    créée pour le bootstrap."""
+    """If the supervisor spawn fails, start_session propagates the original
+    system error but first removes the private tree already created for the
+    bootstrap."""
     monkeypatch.setattr(
         session_mod.secrets,
         "token_hex",
@@ -739,7 +741,8 @@ def test_start_session_cleans_private_tree_when_supervisor_spawn_fails(tmp_path,
 
     monkeypatch.setattr(session_mod.subprocess, "Popen", fail_popen)
 
-    #: l'erreur système d'origine est propagée sans être avalée ni maquillée
+    #: the original system error is propagated without being swallowed or
+    #: disguised
     with pytest.raises(OSError, match="synthetic spawn failure"):
         start_session(
             run_id="run-spawn-failure",
@@ -748,7 +751,7 @@ def test_start_session_cleans_private_tree_when_supervisor_spawn_fails(tmp_path,
             chrome_bin="ignored",
             root=tmp_path,
         )
-    #: l'arborescence créée avant le spawn a été entièrement nettoyée
+    #: the tree created before the spawn was entirely cleaned up
     assert not (tmp_path / SESSION_ID).exists()
 
 
@@ -762,9 +765,9 @@ def test_start_session_cleans_private_tree_when_supervisor_spawn_fails(tmp_path,
     ],
 )
 def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, monkeypatch):
-    """Le superviseur exige une attestation valide puis déroule le cycle
-    complet: manifest écrit et rechargeable, targets surnuméraires fermés,
-    Chrome terminé (puis tué s'il résiste) et session supprimée au SIGTERM."""
+    """The supervisor requires a valid attestation then runs the full cycle:
+    manifest written and reloadable, extra targets closed, Chrome terminated
+    (then killed if it resists) and session removed on SIGTERM."""
     session_dir = tmp_path / SESSION_ID
     profile_dir = session_dir / "profile"
     artifacts_dir = session_dir / "artifacts"
@@ -900,52 +903,85 @@ def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, 
         lambda path, ignore_errors=False: removed.append((Path(path), ignore_errors)),
     )
 
-    #: une attestation invalide fait échouer le superviseur sans toucher au
-    #: bootstrap ni au dossier de session
+    #: an invalid attestation makes the supervisor fail without touching the
+    #: bootstrap or the session directory
     assert session_mod._supervise(bootstrap, "0" * 64) == 1
     assert bootstrap.exists() and session_dir.exists()
     result = session_mod._supervise(bootstrap, attestation)
 
-    #: avec la bonne attestation, le cycle supervisé se termine proprement
+    #: with the correct attestation, the supervised cycle finishes cleanly
     assert result == 0
     manifest = load_manifest(session_dir / "manifest.json", run_id="run-supervisor")
-    #: le manifest écrit est rechargeable pour ce run et pointe le target
-    #: assigné sur le port réellement découvert
+    #: the written manifest is reloadable for this run and points to the
+    #: assigned target on the actually discovered port
     assert manifest.target_id == "ASSIGNED" and manifest.port == 9444
-    #: l'onglet initial superflu est fermé au démarrage, la cible assignée
-    #: l'est à l'arrêt — le worker n'est jamais touché
+    #: the superfluous initial tab is closed at startup, the assigned target
+    #: is closed at stop — the worker is never touched
     assert closed == ["OLD", "ASSIGNED"]
-    #: Chrome reçoit terminate puis kill lorsqu'il ignore le délai d'arrêt
+    #: Chrome receives terminate then kill when it ignores the stop deadline
     assert chrome.terminated is True and chrome.killed is True
-    #: la session est supprimée exactement une fois, sans erreurs masquées
+    #: the session is removed exactly once, with no swallowed errors
     assert removed == [(session_dir, False)]
     real_rmtree(session_dir)
 
 
+def test_teardown_runtime_retries_rmtree_against_dying_chrome_children(tmp_path, monkeypatch):
+    """A Chrome child process (crashpad, renderer) can outlive the killed
+    main process and recreate files while rmtree walks the profile: the
+    supervisor retries within a bounded deadline instead of leaving the
+    session directory behind forever."""
+    from cdpx.sessions import supervisor as supervisor_mod
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    runtime = supervisor_mod.SupervisorRuntime(
+        session_dir=session_dir,
+        error_path=session_dir / "error.log",
+    )
+    attempts = []
+    real_rmtree = supervisor_mod.shutil.rmtree
+
+    def flaky_rmtree(path, *args, **kwargs):
+        attempts.append(Path(path))
+        #: the first two walks fail like an ENOTEMPTY race, the third wins
+        if len(attempts) < 3:
+            raise OSError(39, "Directory not empty")
+        real_rmtree(path)
+
+    monkeypatch.setattr(supervisor_mod.shutil, "rmtree", flaky_rmtree)
+    monkeypatch.setattr(supervisor_mod.time, "sleep", lambda _s: None)
+
+    supervisor_mod._teardown_runtime(runtime)
+
+    #: the transient failures are absorbed and the directory ends up removed
+    assert len(attempts) == 3
+    assert not session_dir.exists()
+
+
 def test_supervisor_rejects_invalid_bootstrap_without_writing_or_cleanup(tmp_path):
-    """Un bootstrap illisible fait échouer le superviseur sans publication de
-    fichier d'erreur ni destruction: rien n'est nettoyé pour une entrée qui
-    n'a pas prouvé être une session cdpx."""
+    """An unreadable bootstrap makes the supervisor fail without publishing
+    an error file or destroying anything: nothing is cleaned up for an input
+    that has not proven to be a cdpx session."""
     session_dir = tmp_path / SESSION_ID
     session_dir.mkdir(mode=0o700)
     bootstrap = session_dir / "bootstrap.json"
     bootstrap.write_text("not-json", encoding="utf-8")
     bootstrap.chmod(0o600)
 
-    #: le superviseur refuse l'entrée non parsable avec un code d'échec
+    #: the supervisor refuses the unparsable input with a failure code
     assert session_mod._supervise(bootstrap, "0" * 64) == 1
     error = tmp_path / f"{SESSION_ID}.error"
-    #: aucun fichier d'erreur n'est publié pour une entrée non attestée
+    #: no error file is published for an unattested input
     assert not error.exists()
-    #: le dossier et son contenu restent exactement tels qu'avant l'appel
+    #: the folder and its content remain exactly as they were before the call
     assert session_dir.exists()
     assert bootstrap.read_text(encoding="utf-8") == "not-json"
 
 
 def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypatch, evidence_case):
-    """Quand la readiness échoue côté superviseur, le fichier d'erreur publié
-    conserve la cause et les fins de logs — la valeur secrète y est masquée —
-    puis la session est intégralement détruite."""
+    """When readiness fails on the supervisor side, the published error file
+    keeps the cause and the log tails — the secret value is redacted there —
+    then the session is entirely destroyed."""
     session_dir = tmp_path / SESSION_ID
     profile_dir = session_dir / "profile"
     artifacts_dir = session_dir / "artifacts"
@@ -1004,34 +1040,34 @@ def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypat
         lambda *_args, **_kwargs: (_ for _ in ()).throw(PolicyError("synthetic readiness timeout")),
     )
 
-    #: l'échec de readiness fait sortir le superviseur en erreur
+    #: the readiness failure makes the supervisor exit with an error
     assert session_mod._supervise(bootstrap, attestation) == 1
 
     error = tmp_path / f"{SESSION_ID}.error"
     message = error.read_text(encoding="utf-8")
-    #: la cause d'origine et les extraits des deux logs survivent dans le
-    #: fichier d'erreur, seul témoin après la destruction de la session
+    #: the original cause and excerpts from both logs survive in the error
+    #: file, the only witness after the session's destruction
     assert "synthetic readiness timeout" in message
     assert "supervisor.log" in message and "chrome-stderr.log" in message
-    #: la valeur secrète est redactée avant d'atteindre le fichier d'erreur
+    #: the secret value is redacted before reaching the error file
     assert secret not in message and "***" in message
-    #: le dossier de session, lui, est bien nettoyé malgré l'échec
+    #: the session folder, though, is indeed cleaned up despite the failure
     assert not session_dir.exists()
 
-    # Preuve secondaire: le contenu redacté du fichier .error, seul témoin
-    # post-mortem une fois la session détruite.
+    # Secondary proof: the redacted content of the .error file, the only
+    # post-mortem witness once the session is destroyed.
     if evidence_case is not None:
         evidence_case.attach_text(
-            "Fichier d'erreur superviseur redacté",
+            "Redacted supervisor error file",
             message,
             filename="supervisor-readiness-error.txt",
         )
 
 
 def test_supervisor_arbitrary_path_never_removes_or_chmods_its_parent(tmp_path):
-    """Pointer le superviseur vers un fichier quelconque d'un projet ne
-    détruit ni ne re-chmod le dossier parent: l'échec est totalement sans
-    effet de bord."""
+    """Pointing the supervisor at any arbitrary project file neither destroys
+    nor re-chmods the parent folder: the failure has absolutely no side
+    effect."""
     victim = tmp_path / "project"
     victim.mkdir(mode=0o755)
     keep = victim / "keep.txt"
@@ -1040,15 +1076,15 @@ def test_supervisor_arbitrary_path_never_removes_or_chmods_its_parent(tmp_path):
     arbitrary.write_text("not a bootstrap", encoding="utf-8")
     before_mode = stat.S_IMODE(victim.stat().st_mode)
 
-    #: le superviseur refuse le fichier arbitraire avec un simple code d'échec
+    #: the supervisor refuses the arbitrary file with a plain failure code
     assert session_mod._supervise(arbitrary, "0" * 64) == 1
 
-    #: le dossier victime est intact: contenu préservé et permissions
-    #: inchangées, aucun durcissement 0700 appliqué à un dossier étranger
+    #: the victim folder is intact: content preserved and permissions
+    #: unchanged, no 0700 hardening applied to a foreign folder
     assert keep.read_text(encoding="utf-8") == "keep"
     assert arbitrary.exists()
     assert stat.S_IMODE(victim.stat().st_mode) == before_mode
-    #: aucun fichier d'erreur n'est déposé à côté d'un dossier étranger
+    #: no error file is deposited next to a foreign folder
     assert not (tmp_path / "project.error").exists()
 
 
@@ -1056,8 +1092,8 @@ def test_single_target_enforcement_fails_closed_when_popup_cannot_close(
     tmp_path,
     monkeypatch,
 ):
-    """Si un popup surnuméraire refuse de se fermer, la règle un-seul-target
-    échoue-fermé au lieu de laisser la session continuer avec deux pages."""
+    """If an extra popup refuses to close, the single-target rule fails
+    closed instead of letting the session continue with two pages."""
     manifest = manifest_for(tmp_path)
     assigned = {
         "id": manifest.target_id,
@@ -1080,16 +1116,16 @@ def test_single_target_enforcement_fails_closed_when_popup_cannot_close(
 
     monkeypatch.setattr(session_mod.discovery, "close_tab", refuse_close)
 
-    #: le refus de fermeture devient une erreur de politique explicite, pas
-    #: un silence qui laisserait une page non supervisée ouverte
+    #: the refusal to close becomes an explicit policy error, not a silence
+    #: that would leave an unsupervised page open
     with pytest.raises(PolicyError, match="closing.*failed"):
         session_mod._enforce_single_page_target(manifest)
 
 
 def test_single_target_enforcement_waits_for_async_close(tmp_path, monkeypatch):
-    """La fermeture d'un popup est asynchrone côté Chrome: l'enforcement
-    attend, de manière bornée, que la liste des targets converge au lieu de
-    re-fermer en boucle ou d'échouer trop tôt."""
+    """Closing a popup is asynchronous on the Chrome side: enforcement waits,
+    in a bounded way, for the target list to converge instead of re-closing
+    in a loop or failing too early."""
     manifest = manifest_for(tmp_path)
     assigned = {
         "id": manifest.target_id,
@@ -1117,15 +1153,14 @@ def test_single_target_enforcement_waits_for_async_close(tmp_path, monkeypatch):
 
     session_mod._enforce_single_page_target(manifest, close_timeout=0.1)
 
-    #: un seul ordre de fermeture est émis malgré plusieurs relevés où le
-    #: popup traîne encore: l'attente remplace la ré-émission
+    #: only one close order is issued despite several readings where the
+    #: popup still lingers: waiting replaces re-issuing
     assert closed == ["POPUP"]
 
 
 def test_exact_target_attestation_rejects_extra_page(tmp_path, monkeypatch):
-    """L'attestation stricte du target échoue dès qu'une page supplémentaire
-    coexiste avec la cible assignée: la session ne travaille jamais dans un
-    navigateur partagé."""
+    """Strict target attestation fails as soon as an extra page coexists with
+    the assigned target: the session never works in a shared browser."""
     manifest = manifest_for(tmp_path)
     monkeypatch.setattr(
         session_mod.discovery,
@@ -1144,22 +1179,22 @@ def test_exact_target_attestation_rejects_extra_page(tmp_path, monkeypatch):
         ],
     )
 
-    #: la présence d'une deuxième page viole le contrat d'exclusivité de la
-    #: cible et invalide l'attestation
+    #: the presence of a second page violates the target's exclusivity
+    #: contract and invalidates the attestation
     with pytest.raises(PolicyError, match="exactly one page target"):
         session_mod._assert_exact_target(manifest)
 
 
 def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, monkeypatch):
-    """session_status reflète l'état réel des processus et
-    assert_session_active vérifie chaque lien de la chaîne (port lié,
-    marqueurs, identité des PID, expiration) en échouant-fermé sur toute
-    dérive; runtime_root et find_chrome complètent la découverte locale."""
+    """session_status reflects the real state of the processes and
+    assert_session_active checks every link of the chain (bound port,
+    markers, PID identity, expiration) failing closed on any drift;
+    runtime_root and find_chrome complete local discovery."""
     manifest = manifest_for(tmp_path)
     path = write_manifest(manifest)
     status = session_status(path, run_id=manifest.run_id, target_id=manifest.target_id)
-    #: sur des PID morts, le statut rapporte navigateur et superviseur
-    #: arrêtés sans lever d'erreur
+    #: on dead PIDs, the status reports browser and supervisor stopped
+    #: without raising an error
     assert status["browser_running"] is False and status["supervisor_running"] is False
 
     active = replace(
@@ -1197,37 +1232,37 @@ def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, mon
         f"{active.port}\n/devtools/browser/id\n",
         encoding="utf-8",
     )
-    #: la session cohérente (PID vivants, marqueurs, port lié, non expirée)
-    #: est attestée active sans erreur
+    #: the coherent session (live PIDs, markers, bound port, not expired) is
+    #: attested active without error
     assert_session_active(active)
     active_port = Path(active.profile_dir) / "DevToolsActivePort"
     active_port.write_text("1\n/devtools/browser/id\n", encoding="utf-8")
-    #: un DevToolsActivePort divergent prouve que le profil n'est plus servi
-    #: par le port du manifest
+    #: a divergent DevToolsActivePort proves that the profile is no longer
+    #: served by the manifest's port
     with pytest.raises(PolicyError, match="not bound to the assigned port"):
         assert_session_active(active)
     active_port.write_text(f"{active.port}\n/devtools/browser/id\n", encoding="utf-8")
-    #: un start_time différent trahit un PID recyclé par un autre processus
+    #: a different start_time betrays a PID recycled by another process
     with pytest.raises(PolicyError, match="reused"):
         assert_session_active(replace(active, browser_start_time="stale-start"))
-    #: un profil déplacé ne porte plus le marqueur user-data-dir attendu
+    #: a moved profile no longer carries the expected user-data-dir marker
     with pytest.raises(PolicyError, match="marker"):
         assert_session_active(
             replace(active, profile_dir=str(Path(active.session_dir) / "other-profile"))
         )
-    #: modifier l'autorité casse les marqueurs attestés du superviseur
+    #: changing the authority breaks the supervisor's attested markers
     with pytest.raises(PolicyError, match="supervisor.*marker"):
         assert_session_active(replace(active, authority="privileged"))
-    #: une expiration illisible est un refus, jamais une session éternelle
+    #: an unreadable expiration is a refusal, never an eternal session
     with pytest.raises(PolicyError, match="expires_at"):
         assert_session_active(replace(active, expires_at="invalid"))
-    #: une session expirée est refusée même si tous les processus tournent
+    #: an expired session is refused even if all processes are running
     with pytest.raises(PolicyError, match="expired"):
         assert_session_active(
             replace(active, expires_at=(datetime.now(UTC) - timedelta(seconds=1)).isoformat())
         )
-    #: la disparition du navigateur ou du superviseur suffit, chacune, à
-    #: invalider la session
+    #: the disappearance of either the browser or the supervisor is enough
+    #: to invalidate the session
     with pytest.raises(PolicyError, match="browser"):
         assert_session_active(replace(active, browser_pid=999_999))
     with pytest.raises(PolicyError, match="supervisor"):
@@ -1235,21 +1270,21 @@ def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, mon
 
     runtime = tmp_path / "runtime"
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
-    #: la racine runtime suit XDG_RUNTIME_DIR, isolée par utilisateur
+    #: the runtime root follows XDG_RUNTIME_DIR, isolated per user
     assert runtime_root() == runtime / "cdpx"
     executable = tmp_path / "chromium"
     executable.write_text("binary", encoding="utf-8")
-    #: un binaire explicite existant est accepté tel quel, un chemin
-    #: manquant est une erreur de politique et non un fallback silencieux
+    #: an existing explicit binary is accepted as-is, a missing path is a
+    #: policy error, not a silent fallback
     assert find_chrome(str(executable)) == str(executable)
     with pytest.raises(PolicyError, match="not found"):
         find_chrome(str(tmp_path / "missing"))
 
 
 def test_devtools_port_and_discovery_readiness_are_bounded(tmp_path, monkeypatch):
-    """La lecture de DevToolsActivePort et l'attente de la discovery sont
-    bornées: succès immédiat quand le port est valide, timeout net sinon, et
-    arrêt anticipé dès que le processus Chrome est déjà mort."""
+    """Reading DevToolsActivePort and waiting for discovery are bounded:
+    immediate success when the port is valid, a clean timeout otherwise, and
+    an early stop as soon as the Chrome process is already dead."""
     profile = tmp_path / "profile"
     profile.mkdir()
 
@@ -1266,18 +1301,19 @@ def test_devtools_port_and_discovery_readiness_are_bounded(tmp_path, monkeypatch
             return 7
 
     (profile / "DevToolsActivePort").write_text("9555\n/devtools/browser/id\n", encoding="utf-8")
-    #: un fichier de port valide est lu dès le premier passage, sans attente
+    #: a valid port file is read on the very first pass, without waiting
     assert session_mod._read_devtools_port(profile, Running(), timeout=1) == 9555
 
     (profile / "DevToolsActivePort").write_text("invalid\n", encoding="utf-8")
     ticks = iter((0.0, 0.0, 1.0))
     monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(session_mod.time, "sleep", lambda _delay: None)
-    #: un contenu invalide épuise le timeout sans jamais retourner de port
+    #: invalid content exhausts the timeout without ever returning a port
     with pytest.raises(PolicyError, match="not found"):
         session_mod._read_devtools_port(profile, Running(), timeout=0.5)
     ticks = iter((0.0, 0.0))
-    #: un Chrome déjà terminé court-circuite l'attente au lieu de la vider
+    #: an already-terminated Chrome short-circuits the wait instead of
+    #: exhausting it
     with pytest.raises(PolicyError, match="readiness"):
         session_mod._read_devtools_port(profile, Stopped(), timeout=1)
 
@@ -1303,12 +1339,12 @@ def test_devtools_port_and_discovery_readiness_are_bounded(tmp_path, monkeypatch
     )
     ticks = iter((0.0, 0.0))
     monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(ticks))
-    #: la discovery prête (HTTP 200 sur l'endpoint loopback attendu, vérifié
-    #: par le faux opener) rend la main sans erreur
+    #: discovery ready (HTTP 200 on the expected loopback endpoint, checked
+    #: by the fake opener) returns without error
     session_mod._wait_discovery(9555, Running(), timeout=1)
 
     ticks = iter((0.0, 0.0))
     monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(ticks))
-    #: un processus mort pendant l'attente de discovery est un échec immédiat
+    #: a process dead during the discovery wait is an immediate failure
     with pytest.raises(PolicyError, match="discovery"):
         session_mod._wait_discovery(9555, Stopped(), timeout=1)

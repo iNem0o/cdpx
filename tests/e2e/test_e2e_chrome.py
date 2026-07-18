@@ -1,12 +1,12 @@
-"""E2E Chrome réel.
+"""Real Chrome E2E.
 
-Chrome/Chromium est une dépendance obligatoire du portail e2e: si aucun binaire
-n'est disponible, la suite échoue au lieu de produire un faux succès par skip.
-Les scénarios déroulent les mêmes fixtures que les tests mock, mais contre un
-vrai navigateur + le serveur de fixtures.
+Chrome/Chromium is a mandatory dependency of the e2e gate: if no binary is
+available, the suite fails instead of producing a false success via skip.
+The scenarios run the same fixtures as the mock tests, but against a real
+browser + the fixture server.
 
-Lancement visé:
-  chromium --headless=new --remote-debugging-port=0 ... (géré ici)
+Launch target:
+  chromium --headless=new --remote-debugging-port=0 ... (handled here)
   make test-e2e
 """
 
@@ -71,7 +71,7 @@ CHROME_BIN = next(
 )
 
 if CHROME_BIN is None:
-    pytest.fail("Chrome/Chromium obligatoire pour les e2e cdpx", pytrace=False)
+    pytest.fail("Chrome/Chromium required for cdpx e2e", pytrace=False)
 
 
 @pytest.fixture(scope="module")
@@ -159,14 +159,14 @@ def attach_cli_screenshot(
     proves=["The installed CLI manages a real Chrome target lifecycle."],
 )
 def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evidence_case):
-    """Le CLI installé pilote un vrai cycle de vie Chrome de bout en bout:
-    identité du navigateur, navigation, puis inventaire des onglets sur la
-    cible supervisée — sans jamais toucher un endpoint brut."""
+    """The installed CLI drives a real Chrome lifecycle end to end: browser
+    identity, navigation, then tab inventory on the supervised target —
+    without ever touching a raw endpoint."""
     manifest, path = managed_cli_session
     version_proc = run_cli(manifest, path, "version")
     attach_cli_run(evidence_case, "cdpx version", version_proc)
     version = successful_json(version_proc)
-    #: le navigateur répond avec une identité Chrome/Chromium réelle
+    #: the browser answers with a real Chrome/Chromium identity
     assert version["Browser"].startswith(("Chrome/", "HeadlessChrome/", "Chromium/"))
     assert version["Protocol-Version"]
 
@@ -175,10 +175,10 @@ def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evi
         "goto",
         f"{fixtures_http.base_url}/index.html",
     )
-    #: la navigation aboutit sur le site témoin loopback
+    #: the navigation lands on the loopback reference site
     assert navigated["ok"] is True
     listed = cli_json(managed_cli_session, "tabs", "list")
-    #: la session supervisée ne voit que sa propre cible
+    #: the supervised session only sees its own target
     assert listed["count"] == 1
     assert listed["tabs"][0]["id"] == manifest.target_id
     attach_cli_screenshot(evidence_case, managed_cli_session, "assigned-target")
@@ -191,22 +191,21 @@ def test_cli_browser_lifecycle_black_box(managed_cli_session, fixtures_http, evi
     proves=["The installed CLI submits a real form through trusted keyboard input."],
 )
 def test_cli_dom_and_keyboard_black_box(cli_page, evidence_case, monkeypatch):
-    """Un formulaire réel est soumis par une frappe clavier de confiance
-    (trusted input), la valeur secrète passant par l'environnement sans
-    jamais apparaître dans argv."""
+    """A real form is submitted by trusted keyboard input, the secret value
+    passing through the environment without ever appearing in argv."""
     manifest, path, base = cli_page
     session = (manifest, path)
     navigated = cli_json(session, "goto", f"{base}/form.html")
-    #: la page formulaire est chargée jusqu'à l'évènement load
+    #: the form page is loaded up to the load event
     assert navigated["ok"] is True and navigated["waited"] == "load"
     assert cli_json(session, "count", "input,button")["count"] == 3
 
     monkeypatch.setenv("E2E_FORM_TEXT", "Keyboard E2E")
     cli_json(session, "type", "#name", "--secret-env", "E2E_FORM_TEXT", "--clear")
-    #: la touche Entrée déclenche la soumission comme le ferait un humain
+    #: the Enter key triggers submission the way a human would
     assert cli_json(session, "key", "Enter")["pressed"] == "Enter"
     html = cli_json(session, "html", "#result")
-    #: le DOM final prouve la soumission avec la valeur tapée au clavier
+    #: the final DOM proves the submission with the value typed on keyboard
     assert 'data-state="submitted"' in html["html"]
     assert "OK:Keyboard E2E" in html["html"]
     attach_cli_screenshot(evidence_case, session)
@@ -219,9 +218,9 @@ def test_cli_dom_and_keyboard_black_box(cli_page, evidence_case, monkeypatch):
     proves=["The installed CLI writes valid JPEG and PDF artifacts."],
 )
 def test_cli_jpeg_and_pdf_artifacts_black_box(cli_page, tmp_path, evidence_case):
-    """Les captures JPEG pleine page et PDF du CLI produisent de vrais fichiers
-    du format annoncé, confinés dans le dossier d'artefacts de la session
-    supervisée plutôt qu'au chemin brut demandé."""
+    """The CLI's full-page JPEG and PDF captures produce real files of the
+    announced format, confined to the supervised session's artifact
+    directory rather than the raw requested path."""
     manifest, path, base = cli_page
     session = (manifest, path)
     cli_json(session, "goto", f"{base}/long.html")
@@ -240,22 +239,23 @@ def test_cli_jpeg_and_pdf_artifacts_black_box(cli_page, tmp_path, evidence_case)
     printed = cli_json(session, "pdf", "-o", str(pdf))
     jpeg_path = Path(shot["path"])
     pdf_path = Path(printed["path"])
-    #: la taille annoncée correspond au fichier réel signé JPEG, et le chemin
-    #: brut passé en -o n'est jamais écrit: l'artefact est relogé sous la session
+    #: the announced size matches the real signed JPEG file, and the raw
+    #: path passed via -o is never written: the artifact is relocated under
+    #: the session
     assert shot["format"] == "jpeg" and shot["full_page"] is True
     assert shot["bytes"] == jpeg_path.stat().st_size > 1000 and not jpeg.exists()
     assert jpeg_path.read_bytes().startswith(b"\xff\xd8\xff")
-    #: même contrat pour le PDF: fichier non trivial, signature %PDF-, confinement session
+    #: same contract for the PDF: non-trivial file, %PDF- signature, session confinement
     assert printed["bytes"] == pdf_path.stat().st_size > 1000 and not pdf.exists()
     assert pdf_path.read_bytes().startswith(b"%PDF-")
     if evidence_case is not None:
-        # Binaires: JPEG relogé en type screenshot, PDF en type file — tous deux
-        # opaque-restricted (non inlinés). Le JSON dérivé rend lisibles taille,
-        # format et signatures observées sans exposer le contenu binaire.
+        # Binaries: JPEG relocated as type screenshot, PDF as type file — both
+        # opaque-restricted (not inlined). The derived JSON makes size, format
+        # and observed signatures readable without exposing binary content.
         evidence_case.attach_file(jpeg_path, "jpeg-full-page", "screenshot")
         evidence_case.attach_file(pdf_path, "pdf-print")
         evidence_case.attach_json(
-            "artefacts-binaires-observes",
+            "observed-binary-artifacts",
             {
                 "jpeg": {
                     "format": shot["format"],
@@ -279,20 +279,20 @@ def test_cli_jpeg_and_pdf_artifacts_black_box(cli_page, tmp_path, evidence_case)
     proves=["Console follow streams bounded NDJSON from real Chrome."],
 )
 def test_cli_console_follow_is_bounded_ndjson(cli_page, evidence_case):
-    """`console --follow --max N` s'arrête seul après exactement N évènements
-    NDJSON issus d'un vrai Chrome, en mêlant logs console et exceptions non
-    rattrapées."""
+    """`console --follow --max N` stops on its own after exactly N NDJSON
+    events from a real Chrome, mixing console logs and uncaught
+    exceptions."""
     manifest, path, base = cli_page
     session = (manifest, path)
     cli_json(session, "goto", f"{base}/console.html")
     proc = run_cli(manifest, path, "console", "--follow", "--max", "4")
     attach_cli_run(evidence_case, "console-follow-max-4", proc)
-    #: le suivi borné se termine proprement, sans diagnostic parasite
+    #: the bounded follow ends cleanly, with no stray diagnostic
     assert proc.returncode == 0 and proc.stderr == ""
     entries = [json.loads(line) for line in proc.stdout.splitlines()]
-    #: chaque ligne du flux est un objet JSON autonome et la borne --max est exacte
+    #: each line of the stream is a self-contained JSON object and the --max bound is exact
     assert len(entries) == 4
-    #: le flux mêle les deux familles d'évènements, avec les messages plantés par la fixture
+    #: the stream mixes both event families, with the messages planted by the fixture
     assert {entry["kind"] for entry in entries} == {"console", "exception"}
     assert any("fixture-log" in entry["text"] for entry in entries)
     assert any("fixture-uncaught" in entry["text"] for entry in entries)
@@ -306,9 +306,9 @@ def test_cli_console_follow_is_bounded_ndjson(cli_page, evidence_case):
     proves=["Cookie secrets stay masked and session storage is observable."],
 )
 def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_case, monkeypatch):
-    """Le masquage des valeurs sensibles est le défaut de bout en bout: cookies
-    et sessionStorage sortent masqués, et un cookie posé via l'environnement
-    reste masqué même sous --show-values."""
+    """Masking sensitive values is the default end to end: cookies and
+    sessionStorage come out masked, and a cookie set via the environment
+    stays masked even under --show-values."""
     manifest, path, base = cli_page
     session_context = (manifest, path)
     cli_json(session_context, "goto", f"{base}/storage.html")
@@ -325,19 +325,19 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
         "--url",
         f"{base}/",
     )
-    #: Chrome accepte le cookie dont la valeur secrète n'a jamais transité par argv
+    #: Chrome accepts the cookie whose secret value never transited through argv
     assert set_result["success"] is True
 
     masked_proc = run_cli(manifest, path, "cookies", "get")
     masked = successful_json(masked_proc)
-    #: par défaut aucune valeur ne sort: masquage annoncé, secret absent du flux brut
+    #: by default no value comes out: masking is announced, secret absent from the raw stream
     assert masked["values_masked"] is True
     assert secret not in masked_proc.stdout
     assert all(cookie["value"] == "***" for cookie in masked["cookies"])
 
     shown_proc = run_cli(manifest, path, "cookies", "get", "--show-values")
     shown = successful_json(shown_proc)
-    #: même le démasquage explicite ne révèle pas un secret venu de l'environnement
+    #: even explicit unmasking does not reveal a secret coming from the environment
     assert shown["values_masked"] is False
     assert any(
         cookie["name"] == "blackBoxCookie" and cookie["value"] == "***"
@@ -345,14 +345,14 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
     )
     assert secret not in shown_proc.stdout
     if evidence_case is not None:
-        # Le run masqué est sûr (toutes valeurs "***"): transcript joint intégral.
-        # Le run --show-values, lui, révèle des valeurs de cookies en clair
-        # (valeurs de fixture, non des secrets d'environnement) — on n'attache
-        # donc PAS son transcript brut. Le JSON dérivé prouve le contraste
-        # masquage-par-défaut vs --show-values sans exposer aucune valeur.
-        attach_cli_run(evidence_case, "cookies-get-masque", masked_proc)
+        # The masked run is safe (all values "***"): full transcript attached.
+        # The --show-values run, on the other hand, reveals cookie values in
+        # the clear (fixture values, not environment secrets) — so we do NOT
+        # attach its raw transcript. The derived JSON proves the contrast
+        # between masked-by-default and --show-values without exposing any value.
+        attach_cli_run(evidence_case, "cookies-get-masked", masked_proc)
         evidence_case.attach_json(
-            "cookies-masquage-contraste",
+            "cookies-masking-contrast",
             {
                 "masked_run": {
                     "values_masked": masked["values_masked"],
@@ -369,7 +369,7 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
             },
         )
     session_storage = cli_json(session_context, "storage", "--kind", "session")
-    #: le sessionStorage applique la même politique de masquage par défaut
+    #: sessionStorage applies the same default masking policy
     assert session_storage["entries"] == {"cdpx-session": "***"}
     assert session_storage["values_masked"] is True
     shown_session = cli_json(
@@ -379,9 +379,9 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
         "session",
         "--show-values",
     )
-    #: --show-values restitue la valeur anodine réellement posée par la page
+    #: --show-values returns the innocuous value actually set by the page
     assert shown_session["entries"] == {"cdpx-session": "oui"}
-    #: le nettoyage ramène le contexte cookies à un état vierge vérifiable
+    #: cleanup brings the cookie context back to a verifiably clean state
     assert cli_json(session_context, "cookies", "clear")["cleared"] is True
     assert cli_json(session_context, "cookies", "get")["count"] == 0
     attach_cli_screenshot(evidence_case, session_context)
@@ -394,18 +394,18 @@ def test_cli_cookie_masking_and_session_storage_black_box(cli_page, evidence_cas
     proves=["Network and CPU presets wrap a real composed navigation."],
 )
 def test_cli_slow_3g_and_cpu_emulation_black_box(cli_page, evidence_case):
-    """La forme composée `emulate <preset> -- goto` applique réellement les
-    presets réseau et CPU autour d'une navigation, et restitue fidèlement le
-    résultat de l'action déléguée."""
+    """The composed form `emulate <preset> -- goto` genuinely applies the
+    network and CPU presets around a navigation, and faithfully reports the
+    result of the delegated action."""
     manifest, path, base = cli_page
     session = (manifest, path)
     slow = cli_json(session, "emulate", "slow-3g", "--", "goto", f"{base}/index.html")
-    #: le preset slow-3g est posé et la latence mesurée trahit un vrai ralentissement réseau
+    #: the slow-3g preset is applied and the measured latency shows a real network slowdown
     assert slow["applied"] is True and slow["action"]["result"]["ok"] is True
     assert slow["action"]["result"]["elapsed_ms"] >= 200
 
     cpu = cli_json(session, "emulate", "cpu-4x", "--", "goto", f"{base}/index.html")
-    #: le preset CPU s'applique aussi et le rapport identifie l'action composée exécutée
+    #: the CPU preset also applies and the report identifies the composed action executed
     assert cpu["applied"] is True and cpu["action"]["result"]["ok"] is True
     assert cpu["action"]["argv"][0] == "goto"
     attach_cli_screenshot(evidence_case, session)
@@ -418,26 +418,26 @@ def test_cli_slow_3g_and_cpu_emulation_black_box(cli_page, evidence_case):
     proves=["The CLI enforces stdout, stderr, and exit-code contracts end to end."],
 )
 def test_cli_stdout_stderr_and_exit_contract(cli_page, evidence_case):
-    """Le contrat CLI (stdout = un objet JSON, stderr = diagnostics, exit
-    0/1/2) tient contre un vrai Chrome pour le succès, l'erreur d'exécution
-    et l'erreur d'usage."""
+    """The CLI contract (stdout = a single JSON object, stderr =
+    diagnostics, exit 0/1/2) holds against a real Chrome for success,
+    runtime error, and usage error."""
     manifest, path, base = cli_page
     session = (manifest, path)
     success = run_cli(manifest, path, "goto", f"{base}/form.html")
     attach_cli_run(evidence_case, "exit-0-success", success)
-    #: la réussite n'emprunte que stdout, avec un unique objet JSON parsable
+    #: success only uses stdout, with a single parsable JSON object
     assert success.returncode == 0 and success.stderr == ""
     assert json.loads(success.stdout)["ok"] is True
 
     runtime_error = run_cli(manifest, path, "click", "#missing")
     attach_cli_run(evidence_case, "exit-1-runtime-error", runtime_error)
-    #: un sélecteur introuvable est une erreur d'exécution: code 1, diagnostic hors de stdout
+    #: a missing selector is a runtime error: code 1, diagnostic outside stdout
     assert runtime_error.returncode == 1 and runtime_error.stdout == ""
     assert "selector not found" in runtime_error.stderr
 
     usage_error = run_cli(manifest, path, "goto")
     attach_cli_run(evidence_case, "exit-2-usage-error", usage_error)
-    #: une invocation malformée se distingue par le code 2 réservé aux erreurs d'usage
+    #: a malformed invocation stands out with code 2, reserved for usage errors
     assert usage_error.returncode == 2 and usage_error.stdout == ""
     assert "the following arguments are required: url" in usage_error.stderr
     attach_cli_screenshot(evidence_case, session)
@@ -450,9 +450,9 @@ def test_cli_stdout_stderr_and_exit_contract(cli_page, evidence_case):
     proves=["The offline Docs route renders the real session Mermaid diagrams."],
 )
 def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence_case):
-    """La preuve partageable rend sa route Docs entièrement hors ligne dans un
-    vrai Chrome: les diagrammes Mermaid du cycle de session deviennent des SVG
-    sans script externe ni requête réseau."""
+    """The shareable proof renders its Docs route entirely offline in a real
+    Chrome: the session lifecycle Mermaid diagrams become SVGs with no
+    external script and no network request."""
     client, _base = page
     summary = {
         "ok": True,
@@ -475,7 +475,7 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
     target = (
         staging / ".proof" / "proof-report.html"
     ).as_uri() + "#/docs/view/docs/SESSION-LIFECYCLE.md"
-    #: la version partageable s'ouvre en file:// sans aucun serveur
+    #: the shareable version opens over file:// with no server at all
     assert nav.navigate(client, target)["ok"] is True
     nav.wait_for(client, ".panel.doc", timeout=20)
     runtime_state = js.evaluate(
@@ -484,7 +484,7 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
         "sources: document.querySelectorAll('pre.mermaid').length, title: document.title, "
         "app: document.querySelector('#app')?.textContent.slice(0, 80)})",
     )
-    #: le runtime Mermaid est embarqué dans la page elle-même, pas chargé d'un CDN
+    #: the Mermaid runtime is embedded in the page itself, not loaded from a CDN
     assert runtime_state["runtime"] == "object", runtime_state
     nav.wait_for(client, ".panel.doc .mermaid svg, .mermaid-error", timeout=20)
     mermaid_state = js.evaluate(
@@ -496,19 +496,19 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
         "runtime: typeof window.mermaid"
         "})",
     )
-    #: les quatre diagrammes source sont tous rendus en SVG sans erreur de parsing
+    #: all four source diagrams are rendered to SVG with no parsing error
     assert mermaid_state == {"svg": 4, "sources": 4, "errors": [], "runtime": "object"}
-    #: hermétisme prouvé: aucun script externe déclaré, aucune ressource réseau chargée
+    #: hermeticity proven: no external script declared, no network resource loaded
     external_scripts = js.evaluate(client, "document.querySelectorAll('script[src]').length")
     network_resources = js.evaluate(client, "performance.getEntriesByType('resource').length")
     assert external_scripts == 0
     assert network_resources == 0
     if evidence_case is not None:
-        # Rendu offline documenté: l'état Mermaid (4 sources -> 4 SVG, 0 erreur)
-        # et les sondes d'herméticité (aucun script[src], aucune ressource
-        # réseau) prouvent que la route Docs partageable tient en file:// seul.
+        # Documented offline rendering: the Mermaid state (4 sources -> 4 SVG,
+        # 0 error) and the hermeticity probes (no script[src], no network
+        # resource) prove that the shareable Docs route holds on file:// alone.
         evidence_case.attach_json(
-            "rendu-offline-mermaid",
+            "mermaid-offline-rendering",
             {
                 "mermaid": mermaid_state,
                 "hermeticity": {
@@ -523,19 +523,19 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
         "location.hash = '#/docs/view/docs/features/state-session.md'",
     )
     nav.wait_for(client, ".panel.doc #intent")
-    #: la navigation hash vers une fiche feature fonctionne et le menu offline la référence
+    #: hash navigation to a feature sheet works and the offline menu references it
     assert "Session state and controls" in js.evaluate(
         client,
         "document.querySelector('#docsNav').innerText",
     )
 
 
-# === Cockpit de preuve: couverture comportementale de la SPA ===
-# Un rapport partageable est généré UNE fois par module (rendu ~4 Mo) depuis un
-# summary synthétique riche, puis chaque test sonde une vue ou un visualiseur
-# de la modal via CDP. Tout passe par la façade cdpx.proof (render_html,
-# build_shareable_proof): ces tests sont le filet de sécurité comportemental
-# du refactor interne de proof.py à venir.
+# === Proof cockpit: behavioral coverage of the SPA ===
+# A shareable report is generated ONCE per module (rendering ~4 MB) from a
+# rich synthetic summary, then each test probes a view or a modal viewer via
+# CDP. Everything goes through the cdpx.proof facade (render_html,
+# build_shareable_proof): these tests are the behavioral safety net for the
+# upcoming internal refactor of proof.py.
 
 COCKPIT_FEATURE = "demo-checkout"
 COCKPIT_JOURNEY = "buy-item"
@@ -554,18 +554,19 @@ def _demo_cast() -> str:
 
 
 def _artifact_bodies(screenshot_path: Path) -> dict[str, dict]:
-    """Un corps de démonstration par type de la taxonomie fermée.
+    """One demo body per type of the closed taxonomy.
 
-    Les types inlinables (_INLINE_TYPES de proof.py) portent inline_content —
-    un attach retombé en type `file` opaque serait invisible dans la modal;
-    screenshot pointe un vrai PNG, video/file assument le repli téléchargement.
+    Inlinable types (_INLINE_TYPES from proof.py) carry inline_content —
+    an attach that fell back to the opaque `file` type would be invisible in
+    the modal; screenshot points to a real PNG, video/file assume the
+    download fallback.
     """
 
     console_payload = json.dumps(
         {
             "entries": [
-                {"kind": "console", "type": "log", "text": "fixture-log prêt"},
-                {"kind": "console", "type": "warning", "text": "API dépréciée"},
+                {"kind": "console", "type": "log", "text": "fixture-log ready"},
+                {"kind": "console", "type": "warning", "text": "deprecated API"},
                 {"kind": "exception", "type": "error", "text": "fixture-uncaught boom"},
             ]
         }
@@ -612,19 +613,19 @@ def _artifact_bodies(screenshot_path: Path) -> dict[str, dict]:
             "path": f"{COCKPIT_EVIDENCE_PREFIX}/console.json",
             "inline_content": console_payload,
         },
-        "file": {"path": f"{COCKPIT_EVIDENCE_PREFIX}/dump.bin", "inline_skipped": "illisible"},
+        "file": {"path": f"{COCKPIT_EVIDENCE_PREFIX}/dump.bin", "inline_skipped": "unreadable"},
         "json": {
             "path": f"{COCKPIT_EVIDENCE_PREFIX}/verdict.json",
             "inline_content": json.dumps({"verdict": "pass", "steps": [1, 2, 3]}),
         },
         "log-excerpt": {
             "path": f"{COCKPIT_EVIDENCE_PREFIX}/excerpt.txt",
-            "inline_content": "ligne saine\nERROR paiement refusé\nligne suivante",
+            "inline_content": "healthy line\nERROR payment declined\nnext line",
             "meta": {"source": ".proof/app.log", "pattern": "ERROR", "matched_lines": [2]},
         },
         "logs": {
             "path": f"{COCKPIT_EVIDENCE_PREFIX}/run.log",
-            "inline_content": "ligne un\nligne deux\nligne trois",
+            "inline_content": "line one\nline two\nline three",
         },
         "network": {
             "path": f"{COCKPIT_EVIDENCE_PREFIX}/network.json",
@@ -637,16 +638,16 @@ def _artifact_bodies(screenshot_path: Path) -> dict[str, dict]:
             ),
         },
         "screenshot": {"path": str(screenshot_path), "bytes": screenshot_path.stat().st_size},
-        "video": {"path": f"{COCKPIT_EVIDENCE_PREFIX}/replay.webm", "inline_skipped": "taille"},
+        "video": {"path": f"{COCKPIT_EVIDENCE_PREFIX}/replay.webm", "inline_skipped": "size"},
     }
 
 
 def _taxonomy_artifacts(screenshot_path: Path) -> list[dict]:
     bodies = _artifact_bodies(screenshot_path)
     artifacts = []
-    # Itération sur la taxonomie réelle: un type ajouté à ARTIFACT_TYPES sans
-    # corps de démonstration ici lève KeyError — le nouveau type doit recevoir
-    # sa preuve synthétique ET son visualiseur, jamais un oubli silencieux.
+    # Iteration over the real taxonomy: a type added to ARTIFACT_TYPES with no
+    # demo body here raises KeyError — the new type must receive its
+    # synthetic proof AND its viewer, never a silent omission.
     for index, artifact_type in enumerate(sorted(ARTIFACT_TYPES)):
         body = bodies[artifact_type]
         artifacts.append(
@@ -733,12 +734,12 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
         "pay-success",
         "passed",
         _taxonomy_artifacts(screenshot_path),
-        intent="Le client règle son panier et reçoit sa preuve d'achat.",
+        intent="The customer settles their cart and receives proof of purchase.",
         assertions=[
             {
                 "line": 12,
                 "end_line": 12,
-                "text": "le panier est facturé au bon montant",
+                "text": "the cart is charged the correct amount",
                 "code_excerpt": "assert total == 42",
                 "kind": "assert",
                 "status": "",
@@ -746,7 +747,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
             {
                 "line": 15,
                 "end_line": 15,
-                "text": "le reçu est émis au client",
+                "text": "the receipt is issued to the customer",
                 "code_excerpt": "assert receipt.sent",
                 "kind": "assert",
                 "status": "",
@@ -760,18 +761,18 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
         [
             {
                 "type": "screenshot",
-                "label": "echec-paiement",
+                "label": "payment-failure",
                 "path": str(screenshot_path),
                 "bytes": screenshot_path.stat().st_size,
                 "created_at": "2026-07-15T00:00:02+00:00",
             }
         ],
-        intent="Un paiement refusé doit rester un échec visible, jamais un faux vert.",
+        intent="A declined payment must stay a visible failure, never a false green.",
         assertions=[
             {
                 "line": 30,
                 "end_line": 30,
-                "text": "la commande est créée",
+                "text": "the order is created",
                 "code_excerpt": "assert order.id",
                 "kind": "assert",
                 "status": "",
@@ -779,42 +780,42 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
             {
                 "line": 34,
                 "end_line": 34,
-                "text": "le paiement est accepté",
+                "text": "the payment is accepted",
                 "code_excerpt": "assert paid",
                 "kind": "assert",
                 "status": "failed",
             },
         ],
-        message="AssertionError: paiement refusé",
+        message="AssertionError: payment declined",
         failed_line=34,
     )
     node_pass = _scenario_node(
         "pay-success",
-        "Payer avec succès",
+        "Pay successfully",
         {
-            "ui_text": "Le client règle son panier.",
-            "report_text": "Ce scénario prouve le paiement nominal.",
-            "given": "Un panier prêt à être réglé.",
-            "when": "Le client valide le paiement.",
-            "then": "Le reçu est émis.",
+            "ui_text": "The customer settles their cart.",
+            "report_text": "This scenario proves the nominal payment.",
+            "given": "A cart ready to be settled.",
+            "when": "The customer confirms the payment.",
+            "then": "The receipt is issued.",
         },
         run_pass,
     )
     node_fail = _scenario_node(
         "pay-declined",
-        "Paiement refusé",
+        "Payment declined",
         {
-            "ui_text": "Un paiement refusé est signalé au client.",
-            "report_text": "Ce scénario prouve la visibilité des refus de paiement.",
-            "given": "Une carte refusée par la banque.",
-            "when": "Le client tente de payer.",
-            "then": "Le refus est expliqué sans reçu émis.",
+            "ui_text": "A declined payment is reported to the customer.",
+            "report_text": "This scenario proves the visibility of payment declines.",
+            "given": "A card declined by the bank.",
+            "when": "The customer attempts to pay.",
+            "then": "The decline is explained with no receipt issued.",
         },
         run_fail,
     )
     journey = {
         "id": COCKPIT_JOURNEY,
-        "title": "Acheter un article",
+        "title": "Buy an item",
         "entrypoint": "cdpx goto",
         "scenarios": [node_pass, node_fail],
         "matched_tests": [COCKPIT_PASS_NODEID, COCKPIT_FAIL_NODEID],
@@ -824,9 +825,9 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
     }
     feature = {
         "id": COCKPIT_FEATURE,
-        "title": "Achat de démonstration",
+        "title": "Demo checkout",
         "status": "active",
-        "summary": "Parcours d'achat synthétique construit pour éprouver le cockpit.",
+        "summary": "Synthetic checkout flow built to exercise the cockpit.",
         "entrypoints": ["cdpx goto"],
         "path_globs": [],
         "test_globs": [],
@@ -836,9 +837,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
         "expected_proofs": ["junit"],
         "source": "docs/features/demo-checkout.md",
         "sections": [],
-        "doc_html": (
-            "<h2>Mode d'emploi</h2><p>Documentation de démonstration du parcours d'achat.</p>"
-        ),
+        "doc_html": ("<h2>Usage</h2><p>Demo documentation for the checkout flow.</p>"),
         "matched_entrypoints": [],
         "matched_paths": [],
         "matched_tests": [COCKPIT_PASS_NODEID, COCKPIT_FAIL_NODEID],
@@ -917,7 +916,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
             },
             {
                 "id": "unit",
-                "label": "Pytest unitaires",
+                "label": "Unit pytest",
                 "argv": ["pytest", "tests"],
                 "log": ".proof/make-check-pytest.log",
                 "exit_code": 0,
@@ -1007,7 +1006,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
                 "name": "cdpx-help",
                 "path": ".proof/cdpx-help.cast",
                 "status": "generated",
-                "roi": "Replay terminal de la démonstration.",
+                "roi": "Terminal replay of the demo.",
                 "inline_content": cast_text,
             },
             {
@@ -1015,36 +1014,34 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
                 "name": "Capture UI",
                 "path": "",
                 "status": "not-needed",
-                "roi": "Non générée automatiquement.",
+                "roi": "Not generated automatically.",
             },
         ],
         "project": {
             "name": "cdpx",
             "version": "0.0-e2e",
-            "mission": (
-                "CLI de primitives Chrome DevTools Protocol pour la preuve de démonstration."
-            ),
+            "mission": ("Chrome DevTools Protocol primitives CLI for the demo proof."),
             "cli_command_count": len(help_commands),
             "cli_commands": [command["name"] for command in help_commands],
             "docs": ["README.md", "HARNESS.md"],
             "fixtures": ["tests/fixtures/index.html"],
         },
-        "validation_matrix": [{"milestone": "M9", "proof": "Preuves secondaires généralisées"}],
+        "validation_matrix": [{"milestone": "M9", "proof": "Secondary proofs generalized"}],
         "coverage_groups": [
             {"suite": "e2e", "module": "demo_checkout", "tests": 2, "failed": 1, "skipped": 0}
         ],
         "risks": [
             {
-                "risk": "Chrome obligatoire.",
-                "mitigation": "make proof échoue sans binaire.",
-                "rollback": "Installer Chrome puis relancer.",
+                "risk": "Chrome required.",
+                "mitigation": "make proof fails without a binary.",
+                "rollback": "Install Chrome then retry.",
             }
         ],
         "unknowns": [
             {
-                "item": "Réseau externe",
-                "why": "Fixtures loopback uniquement.",
-                "how_to_verify": "Inspecter les logs réseau.",
+                "item": "External network",
+                "why": "Loopback fixtures only.",
+                "how_to_verify": "Inspect the network logs.",
             }
         ],
         "proof_failures": ["command failed: Pytest E2E Chrome (.proof/e2e-chrome.log)"],
@@ -1053,9 +1050,9 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def cockpit_report(tmp_path_factory):
-    """Rapport de preuve partageable généré une seule fois pour tout le module:
-    le rendu HTML (~4 Mo, bundles Mermaid + xterm inclus) est trop coûteux pour
-    être reconstruit à chaque test de la SPA."""
+    """Shareable proof report generated once for the whole module: the HTML
+    rendering (~4 MB, Mermaid + xterm bundles included) is too costly to
+    rebuild for every SPA test."""
     root = tmp_path_factory.mktemp("cdpx-cockpit")
     screenshot = root / "demo-capture.png"
     screenshot.write_bytes((Path(__file__).parents[1] / "fixtures" / "pixel.png").read_bytes())
@@ -1076,7 +1073,7 @@ def _js_ready(client: CDPClient, expression: str, timeout: float = 15.0) -> None
         if js.evaluate(client, expression) is True:
             return
         if time.monotonic() >= deadline:
-            raise AssertionError(f"cockpit jamais prêt: {expression}")
+            raise AssertionError(f"cockpit never ready: {expression}")
         time.sleep(0.05)
 
 
@@ -1086,7 +1083,7 @@ def _click(client: CDPClient, selector: str) -> None:
         "(() => { const el = document.querySelector(" + json.dumps(selector) + ");"
         " if (!el) return false; el.click(); return true; })()",
     )
-    assert clicked is True, f"élément introuvable au clic: {selector}"
+    assert clicked is True, f"element not found on click: {selector}"
 
 
 def _open_cockpit(client: CDPClient, report_url: str, route: str, ready: str) -> None:
@@ -1120,11 +1117,11 @@ def _close_modal(client: CDPClient) -> None:
 
 
 def _expand_test_card(client: CDPClient) -> None:
-    """Déplie la carte de test comme le ferait un lecteur.
+    """Expand the test card the way a reader would.
 
-    La carte d'un test passé est un <details> replié par défaut: son contenu
-    répond à click() programmatique mais n'est pas focusable tant que la carte
-    est fermée — l'utilisateur réel doit l'ouvrir pour atteindre les chips.
+    A passed test's card is a <details> collapsed by default: its content
+    responds to programmatic click() but is not focusable while the card is
+    closed — a real user must open it to reach the chips.
     """
 
     expanded = js.evaluate(
@@ -1142,9 +1139,9 @@ def _expand_test_card(client: CDPClient) -> None:
     proves=["The cockpit SPA drills down from features to journeys, scenarios and test cards."],
 )
 def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evidence_case):
-    """L'accueil du cockpit rend verdict et métriques, puis le drill-down
-    Features -> fiche -> journey -> scénario aboutit à la carte de test avec
-    fil d'Ariane, pastilles de statut, bloc BDD et déroulé annoté."""
+    """The cockpit home renders verdict and metrics, then the Features ->
+    sheet -> journey -> scenario drill-down lands on the test card with
+    breadcrumb, status pills, BDD block and annotated timeline."""
     client, _base = page
     _open_cockpit(client, cockpit_report, "/features", "!!document.querySelector('#app .metrics')")
 
@@ -1157,16 +1154,16 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
         " sideEntry: document.querySelector("
         "'#featureNav a[data-feature-id=\"demo-checkout\"]').textContent})",
     )
-    #: l'accueil annonce le verdict rouge et le compte de tests du run, et la
-    #: feature synthétique apparaît en carte comme dans la barre latérale
+    #: the home announces the red verdict and the run's test count, and the
+    #: synthetic feature appears as a card as well as in the sidebar
     assert home["verdict"] == "FAILED"
     assert home["tests"] == "12/13"
     assert home["cards"] == 1 and home["cardPill"] == "failed"
-    assert "Achat de démonstration" in home["sideEntry"]
+    assert "Demo checkout" in home["sideEntry"]
     assert "1 journeys" in home["sideEntry"]
 
     _click(client, '#app .grid .card h2 a[href="#/features/demo-checkout"]')
-    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Achat de démonstration'")
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Demo checkout'")
     feature_view = js.evaluate(
         client,
         "({crumbs: document.querySelector('#app .crumbs').textContent,"
@@ -1175,15 +1172,15 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
         " journeyLink: !!document.querySelector("
         "'#app a[href=\"#/features/demo-checkout/journeys/buy-item\"]')})",
     )
-    #: la fiche feature porte son fil d'Ariane, sa pastille d'échec, sa doc
-    #: utilisateur rendue et le lien vers son journey
+    #: the feature sheet carries its breadcrumb, its failure pill, its
+    #: rendered user doc and the link to its journey
     assert "Features" in feature_view["crumbs"]
     assert feature_view["pill"] == "failed"
-    assert "Documentation de démonstration" in feature_view["doc"]
+    assert "Demo documentation" in feature_view["doc"]
     assert feature_view["journeyLink"] is True
 
     _click(client, '#app a[href="#/features/demo-checkout/journeys/buy-item"]')
-    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Acheter un article'")
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Buy an item'")
     journey_view = js.evaluate(
         client,
         "({entrypoint: document.querySelector('#app p code').textContent,"
@@ -1191,13 +1188,13 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
         " pills: Array.from("
         "document.querySelectorAll('#app .scenario-row .pill'), n => n.textContent)})",
     )
-    #: le journey liste ses deux scénarios documentés avec leur verdict propre
+    #: the journey lists its two documented scenarios with their own verdict
     assert journey_view["entrypoint"] == "cdpx goto"
     assert journey_view["rows"] == 2
     assert journey_view["pills"] == ["ok", "failed"]
 
     _click(client, '#app a[href="#/features/demo-checkout/scenarios/pay-success"]')
-    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Payer avec succès'")
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Pay successfully'")
     scenario_view = js.evaluate(
         client,
         "({crumbLinks: document.querySelectorAll('#app .crumbs a').length,"
@@ -1209,16 +1206,16 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
         " okMarks: document.querySelectorAll('#app .assertion-row.assertion-ok').length,"
         " timeline: document.querySelectorAll('#app .timeline-row').length})",
     )
-    #: la fiche scénario remonte jusqu'au test: fil d'Ariane complet, bloc
-    #: Given/When/Then documenté, carte de test passée avec intention
+    #: the scenario sheet traces back to the test: full breadcrumb,
+    #: documented Given/When/Then block, passed test card with intent
     assert scenario_view["crumbLinks"] == 3
     assert scenario_view["bdd"] == ["Given", "When", "Then"]
-    assert scenario_view["given"] == "Un panier prêt à être réglé."
+    assert scenario_view["given"] == "A cart ready to be settled."
     assert scenario_view["cardPill"] == "passed"
     assert scenario_view["nodeid"] == COCKPIT_PASS_NODEID
-    assert "règle son panier" in scenario_view["intent"]
-    #: le déroulé annoté peint en vert les deux assertions du test passé et la
-    #: chronologie expose un artefact par type de la taxonomie
+    assert "settles their cart" in scenario_view["intent"]
+    #: the annotated timeline paints both assertions of the passed test in
+    #: green and the timeline exposes one artifact per taxonomy type
     assert scenario_view["okMarks"] == 2
     assert scenario_view["timeline"] == len(ARTIFACT_TYPES)
     if evidence_case is not None:
@@ -1240,10 +1237,10 @@ def test_cockpit_features_view_drills_down_to_scenario(page, cockpit_report, evi
     proves=["A red run surfaces read-first failures and a dedicated gaps view."],
 )
 def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evidence_case):
-    """Sur un run rouge, l'accueil ouvre par « À lire d'abord » (échecs de
-    preuve et tests failed dont le lien mène à la fiche de leur scénario), la
-    barre du haut compte les gaps, et la route #/gaps détaille violations,
-    warnings et proof failures."""
+    """On a red run, the home opens with "Read first" (proof failures and
+    failed tests whose link leads to their scenario sheet), the top bar
+    counts the gaps, and the #/gaps route details violations, warnings and
+    proof failures."""
     client, _base = page
     _open_cockpit(
         client, cockpit_report, "/features", "!!document.querySelector('#app .read-first')"
@@ -1260,32 +1257,32 @@ def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evid
         " gapsSupBad: !!document.querySelector('[data-route=\"/gaps\"] sup.sup-bad'),"
         " runSup: document.querySelector('[data-route=\"/run\"] sup.sup-bad')?.textContent})",
     )
-    #: le panneau « À lire d'abord » nomme la commande échouée ET le test
-    #: failed, avec sa pastille de statut
+    #: the "Read first" panel names the failed command AND the failed test,
+    #: with its status pill
     assert read_first["heading"] == "Read first"
     assert any("command failed: Pytest E2E Chrome" in item for item in read_first["items"])
     assert any(COCKPIT_FAIL_NODEID in item for item in read_first["items"])
     assert read_first["failedPill"] == "failed"
-    #: la barre du haut agrège les gaps (1 violation + 1 warning + 1 proof
-    #: failure) et le nombre de tests failed sur le lien Run
+    #: the top bar aggregates the gaps (1 violation + 1 warning + 1 proof
+    #: failure) and the number of failed tests on the Run link
     assert read_first["gapsSup"] == "3" and read_first["gapsSupBad"] is True
     assert read_first["runSup"] == "1"
 
     _click(client, ".read-first li a")
-    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Paiement refusé'")
+    _js_ready(client, "document.querySelector('#app h1')?.textContent === 'Payment declined'")
     failed_scenario = js.evaluate(
         client,
         "({title: document.querySelector('#app h1').textContent,"
         " crumbs: document.querySelector('#app .crumbs').textContent})",
     )
-    #: le lien du test failed aboutit à la fiche de son scénario (et non à
-    #: « Vue introuvable »): titre du scénario refusé et fil d'Ariane complet
-    assert failed_scenario["title"] == "Paiement refusé"
-    assert "Achat de démonstration" in failed_scenario["crumbs"]
-    assert "Acheter un article" in failed_scenario["crumbs"]
+    #: the failed test's link lands on its scenario sheet (and not on the
+    #: "View not found" fallback): declined scenario's title and full breadcrumb
+    assert failed_scenario["title"] == "Payment declined"
+    assert "Demo checkout" in failed_scenario["crumbs"]
+    assert "Buy an item" in failed_scenario["crumbs"]
 
     _goto_route(
-        client, "/gaps", "document.querySelector('#app h1')?.textContent === 'Gaps et violations'"
+        client, "/gaps", "document.querySelector('#app h1')?.textContent === 'Gaps and violations'"
     )
     gaps = js.evaluate(
         client,
@@ -1294,15 +1291,15 @@ def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evid
         " warnings: document.querySelectorAll('#app .panel')[1].textContent,"
         " failures: document.querySelectorAll('#app .panel')[2].textContent})",
     )
-    #: la vue Gaps sépare violations d'inventaire, warnings et proof failures,
-    #: chacun restituant son diagnostic textuel exact
+    #: the Gaps view separates inventory violations, warnings and proof
+    #: failures, each rendering its exact textual diagnostic
     assert gaps["panels"] == ["Violations", "Warnings", "Proof failures"]
     assert "scenario unmapped" in gaps["violations"]
     assert "source path unmapped" in gaps["warnings"]
     assert "command failed: Pytest E2E Chrome" in gaps["failures"]
     if evidence_case is not None:
         evidence_case.attach_json(
-            "read-first-et-gaps",
+            "read-first-and-gaps",
             {"read_first": read_first, "failed_scenario": failed_scenario, "gaps": gaps},
         )
 
@@ -1314,9 +1311,9 @@ def test_cockpit_read_first_and_gaps_surface_failures(page, cockpit_report, evid
     proves=["Every inlined textual artifact type opens in its dedicated modal viewer."],
 )
 def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case):
-    """Chaque preuve textuelle inlinée s'ouvre dans son visualiseur dédié:
-    console filtrable par niveau, table réseau, arbre JSON, profiler, logs
-    numérotés, extrait de log surligné et transcript de commande."""
+    """Every inlined textual proof opens in its dedicated viewer: console
+    filterable by level, network table, JSON tree, profiler, numbered logs,
+    highlighted log excerpt and command transcript."""
     client, _base = page
     _open_cockpit(
         client,
@@ -1331,8 +1328,8 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         "({total: document.querySelectorAll('#app .timeline-row a').length,"
         " openable: document.querySelectorAll('#app .timeline-row [data-modal-group]').length})",
     )
-    #: ratchet: chaque type de la taxonomie fermée produit un chip capable
-    #: d'ouvrir la modal — un type ajouté sans visualiseur casserait ce compte
+    #: ratchet: every type of the closed taxonomy produces a chip able to
+    #: open the modal — a type added without a viewer would break this count
     assert chips == {"total": len(ARTIFACT_TYPES), "openable": len(ARTIFACT_TYPES)}
 
     _open_artifact_modal(client, "console")
@@ -1342,11 +1339,11 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         "document.querySelectorAll('.modal-content .console-filter'), n => n.textContent.trim()),"
         " lines: document.querySelectorAll('.modal-content .console-line').length})",
     )
-    #: la console compte ses messages par niveau et rend chaque ligne
+    #: the console counts its messages by level and renders each line
     assert console_view["filters"] == ["error (1)", "warn (1)", "log (1)"]
     assert console_view["lines"] == 3
     _click(client, '.modal-content [data-console-level="log"]')
-    #: décocher un niveau masque exactement les lignes de ce niveau
+    #: unchecking a level hides exactly the lines of that level
     assert (
         js.evaluate(
             client, "document.querySelectorAll('.modal-content .console-line[hidden]').length"
@@ -1363,7 +1360,7 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         " bad: document.querySelectorAll('.modal-content .net-status.net-bad').length,"
         " ok: document.querySelectorAll('.modal-content .net-status.net-ok').length})",
     )
-    #: la table réseau restitue le résumé agrégé et colore les statuts HTTP
+    #: the network table renders the aggregated summary and colors the HTTP statuses
     assert "2 requests" in network_view["summary"]
     assert "1 4xx/5xx errors" in network_view["summary"]
     assert network_view["rows"] == 2
@@ -1378,7 +1375,7 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         " keys: Array.from("
         "document.querySelectorAll('.modal-content .json-key'), n => n.textContent)})",
     )
-    #: le JSON est rendu en arbre repliable, clés visibles
+    #: JSON is rendered as a collapsible tree, with visible keys
     assert json_view["nodes"] >= 2
     assert "verdict" in json_view["keys"] and "steps" in json_view["keys"]
     _close_modal(client)
@@ -1389,7 +1386,7 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         "({chips: document.querySelectorAll('.modal-content .viewer-summary .chip').length,"
         " tree: !!document.querySelector('.modal-content .json-view')})",
     )
-    #: le profiler résume ses scalaires en chips et garde l'arbre JSON complet
+    #: the profiler summarizes its scalars as chips and keeps the full JSON tree
     assert profiler_view["chips"] == 2 and profiler_view["tree"] is True
     _close_modal(client)
 
@@ -1399,7 +1396,7 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         "({lines: document.querySelectorAll('.modal-content .log-view .log-line').length,"
         " numbered: document.querySelectorAll('.modal-content .log-num').length})",
     )
-    #: les logs pleins sont numérotés ligne à ligne
+    #: full logs are numbered line by line
     assert logs_view == {"lines": 3, "numbered": 3}
     _close_modal(client)
 
@@ -1410,9 +1407,10 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         " hits: document.querySelectorAll('.modal-content .log-hit').length,"
         " numbered: document.querySelectorAll('.modal-content .log-num').length})",
     )
-    #: l'extrait affiche source et motif, surligne la ligne correspondante et
-    #: ne numérote pas (les numéros du fichier d'origine sont perdus)
-    assert "source" in excerpt_view["banner"] and "motif" in excerpt_view["banner"]
+    #: the excerpt shows source and pattern ("motif"), highlights the
+    #: matching line and does not number (the original file's line numbers
+    #: are lost)
+    assert "source" in excerpt_view["banner"] and "pattern" in excerpt_view["banner"]
     assert excerpt_view["hits"] == 1 and excerpt_view["numbered"] == 0
     _close_modal(client)
 
@@ -1424,16 +1422,16 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         " stdout: document.querySelector('.modal-content .stream-out pre').textContent,"
         " stderr: document.querySelector('.modal-content .stream-err pre').textContent})",
     )
-    #: le transcript de commande sépare stdout/stderr, rappelle l'argv exacte
-    #: et le code de sortie en pastille
+    #: the command transcript separates stdout/stderr, recalls the exact
+    #: argv and the exit code as a pill
     assert command_view["exit"] == "exit 0"
     assert command_view["argv"] == "$ cdpx goto http://demo.test/"
     assert '{"ok": true}' in command_view["stdout"]
-    assert command_view["stderr"] == "(vide)"
+    assert command_view["stderr"] == "(empty)"
     _close_modal(client)
     if evidence_case is not None:
         evidence_case.attach_json(
-            "visualiseurs-textuels",
+            "textual-viewers",
             {
                 "chips": chips,
                 "console": console_view,
@@ -1454,9 +1452,9 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
     proves=["Media artifacts get zoom, download fallback and an embedded xterm cast player."],
 )
 def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_case):
-    """Les preuves non inlinables ont leur visualiseur: screenshot zoomable
-    avec horodatage relatif, vidéo en player natif local, fichier opaque en
-    repli téléchargement, et cast asciinema joué dans un terminal xterm."""
+    """Non-inlinable proofs have their own viewer: zoomable screenshot with
+    relative timestamp, video in a local native player, opaque file with a
+    download fallback, and an asciinema cast played in an xterm terminal."""
     client, _base = page
     _open_cockpit(
         client,
@@ -1473,12 +1471,12 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
         "'.modal-content figure.viewer-media img[data-zoomable]'),"
         " captured: document.querySelector('.modal-context-body').textContent})",
     )
-    #: l'image est zoomable et le contexte date la capture relativement au
-    #: début du run du test
+    #: the image is zoomable and the context dates the capture relative to
+    #: the test run's start
     assert shot["img"] is True
     assert "(+" in shot["captured"]
     _click(client, ".modal-content img[data-zoomable]")
-    #: un clic agrandit, le suivant restaure — bascule sans état résiduel
+    #: a click zooms in, the next one restores — toggle with no residual state
     assert (
         js.evaluate(
             client, "document.querySelector('.modal-content img').classList.contains('zoomed')"
@@ -1500,8 +1498,8 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
         "({player: !!document.querySelector('.modal-content video[controls]'),"
         " src: document.querySelector('.modal-content video')?.getAttribute('src')})",
     )
-    #: la vidéo (jamais inlinée) est servie par un player natif pointant le
-    #: fichier local de la preuve privée
+    #: the video (never inlined) is served by a native player pointing at
+    #: the private proof's local file
     assert video_view["player"] is True
     assert video_view["src"] == "evidence/artifacts/e2e/demo-checkout/replay.webm"
     _close_modal(client)
@@ -1512,10 +1510,10 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
         "({text: document.querySelector('.modal-content .viewer-fallback').textContent,"
         " link: document.querySelector('.modal-content .viewer-fallback a')?.textContent})",
     )
-    #: un fichier opaque assume son repli: raison du non-embarquement et lien
-    #: de téléchargement vers l'artefact
+    #: an opaque file owns its fallback: reason for not embedding and a
+    #: download link to the artifact
     assert "Content not embedded" in fallback["text"]
-    assert fallback["link"] == "ouvrir le fichier"
+    assert fallback["link"] == "open the file"
     _close_modal(client)
 
     _open_artifact_modal(client, "asciinema")
@@ -1526,12 +1524,12 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
         " scrubMax: document.querySelector('.modal-content [data-cast-scrub]').max,"
         " play: document.querySelector('.modal-content [data-cast-play]').textContent})",
     )
-    #: le player cast initialise un vrai terminal xterm, calé en fin de cast,
-    #: avec scrubber borné à la durée réelle et bouton lecture
+    #: the cast player initializes a real xterm terminal, settled at the end
+    #: of the cast, with a scrubber bounded to the real duration and a play button
     assert cast_view["xterm"] is True
     assert cast_view["time"] == "0.6s / 0.6s"
     assert cast_view["scrubMax"] == "600"
-    assert "lecture" in cast_view["play"]
+    assert "play" in cast_view["play"]
     _click(client, ".modal-content [data-cast-rawtoggle]")
     raw_view = js.evaluate(
         client,
@@ -1539,14 +1537,14 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
         " screen: document.querySelector('.modal-content [data-cast-screen]').hidden,"
         " text: document.querySelector('.modal-content [data-cast-raw]').textContent})",
     )
-    #: la vue brute de repli remplace l'écran et restitue le texte du cast
-    #: débarrassé des séquences de contrôle
+    #: the raw fallback view replaces the screen and renders the cast's text
+    #: stripped of control sequences
     assert raw_view["raw"] is False and raw_view["screen"] is True
     assert "cdpx tabs list" in raw_view["text"]
     _close_modal(client)
     if evidence_case is not None:
         evidence_case.attach_json(
-            "visualiseurs-medias-et-cast",
+            "media-and-cast-viewers",
             {"screenshot": shot, "video": video_view, "file": fallback, "cast": cast_view},
         )
 
@@ -1558,9 +1556,10 @@ def test_modal_renders_media_and_cast_viewers(page, cockpit_report, evidence_cas
     proves=["The artifact modal is fully keyboard drivable with a focus trap."],
 )
 def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence_case):
-    """La modal est pilotable au clavier: focus initial sur Fermer, flèches
-    précédent/suivant bornées à la liste, Tab piégé aux extrémités de la
-    modal, et Échap ferme en restituant le focus à l'élément d'origine."""
+    """The modal is fully keyboard drivable: initial focus on Close,
+    previous/next arrows bounded to the list, Tab trapped at the modal's
+    extremities, and Escape closes while restoring focus to the origin
+    element."""
     client, _base = page
     _open_cockpit(
         client,
@@ -1568,8 +1567,8 @@ def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence
         "/features/demo-checkout/scenarios/pay-success",
         "!!document.querySelector('#app .artifact-timeline')",
     )
-    #: la carte doit être dépliée pour que le chip soit focusable, condition
-    #: de la restitution de focus testée à la fermeture
+    #: the card must be expanded for the chip to be focusable, a condition
+    #: for the focus restoration tested on close
     _expand_test_card(client)
     chip_selector = '#app .timeline-row .chip[title="command"]'
     opened = js.evaluate(
@@ -1578,22 +1577,22 @@ def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence
         " if (!el) return false; el.focus(); el.click(); return true; })()",
     )
     assert opened is True
-    #: à l'ouverture, le focus saute sur le bouton Fermer de la modal
+    #: on open, focus jumps to the modal's Close button
     assert js.evaluate(client, "document.activeElement.classList.contains('modal-close')") is True
 
     order = sorted(ARTIFACT_TYPES)
     total = len(order)
     position = order.index("command") + 1
     counter = "document.querySelector('.modal-counter').textContent"
-    #: le compteur situe l'artefact ouvert dans la chronologie du test
+    #: the counter locates the open artifact in the test's timeline
     assert js.evaluate(client, counter) == f"{position}/{total}"
     inputs.press_key(client, "ArrowLeft")
     assert js.evaluate(client, counter) == f"{position - 1}/{total}"
     inputs.press_key(client, "ArrowLeft")
-    #: la flèche précédente est bornée: pas de sortie de liste au premier item
+    #: the previous arrow is bounded: no going past the list at the first item
     assert js.evaluate(client, counter) == f"{position - 1}/{total}"
     inputs.press_key(client, "ArrowRight")
-    #: la flèche suivante revient exactement sur l'artefact de départ
+    #: the next arrow returns exactly to the starting artifact
     assert js.evaluate(client, counter) == f"{position}/{total}"
 
     focusables_expr = (
@@ -1607,13 +1606,13 @@ def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence
     )
     assert focus_count >= 2
     inputs.press_key(client, "Tab")
-    #: depuis le dernier focusable, Tab boucle sur le premier (bouton Fermer)
+    #: from the last focusable, Tab loops back to the first (Close button)
     assert js.evaluate(client, "document.activeElement.classList.contains('modal-close')") is True
     shift_tab = {"key": "Tab", "code": "Tab", "windowsVirtualKeyCode": 9, "modifiers": 8}
     client.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **shift_tab})
     client.send("Input.dispatchKeyEvent", {"type": "keyUp", **shift_tab})
-    #: Maj+Tab depuis le premier focusable repart sur le dernier: le clavier
-    #: reste confiné à la modal dans les deux sens
+    #: Shift+Tab from the first focusable wraps back to the last: keyboard
+    #: navigation stays confined to the modal in both directions
     assert (
         js.evaluate(
             client,
@@ -1633,12 +1632,12 @@ def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence
         + json.dumps(chip_selector)
         + ")})",
     )
-    #: Échap ferme, vide le contenu, libère le body et rend le focus au chip
-    #: qui avait ouvert la modal
+    #: Escape closes, empties the content, releases the body and returns
+    #: focus to the chip that opened the modal
     assert closed == {"hidden": True, "bodyOpen": False, "content": "", "focusRestored": True}
     if evidence_case is not None:
         evidence_case.attach_json(
-            "clavier-modal", {"total": total, "position": position, "closed": closed}
+            "modal-keyboard", {"total": total, "position": position, "closed": closed}
         )
 
 
@@ -1649,9 +1648,10 @@ def test_modal_keyboard_navigation_and_focus_trap(page, cockpit_report, evidence
     proves=["The run view renders command timeline, JUnit tables and playable casts."],
 )
 def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report, evidence_case):
-    """La vue Run raconte le run de preuve: chronologie proportionnelle des
-    commandes (échec en rouge), tables commandes et JUnit, fins de logs, et la
-    section casts avec sa table de portail et son chip jouable dans xterm."""
+    """The Run view tells the story of the proof run: a proportional
+    timeline of commands (failure in red), command and JUnit tables, log
+    tails, and the casts section with its gate table and its xterm-playable
+    chip."""
     client, _base = page
     _open_cockpit(client, cockpit_report, "/run", "!!document.querySelector('#app .run-timeline')")
 
@@ -1672,24 +1672,24 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
         " tails: Array.from("
         "document.querySelectorAll('#app details summary'), n => n.textContent).join(' ')})",
     )
-    #: la chronologie trace une barre par commande et peint l'échec en rouge,
-    #: avec le détail au survol
+    #: the timeline draws one bar per command and paints the failure in
+    #: red, with the detail on hover
     assert run_view["bars"] == 3 and run_view["badBars"] == 1
     assert "Pytest E2E Chrome" in run_view["badTitle"]
-    #: la table des commandes reprend chaque preuve de commande avec son log
+    #: the command table lists every command's proof with its log
     assert run_view["commandRows"] == 3
     assert "Ruff lint" in run_view["commandText"]
     assert ".proof/e2e-chrome.log" in run_view["commandText"]
-    #: les trois suites JUnit (unit, e2e, symfony) sont agrégées
+    #: the three JUnit suites (unit, e2e, symfony) are aggregated
     assert run_view["suiteRows"] == 3
     assert "symfony" in run_view["suiteText"]
-    #: la section casts du portail liste le cast généré et les fins de logs
-    #: restent accessibles en repli
+    #: the gate's casts section lists the generated cast and log tails
+    #: stay accessible as a fallback
     assert "Demo casts" in run_view["headings"]
     assert run_view["castChip"] is True
     assert "cdpx-help" in run_view["castText"]
-    assert "Fins de logs" in run_view["tails"]
-    #: la fin de log de la commande échouée est bien embarquée dans la vue
+    assert "Log tails" in run_view["tails"]
+    #: the failed command's log tail is indeed embedded in the view
     assert js.evaluate(
         client,
         "document.querySelector('#app').textContent.includes("
@@ -1703,11 +1703,11 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
         "({hidden: document.getElementById('artifact-modal').hidden,"
         " xterm: !!document.querySelector('.modal-content .xterm')})",
     )
-    #: le cast du catalogue s'ouvre depuis la vue Run dans le player xterm
+    #: the catalog cast opens from the Run view in the xterm player
     assert cast_modal == {"hidden": False, "xterm": True}
     _close_modal(client)
     if evidence_case is not None:
-        evidence_case.attach_json("vue-run", {"run": run_view, "cast_modal": cast_modal})
+        evidence_case.attach_json("run-view", {"run": run_view, "cast_modal": cast_modal})
 
 
 @pytest.mark.scenario(
@@ -1717,15 +1717,15 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
     proves=["CLI surface and validation matrix render from the embedded payload."],
 )
 def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
-    """La vue CLI recense les 31 sous-commandes réelles avec leur rattachement
-    feature, et la vue Validation rend matrice de milestones, couverture par
-    module, risques et inconnues assumées."""
+    """The CLI view lists the 31 real subcommands with their feature
+    attachment, and the Validation view renders the milestone matrix,
+    coverage by module, risks and accepted unknowns."""
     client, _base = page
     _open_cockpit(
         client,
         cockpit_report,
         "/cli",
-        "document.querySelector('#app h1')?.textContent === 'Surface CLI et entrypoints'",
+        "document.querySelector('#app h1')?.textContent === 'CLI surface and entrypoints'",
     )
     cli_view = js.evaluate(
         client,
@@ -1734,20 +1734,20 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
         " body: document.querySelector('#app tbody').textContent,"
         " mapped: !!document.querySelector('#app tbody a[href=\"#/features/demo-checkout\"]')})",
     )
-    #: le contrat CLI (31 sous-commandes réelles, extraites de l'aide du vrai
-    #: binaire) est visible tel quel dans le cockpit
+    #: the CLI contract (31 real subcommands, extracted from the real
+    #: binary's help) is visible as-is in the cockpit
     assert cli_view["rows"] == 31
     assert "31 cdpx subcommands" in cli_view["intro"]
     assert "cdpx goto" in cli_view["body"] and "cdpx tabs" in cli_view["body"]
-    #: chaque entrypoint affiche son rattachement: lien vers la feature quand
-    #: il existe, mention explicite sinon
+    #: each entrypoint shows its attachment: link to the feature when it
+    #: exists, explicit mention otherwise
     assert cli_view["mapped"] is True
     assert "unattached" in cli_view["body"]
 
     _goto_route(
         client,
         "/validation",
-        "document.querySelector('#app h1')?.textContent === 'Matrice de validation'",
+        "document.querySelector('#app h1')?.textContent === 'Validation matrix'",
     )
     validation_view = js.evaluate(
         client,
@@ -1755,7 +1755,7 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
         " tables: document.querySelectorAll('#app .table-wrap table').length,"
         " text: document.querySelector('#app').textContent})",
     )
-    #: la vue Validation aligne ses quatre volets, chacun avec sa table
+    #: the Validation view aligns its four panes, each with its table
     assert validation_view["headings"] == [
         "Proof by milestone",
         "Tests by module",
@@ -1763,14 +1763,14 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
         "Accepted unknowns",
     ]
     assert validation_view["tables"] == 4
-    #: matrice, couverture, risques et inconnues restituent les données du run
+    #: matrix, coverage, risks and unknowns render the run's data
     assert "M9" in validation_view["text"]
     assert "demo_checkout" in validation_view["text"]
-    assert "make proof échoue sans binaire." in validation_view["text"]
-    assert "Fixtures loopback uniquement." in validation_view["text"]
+    assert "make proof fails without a binary." in validation_view["text"]
+    assert "Loopback fixtures only." in validation_view["text"]
     if evidence_case is not None:
         evidence_case.attach_json(
-            "vues-cli-et-validation", {"cli": cli_view, "validation": validation_view}
+            "cli-and-validation-views", {"cli": cli_view, "validation": validation_view}
         )
 
 
@@ -1781,15 +1781,16 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
     proves=["Project context renders and unknown routes fall back to a not-found view."],
 )
 def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_case):
-    """La vue Projet rend mission, version, contexte git/environnement et les
-    inventaires docs/fixtures; une route inconnue aboutit à la vue
-    « Introuvable » qui cite le chemin fautif au lieu d'une page vide."""
+    """The Project view renders mission, version, git/environment context
+    and the docs/fixtures inventories; an unknown route lands on the
+    "View not found" view that names the offending path instead of an
+    empty page."""
     client, _base = page
     _open_cockpit(
         client,
         cockpit_report,
         "/project",
-        "document.querySelector('#app h1')?.textContent === 'Contexte projet'",
+        "document.querySelector('#app h1')?.textContent === 'Project context'",
     )
     project_view = js.evaluate(
         client,
@@ -1797,18 +1798,18 @@ def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_c
         " lists: Array.from("
         "document.querySelectorAll('#app .two .panel'), n => n.textContent)})",
     )
-    #: le panneau mission agrège mission, version, branche git et environnement
+    #: the mission panel aggregates mission, version, git branch and environment
     assert "Chrome DevTools Protocol" in project_view["mission"]
     assert "0.0-e2e" in project_view["mission"]
     assert "e2e-cockpit" in project_view["mission"]
     assert "Chrome/Chromium present" in project_view["mission"]
-    #: docs et fixtures du projet sont inventoriées en deux panneaux
+    #: the project's docs and fixtures are inventoried in two panels
     assert any("README.md" in item for item in project_view["lists"])
     assert any("tests/fixtures/index.html" in item for item in project_view["lists"])
 
     _goto_route(
         client,
-        "/nulle-part",
+        "/nowhere",
         "document.querySelector('#app h1')?.textContent === 'View not found'",
     )
     not_found = js.evaluate(
@@ -1816,51 +1817,51 @@ def test_cockpit_project_view_and_unknown_route(page, cockpit_report, evidence_c
         "({crumb: document.querySelector('#app .crumbs').textContent,"
         " route: document.querySelector('#app p code').textContent})",
     )
-    #: la route inconnue est nommée dans la vue de repli, fil d'Ariane compris
-    assert not_found["route"] == "/nulle-part"
+    #: the unknown route is named in the fallback view, breadcrumb included
+    assert not_found["route"] == "/nowhere"
     assert "Not found" in not_found["crumb"]
     if evidence_case is not None:
         evidence_case.attach_json(
-            "vue-projet-et-introuvable", {"project": project_view, "not_found": not_found}
+            "project-view-and-not-found", {"project": project_view, "not_found": not_found}
         )
 
 
 def test_navigate_and_read_title(page):
-    """Une navigation CDP directe charge le site témoin et le contexte JS de
-    la page reflète le document réellement chargé."""
+    """A direct CDP navigation loads the reference site and the page's JS
+    context reflects the document actually loaded."""
     c, base = page
     nav.navigate(c, f"{base}/index.html")
-    #: le titre lu via Runtime prouve que la bonne page est chargée et exécutable
+    #: the title read via Runtime proves the right page is loaded and executable
     assert js.evaluate(c, "document.title") == "cdpx fixtures — accueil"
 
 
 def test_wait_for_late_spa_content(page):
-    """wait_for attend réellement un contenu injecté tardivement par une SPA
-    au lieu de conclure au premier passage."""
+    """wait_for genuinely waits for content injected late by an SPA instead
+    of concluding on the first pass."""
     c, base = page
     nav.navigate(c, f"{base}/spa.html")
     res = nav.wait_for(c, "#late-content", timeout=5)
-    #: l'élément est trouvé et le délai mesuré prouve une vraie attente
-    #: (la fixture n'injecte le contenu qu'après ~250 ms)
+    #: the element is found and the measured delay proves a real wait
+    #: (the fixture only injects the content after ~250 ms)
     assert res["found"] and res["elapsed_ms"] >= 250
 
 
 def test_form_click_and_type(page):
-    """La saisie puis le clic synthétiques déclenchent la vraie logique du
-    formulaire: le DOM final contient la valeur soumise."""
+    """The synthetic typing then click trigger the form's real logic: the
+    final DOM contains the submitted value."""
     c, base = page
     nav.navigate(c, f"{base}/form.html")
     inputs.type_text(c, "#name", "Léo")
     inputs.click(c, "#submit-btn")
-    #: le handler de soumission a vu la valeur tapée — toute la chaîne
-    #: frappe/clic/JS a réellement fonctionné
+    #: the submit handler saw the typed value — the whole
+    #: type/click/JS chain genuinely worked
     assert js.get_text(c, "#result")["text"] == "OK:Léo"
 
 
 def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
-    """Le hit-test refuse clics et saisies sur tout élément non actionnable
-    (caché, désactivé, inerte, recouvert...), et --clear vide le champ via de
-    vrais évènements input que les frameworks contrôlés peuvent observer."""
+    """The hit test denies clicks and typing on any non-actionable element
+    (hidden, disabled, inert, covered...), and --clear empties the field via
+    real input events that controlled frameworks can observe."""
     c, base = page
     nav.navigate(c, f"{base}/interactions-rich.html")
 
@@ -1872,12 +1873,12 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
         ("#pointer-events-button", "disabled"),
         ("#covered-button", "covered"),
     ):
-        #: chaque cause de non-actionnabilité est refusée avec sa raison précise, avant le clic
+        #: each cause of non-actionability is denied with its precise reason, before the click
         with pytest.raises(inputs.ElementNotInteractable, match=reason):
             inputs.click(c, selector)
 
     snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
-    #: la page confirme qu'aucun des clics refusés n'a fui jusqu'aux handlers
+    #: the page confirms that none of the denied clicks leaked through to the handlers
     assert snapshot["clicks"] == {
         "hidden": 0,
         "disabled": 0,
@@ -1889,7 +1890,7 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     }
 
     inputs.click(c, "#descendant-button")
-    #: un point de clic qui tombe sur un descendant du sélecteur reste un clic légitime
+    #: a click point that lands on a descendant of the selector stays a legitimate click
     assert js.evaluate(c, "window.interactionFixture.snapshot().clicks.descendant") == 1
 
     for selector, reason in (
@@ -1897,18 +1898,18 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
         ("#disabled-button", "disabled"),
         ("#descendant-button", "not editable"),
     ):
-        #: la saisie applique les mêmes gardes, plus le refus des éléments non éditables
+        #: typing applies the same guards, plus the denial of non-editable elements
         with pytest.raises(inputs.ElementNotInteractable, match=reason):
             inputs.type_text(c, selector, "must-not-be-typed")
 
     type_result = inputs.type_text(c, "#controlled-input", "fresh", clear=True)
-    #: la frappe réussit et la valeur tapée ne fuit pas dans la sortie JSON
+    #: the typing succeeds and the typed value does not leak into the JSON output
     assert type_result["typed"] is True
     assert type_result["value_masked"] is True
     assert "fresh" not in json.dumps(type_result, ensure_ascii=False)
     snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
-    #: le champ et son miroir contrôlé voient la nouvelle valeur, et --clear a
-    #: émis les beforeinput/input attendus au lieu d'écraser silencieusement
+    #: the field and its controlled mirror see the new value, and --clear
+    #: emitted the expected beforeinput/input instead of silently overwriting
     assert snapshot["input"] == "fresh"
     assert snapshot["mirror"] == "fresh"
     assert any(
@@ -1920,52 +1921,52 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     )
 
     for key in ("Home", "Delete", "End", "Space"):
-        #: chaque touche spéciale est transmise et acquittée par le protocole
+        #: each special key is transmitted and acknowledged by the protocol
         assert inputs.press_key(c, key) == {"pressed": key}
     snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
-    #: le contenu final prouve que les touches ont déplacé un vrai curseur et édité le champ
+    #: the final content proves the keys moved a real cursor and edited the field
     assert snapshot["input"] == "resh "
     assert snapshot["mirror"] == "resh "
 
 
 def test_console_capture_real(page):
-    """La capture console fenêtrée observe les logs ET les exceptions émis
-    par une vraie page, avec un comptage d'erreurs agrégé."""
+    """The windowed console capture observes both the logs AND the
+    exceptions emitted by a real page, with an aggregated error count."""
     c, base = page
     c.send("Runtime.enable")
     nav.navigate(c, f"{base}/console.html")
     res = capture.console_capture(c, duration=1.0)
     texts = [e["text"] for e in res["entries"]]
-    #: le log planté par la fixture est capté et l'exception non rattrapée compte comme erreur
+    #: the log planted by the fixture is captured and the uncaught exception counts as an error
     assert any("fixture-log" in t for t in texts)
     assert res["errors"] >= 1
 
 
 def test_network_capture_real(page):
-    """La capture réseau observe le trafic réel d'une page: les échecs HTTP
-    sont agrégés et chaque requête est restituée individuellement."""
+    """The network capture observes a page's real traffic: HTTP failures
+    are aggregated and each request is rendered individually."""
     c, base = page
     res = net.capture(c, f"{base}/network.html", settle=1.0)
-    #: l'appel volontairement en 500 de la fixture est compté comme échec
+    #: the fixture's deliberate 500 call is counted as a failure
     assert res["summary"]["errors_4xx_5xx"] >= 1  # /api/status/500
     urls = [r.get("url", "") for r in res["requests"]]
-    #: le détail par requête permet de retrouver les appels API individuels
+    #: the per-request detail makes individual API calls traceable
     assert any("/api/json" in u for u in urls)
 
 
 def test_profiler_fixture_real(page):
-    """Le lecteur de profiler Symfony extrait les métriques des panels via un
-    fetch page-context réel, sans jamais laisser fuiter le token du profiler
-    dans la sortie."""
-    # fetch page-context réel: Chrome va chercher les panels HTML du fixture
-    # server et les parseurs en extraient les valeurs figées.
+    """The Symfony profiler reader extracts panel metrics via a real
+    page-context fetch, without ever leaking the profiler's token into the
+    output."""
+    # real page-context fetch: Chrome goes and fetches the fixture server's
+    # HTML panels and the parsers extract the fixed values from them.
     c, base = page
     res = dev.profiler(c, f"{base}/api/profiler-sim")
-    #: la présence du token est signalée mais sa valeur n'apparaît nulle part
+    #: the token's presence is reported but its value appears nowhere
     assert res["token_present"] is True
     assert "token" not in res and "fixed-token" not in json.dumps(res)
-    #: chaque panel (db, cache, router, exception, logger) est parsé avec
-    #: les valeurs figées servies par la fixture
+    #: each panel (db, cache, router, exception, logger) is parsed with the
+    #: fixed values served by the fixture
     assert res["profiler_status"] == 200
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["db"]["duplicates"] == 4
@@ -1976,46 +1977,46 @@ def test_profiler_fixture_real(page):
 
 
 def test_dom_diff_real(page):
-    """dom-diff exécute l'action encadrée et rend lisible le changement de
-    DOM qu'elle provoque."""
+    """dom-diff executes the enclosed action and makes the DOM change it
+    triggers readable."""
     c, base = page
     nav.navigate(c, f"{base}/form.html")
     inputs.type_text(c, "#name", "Léo")
     res = dev.dom_diff(c, ClickAction("#submit-btn"))
-    #: le diff matérialise la mutation provoquée par le clic (passage à l'état soumis)
+    #: the diff materializes the mutation triggered by the click (transition to submitted state)
     assert res["changed"] is True
     assert any("submitted" in line for line in res["diff"])
 
 
 def test_a11y_and_frame_real(page):
-    """L'arbre d'accessibilité d'une vraie page est exploitable et frame_text
-    atteint le contenu à l'intérieur d'une iframe enfant."""
+    """A real page's accessibility tree is usable and frame_text reaches
+    content inside a child iframe."""
     c, base = page
     nav.navigate(c, f"{base}/iframe.html")
     tree = diagnostics.a11y(c)
-    #: Chrome expose un arbre a11y non vide pour la page hôte
+    #: Chrome exposes a non-empty a11y tree for the host page
     assert tree["count"] > 0
-    #: le texte lu vient bien du document enfant, pas de la page hôte
+    #: the text read does come from the child document, not the host page
     assert frames.frame_text(c, "#child-marker")["text"] == "Contenu de l'iframe"
 
 
 def test_coverage_real(page):
-    """La couverture CSS mesurée sur une vraie page est cohérente: règles
-    utilisées et inutilisées se répartissent exactement le total."""
+    """CSS coverage measured on a real page is consistent: used and unused
+    rules split the total exactly."""
     c, base = page
     res = diagnostics.coverage(c, f"{base}/coverage.html")
-    #: la fixture expose au moins une feuille dont des règles sont réellement exercées
+    #: the fixture exposes at least one sheet whose rules are genuinely exercised
     assert res["count"] >= 1
     assert res["css"]["rules"] >= 1
     assert res["css"]["used"] >= 1
-    #: la partition utilisé/inutilisé est exacte — aucune règle perdue ni comptée deux fois
+    #: the used/unused partition is exact — no rule lost or counted twice
     assert res["css"]["used"] + res["css"]["unused"] == res["css"]["rules"]
 
 
 def test_intercept_real_fulfill_block_continue(page):
-    """L'interception réseau applique les trois verdicts (réécriture en 204,
-    blocage, laisser-passer) sur un trafic réel, et la page observe exactement
-    les réponses altérées."""
+    """Network interception applies the three verdicts (rewrite to 204,
+    block, pass through) on real traffic, and the page observes exactly the
+    altered responses."""
     c, base = page
     res = interception.intercept_goto(
         c,
@@ -2027,7 +2028,7 @@ def test_intercept_real_fulfill_block_continue(page):
         settle=1.0,
     )
     actions = {hit["action"] for hit in res["hits"]}
-    #: les trois verdicts d'interception ont tous été exercés pendant la navigation
+    #: all three interception verdicts were exercised during the navigation
     assert {"204", "block", "continue"}.issubset(actions)
     deadline = time.monotonic() + 3
     text = ""
@@ -2036,22 +2037,22 @@ def test_intercept_real_fulfill_block_continue(page):
         if "pending" not in text:
             break
         time.sleep(0.1)
-    #: la page elle-même a vu la réponse laissée passer intacte, la réponse
-    #: réécrite en 204 et l'appel bloqué terminé en erreur
+    #: the page itself saw the passed-through response untouched, the
+    #: response rewritten to 204 and the blocked call ending in an error
     assert "/api/json:200" in text
     assert "/api/status/500:204" in text
     assert "/api/slow?ms=120:ERR" in text
 
 
 def test_vitals_real_with_interaction(page):
-    """Les Web Vitals (LCP, CLS, INP) sont mesurés sur une vraie page, l'INP
-    étant provoqué par un clic synthétique dont la page garde la trace."""
+    """The Web Vitals (LCP, CLS, INP) are measured on a real page, the INP
+    being triggered by a synthetic click whose trace the page keeps."""
     c, base = page
     res = diagnostics.vitals(c, f"{base}/vitals.html", click_selector="#inp-button", settle=1.0)
-    #: les trois métriques sont toutes présentes et plausibles (jamais négatives)
+    #: all three metrics are present and plausible (never negative)
     assert set(res) == {"url", "lcp", "cls", "inp"}
     assert res["lcp"] >= 0 and res["cls"] >= 0 and res["inp"] >= 0
-    #: l'interaction qui alimente l'INP a réellement atteint la page
+    #: the interaction that feeds the INP genuinely reached the page
     assert js.evaluate(c, "document.body.dataset.clicked") == "1"
 
 
@@ -2062,52 +2063,52 @@ def test_vitals_real_with_interaction(page):
     proves=["SEO audit surfaces edge-case findings from the rendered DOM."],
 )
 def test_seo_edge_real(page):
-    """L'audit SEO détecte les cas limites: estimation en pixels du titre,
-    h1 dupliqués, JSON-LD invalide et Product incomplet."""
+    """The SEO audit detects edge cases: pixel-width estimate of the title,
+    duplicated h1s, invalid JSON-LD and incomplete Product."""
     c, base = page
     nav.navigate(c, f"{base}/seo-edge.html")
     res = audit.seo(c)
-    #: la largeur du titre est estimée en pixels, au-delà du simple comptage de caractères
+    #: the title's width is estimated in pixels, beyond a simple character count
     assert res["title_px_estimate"] > 0
-    #: chaque piège posé par la fixture ressort comme finding explicite et actionnable
+    #: each trap set by the fixture surfaces as an explicit, actionable finding
     assert "duplicate h1: produit dupliqué" in res["findings"]
     assert "invalid JSON-LD" in res["findings"]
     assert "incomplete Product JSON-LD (sku or name required)" in res["findings"]
 
 
 def test_origin_guard_cli_real(managed_cli_session, fixtures_http, evidence_case):
-    """La garde d'origines de la session supervisée bloque toute navigation
-    hors des origines autorisées, via le canal d'erreur du contrat CLI."""
+    """The supervised session's origin guard blocks any navigation outside
+    the authorized origins, via the CLI contract's error channel."""
     manifest, path = managed_cli_session
     cli_json(managed_cli_session, "goto", f"{fixtures_http.base_url}/index.html")
     proc = run_cli(manifest, path, "goto", "https://blocked.example/")
-    attach_cli_run(evidence_case, "goto-origine-refusee", proc)
+    attach_cli_run(evidence_case, "goto-origin-rejected", proc)
     with CDPClient(manifest.websocket_url, timeout=10) as client:
         attach_screenshot(evidence_case, client, "origin-guard-final")
-    #: la sortie vers une origine interdite échoue en erreur runtime avec un refus explicite
+    #: navigating to a forbidden origin fails with a runtime error and an explicit denial
     assert proc.returncode == 1
     assert "origin rejected" in proc.stderr
 
 
 def test_metrics_real(page):
-    """Les métriques de performance de Chrome sont collectées sur une vraie
-    page avec des valeurs vivantes, pas des zéros de complaisance."""
+    """Chrome's performance metrics are collected on a real page with live
+    values, not complacent zeros."""
     c, base = page
     nav.navigate(c, f"{base}/index.html")
     res = audit.metrics(c)
-    #: nœuds DOM, documents et tas JS non nuls prouvent une collecte réelle, pas un stub
+    #: non-zero DOM nodes, documents and JS heap prove a real collection, not a stub
     assert res["Nodes"] > 0 and res["Documents"] > 0
     assert res["JSHeapUsedSize"] > 0
 
 
 def test_pdf_real(page, tmp_path):
-    """L'impression via CDP produit un vrai document PDF non trivial sur
-    disque."""
+    """Printing via CDP produces a real, non-trivial PDF document on
+    disk."""
     c, base = page
     nav.navigate(c, f"{base}/index.html")
     dest = tmp_path / "page.pdf"
     res = capture.pdf(c, str(dest))
-    #: taille plausible et signature %PDF- attestent d'un document réellement imprimé
+    #: plausible size and %PDF- signature attest to a genuinely printed document
     assert res["bytes"] > 1000
     assert dest.read_bytes().startswith(b"%PDF-")
 
@@ -2121,9 +2122,9 @@ def test_pdf_real(page, tmp_path):
     ],
 )
 def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monkeypatch):
-    """Un parcours enregistré agit immédiatement puis se rejoue intégralement
-    sur un onglet vierge; un journal altéré provoque une divergence détectée
-    et un arrêt net au bon évènement."""
+    """A recorded flow acts immediately and then replays in full on a
+    blank tab; an altered journal triggers a detected divergence and a
+    clean stop at the right event."""
     journal = tmp_path / "session.ndjson"
     base = fixtures_http.base_url
     context = OrchestrationContext.from_origins("http://127.0.0.1:*")
@@ -2149,51 +2150,51 @@ def test_record_replay_real(chrome, fixtures_http, evidence_case, tmp_path, monk
                 ClickAction("#submit-btn"),
                 context=context,
             )
-            #: l'enregistrement n'est pas passif: chaque étape a agi sur la page en la capturant
-            assert js.get_text(c, "#result")["text"] == "OK:Léo"  # record a bien AGI
+            #: recording is not passive: each step acted on the page as it captured it
+            assert js.get_text(c, "#result")["text"] == "OK:Léo"  # record really DID act
     finally:
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
-    # rejeu intégral sur un onglet vierge: le parcours se reconstruit seul
+    # full replay on a blank tab: the flow reconstructs itself
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
             res = recording.replay(c, str(journal), context=context)
-            #: le rejeu reconstruit seul les trois étapes et aboutit au même DOM final
+            #: the replay reconstructs the three steps on its own and reaches the same final DOM
             assert res["ok"] is True and res["played"] == 3
             assert js.get_text(c, "#result")["text"] == "OK:Léo"
             attach_screenshot(evidence_case, c, "replay-final")
             if evidence_case is not None:
-                # Journal rejouable intact (.ndjson typé logs/internal): le
-                # secret @env n'y figure jamais, seule la référence est persistée.
-                evidence_case.attach_file(journal, "journal-rejouable-ndjson", "logs")
-            # journal altéré (sélecteur disparu) -> divergence, arrêt net
+                # Intact replayable journal (.ndjson typed logs/internal): the
+                # @env secret never appears in it, only the reference is persisted.
+                evidence_case.attach_file(journal, "replayable-journal-ndjson", "logs")
+            # altered journal (selector gone) -> divergence, clean stop
             journal.write_text(
                 journal.read_text().replace("#submit-btn", "#gone"), encoding="utf-8"
             )
             broken = recording.replay(c, str(journal), context=context)
-            #: la divergence est localisée à l'évènement altéré et le rejeu
-            #: s'arrête là au lieu de continuer à l'aveugle
+            #: the divergence is localized to the altered event and the
+            #: replay stops right there instead of continuing blindly
             assert broken["ok"] is False and broken["played"] == 2
             assert broken["divergence"].startswith("event 2:")
             if evidence_case is not None:
-                # Résultat de divergence: arrêt net à l'évènement altéré (played=2),
-                # preuve lisible du refus de rejouer à l'aveugle après le journal cassé.
+                # Divergence result: clean stop at the altered event (played=2),
+                # readable proof of refusing to replay blindly after a broken journal.
                 evidence_case.attach_json("replay-divergence", broken)
     finally:
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
 
 
 def test_emulate_composed_action_real(chrome, fixtures_http, evidence_case):
-    """L'émulation mobile appliquée dans la même connexion CDP que l'action
-    composée est visible par la page pendant le goto (device et user-agent)."""
-    # Agir sous émulation = action dans la MÊME connexion (les overrides
-    # meurent avec elle): la page voit le device mobile pendant le goto.
+    """Mobile emulation applied in the same CDP connection as the composed
+    action is visible to the page during the goto (device and user-agent)."""
+    # Acting under emulation = an action in the SAME connection (the
+    # overrides die with it): the page sees the mobile device during the goto.
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
             emulation.emulate(c, "mobile")
             result = actions.run_action(c, GotoAction(f"{fixtures_http.base_url}/index.html"))
-            #: la page chargée sous émulation voit l'écran et l'user-agent du preset mobile
+            #: the page loaded under emulation sees the mobile preset's screen and user-agent
             assert result["ok"] is True
             assert js.evaluate(c, "screen.width") == 390
             assert "cdpx-mobile" in js.evaluate(c, "navigator.userAgent")
@@ -2203,33 +2204,34 @@ def test_emulate_composed_action_real(chrome, fixtures_http, evidence_case):
 
 
 def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):
-    """Deux propriétés d'emulate prouvées contre Chrome réel: --reset restaure
-    device ET user-agent dans la connexion, et les overrides meurent avec la
-    connexion CDP — une invocation isolée ne pollue pas la page."""
-    # Sémantique prouvée contre Chrome réel:
-    # 1. intra-connexion, `--reset` restaure device ET user-agent (bug
-    #    historique: l'UA du preset mobile survivait au reset);
-    # 2. les overrides d'émulation meurent avec la connexion CDP — une
-    #    invocation cdpx isolée ne laisse donc PAS la page émulée derrière
-    #    elle (d'où la forme composée `emulate <preset> -- <action>`).
+    """Two properties of emulate proven against real Chrome: --reset
+    restores BOTH device AND user-agent within the connection, and the
+    overrides die with the CDP connection — an isolated invocation does not
+    pollute the page."""
+    # Semantics proven against real Chrome:
+    # 1. intra-connection, `--reset` restores BOTH device AND user-agent
+    #    (historical bug: the mobile preset's UA survived the reset);
+    # 2. emulation overrides die with the CDP connection — an isolated cdpx
+    #    invocation therefore does NOT leave the page emulated behind it
+    #    (hence the composed form `emulate <preset> -- <action>`).
     tab = discovery.new_tab("127.0.0.1", chrome, "about:blank")
     try:
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
             nav.navigate(c, f"{fixtures_http.base_url}/index.html")
             initial = js.evaluate(c, "screen.width")
             emulation.emulate(c, "mobile")
-            #: le preset mobile est effectif côté page, écran et user-agent compris
+            #: the mobile preset is effective on the page's side, screen and user-agent included
             assert js.evaluate(c, "screen.width") == 390
             assert "cdpx-mobile" in js.evaluate(c, "navigator.userAgent")
             emulation.emulate(c, reset=True)
-            #: --reset restaure les deux dimensions, y compris l'UA (régression historique)
+            #: --reset restores both dimensions, including the UA (historical regression)
             assert js.evaluate(c, "screen.width") == initial
             assert "cdpx-mobile" not in js.evaluate(c, "navigator.userAgent")
-            emulation.emulate(c, "mobile")  # re-pose l'override, la connexion se ferme
+            emulation.emulate(c, "mobile")  # reapply the override, then the connection closes
         with CDPClient(tab["webSocketDebuggerUrl"], timeout=15) as c:
-            #: après fermeture de la connexion, l'override reposé a disparu:
-            #: aucune émulation fantôme ne survit à une invocation isolée
-            assert js.evaluate(c, "screen.width") == initial  # mort avec la connexion
+            #: after the connection closes, the reapplied override is gone:
+            #: no phantom emulation survives an isolated invocation
+            assert js.evaluate(c, "screen.width") == initial  # died with the connection
             attach_screenshot(evidence_case, c, "final")
     finally:
         discovery.close_tab("127.0.0.1", chrome, tab["id"])
@@ -2291,18 +2293,18 @@ def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
 def test_declarative_scenario_static_form_real(
     managed_cli_session, fixtures_http, tmp_path, evidence_case, monkeypatch
 ):
-    """Un scénario YAML déclaratif pilote un vrai navigateur (navigation +
-    formulaire) jusqu'au verdict pass, en collectant les artefacts de
-    checkpoint et de fin de parcours comme preuve."""
+    """A declarative YAML scenario drives a real browser (navigation +
+    form) to a pass verdict, collecting the checkpoint and end-of-flow
+    artifacts as proof."""
     monkeypatch.setenv("E2E_FORM_NAME", "Leo")
     scenario = materialize_scenario("static_form_pass.yml", fixtures_http.base_url, tmp_path)
     code, result, err = run_scenario_cli(managed_cli_session, scenario)
 
     attach_scenario_run(evidence_case, result, "static-form-scenario")
-    #: le scénario métier aboutit avec le verdict attendu, diagnostics joints en cas d'échec
+    #: the business scenario ends with the expected verdict, with diagnostics attached on failure
     assert code == 0, f"stderr={err}\nresult={json.dumps(result, ensure_ascii=False, indent=2)}"
     assert result["verdict"] == "pass"
-    #: les preuves visuelles du checkpoint et de la fin de parcours sont bien collectées
+    #: the checkpoint and end-of-flow visual proofs are indeed collected
     assert any(artifact["label"] == "form_page" for artifact in result["artifacts"])
     assert any(artifact["label"] == "final" for artifact in result["artifacts"])
 
@@ -2319,19 +2321,19 @@ def test_declarative_scenario_static_form_real(
 def test_declarative_scenario_static_observability_fail_real(
     managed_cli_session, fixtures_http, tmp_path, evidence_case
 ):
-    """Quand les assertions d'observabilité (console, réseau) échouent, le
-    scénario rend un verdict fail unique avec des findings identifiables,
-    sans casser la collecte de preuve."""
+    """When the observability assertions (console, network) fail, the
+    scenario renders a single fail verdict with identifiable findings,
+    without breaking proof collection."""
     scenario = materialize_scenario(
         "static_observability_fail.yml", fixtures_http.base_url, tmp_path
     )
     code, result, _ = run_scenario_cli(managed_cli_session, scenario)
 
     attach_scenario_run(evidence_case, result, "static-observability-scenario")
-    #: l'échec métier emprunte le canal d'erreur runtime avec un verdict explicite
+    #: the business failure uses the runtime error channel with an explicit verdict
     assert code == 1
     assert result["verdict"] == "fail"
-    #: chaque assertion violée produit son finding codé, exploitable par une machine
+    #: each violated assertion produces its coded finding, usable by a machine
     assert {finding["code"] for finding in result["findings"]} >= {
         "assertion_no_console_errors",
         "assertion_network_errors_max",
@@ -2345,55 +2347,54 @@ def test_declarative_scenario_static_observability_fail_real(
     proves=["SEO audit stays clean on a healthy page and flags a broken one."],
 )
 def test_seo_audit_real(page):
-    """L'audit SEO rend un rapport vierge sur une page saine (JSON-LD parsé
-    compris) et signale les défauts d'une page cassée."""
+    """The SEO audit returns a clean report on a healthy page (JSON-LD
+    parsing included) and flags the defects of a broken one."""
     c, base = page
     nav.navigate(c, f"{base}/seo.html")
     res = audit.seo(c)
-    #: la page témoin saine ne déclenche aucun faux positif et son JSON-LD est bien parsé
+    #: the healthy reference page triggers no false positive and its JSON-LD is parsed correctly
     assert res["findings"] == []
     assert res["jsonld"][0]["sku"] == "FIX-001"
     nav.navigate(c, f"{base}/seo-broken.html")
     broken = audit.seo(c)
-    #: le même audit sur la page cassée détecte le doublon de h1
+    #: the same audit on the broken page detects the duplicate h1
     assert "2 h1 (expected: 1)" in broken["findings"]
 
 
 def test_cookies_and_storage_real(page):
-    """Les cookies posés par la page sont lisibles via CDP et le localStorage
-    sort masqué par défaut, le démasquage restant un choix explicite."""
+    """Cookies set by the page are readable via CDP and localStorage comes
+    out masked by default, unmasking staying an explicit choice."""
     c, base = page
     nav.navigate(c, f"{base}/storage.html")
     cookies = state.get_cookies(c, show_values=True)["cookies"]
-    #: le cookie créé en JavaScript par la page est visible via CDP
+    #: the cookie created in JavaScript by the page is visible via CDP
     assert any(ck["name"] == "jsCookie" for ck in cookies)
     storage = state.get_storage(c, "local")
-    #: par défaut la valeur du storage est masquée, avec le drapeau qui l'annonce
+    #: by default the storage value is masked, with the flag that announces it
     assert storage["entries"].get("cdpx-key") == "***"
     assert storage["values_masked"] is True
     shown = state.get_storage(c, "local", show_values=True)
-    #: le démasquage explicite restitue la valeur réelle posée par la fixture
+    #: explicit unmasking returns the real value set by the fixture
     assert shown["entries"].get("cdpx-key") == "cdpx-value"
 
 
 def test_screenshot_real(page, tmp_path, evidence_case):
-    """La capture d'écran écrit un vrai PNG non trivial depuis une page
-    chargée dans Chrome."""
+    """The screenshot command writes a real, non-trivial PNG from a page
+    loaded in Chrome."""
     c, base = page
     nav.navigate(c, f"{base}/index.html")
     out = tmp_path / "e2e.png"
     res = capture.screenshot(c, str(out))
     if evidence_case is not None:
         evidence_case.attach_screenshot(out, "screenshot-command")
-    #: la taille et la signature PNG attestent d'une image réellement capturée
+    #: the size and PNG signature attest to an image genuinely captured
     assert res["bytes"] > 1000
     assert out.read_bytes().startswith(b"\x89PNG")
 
 
 def test_full_page_screenshot_captures_long_page(page, tmp_path, evidence_case):
-    """La capture pleine page embarque le contenu au-delà du viewport: elle
-    est strictement plus lourde que la capture standard de la même page
-    longue."""
+    """The full-page capture embeds content beyond the viewport: it is
+    strictly heavier than the standard capture of the same long page."""
     c, base = page
     nav.navigate(c, f"{base}/long.html")
     normal = tmp_path / "normal.png"
@@ -2403,18 +2404,18 @@ def test_full_page_screenshot_captures_long_page(page, tmp_path, evidence_case):
     if evidence_case is not None:
         evidence_case.attach_screenshot(normal, "normal-screenshot")
         evidence_case.attach_screenshot(full, "full-page-screenshot")
-    #: le surpoids de la version pleine page prouve que le contenu hors
-    #: écran est bien dedans, et le fichier reste un PNG valide
+    #: the full-page version's extra weight proves the offscreen content is
+    #: indeed included, and the file stays a valid PNG
     assert full_res["full_page"] is True
     assert full_res["bytes"] > normal_res["bytes"]
     assert full.read_bytes().startswith(b"\x89PNG")
 
 
 def test_json_endpoint_reachable_from_page(page):
-    """Le serveur de fixtures est joignable depuis le contexte de la page:
-    un fetch same-origin réel aboutit et rend le JSON attendu."""
+    """The fixture server is reachable from the page's context: a real
+    same-origin fetch succeeds and returns the expected JSON."""
     c, base = page
     nav.navigate(c, f"{base}/index.html")
     raw = js.evaluate(c, f"fetch('{base}/api/json').then(r => r.text())", await_promise=True)
-    #: la réponse parsée depuis la page prouve la chaîne complète fetch → serveur de fixtures
+    #: the response parsed from the page proves the full fetch -> fixture server chain
     assert json.loads(raw)["ok"] is True

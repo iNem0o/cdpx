@@ -44,7 +44,7 @@
     'asciinema': '⏵', 'file': '⇩'
   };
 
-  const fileLink = (artifact, label = 'ouvrir le fichier') =>
+  const fileLink = (artifact, label = 'open the file') =>
     artifact.path ? `<a href="${esc(hrefFor(artifact.path))}">${esc(label)}</a>` : '';
 
   function downloadFallback(artifact) {
@@ -180,7 +180,7 @@
     const meta = artifact.meta || {};
     const banner = [];
     if (meta.source) banner.push(`source <code>${esc(meta.source)}</code>`);
-    if (meta.pattern) banner.push(`motif <code>${esc(meta.pattern)}</code>`);
+    if (meta.pattern) banner.push(`pattern <code>${esc(meta.pattern)}</code>`);
     if (Array.isArray(meta.matched_lines) && meta.matched_lines.length) {
       banner.push(`${meta.matched_lines.length} correspondance(s)`);
     }
@@ -219,8 +219,8 @@
     const stderr = transcriptSection(body, 'stderr');
     if (stdout === null && stderr === null) return `${head}<pre class="viewer-text">${esc(body)}</pre>`;
     const streams = [
-      stdout === null ? '' : `<section class="stream stream-out"><h3>stdout</h3><pre class="viewer-text">${esc(stdout || '(vide)')}</pre></section>`,
-      stderr === null ? '' : `<section class="stream stream-err"><h3>stderr</h3><pre class="viewer-text">${esc(stderr || '(vide)')}</pre></section>`
+      stdout === null ? '' : `<section class="stream stream-out"><h3>stdout</h3><pre class="viewer-text">${esc(stdout || '(empty)')}</pre></section>`,
+      stderr === null ? '' : `<section class="stream stream-err"><h3>stderr</h3><pre class="viewer-text">${esc(stderr || '(empty)')}</pre></section>`
     ].join('');
     return `${head}${streams}`;
   }
@@ -258,7 +258,7 @@
     const duration = parsed.events.length ? parsed.events[parsed.events.length - 1].t : 0;
     return `<div class="cast" data-cast>
       <div class="cast-toolbar">
-        <button type="button" data-cast-play>▶ lecture</button>
+        <button type="button" data-cast-play>▶ play</button>
         <button type="button" data-cast-speed>×1</button>
         <button type="button" data-cast-end>⏭ fin</button>
         <input type="range" data-cast-scrub min="0" max="${Math.max(Math.ceil(duration * 1000), 1)}" value="0">
@@ -314,7 +314,7 @@
       player.written = target;
       scrub.value = String(Math.round(player.clock * 1000));
       timeLabel.textContent = `${player.clock.toFixed(1)}s / ${duration.toFixed(1)}s`;
-      playButton.textContent = player.playing ? '⏸ pause' : '▶ lecture';
+      playButton.textContent = player.playing ? '⏸ pause' : '▶ play';
     };
     const tick = (now) => {
       if (!player.playing || castPlayer !== player) return;

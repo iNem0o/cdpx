@@ -1,5 +1,5 @@
-"""Chaque primitive validée contre le mock: on vérifie à la fois la SORTIE
-(contrat JSON stable) et le PROTOCOLE émis (méthodes/params enregistrés)."""
+"""Every primitive is validated against the mock: we check both the OUTPUT
+(stable JSON contract) and the emitted PROTOCOL (recorded methods/params)."""
 
 import json
 import pathlib
@@ -51,12 +51,12 @@ def client(mock):
 
 
 def test_navigate_waits_load(mock, client):
-    """La navigation ne rend la main qu'après l'évènement load et n'émet
-    qu'un seul Page.navigate, vers l'URL demandée telle quelle."""
+    """Navigation only returns control after the load event, and emits
+    exactly one Page.navigate, to the requested URL unchanged."""
     res = nav.navigate(client, "http://site.test/page", wait="load")
-    #: le succès expose le frame réellement navigué, preuve que load a été attendu
+    #: success exposes the frame that was actually navigated, proof that load was awaited
     assert res["ok"] is True and res["frameId"] == "FRAME1"
-    #: côté protocole, une navigation unique part avec l'URL non altérée
+    #: on the protocol side, a single navigation goes out with the URL unaltered
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/page"}]
 
 
@@ -91,42 +91,42 @@ def test_navigate_rejects_unknown_wait_before_protocol(mock, client):
 
 
 def test_wait_for_polls_until_found(mock, client):
-    """wait_for sonde le DOM à intervalle régulier et s'arrête dès que le
-    sélecteur apparaît, sans sondage superflu ensuite."""
+    """wait_for probes the DOM at a regular interval and stops as soon as the
+    selector appears, without any superfluous polling afterwards."""
     mock.on_eval("querySelector", False, False, True)
     res = nav.wait_for(client, "#late-content", timeout=2, poll=0.01)
-    #: trois sondages pour trois réponses scriptées: la boucle cesse dès la
-    #: première apparition de l'élément
+    #: three probes for three scripted responses: the loop stops as soon as
+    #: the element first appears
     assert res["found"] is True
     assert len(mock.commands_for("Runtime.evaluate")) == 3
 
 
 def test_wait_for_times_out(mock, client):
-    """Un sélecteur qui n'apparaît jamais lève CDPTimeout à l'échéance au lieu
-    de bloquer la session indéfiniment."""
+    """A selector that never appears raises CDPTimeout at the deadline instead
+    of blocking the session indefinitely."""
     mock.on_eval("querySelector", False)
-    #: le budget temps transforme l'absence en erreur explicite, jamais en attente infinie
+    #: the time budget turns absence into an explicit error, never an infinite wait
     with pytest.raises(CDPTimeout):
         nav.wait_for(client, "#never", timeout=0.15, poll=0.02)
 
 
 def test_wait_for_visible_polls_until_element_has_a_non_zero_box(mock, client):
-    """wait_for_visible exige plus que la présence DOM: la sonde injectée
-    vérifie connexion, styles non masquants et boîte non nulle avant de
-    déclarer l'élément visible."""
+    """wait_for_visible demands more than DOM presence: the injected probe
+    checks connection, non-hiding styles and a non-zero box before declaring
+    the element visible."""
     mock.on_eval("__cdpx_visible", False, False, True)
 
     res = nav.wait_for_visible(client, "#late-content", timeout=2, poll=0.01)
 
-    #: la visibilité est confirmée pour le sélecteur demandé, pas un autre
+    #: visibility is confirmed for the requested selector, not another one
     assert res["visible"] is True
     assert res["selector"] == "#late-content"
     calls = mock.commands_for("Runtime.evaluate")
-    #: la boucle a re-sondé jusqu'au basculement d'état, puis s'est arrêtée
+    #: the loop kept probing until the state flipped, then stopped
     assert len(calls) == 3
     expression = calls[0]["expression"]
-    #: la sonde couvre tous les modes de masquage CSS et la géométrie réelle,
-    #: pas seulement la présence d'un noeud dans le DOM
+    #: the probe covers every CSS hiding mode and the real geometry,
+    #: not just the presence of a node in the DOM
     assert ".isConnected" in expression
     assert 'style.display === "none"' in expression
     assert 'style.visibility === "hidden"' in expression
@@ -135,11 +135,11 @@ def test_wait_for_visible_polls_until_element_has_a_non_zero_box(mock, client):
 
 
 def test_wait_for_visible_times_out_while_element_stays_hidden(mock, client):
-    """Un élément durablement masqué fait lever CDPTimeout avec un diagnostic
-    'non visible', distinct de l'absence pure du DOM."""
+    """An element that stays hidden indefinitely raises CDPTimeout with a
+    'not visible' diagnostic, distinct from pure absence from the DOM."""
     mock.on_eval("__cdpx_visible", False)
 
-    #: le message distingue l'invisibilité persistante d'un sélecteur introuvable
+    #: the message distinguishes persistent invisibility from a selector that cannot be found
     with pytest.raises(CDPTimeout, match="not visible"):
         nav.wait_for_visible(client, "#hidden", timeout=0.15, poll=0.02)
 
@@ -148,22 +148,22 @@ def test_wait_for_visible_times_out_while_element_stays_hidden(mock, client):
 
 
 def test_evaluate_value_and_exception(mock, client):
-    """evaluate restitue la valeur JS brute et convertit les exceptionDetails
-    du protocole en JSException Python porteuse du message d'origine."""
+    """evaluate returns the raw JS value and converts the protocol's
+    exceptionDetails into a Python JSException carrying the original message."""
     mock.on_eval("1 + 1", 2)
-    #: la valeur calculée traverse sans enveloppe ni conversion
+    #: the computed value passes through without wrapping or conversion
     assert js.evaluate(client, "1 + 1") == 2
     mock.on_eval("boom", {"raw": {"exceptionDetails": {"text": "ReferenceError: boom"}}})
-    #: une erreur JS devient une exception typée côté Python, message conservé
+    #: a JS error becomes a typed exception on the Python side, message preserved
     with pytest.raises(js.JSException, match="boom"):
         js.evaluate(client, "boom()")
 
 
 def test_get_text_and_html_and_count(mock, client):
-    """Chaque lecteur DOM (texte, HTML, comptage) enveloppe la valeur évaluée
-    dans la clé de son contrat JSON, sans transformation du contenu."""
+    """Each DOM reader (text, HTML, count) wraps the evaluated value under
+    its JSON contract key, without transforming the content."""
     mock.on_eval("innerText", "Bonjour")
-    #: chaque primitive de lecture rend la valeur de la page sous sa clé contractuelle
+    #: each read primitive returns the page's value under its contractual key
     assert js.get_text(client, "#intro")["text"] == "Bonjour"
     mock.on_eval("outerHTML", "<p>x</p>")
     assert js.get_html(client, "p")["html"] == "<p>x</p>"
@@ -189,20 +189,20 @@ ACTIONABLE = {
     feature="dom-interaction",
     journey="submit-form",
     scenario_id="dom-interaction.submit-form-like-user",
-    proves=["Le clic émet la séquence souris moved/pressed/released au centre de l'élément."],
+    proves=["The click emits the moved/pressed/released mouse sequence at the element's center."],
 )
 def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
-    """Un clic sonde d'abord l'actionnabilité puis émet la séquence souris de
-    confiance moved/pressed/released, visée au centre géométrique de
-    l'élément."""
+    """A click first probes actionability then emits the trusted
+    moved/pressed/released mouse sequence, aimed at the element's geometric
+    center."""
     mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
 
     res = inputs.click(client, "#submit-btn")
 
-    #: le point rapporté est le centre exact du rect sondé, pas un coin
+    #: the reported point is the exact center of the probed rect, not a corner
     assert (res["x"], res["y"]) == (60.0, 35.0)
-    #: la séquence Input complète imite un utilisateur réel, chaque évènement
-    #: au même point et au même bouton
+    #: the complete Input sequence mimics a real user, every event at the
+    #: same point and with the same button
     assert mock.commands_for("Input.dispatchMouseEvent") == [
         {
             "type": "mouseMoved",
@@ -227,12 +227,12 @@ def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
         },
     ]
     (probe,) = mock.commands_for("Runtime.evaluate")
-    #: la sonde est une promesse attendue dont la valeur revient sérialisée
+    #: the probe is an awaited promise whose value comes back serialized
     assert probe["awaitPromise"] is True
     assert probe["returnByValue"] is True
     expression = probe["expression"]
-    #: la sonde vérifie stabilité (double rAF), désactivation, inertie et
-    #: hit-testing du point de clic avant d'autoriser le moindre évènement
+    #: the probe checks stability (double rAF), disabled state, inertness and
+    #: hit-testing of the click point before allowing any event at all
     assert expression.count("requestAnimationFrame") == 2
     assert '.matches(":disabled")' in expression
     assert "aria-disabled" in expression
@@ -241,11 +241,11 @@ def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
     assert "document.elementFromPoint" in expression
     assert "element.contains(hit)" in expression
 
-    # Preuve secondaire: le journal des évènements Input émis atteste la séquence
-    # souris de confiance visée au centre géométrique de l'élément.
+    # Secondary evidence: the log of emitted Input events attests the trusted
+    # mouse sequence aimed at the element's geometric center.
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Séquence Input.dispatchMouseEvent du clic (centre 60,35)",
+            "Input.dispatchMouseEvent sequence for the click (center 60,35)",
             {
                 "point": {"x": res["x"], "y": res["y"]},
                 "mouse_events": mock.commands_for("Input.dispatchMouseEvent"),
@@ -254,14 +254,14 @@ def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
 
 
 def test_click_element_not_found(mock, client):
-    """Un sélecteur détaché du DOM fait échouer le clic en ElementNotFound
-    sans qu'aucun évènement souris n'atteigne la page."""
+    """A selector detached from the DOM fails the click with ElementNotFound
+    without any mouse event reaching the page."""
     mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, "attached": False}))
 
-    #: l'absence est signalée par une exception dédiée au message exploitable
+    #: the absence is reported via a dedicated exception with an actionable message
     with pytest.raises(inputs.ElementNotFound, match="selector not found"):
         inputs.click(client, "#ghost")
-    #: fail-closed: malgré l'échec, la page n'a reçu aucun évènement souris
+    #: fail-closed: despite the failure, the page received no mouse event
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
@@ -275,29 +275,29 @@ def test_click_element_not_found(mock, client):
     ],
 )
 def test_click_refuses_non_actionable_element_without_input(mock, client, state, message):
-    """Chaque défaut d'actionnabilité (invisible, désactivé, instable,
-    recouvert) bloque le clic avec son diagnostic propre, avant toute
-    émission souris."""
+    """Every actionability defect (invisible, disabled, unstable,
+    covered) blocks the click with its own diagnostic, before any mouse
+    event is emitted."""
     mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, **state}))
 
-    #: le refus nomme précisément le défaut rencontré, quel que soit le cas
+    #: the refusal precisely names the defect encountered, whatever the case
     with pytest.raises(inputs.ElementNotInteractable, match=message):
         inputs.click(client, "#blocked")
 
-    #: le garde-fou agit avant le protocole: la page ne voit rien passer
+    #: the guard acts before the protocol: the page sees nothing go through
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client):
-    """--clear vide le champ par sélection puis Backspace via le domaine
-    Input — jamais par affectation de value — et la sortie masque le texte
-    tapé."""
+    """--clear empties the field via selection then Backspace through the
+    Input domain — never by assigning value — and the output masks the
+    typed text."""
     mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
     mock.on_eval("__cdpx_prepare_text", True)
 
     res = inputs.type_text(client, "#name", "Léo", clear=True)
 
-    #: la sortie confirme frappe et nettoyage sans jamais reproduire le texte saisi
+    #: the output confirms typing and clearing without ever reproducing the entered text
     assert res == {
         "typed": True,
         "value_masked": True,
@@ -306,16 +306,16 @@ def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client)
     }
     assert "Léo" not in json.dumps(res, ensure_ascii=False)
     evaluations = mock.commands_for("Runtime.evaluate")
-    #: deux évaluations seulement: sonde d'actionnabilité puis préparation du champ
+    #: only two evaluations: actionability probe then field preparation
     assert len(evaluations) == 2
     prepare = evaluations[1]["expression"]
-    #: la préparation sélectionne le contenu via l'API DOM, sans affectation
-    #: directe de value qui contournerait les frameworks réactifs
+    #: preparation selects the content via the DOM API, without directly
+    #: assigning value, which would bypass reactive frameworks
     assert "el.select()" in prepare
     assert "range.selectNodeContents(el)" in prepare
     assert "selection.removeAllRanges()" in prepare
     assert "el.value =" not in prepare
-    #: l'effacement est une vraie frappe Backspace du domaine Input
+    #: clearing is a real Backspace keystroke through the Input domain
     assert mock.commands_for("Input.dispatchKeyEvent") == [
         {
             "type": "rawKeyDown",
@@ -330,10 +330,10 @@ def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client)
             "windowsVirtualKeyCode": 8,
         },
     ]
-    #: le texte entre par insertText, comme une saisie de confiance
+    #: the text enters via insertText, like a trusted keystroke
     assert mock.commands_for("Input.insertText") == [{"text": "Léo"}]
     methods = [method for _, method, _ in mock.commands]
-    #: l'ordre du protocole est déterministe: sondes, effacement, puis insertion
+    #: the protocol order is deterministic: probes, clearing, then insertion
     assert methods == [
         "Runtime.evaluate",
         "Runtime.evaluate",
@@ -352,52 +352,51 @@ def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client)
     ],
 )
 def test_type_text_refuses_invalid_target_without_input(mock, client, state, message):
-    """Un champ invisible, désactivé ou non éditable bloque la frappe avec
-    son diagnostic dédié, sans qu'aucune touche ni insertion n'atteigne la
-    page."""
+    """An invisible, disabled or non-editable field blocks typing with its
+    dedicated diagnostic, without any key or insertion reaching the page."""
     mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, **state}))
 
-    #: le diagnostic nomme le défaut précis qui empêche la saisie
+    #: the diagnostic names the precise defect that prevents input
     with pytest.raises(inputs.ElementNotInteractable, match=message):
         inputs.type_text(client, "#blocked", "secret", clear=True)
 
-    #: rien n'a été tapé: ni évènement clavier ni insertion de texte
+    #: nothing was typed: no keyboard event and no text insertion
     assert mock.commands_for("Input.dispatchKeyEvent") == []
     assert mock.commands_for("Input.insertText") == []
 
 
 def test_type_text_refuses_missing_target_without_input(mock, client):
-    """Un sélecteur absent du DOM fait échouer la frappe en ElementNotFound —
-    distinct de la non-interactivité — et le clavier reste muet."""
+    """A selector absent from the DOM fails typing with ElementNotFound —
+    distinct from non-interactivity — and the keyboard stays silent."""
     mock.on_eval("__cdpx_actionability", json.dumps({**ACTIONABLE, "attached": False}))
 
-    #: l'absence est distinguée de la non-interactivité par le type d'exception
+    #: absence is distinguished from non-interactivity by the exception type
     with pytest.raises(inputs.ElementNotFound, match="selector not found"):
         inputs.type_text(client, "#missing", "secret", clear=True)
 
-    #: aucune saisie même partielle ne s'échappe vers la page
+    #: no input, not even partial, escapes to the page
     assert mock.commands_for("Input.dispatchKeyEvent") == []
     assert mock.commands_for("Input.insertText") == []
 
 
 def test_press_key_enter_sequence(mock, client):
-    """Enter, touche imprimante, émet la séquence complète avec évènement
-    char; une touche hors registre est rejetée avant toute émission."""
+    """Enter, a printing key, emits the full sequence with a char event;
+    a key outside the registry is rejected before any emission."""
     inputs.press_key(client, "Enter")
     keys = mock.commands_for("Input.dispatchKeyEvent")
-    #: Enter produit un caractère: l'évènement char est intercalé dans la séquence
+    #: Enter produces a character: the char event is interleaved in the sequence
     assert [k["type"] for k in keys] == ["rawKeyDown", "char", "keyUp"]
-    #: une touche absente du registre supporté est refusée d'emblée
+    #: a key absent from the supported registry is rejected outright
     with pytest.raises(ValueError):
         inputs.press_key(client, "F13")
 
 
 def test_press_key_backspace_sequence(mock, client):
-    """Backspace, touche sans glyphe, n'émet que rawKeyDown/keyUp: aucun
-    évènement char parasite ne doit polluer le champ."""
+    """Backspace, a glyph-less key, only emits rawKeyDown/keyUp: no stray
+    char event should pollute the field."""
     result = inputs.press_key(client, "Backspace")
 
-    #: une touche d'édition sans caractère ne génère pas d'évènement char
+    #: an editing key without a character does not generate a char event
     assert result == {"pressed": "Backspace"}
     assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == [
         "rawKeyDown",
@@ -417,10 +416,10 @@ def test_press_key_backspace_sequence(mock, client):
     ],
 )
 def test_press_key_supports_common_navigation_and_editing_keys(mock, client, key, types):
-    """Le registre couvre les touches de navigation et d'édition courantes,
-    chacune avec sa séquence exacte: l'évènement char n'apparaît que pour les
-    touches qui impriment."""
-    #: la séquence émise correspond à la nature de la touche (avec ou sans glyphe)
+    """The registry covers common navigation and editing keys, each with its
+    exact sequence: the char event only appears for keys that print a
+    character."""
+    #: the emitted sequence matches the nature of the key (with or without a glyph)
     assert inputs.press_key(client, key) == {"pressed": key}
     assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == types
 
@@ -429,31 +428,31 @@ def test_press_key_supports_common_navigation_and_editing_keys(mock, client, key
 
 
 def test_screenshot_writes_valid_png(mock, client, tmp_path):
-    """La capture écrit un vrai PNG protégé en 0600 et propage full_page
-    jusqu'au paramètre captureBeyondViewport du protocole."""
+    """The capture writes a real PNG protected at 0600 and propagates
+    full_page through to the protocol's captureBeyondViewport parameter."""
     out = tmp_path / "shot.png"
     res = capture.screenshot(client, str(out), full_page=True)
-    #: le fichier est un PNG réel, privé (0600), et son poids est rapporté
+    #: the file is a real PNG, private (0600), and its size is reported
     assert out.read_bytes().startswith(b"\x89PNG")
     assert stat.S_IMODE(out.stat().st_mode) == 0o600
     assert res["bytes"] > 0
-    #: full_page se traduit bien en captureBeyondViewport côté protocole
+    #: full_page does translate into captureBeyondViewport on the protocol side
     assert mock.commands_for("Page.captureScreenshot")[0]["captureBeyondViewport"] is True
 
 
 def test_pdf_writes_valid_signature(mock, client, tmp_path):
-    """L'export PDF écrit un fichier à signature %PDF valide et le protège en
-    0600 comme toute preuve produite."""
+    """The PDF export writes a file with a valid %PDF signature and protects
+    it at 0600 like any produced evidence."""
     out = tmp_path / "page.pdf"
     capture.pdf(client, str(out))
-    #: signature de format réelle et permissions privées, comme pour le PNG
+    #: real format signature and private permissions, just like the PNG
     assert out.read_bytes().startswith(b"%PDF")
     assert stat.S_IMODE(out.stat().st_mode) == 0o600
 
 
 def test_console_capture_normalizes_entries(mock, client):
-    """La capture console agrège les évènements bruts en entrées normalisées
-    (kind/type/text/ts) et compte les erreurs séparément du volume total."""
+    """The console capture aggregates raw events into normalized entries
+    (kind/type/text/ts) and counts errors separately from the total volume."""
     mock.script_console(
         [
             {
@@ -472,9 +471,9 @@ def test_console_capture_normalizes_entries(mock, client):
         ]
     )
     res = capture.console_capture(client, duration=0.3)
-    #: le comptage distingue le volume total des seules erreurs
+    #: the count distinguishes the total volume from errors alone
     assert res["count"] == 2 and res["errors"] == 1
-    #: des args hétérogènes (chaîne + nombre) sont aplatis en un texte unique horodaté
+    #: heterogeneous args (string + number) are flattened into a single timestamped text
     assert res["entries"][0] == {
         "kind": "console",
         "type": "log",
@@ -484,8 +483,8 @@ def test_console_capture_normalizes_entries(mock, client):
 
 
 def test_console_follow_yields_ndjson_ready_entries(mock, client):
-    """Le mode follow produit des entrées directement sérialisables en NDJSON,
-    au même format que la capture ponctuelle."""
+    """Follow mode produces entries directly serializable as NDJSON, in the
+    same format as the one-shot capture."""
     mock.script_console(
         [
             {
@@ -496,7 +495,7 @@ def test_console_follow_yields_ndjson_ready_entries(mock, client):
         ]
     )
     entries = list(capture.console_follow(client, max_entries=1))
-    #: chaque entrée du flux est déjà une ligne NDJSON conforme au contrat
+    #: each entry in the stream is already an NDJSON line conforming to the contract
     assert entries == [{"kind": "console", "type": "warn", "text": "fixture-warn", "ts": 12.0}]
 
 
@@ -504,12 +503,12 @@ def test_console_follow_yields_ndjson_ready_entries(mock, client):
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
-    proves=["Secret, Bearer, JWT et credentials d'URL sont absents de la sortie console."],
+    proves=["Secret, Bearer, JWT and URL credentials are absent from console output."],
 )
 def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_case):
-    """Aucun secret ne survit dans la sortie console: secret enregistré, jeton
-    Bearer, JWT et credentials/query d'URL sont tous redactés, et la
-    redaction se déclare dans le rapport."""
+    """No secret survives in the console output: the registered secret, the
+    Bearer token, JWT and URL credentials/query are all redacted, and the
+    redaction declares itself in the report."""
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"
     context = RedactionContext.from_secrets(["registered-secret"])
     events = [
@@ -541,20 +540,20 @@ def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_c
     entries = list(capture.console_entries(events, context=context))
     serialized = json.dumps(entries)
 
-    #: ni la valeur secrète enregistrée, ni le jeton Bearer, ni le JWT, ni les
-    #: identifiants d'URL n'atteignent la sortie sérialisée
+    #: neither the registered secret value, nor the Bearer token, nor the
+    #: JWT, nor the URL credentials reach the serialized output
     assert "registered-secret" not in serialized
     assert "bearer-secret" not in serialized
     assert jwt not in serialized
     assert "alice" not in serialized and "password" not in serialized
-    #: l'URL reste lisible: seul le paramètre sensible est remplacé par le marqueur
+    #: the URL stays readable: only the sensitive parameter is replaced by the marker
     assert "https://example.test/callback?code=***" in entries[0]["text"]
-    #: la redaction s'auto-déclare dans le rapport, preuve qu'elle a bien agi
+    #: the redaction declares itself in the report, proof that it actually acted
     assert context.report.redacted is True
 
-    # Preuve secondaire: la sortie console déjà redactée, où aucun canari ne figure.
+    # Secondary evidence: the already-redacted console output, where no canary appears.
     if evidence_case is not None:
-        evidence_case.attach_json("Entrées console redactées (aucun secret)", entries)
+        evidence_case.attach_json("Redacted console entries (no secret)", entries)
 
 
 # -- net --------------------------------------------------------------------------
@@ -564,12 +563,12 @@ def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_c
     feature="browser-capture-observability",
     journey="inspect-runtime",
     scenario_id="browser-capture-observability.inspect-runtime-failures",
-    proves=["La capture réseau résume total/échecs/erreurs/octets avec URLs masquées."],
+    proves=["The network capture summarizes total/failures/errors/bytes with masked URLs."],
 )
 def test_network_capture_assembles_requests(mock, client, evidence_case):
-    """La capture réseau corrèle requête/réponse/fin par requestId, résume
-    échecs, erreurs HTTP et octets, et masque credentials et tokens dans
-    toutes les URLs de sortie."""
+    """The network capture correlates request/response/finish by requestId,
+    summarizes failures, HTTP errors and bytes, and masks credentials and
+    tokens in every output URL."""
     navigation_url = "http://browser:password@s.test/network.html?token=navigation-secret#fragment"
     mock.script_network(
         [
@@ -621,24 +620,24 @@ def test_network_capture_assembles_requests(mock, client, evidence_case):
         ]
     )
     res = net.capture(client, navigation_url, settle=0.2)
-    #: le résumé compte l'abandon réseau comme échec et la 500 comme erreur applicative
+    #: the summary counts the network abort as a failure and the 500 as an application error
     assert res["summary"] == {"total": 3, "failed": 1, "errors_4xx_5xx": 1, "bytes": 123}
-    #: l'URL de navigation perd credentials, valeur de token et fragment en sortie
+    #: the navigation URL loses its credentials, token value and fragment on output
     assert res["url"] == "http://s.test/network.html?token=***"
     r1 = next(r for r in res["requests"] if r["requestId"] == "R1")
-    #: statut et octets proviennent des trois évènements corrélés par requestId
+    #: status and bytes come from the three events correlated by requestId
     assert r1["status"] == 200 and r1["encodedBytes"] == 123
-    #: chaque URL de requête est masquée indépendamment de celle de navigation
+    #: each request URL is masked independently of the navigation one
     assert r1["url"] == "http://s.test/api/json?token=***"
-    #: la navigation part avec l'URL brute: le masquage est un artefact de
-    #: sortie, pas une altération du comportement du navigateur
+    #: navigation goes out with the raw URL: masking is an output artifact,
+    #: not an alteration of browser behavior
     assert mock.commands_for("Page.navigate") == [{"url": navigation_url}]
 
-    # Preuve secondaire: le résumé réseau et les URLs déjà masquées du contrat
-    # net.capture, sans credential ni valeur de token.
+    # Secondary evidence: the network summary and the already-masked URLs of
+    # the net.capture contract, with no credential or token value.
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Résumé net.capture (URLs masquées)",
+            "net.capture summary (masked URLs)",
             {
                 "url": res["url"],
                 "summary": res["summary"],
@@ -651,8 +650,8 @@ def test_network_capture_assembles_requests(mock, client, evidence_case):
 
 
 def test_network_capture_masks_registered_secret_in_url_path(mock, client):
-    """Un secret enregistré est masqué même logé dans le chemin d'URL, y
-    compris sous sa forme pourcent-encodée."""
+    """A registered secret is masked even when lodged in the URL path,
+    including in its percent-encoded form."""
     secret = "reset-token-canary"
     navigation_url = f"http://s.test/reset/{secret}"
     mock.script_network(
@@ -679,9 +678,9 @@ def test_network_capture_masks_registered_secret_in_url_path(mock, client):
     )
 
     serialized = json.dumps(result)
-    #: la valeur secrète est introuvable dans toute la sortie, même pourcent-encodée
+    #: the secret value cannot be found anywhere in the output, even percent-encoded
     assert secret not in serialized and "reset%2Dtoken%2Dcanary" not in serialized
-    #: les URLs gardent leur structure, seul le segment secret devient le marqueur
+    #: URLs keep their structure, only the secret segment becomes the marker
     assert result["url"] == "http://s.test/reset/***"
     assert result["requests"][0]["url"] == "http://s.test/api/***"
 
@@ -709,14 +708,14 @@ def _profiler_network_script(base_url: str, headers: dict) -> list[dict]:
     feature="dev-profiler-diff",
     journey="read-profiler",
     scenario_id="dev-profiler-diff.read-symfony-profiler",
-    proves=["Le profiler expose token masqué et métriques SQL parsées depuis le panel db."],
+    proves=["The profiler exposes a masked token and SQL metrics parsed from the db panel."],
 )
 def test_profiler_reads_debug_token_link_and_parses_panels(
     mock, client, fixtures_http, evidence_case
 ):
-    """Le profiler suit X-Debug-Token-Link, récupère le panel db en contexte
-    page et en extrait les métriques SQL, sans jamais laisser le token
-    apparaître dans la sortie."""
+    """The profiler follows X-Debug-Token-Link, fetches the db panel in page
+    context and extracts its SQL metrics, without ever letting the token
+    appear in the output."""
     link = f"{fixtures_http.base_url}/_profiler/fixed-token"
     mock.on_eval("window.location.href", f"{fixtures_http.base_url}/api/profiler-sim")
     mock.script_network(
@@ -728,42 +727,42 @@ def test_profiler_reads_debug_token_link_and_parses_panels(
         json.dumps([{"panel": "db", "status": 200, "html": db_html}]),
     )
     res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim", panels=["db"])
-    #: le token existe mais seule sa présence est annoncée: aucune trace de sa
-    #: valeur ni dans l'URL profiler ni ailleurs dans la sortie
+    #: the token exists but only its presence is announced: no trace of its
+    #: value either in the profiler URL or anywhere else in the output
     assert "token" not in res and res["token_present"] is True
     assert res["profiler_url"].endswith("/_profiler/***")
     assert "fixed-token" not in json.dumps(res)
-    #: le statut rapporté est celui du fetch réel du panel, pas de la page auditée
-    assert res["profiler_status"] == 200  # statut réel du fetch du panel
-    #: le HTML du panel est réellement parsé: requêtes SQL et doublons comptés
+    #: the reported status is that of the panel's actual fetch, not of the audited page
+    assert res["profiler_status"] == 200  # actual status of the panel fetch
+    #: the panel HTML is actually parsed: SQL requests and duplicates counted
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["db"]["duplicates"] == 4
-    #: le contrat de sortie reste minimal, sans champs exploratoires résiduels
+    #: the output contract stays minimal, with no residual exploratory fields
     assert "signals" not in res and "profiler_bytes" not in res
-    #: l'écoute réseau a été activée pour voir passer les en-têtes de debug
+    #: network listening was enabled in order to see the debug headers go by
     assert mock.commands_for("Network.enable") == [{}]
-    # protocole émis: un seul fetch page-context, promesse attendue
+    # emitted protocol: a single page-context fetch, awaited promise
     (call,) = [
         item
         for item in mock.commands_for("Runtime.evaluate")
         if "__cdpx_profiler_panels" in item["expression"]
     ]
-    #: le fetch du panel est une promesse attendue, ciblant l'URL du token + panel
+    #: the panel fetch is an awaited promise, targeting the token URL + panel
     assert call["awaitPromise"] is True
     assert f'"{link}?panel=db"' in call["expression"]
 
-    # Preuve secondaire: la sortie profiler (token masqué, métriques SQL parsées).
+    # Secondary evidence: the profiler output (masked token, parsed SQL metrics).
     if evidence_case is not None:
-        evidence_case.attach_json("Sortie profiler (token masqué, panel db)", res)
+        evidence_case.attach_json("Profiler output (masked token, db panel)", res)
 
 
 def test_profiler_prefers_redirect_response_token(mock, client, fixtures_http):
-    """Sur une 302, le token porté par redirectResponse — seul endroit où
-    Chrome l'expose — l'emporte sur celui de la page suivie, et le statut
-    rapporté est celui de la redirection."""
-    # Chrome n'émet pas de responseReceived pour une 302: le token de la
-    # redirection n'existe que dans requestWillBeSent.redirectResponse et doit
-    # gagner sur celui de la page suivie.
+    """On a 302, the token carried by redirectResponse — the only place
+    Chrome exposes it — wins over the one on the followed page, and the
+    reported status is that of the redirection."""
+    # Chrome does not emit responseReceived for a 302: the redirection token
+    # only exists in requestWillBeSent.redirectResponse and must win over the
+    # one on the followed page.
     base = fixtures_http.base_url
     mock.on_eval("window.location.href", f"{base}/scenario/profiler/baseline")
     mock.script_network(
@@ -794,32 +793,33 @@ def test_profiler_prefers_redirect_response_token(mock, client, fixtures_http):
         ]
     )
     res = dev.profiler(client, f"{base}/scenario/profiler/routing-redirect", panels=[])
-    #: un token a bien été retenu, et ni celui de la redirection ni celui de
-    #: la page finale ne fuient en clair dans la sortie
+    #: a token was indeed retained, and neither the redirection one nor the
+    #: final page one leaks in clear text in the output
     assert "token" not in res and res["token_present"] is True
     assert res["profiler_url"].endswith("/_profiler/***")
     assert "redir-token" not in json.dumps(res)
     assert "final-token" not in json.dumps(res)
-    #: le statut rapporté est celui de la redirection interceptée, pas le 200 final
+    #: the reported status is that of the intercepted redirection, not the final 200
     assert res["status"] == 302
 
 
 def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
-    """Sans X-Debug-Token-Link, l'en-tête X-Debug-Token suffit: l'URL profiler
-    est reconstruite et l'en-tête lui-même est masqué dans la sortie."""
+    """Without X-Debug-Token-Link, the X-Debug-Token header is enough: the
+    profiler URL is reconstructed and the header itself is masked in the
+    output."""
     mock.on_eval("window.location.href", f"{fixtures_http.base_url}/api/profiler-sim")
     mock.script_network(
         _profiler_network_script(fixtures_http.base_url, {"X-Debug-Token": "fixed-token"})
     )
     res = dev.profiler(client, f"{fixtures_http.base_url}/api/profiler-sim", panels=[])
-    #: présence signalée sans divulguer le token: URL masquée, en-tête masqué,
-    #: aucune occurrence de la valeur dans la sortie sérialisée
+    #: presence reported without disclosing the token: URL masked, header
+    #: masked, no occurrence of the value in the serialized output
     assert "token" not in res and res["token_present"] is True
     assert res["profiler_url"].endswith("/_profiler/***")
     assert res["response_headers"]["x-debug-token"] == "***"
     assert "fixed-token" not in json.dumps(res)
-    # sonde token seule: aucun fetch de panel
-    #: sans panel demandé, aucun fetch page-context n'est même tenté
+    # token-only probe: no panel fetch
+    #: with no panel requested, no page-context fetch is even attempted
     assert res["panels"] == {} and res["profiler_status"] is None
     assert not any(
         "__cdpx_profiler_panels" in call["expression"]
@@ -828,9 +828,9 @@ def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
 
 
 def test_profiler_rejects_requested_origin_before_navigation(mock, client):
-    """Une origine hors liste blanche est refusée avant d'activer le réseau
-    ou de naviguer: le garde-fou opère en amont de tout protocole."""
-    #: le refus est une ValueError explicite, pas une navigation avortée en cours
+    """An origin outside the allowlist is rejected before enabling network
+    or navigating: the guard operates upstream of any protocol."""
+    #: the refusal is an explicit ValueError, not a navigation aborted mid-flight
     with pytest.raises(ValueError, match="origin rejected"):
         dev.profiler(
             client,
@@ -839,14 +839,14 @@ def test_profiler_rejects_requested_origin_before_navigation(mock, client):
             context=orchestration("http://allowed.test"),
         )
 
-    #: preuve du fail-closed: aucun ordre CDP n'est parti vers le navigateur
+    #: proof of fail-closed: no CDP command went out to the browser
     assert mock.commands_for("Network.enable") == []
     assert mock.commands_for("Page.navigate") == []
 
 
 def test_profiler_rejects_cross_origin_header_before_panel_fetch(mock, client):
-    """Un X-Debug-Token-Link pointant vers une origine étrangère est traité
-    comme hostile: refus avant tout fetch de panel."""
+    """An X-Debug-Token-Link pointing to a foreign origin is treated as
+    hostile: refusal before any panel fetch."""
     url = "http://allowed.test/report"
     mock.on_eval("window.location.href", url)
     mock.script_network(
@@ -856,11 +856,11 @@ def test_profiler_rejects_cross_origin_header_before_panel_fetch(mock, client):
         )
     )
 
-    #: l'en-tête forgé par le serveur déclenche le refus d'origine
+    #: the header forged by the server triggers the origin refusal
     with pytest.raises(ValueError, match="origin rejected"):
         dev.profiler(client, url, panels=["db"])
 
-    #: aucun fetch de panel n'a été tenté vers l'origine étrangère
+    #: no panel fetch was attempted toward the foreign origin
     assert not any(
         "__cdpx_profiler_panels" in call["expression"]
         for call in mock.commands_for("Runtime.evaluate")
@@ -868,9 +868,9 @@ def test_profiler_rejects_cross_origin_header_before_panel_fetch(mock, client):
 
 
 def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
-    """Même quand l'URL demandée est autorisée, une redirection vers une
-    origine interdite bloque le profiler avant le fetch de panel: la
-    destination réelle fait foi."""
+    """Even when the requested URL is allowed, a redirection to a forbidden
+    origin blocks the profiler before the panel fetch: the real destination
+    is what counts."""
     requested = "http://allowed.test/report"
     mock.on_eval("window.location.href", "https://attacker.example/redirected")
     mock.script_network(
@@ -880,7 +880,7 @@ def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
         )
     )
 
-    #: c'est l'URL finale après redirection qui est jugée, pas celle demandée
+    #: it is the final URL after redirection that is judged, not the requested one
     with pytest.raises(ValueError, match="origin rejected"):
         dev.profiler(
             client,
@@ -889,7 +889,7 @@ def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
             context=orchestration("http://allowed.test"),
         )
 
-    #: aucun panel n'a été récupéré depuis la page détournée
+    #: no panel was fetched from the hijacked page
     assert not any(
         "__cdpx_profiler_panels" in call["expression"]
         for call in mock.commands_for("Runtime.evaluate")
@@ -897,17 +897,17 @@ def test_profiler_rejects_forbidden_final_url_before_panel_fetch(mock, client):
 
 
 def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):
-    """dom-diff exécute réellement l'action entre deux snapshots et rend un
-    diff qui localise la mutation du DOM."""
+    """dom-diff actually executes the action between two snapshots and
+    returns a diff that localizes the DOM mutation."""
     before = ["<body>", '  <div#result[data-state="idle"]>']
     after = ["<body>", '  <div#result[data-state="submitted"]>', '    "OK:Léo"']
     mock.on_eval("__cdpx_dom_snapshot", json.dumps(before), json.dumps(after))
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = dev.dom_diff(client, ClickAction("#submit-btn"))
-    #: le diff détecte la mutation et en expose la ligne changée, exploitable telle quelle
+    #: the diff detects the mutation and exposes the changed line, usable as-is
     assert res["changed"] is True
     assert any("submitted" in line for line in res["diff"])
-    #: l'action n'a pas été simulée: la séquence souris complète est bien partie
+    #: the action was not simulated: the full mouse sequence really went out
     assert [m["type"] for m in mock.commands_for("Input.dispatchMouseEvent")] == [
         "mouseMoved",
         "mousePressed",
@@ -916,12 +916,11 @@ def test_dom_diff_runs_action_and_returns_unified_diff(mock, client):
 
 
 def test_dom_diff_is_stable_across_runs_on_same_state(mock, client):
-    """Deux exécutions de dom-diff sur un état DOM identique produisent un
-    diff strictement identique: la sortie est déterministe, pas dépendante
-    du run."""
+    """Two runs of dom-diff on an identical DOM state produce a strictly
+    identical diff: the output is deterministic, not run-dependent."""
     before = ["<body>", '  <div#result[data-state="idle"]>']
     after = ["<body>", '  <div#result[data-state="submitted"]>', '    "OK:Léo"']
-    #: le mock rejoue exactement le même couple avant/après pour chaque run
+    #: the mock replays exactly the same before/after pair for each run
     mock.on_eval(
         "__cdpx_dom_snapshot",
         json.dumps(before),
@@ -933,11 +932,11 @@ def test_dom_diff_is_stable_across_runs_on_same_state(mock, client):
     first = dev.dom_diff(client, ClickAction("#submit-btn"))
     second = dev.dom_diff(client, ClickAction("#submit-btn"))
 
-    #: le diff est strictement identique d'un run à l'autre, ligne à ligne
+    #: the diff is strictly identical from one run to the next, line by line
     assert first["diff"] == second["diff"]
-    #: la stabilité couvre toute la sortie, pas seulement le champ diff
+    #: stability covers the whole output, not just the diff field
     assert first == second
-    #: garde-fou: le diff comparé n'est pas trivialement vide
+    #: guard: the compared diff is not trivially empty
     assert first["changed"] is True
     assert first["lines"] > 0
 
@@ -946,57 +945,57 @@ def test_dom_diff_is_stable_across_runs_on_same_state(mock, client):
 
 
 def test_cookies_masked_by_default(mock, client):
-    """Les valeurs de cookies sont masquées par défaut; les lire en clair
-    exige l'opt-in explicite show_values."""
+    """Cookie values are masked by default; reading them in clear text
+    requires the explicit show_values opt-in."""
     res = state.get_cookies(client)
-    #: par défaut la sortie s'auto-déclare masquée et ne montre que le marqueur
+    #: by default the output declares itself masked and shows only the marker
     assert res["values_masked"] is True
     assert res["cookies"][0]["value"] == "***"
     res2 = state.get_cookies(client, show_values=True)
-    #: l'opt-in révèle la vraie valeur: le masquage n'est pas destructif
+    #: the opt-in reveals the real value: masking is not destructive
     assert res2["cookies"][0]["value"] == "secret-session-token"
 
 
 def test_set_and_clear_cookies(mock, client):
-    """set_cookie écrit réellement dans le jar du navigateur et clear_cookies
-    le vide via l'API Storage moderne."""
+    """set_cookie really writes into the browser's cookie jar and
+    clear_cookies empties it via the modern Storage API."""
     state.set_cookie(client, "flag", "1", "http://127.0.0.1/")
-    #: le cookie posé est visible côté navigateur, pas seulement accepté par l'API
+    #: the set cookie is visible on the browser side, not merely accepted by the API
     assert any(c["name"] == "flag" for c in mock.cookies)
     res = state.clear_cookies(client)
-    #: la purge annonce la méthode employée et le jar est effectivement vide
+    #: the purge announces the method used and the jar is actually empty
     assert res["method"] == "Storage.clearCookies"
     assert mock.cookies == []
 
 
 def test_clear_cookies_falls_back_on_legacy_method(mock, client):
-    """Quand Storage.clearCookies échoue (Chrome ancien), le repli sur la
-    méthode dépréciée aboutit et la sortie annonce la méthode réellement
-    utilisée."""
-    # Chrome historique sans Storage.clearCookies: repli sur la méthode dépréciée.
+    """When Storage.clearCookies fails (old Chrome), the fallback to the
+    deprecated method succeeds and the output announces the method actually
+    used."""
+    # Legacy Chrome without Storage.clearCookies: fallback to the deprecated method.
     mock.fail_on("Storage.clearCookies")
     res = state.clear_cookies(client)
-    #: la sortie dit la vérité: c'est la méthode de repli qui a nettoyé
+    #: the output tells the truth: it is the fallback method that cleaned up
     assert res == {"cleared": True, "method": "Network.clearBrowserCookies"}
-    #: l'ordre prouve la tentative moderne d'abord, le repli ensuite seulement
+    #: the order proves the modern attempt happens first, the fallback only after
     assert [m for (_t, m, _p) in mock.commands] == [
         "Storage.clearCookies",
         "Network.clearBrowserCookies",
     ]
-    #: le repli a réellement vidé le jar, pas seulement rendu un statut
+    #: the fallback actually emptied the jar, not just returned a status
     assert mock.cookies == []
 
 
 def test_get_storage_masks_values_by_default_with_explicit_opt_in(mock, client):
-    """Le storage est masqué par défaut (valeurs remplacées, drapeau
-    values_masked levé) et seul show_values=True livre les données réelles."""
+    """Storage is masked by default (values replaced, values_masked flag
+    raised) and only show_values=True delivers the real data."""
     secret = "storage-secret-value"
     mock.on_eval("localStorage", json.dumps({"cdpx-key": secret}))
     res = state.get_storage(client, "local")
     shown = state.get_storage(client, "local", show_values=True)
 
-    #: la lecture par défaut compte les entrées mais remplace chaque valeur,
-    #: et la valeur secrète est absente de toute la sortie sérialisée
+    #: the default read counts the entries but replaces every value, and the
+    #: secret value is absent from the entire serialized output
     assert res == {
         "kind": "local",
         "entries": {"cdpx-key": "***"},
@@ -1004,14 +1003,14 @@ def test_get_storage_masks_values_by_default_with_explicit_opt_in(mock, client):
         "values_masked": True,
     }
     assert secret not in json.dumps(res)
-    #: l'opt-in retourne les mêmes clés avec les valeurs en clair, drapeau baissé
+    #: the opt-in returns the same keys with clear-text values, flag lowered
     assert shown == {
         "kind": "local",
         "entries": {"cdpx-key": secret},
         "count": 1,
         "values_masked": False,
     }
-    #: deux lectures = deux évaluations distinctes, aucun cache implicite
+    #: two reads = two distinct evaluations, no implicit caching
     assert len(mock.commands_for("Runtime.evaluate")) == 2
 
 
@@ -1027,11 +1026,11 @@ def test_storage_rejects_unknown_kind_before_evaluation(mock, client):
 SEO_OK = {
     "url": "http://127.0.0.1/seo.html",
     "lang": "fr",
-    "title": "Fixture SEO — page conforme",
+    "title": "SEO fixture — compliant page",
     "metas": {"description": "ok", "robots": "index,follow"},
     "canonical": "http://127.0.0.1/seo.html",
     "robots": "index,follow",
-    "h1": ["Unique H1 conforme"],
+    "h1": ["Compliant unique H1"],
     "hreflang": [{"lang": "fr", "href": "/seo.html"}, {"lang": "en", "href": "/en/seo.html"}],
     "jsonld": [{"@type": "Product", "sku": "FIX-001"}],
     "images_without_alt": 0,
@@ -1045,7 +1044,7 @@ SEO_BROKEN = {
     "metas": {},
     "canonical": None,
     "robots": None,
-    "h1": ["Premier H1", "Deuxième H1 (erreur)"],
+    "h1": ["First H1", "Second H1 (error)"],
     "hreflang": [],
     "jsonld": [],
     "images_without_alt": 2,
@@ -1054,23 +1053,24 @@ SEO_BROKEN = {
 
 
 def test_seo_clean_page_no_findings(mock, client):
-    """Une page SEO conforme ne produit aucun finding — zéro faux positif —
-    tout en livrant les données informatives (largeur du title, JSON-LD)."""
+    """A compliant SEO page produces no finding — zero false positives —
+    while still delivering informative data (title width, JSON-LD)."""
     mock.on_eval("__cdpx_seo", json.dumps(SEO_OK))
     res = audit.seo(client)
-    #: aucun faux positif sur la page témoin conforme
+    #: no false positive on the compliant reference page
     assert res["findings"] == []
-    #: les métriques informatives restent fournies même sans problème détecté
+    #: informative metrics are still provided even with no problem detected
     assert res["title_px_estimate"] > 0
     assert res["jsonld"][0]["@type"] == "Product"
 
 
 def test_seo_broken_page_findings(mock, client):
-    """Chaque défaut SEO majeur de la page cassée produit son finding nommé:
-    title, description, canonical, h1 multiples et images sans alt."""
+    """Every major SEO defect on the broken page produces its own named
+    finding: title, description, canonical, multiple h1s and images without
+    alt."""
     mock.on_eval("__cdpx_seo", json.dumps(SEO_BROKEN))
     res = audit.seo(client)
-    #: chaque manquement est libellé en clair, directement exploitable en CLI
+    #: each shortcoming is labeled in clear text, directly usable from the CLI
     assert "missing title" in res["findings"]
     assert "missing meta description" in res["findings"]
     assert "missing canonical" in res["findings"]
@@ -1079,8 +1079,8 @@ def test_seo_broken_page_findings(mock, client):
 
 
 def test_seo_advanced_findings(mock, client):
-    """L'audit détecte les cas subtils: h1 dupliqués (comparaison en casse
-    pliée), JSON-LD malformé et Product incomplet."""
+    """The audit detects subtle cases: duplicate h1s (case-folded
+    comparison), malformed JSON-LD and incomplete Product."""
     payload = {
         **SEO_OK,
         "h1": ["Same", "Same"],
@@ -1089,17 +1089,17 @@ def test_seo_advanced_findings(mock, client):
     }
     mock.on_eval("__cdpx_seo", json.dumps(payload))
     res = audit.seo(client)
-    #: les doublons sont repérés indépendamment de la casse, et le JSON-LD est
-    #: jugé sur sa validité syntaxique ET sa complétude métier
+    #: duplicates are spotted regardless of case, and JSON-LD is judged on
+    #: both its syntactic validity AND its business completeness
     assert "duplicate h1: same" in res["findings"]
     assert "invalid JSON-LD" in res["findings"]
     assert "incomplete Product JSON-LD (sku or name required)" in res["findings"]
 
 
 def test_seo_accepts_top_level_jsonld_arrays_and_reports_scalars(mock, client):
-    """Un script JSON-LD contenant un tableau de premier niveau est déplié et
-    audité objet par objet; un scalaire est signalé sans faire planter
-    l'audit."""
+    """A JSON-LD script containing a top-level array is unfolded and
+    audited object by object; a scalar is reported without crashing the
+    audit."""
     payload = {
         **SEO_OK,
         "jsonld": [
@@ -1109,8 +1109,8 @@ def test_seo_accepts_top_level_jsonld_arrays_and_reports_scalars(mock, client):
     }
     mock.on_eval("__cdpx_seo", json.dumps(payload))
     res = audit.seo(client)
-    #: l'objet incomplet niché dans le tableau est trouvé, et le scalaire
-    #: produit un finding au lieu d'une exception
+    #: the incomplete object nested in the array is found, and the scalar
+    #: produces a finding instead of an exception
     assert res["findings"] == [
         "incomplete Product JSON-LD (sku or name required)",
         "unsupported scalar JSON-LD",
@@ -1118,10 +1118,10 @@ def test_seo_accepts_top_level_jsonld_arrays_and_reports_scalars(mock, client):
 
 
 def test_metrics(mock, client):
-    """Les métriques du domaine Performance sont remises à plat sous leur nom
-    d'origine, valeurs numériques intactes."""
+    """Performance domain metrics are flattened under their original name,
+    numeric values intact."""
     res = audit.metrics(client)
-    #: les compteurs du protocole traversent sans conversion ni renommage
+    #: the protocol's counters pass through without conversion or renaming
     assert res["Nodes"] == 42 and res["JSHeapUsedSize"] == 1048576
 
 
@@ -1129,8 +1129,8 @@ def test_metrics(mock, client):
 
 
 def test_intercept_goto_fulfills_matching_request(mock, client):
-    """Une règle '=> 503' satisfait artificiellement la requête interceptée
-    avec ce statut et journalise le hit correspondant."""
+    """A '=> 503' rule artificially fulfills the intercepted request with
+    that status and logs the corresponding hit."""
     mock.script_network(
         [
             {
@@ -1147,15 +1147,15 @@ def test_intercept_goto_fulfills_matching_request(mock, client):
         "http://s.test/checkout",
         rules=["*payment* => 503"],
     )
-    #: le hit journalisé relie l'URL interceptée à l'action de la règle appliquée
+    #: the logged hit links the intercepted URL to the applied rule's action
     assert res["hits"] == [{"url": "http://s.test/api/payment", "action": "503"}]
-    #: la requête a été satisfaite côté protocole avec le statut simulé
+    #: the request was fulfilled on the protocol side with the simulated status
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
 
 
 def test_intercept_goto_blocks_and_continues(mock, client):
-    """Chaque requête interceptée reçoit sa propre décision: la règle bloque
-    A tandis que B, sans règle, continue par défaut."""
+    """Every intercepted request gets its own decision: the rule blocks A
+    while B, with no matching rule, continues by default."""
     mock.script_network(
         [
             {
@@ -1169,12 +1169,12 @@ def test_intercept_goto_blocks_and_continues(mock, client):
         ]
     )
     res = interception.intercept_goto(client, "http://s.test/", rules=["*a => block"])
-    #: le journal distingue le blocage ciblé de la continuation par défaut
+    #: the log distinguishes the targeted block from the default continuation
     assert res["hits"] == [
         {"url": "http://s.test/a", "action": "block"},
         {"url": "http://s.test/b", "action": "continue"},
     ]
-    #: côté protocole, A échoue et B poursuit — les deux décisions sont explicites
+    #: on the protocol side, A fails and B continues — both decisions are explicit
     assert mock.commands_for("Fetch.failRequest")[0]["requestId"] == "A"
     assert mock.commands_for("Fetch.continueRequest")[0]["requestId"] == "B"
 
@@ -1193,27 +1193,27 @@ def test_intercept_goto_blocks_and_continues(mock, client):
     ],
 )
 def test_intercept_rejects_invalid_rule_before_cdp(mock, client, rule):
-    """Toute règle syntaxiquement invalide (pattern absent, action inconnue,
-    statut hors bornes ou non entier) est rejetée avant le moindre échange
-    CDP."""
-    #: la grammaire des règles est validée à froid, quel que soit le défaut du cas
+    """Any syntactically invalid rule (missing pattern, unknown action,
+    out-of-bounds or non-integer status) is rejected before any CDP exchange
+    whatsoever."""
+    #: the rule grammar is validated statically, whatever the specific defect
     with pytest.raises(ValueError):
         interception.intercept_goto(client, "http://s.test/", rules=[rule])
-    #: fail-closed: le navigateur n'a rien vu passer
+    #: fail-closed: the browser saw nothing go through
     assert mock.commands == []
 
 
 def test_intercept_prevalidates_every_rule_before_cdp(mock, client):
-    """Une règle invalide en deuxième position condamne tout le lot: chaque
-    règle est validée avant la première commande CDP."""
-    #: la règle valide en tête ne suffit pas à démarrer l'interception
+    """An invalid rule in second position condemns the whole batch: every
+    rule is validated before the first CDP command."""
+    #: a valid rule in first position is not enough to start the interception
     with pytest.raises(ValueError):
         interception.intercept_goto(
             client,
             "http://s.test/",
             rules=["*first* => continue", "*second* => typo"],
         )
-    #: aucune commande partielle: c'est tout ou rien
+    #: no partial command: it's all or nothing
     assert mock.commands == []
 
 
@@ -1252,8 +1252,8 @@ def test_intercept_zero_timeout_is_immediate_and_uses_cdp_timeout(mock, client):
 
 @pytest.mark.parametrize("status", [200, 599])
 def test_intercept_accepts_status_bounds(mock, client, status):
-    """Les statuts aux bornes du domaine accepté (200 et 599) passent la
-    validation et sont réellement appliqués à la requête interceptée."""
+    """Statuses at the bounds of the accepted domain (200 and 599) pass
+    validation and are actually applied to the intercepted request."""
     mock.script_network(
         [
             {
@@ -1271,14 +1271,14 @@ def test_intercept_accepts_status_bounds(mock, client, status):
         rules=[f"*status* => {status}"],
         settle=0,
     )
-    #: le statut limite traverse jusqu'au fulfillRequest du protocole, sans arrondi
+    #: the boundary status carries through to the protocol's fulfillRequest, unrounded
     assert res["hits"] == [{"url": "http://s.test/api/status", "action": str(status)}]
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == status
 
 
 def test_intercept_accepts_explicit_continue(mock, client):
-    """L'action 'continue' explicite laisse passer la requête interceptée
-    tout en la journalisant comme hit."""
+    """The explicit 'continue' action lets the intercepted request through
+    while still logging it as a hit."""
     mock.script_network(
         [
             {
@@ -1296,54 +1296,55 @@ def test_intercept_accepts_explicit_continue(mock, client):
         rules=["*continue* => continue"],
         settle=0,
     )
-    #: le hit est journalisé même quand la règle laisse passer la requête
+    #: the hit is logged even when the rule lets the request through
     assert res["hits"] == [{"url": "http://s.test/api/continue", "action": "continue"}]
-    #: la requête poursuit son chemin via continueRequest, sans altération
+    #: the request continues on its way via continueRequest, unaltered
     assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "I1"}]
 
 
 def test_emulate_mobile_and_reset(mock, client):
-    """L'émulation mobile applique l'override device, et le reset restaure
-    tout — UA comprise (bug historique) — via la séquence protocolaire
-    complète."""
-    #: le profil mobile est appliqué avec le drapeau device correspondant
+    """Mobile emulation applies the device override, and the reset restores
+    everything — UA included (historical bug) — via the complete protocol
+    sequence."""
+    #: the mobile profile is applied with the matching device flag
     assert emulation.emulate(client, "mobile")["applied"] is True
     assert mock.commands_for("Emulation.setDeviceMetricsOverride")[0]["mobile"] is True
     mock.commands.clear()
     assert emulation.emulate(client, reset=True)["reset"] is True
-    # Séquence complète de reset, UA compris (bug historique: UA mobile jamais
-    # restaurée; vérifié contre Chrome réel — setUserAgentOverride "" rétablit
-    # l'UA par défaut, clearDeviceMetricsOverride lève l'override device).
-    #: la séquence de reset couvre device, UA, réseau et CPU — rien n'est oublié
+    # Full reset sequence, UA included (historical bug: mobile UA never
+    # restored; verified against real Chrome — setUserAgentOverride "" restores
+    # the default UA, clearDeviceMetricsOverride lifts the device override).
+    #: the reset sequence covers device, UA, network and CPU — nothing is forgotten
     assert [m for (_t, m, _p) in mock.commands] == [
         "Emulation.clearDeviceMetricsOverride",
         "Emulation.setUserAgentOverride",
         "Network.emulateNetworkConditions",
         "Emulation.setCPUThrottlingRate",
     ]
-    #: UA vide = retour à l'UA par défaut de Chrome; rate 1 = CPU non bridé
+    #: empty UA = back to Chrome's default UA; rate 1 = CPU unthrottled
     assert mock.commands_for("Emulation.setUserAgentOverride")[0] == {"userAgent": ""}
     assert mock.commands_for("Emulation.setCPUThrottlingRate")[0] == {"rate": 1}
 
 
 def test_vitals_installs_observer_and_reads_values(mock, client):
-    """vitals installe l'observer avant la navigation, déclenche l'interaction
-    demandée puis lit les métriques web vitals depuis la page."""
+    """vitals installs the observer before navigation, triggers the
+    requested interaction and then reads the web vitals metrics from the
+    page."""
     mock.on_eval("__cdpxVitals", json.dumps({"lcp": 12, "cls": 0.1, "inp": 0}))
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = diagnostics.vitals(client, "http://s.test/vitals.html", click_selector="#inp-button")
-    #: les métriques rapportées proviennent bien de l'observer injecté dans la page
+    #: the reported metrics really come from the observer injected into the page
     assert res["lcp"] == 12 and res["cls"] == 0.1
-    #: l'observer était en place avant le chargement, et le clic INP a eu lieu
+    #: the observer was in place before the load, and the INP click did happen
     assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument")
     assert mock.commands_for("Input.dispatchMouseEvent")
 
 
 def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, client):
-    """Caractérisation de la garde d'origine canonique du clic vitals: une URL
-    courante portant le port par défaut explicite (:80) est acceptée contre
-    http://*.test — divergence assumée avec l'ancien matcher fnmatch qui la
-    refusait, désormais figée."""
+    """Characterization of the vitals click's canonical origin guard: a
+    current URL carrying an explicit default port (:80) is accepted against
+    http://*.test — a deliberate divergence from the old fnmatch matcher,
+    which used to refuse it, now pinned."""
     mock.on_eval("window.location.href", "http://s.test:80/vitals.html")
     mock.on_eval("__cdpxVitals", json.dumps({"lcp": 5, "cls": 0.0, "inp": 1}))
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
@@ -1353,15 +1354,16 @@ def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, clie
         click_selector="#go",
         origins="http://*.test",
     )
-    #: le matcher canonique de policy normalise le port par défaut: clic permis
+    #: the policy's canonical matcher normalizes the default port: click allowed
     assert mock.commands_for("Input.dispatchMouseEvent")
     assert res["inp"] == 1
 
 
 def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
-    """Caractérisation du fail-fast profiler: un errorText de Page.navigate
-    fait échouer immédiatement, sans attendre loadEventFired jusqu'au timeout
-    comme le faisait l'ancien comportement — divergence assumée, figée ici."""
+    """Characterization of the profiler's fail-fast behavior: an errorText
+    from Page.navigate fails immediately, without waiting for loadEventFired
+    until the timeout as the old behavior used to — a deliberate divergence,
+    pinned here."""
     real_send = client.send
 
     def send(method, params=None, **kwargs):
@@ -1372,15 +1374,16 @@ def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
     monkeypatch.setattr(client, "send", send)
     with pytest.raises(nav.NavigationError, match="ERR_CONNECTION_REFUSED"):
         dev.profiler(client, "http://s.test/page")
-    #: l'échec précède toute lecture de la page: aucune évaluation JS émise
+    #: the failure precedes any reading of the page: no JS evaluation emitted
     assert mock.commands_for("Runtime.evaluate") == []
 
 
 def test_vitals_rechecks_redirected_origin_before_click(mock, client):
-    """Même après une navigation autorisée, une redirection hors origines
-    permises bloque le clic INP: la mutation est re-jugée sur l'URL réelle."""
+    """Even after an allowed navigation, a redirection outside the permitted
+    origins blocks the INP click: the mutation is re-judged against the real
+    URL."""
     mock.on_eval("window.location.href", "https://prod.example/redirected")
-    #: la mutation est refusée sur la destination réelle, pas sur l'URL demandée
+    #: the mutation is refused based on the real destination, not the requested URL
     with pytest.raises(ValueError, match="origin rejected"):
         diagnostics.vitals(
             client,
@@ -1388,24 +1391,24 @@ def test_vitals_rechecks_redirected_origin_before_click(mock, client):
             click_selector="#go",
             origins="http://*.test",
         )
-    #: aucun clic n'a été émis vers la page détournée
+    #: no click was emitted toward the hijacked page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_a11y_compacts_ax_tree(mock, client):
-    """L'arbre d'accessibilité est compacté en une liste plate de noeuds qui
-    conservent leur rôle exploitable pour l'audit."""
+    """The accessibility tree is compacted into a flat list of nodes that
+    keep their role usable for the audit."""
     res = diagnostics.a11y(client)
-    #: la compaction préserve le compte des noeuds et leurs rôles significatifs
+    #: compaction preserves the node count and their meaningful roles
     assert res["count"] == 2
     assert res["nodes"][1]["role"] == "button"
 
 
 def test_coverage_aggregates_files(mock, client):
-    """La couverture agrège JS et CSS par fichier sous un contrat stable; sans
-    donnée mesurable, le pourcentage vaut None plutôt qu'un faux zéro."""
+    """Coverage aggregates JS and CSS per file under a stable contract; with
+    no measurable data, the percentage is None rather than a false zero."""
     res = diagnostics.coverage(client, "http://s.test/")
-    #: le contrat par fichier est complet et l'indéterminé reste None, pas 0
+    #: the per-file contract is complete and the indeterminate stays None, not 0
     assert res["files"][0] == {
         "url": "http://fixture/app.js",
         "functions": 1,
@@ -1415,15 +1418,14 @@ def test_coverage_aggregates_files(mock, client):
         "unused_bytes": 0,
         "coverage_percent": None,
     }
-    #: les agrégats JS et CSS séparent l'utilisé de l'inutilisé
+    #: the JS and CSS aggregates separate used from unused
     assert res["js"] == {"total_bytes": 0, "used_bytes": 0, "unused_bytes": 0}
     assert res["css"] == {"rules": 2, "used": 1, "unused": 1}
 
 
 def test_coverage_reports_byte_coverage_not_range_counts(mock, client, monkeypatch):
-    """La couverture JS se mesure en octets réellement exécutés — plages
-    mortes soustraites, chevauchements déduits — et non en nombre de
-    plages."""
+    """JS coverage is measured in bytes actually executed — dead ranges
+    subtracted, overlaps deduced — not in the number of ranges."""
     original_send = client.send
 
     def send(method, params=None, timeout=None):
@@ -1443,76 +1445,78 @@ def test_coverage_reports_byte_coverage_not_range_counts(mock, client, monkeypat
 
     monkeypatch.setattr(client, "send", send)
     res = diagnostics.coverage(client, "http://s.test/")
-    #: 100 octets dont 20 morts donnent 80%: le calcul soustrait les plages
-    #: non exécutées au lieu de compter les plages
+    #: 100 bytes with 20 dead give 80%: the calculation subtracts the
+    #: unexecuted ranges instead of counting the ranges
     assert res["js"] == {"total_bytes": 100, "used_bytes": 80, "unused_bytes": 20}
     assert res["files"][0]["coverage_percent"] == 80.0
 
 
 def test_frame_text_reads_iframe_content(mock, client):
-    """frame_text lit le texte à l'intérieur d'un iframe via son
-    contentDocument, hors de portée d'un querySelector de la page hôte."""
+    """frame_text reads the text inside an iframe via its contentDocument,
+    out of reach of a querySelector on the host page."""
     mock.on_eval("contentDocument", "iframe text")
-    #: le texte retourné vient du document embarqué, pas de la page hôte
+    #: the returned text comes from the embedded document, not the host page
     assert frames.frame_text(client, "#child-marker")["text"] == "iframe text"
 
 
 def test_record_executes_action_and_journals_result(mock, client, tmp_path):
-    """record exécute réellement l'action (protocole émis) et journalise
-    l'évènement NDJSON complet: action, issue et résultat structuré."""
+    """record actually executes the action (protocol emitted) and journals
+    the complete NDJSON event: action, outcome and structured result."""
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = recording.record(client, str(path), ClickAction("#submit"), context=orchestration())
-    #: le bilan annonce un succès et exactement un évènement journalisé
+    #: the summary reports a success and exactly one journaled event
     assert res["ok"] is True and res["recorded"] == 1
-    # l'action a été réellement exécutée (protocole émis), pas seulement journalisée
-    #: preuve d'exécution réelle: la séquence souris complète est partie vers la page
+    # the action was actually executed (protocol emitted), not merely journaled
+    #: proof of real execution: the complete mouse sequence really went out to the page
     assert [m["type"] for m in mock.commands_for("Input.dispatchMouseEvent")] == [
         "mouseMoved",
         "mousePressed",
         "mouseReleased",
     ]
     event = json.loads(path.read_text().splitlines()[0])
-    #: le journal NDJSON conserve l'action, son issue et son résultat, base du rejeu
+    #: the NDJSON journal keeps the action, its outcome and its result, the basis for replay
     assert event["action"] == ["click", "#submit"]
     assert event["ok"] is True
     assert event["result"]["clicked"] == "#submit"
 
 
 def test_record_journals_failure_then_raises(mock, client, tmp_path):
-    """Un échec d'action est d'abord journalisé (ok=false + erreur) puis
-    l'exception remonte au CLI: le journal ne perd jamais l'échec."""
+    """An action failure is first journaled (ok=false + error) and then the
+    exception propagates up to the CLI: the journal never loses the
+    failure."""
     path = tmp_path / "record.ndjson"
-    mock.on_eval("getBoundingClientRect", None)  # élément introuvable
-    #: l'échec remonte comme exception typée, après écriture du journal
+    mock.on_eval("getBoundingClientRect", None)  # element not found
+    #: the failure propagates as a typed exception, after the journal is written
     with pytest.raises(inputs.ElementNotFound):
         recording.record(client, str(path), ClickAction("#missing"), context=orchestration())
     event = json.loads(path.read_text().splitlines()[0])
-    #: la trace conserve l'action tentée, son échec et le message d'erreur
+    #: the trace keeps the attempted action, its failure and the error message
     assert event["ok"] is False and event["action"] == ["click", "#missing"]
     assert "#missing" in event["result"]["error"]
 
 
 def test_replay_reexecutes_journal_against_browser(mock, client, tmp_path):
-    """replay ré-exécute chaque évènement du journal contre le navigateur,
-    dans l'ordre d'enregistrement, et rapporte un rejeu intégral fidèle."""
+    """replay re-executes every journal event against the browser, in
+    recording order, and reports a faithful, complete replay."""
     path = tmp_path / "record.ndjson"
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     recording.record(client, str(path), GotoAction("http://site.test/"), context=orchestration())
     recording.record(client, str(path), ClickAction("#submit"), context=orchestration())
     mock.commands.clear()
     res = recording.replay(client, str(path), context=orchestration())
-    #: le bilan atteste deux évènements lus, deux joués, aucune divergence
+    #: the summary attests two events read, two played, no divergence
     assert res == {"path": str(path), "events": 2, "played": 2, "ok": True}
-    # le rejeu a bien ré-émis navigation puis clic, dans l'ordre du journal
+    # the replay really re-emitted navigation then click, in journal order
     methods = [m for (_t, m, _p) in mock.commands]
-    #: l'ordre du protocole ré-émis respecte l'ordre du journal
+    #: the order of the re-emitted protocol respects the journal order
     assert methods.index("Page.navigate") < methods.index("Input.dispatchMouseEvent")
 
 
 def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypatch):
-    """Un journal v1 contenant un texte tapé en clair est refusé sans être
-    rejoué et sans que la valeur sensible héritée ne fuie dans le bilan."""
+    """A v1 journal containing clear-text typed text is refused without
+    being replayed and without the inherited sensitive value leaking into
+    the summary."""
     path = tmp_path / "legacy-type.ndjson"
     path.write_text(
         '{"action":["type","#name","legacy-secret"],"ok":true,'
@@ -1532,9 +1536,9 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
 
     result = recording.replay(client, str(path), context=orchestration())
 
-    #: refus net: aucune action jouée sur un format d'archive sensible
+    #: clean refusal: no action played on a sensitive archive format
     assert result["ok"] is False and result["played"] == 0
-    #: le refus est motivé et la valeur secrète héritée n'apparaît nulle part
+    #: the refusal is justified and the inherited secret value appears nowhere
     assert "sensitive v1 action refused" in result["divergence"]
     assert "legacy-secret" not in json.dumps(result)
 
@@ -1543,11 +1547,11 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
     feature="orchestration-control",
     journey="replay-flow",
     scenario_id="orchestration-control.orchestrate-replay-and-emulation",
-    proves=["Le rejeu s'arrête net à la première divergence, sans rejouer la suite."],
+    proves=["The replay stops dead at the first divergence, without replaying what follows."],
 )
 def test_replay_stops_at_first_divergence(mock, client, tmp_path, evidence_case):
-    """Le rejeu s'arrête net à la première divergence: l'évènement fautif est
-    identifié et les évènements suivants ne sont jamais exécutés."""
+    """The replay stops dead at the first divergence: the offending event is
+    identified and the following events are never executed."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","http://site.test/"],"ok":true}\n'
@@ -1555,63 +1559,64 @@ def test_replay_stops_at_first_divergence(mock, client, tmp_path, evidence_case)
         '{"action":["goto","http://after.test/"],"ok":true}\n',
         encoding="utf-8",
     )
-    mock.on_eval("getBoundingClientRect", None)  # le clic rejoué échoue
+    mock.on_eval("getBoundingClientRect", None)  # the replayed click fails
     res = recording.replay(client, str(path), context=orchestration())
-    #: une seule action jouée avant l'échec, divergence localisée sur le fautif
+    #: only one action played before the failure, divergence localized to the offender
     assert res["ok"] is False and res["played"] == 1
     assert res["divergence"].startswith("event 1:")
-    # arrêt net: l'action suivante du journal n'a pas été rejouée
-    #: la navigation qui suivait le clic fautif n'a jamais été ré-émise
+    # clean stop: the next journal action was not replayed
+    #: the navigation that followed the offending click was never re-emitted
     assert [p.get("url") for p in mock.commands_for("Page.navigate")] == ["http://site.test/"]
 
-    # Preuve secondaire: le journal NDJSON rejoué (typé logs) et l'objet
-    # divergence qui documente l'arrêt net au premier écart.
+    # Secondary evidence: the replayed NDJSON journal (typed as logs) and the
+    # divergence object that documents the clean stop at the first mismatch.
     if evidence_case is not None:
-        evidence_case.attach_file(path, "Journal record.ndjson rejoué")
+        evidence_case.attach_file(path, "Replayed record.ndjson journal")
         evidence_case.attach_json(
-            "Divergence du rejeu (arrêt net)",
+            "Replay divergence (clean stop)",
             {"ok": res["ok"], "played": res["played"], "divergence": res["divergence"]},
         )
 
 
 def test_replay_divergence_on_journaled_failure(mock, client, tmp_path):
-    """Un évènement journalisé en échec est une divergence immédiate: il ne
-    se rejoue pas et rien ne part vers le navigateur."""
+    """An event journaled as a failure is an immediate divergence: it does
+    not get replayed and nothing goes out to the browser."""
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["click","#submit"],"ok":false}\n', encoding="utf-8")
     res = recording.replay(client, str(path), context=orchestration())
-    #: la divergence cite l'échec journalisé sans avoir tenté de le reproduire
+    #: the divergence cites the journaled failure without having tried to reproduce it
     assert res["ok"] is False and res["divergence"] == "event 0: ok=false journaled"
-    #: fail-closed: aucune commande CDP n'a été émise
-    assert mock.commands == []  # un enregistrement en échec ne se rejoue pas
+    #: fail-closed: no CDP command was emitted
+    assert mock.commands == []  # a failed record is never replayed
 
 
 def test_replay_validates_journal_before_any_execution(mock, client, tmp_path):
-    """Le journal entier est validé (JSON, action présente, budget
-    max_actions) avant la moindre exécution: toute corruption bloque tout."""
+    """The entire journal is validated (JSON, action present, max_actions
+    budget) before any execution whatsoever: any corruption blocks
+    everything."""
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n{not-json}\n', "utf-8")
     res = recording.replay(client, str(path), context=orchestration())
-    #: la ligne corrompue est localisée et même la première ligne valide n'est
-    #: pas rejouée
+    #: the corrupted line is localized and even the first valid line is not
+    #: replayed
     assert res["ok"] is False and res["divergence"].startswith("line 2:")
-    assert mock.commands == []  # journal corrompu -> rien n'est rejoué
+    assert mock.commands == []  # corrupted journal -> nothing is replayed
     path.write_text('{"ok":true}\n', encoding="utf-8")
-    #: une entrée sans action est un journal invalide, signalé par sa ligne
+    #: an entry without an action is an invalid journal, reported by its line
     assert (
         recording.replay(client, str(path), context=orchestration())["divergence"]
         == "line 1: missing action"
     )
     path.write_text('{"action":["goto","http://x.test/"],"ok":true}\n' * 3, encoding="utf-8")
-    #: dépasser le budget d'actions lève avant toute émission protocolaire
+    #: exceeding the action budget raises before any protocol emission
     with pytest.raises(ValueError):
         recording.replay(client, str(path), max_actions=2, context=orchestration())
-    assert mock.commands == []  # budget dépassé -> rien n'est rejoué
+    assert mock.commands == []  # budget exceeded -> nothing is replayed
 
 
 def test_replay_validates_action_grammar_before_any_execution(mock, client, tmp_path):
-    """Un verbe hors grammaire dans le journal est refusé à la validation,
-    avant que la moindre action — même valide — ne soit rejouée."""
+    """A verb outside the grammar in the journal is refused at validation,
+    before even the first action — however valid — gets replayed."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","http://x.test/"],"ok":true,"result":{"ok":true}}\n'
@@ -1619,16 +1624,16 @@ def test_replay_validates_action_grammar_before_any_execution(mock, client, tmp_
         encoding="utf-8",
     )
     res = recording.replay(client, str(path), context=orchestration())
-    #: le verbe interdit est repéré à sa ligne et rien n'a été exécuté, pas
-    #: même la première action pourtant valide
+    #: the forbidden verb is spotted at its line and nothing was executed, not
+    #: even the otherwise valid first action
     assert res["ok"] is False and res["divergence"].startswith("line 2:")
     assert mock.commands == []
 
 
 def test_replay_compares_semantic_results(mock, client, tmp_path):
-    """Le rejeu compare les résultats sémantiquement: un champ significatif
-    divergent est signalé avec chemin/attendu/obtenu, tandis que les champs
-    volatils comme elapsed_ms sont ignorés."""
+    """The replay compares results semantically: a diverging significant
+    field is reported with path/expected/actual, while volatile fields like
+    elapsed_ms are ignored."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","http://x.test/"],"ok":true,'
@@ -1636,8 +1641,8 @@ def test_replay_compares_semantic_results(mock, client, tmp_path):
         encoding="utf-8",
     )
     res = recording.replay(client, str(path), context=orchestration())
-    #: la divergence structurée ne cite que le champ significatif (url), pas
-    #: le chronométrage volatil pourtant différent
+    #: the structured divergence cites only the significant field (url), not
+    #: the volatile timing, even though it differs too
     assert res["ok"] is False and res["played"] == 1
     assert res["divergence"] == {
         "event": 0,
@@ -1649,8 +1654,8 @@ def test_replay_compares_semantic_results(mock, client, tmp_path):
 
 
 def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path):
-    """Le garde d'origine suit la navigation du journal: un goto vers une
-    origine interdite bloque le rejeu avant la mutation qui suit."""
+    """The origin guard follows the journal's navigation: a goto to a
+    forbidden origin blocks the replay before the mutation that follows."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","http://prod.example/"],"ok":true}\n'
@@ -1659,17 +1664,17 @@ def test_replay_origin_guard_follows_goto_before_mutation(mock, client, tmp_path
     )
     mock.on_eval("window.location.href", "http://prod.example/")
     res = recording.replay(client, str(path), context=orchestration())
-    #: la navigation interdite bloque le rejeu avant même la première action
+    #: the forbidden navigation blocks the replay before even the first action
     assert res["ok"] is False and res["played"] == 0
-    #: le refus est motivé par l'origine et le clic n'est jamais parti
+    #: the refusal is justified by the origin and the click never went out
     assert "origin rejected" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, client, tmp_path):
-    """C'est la destination réelle après redirection qui est jugée: un goto
-    autorisé aboutissant hors zone bloque la mutation suivante dès la
-    première lecture d'URL."""
+    """It is the real destination after redirection that gets judged: an
+    allowed goto that ends up outside the zone blocks the following mutation
+    as soon as the URL is first read."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","http://allowed.test/start"],"ok":true}\n'
@@ -1680,9 +1685,9 @@ def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, cli
 
     res = recording.replay(client, str(path), context=orchestration())
 
-    #: le goto s'est joué mais la mutation qui suit est refusée
+    #: the goto did play but the mutation that follows is refused
     assert res["ok"] is False and res["played"] == 1
-    #: origine refusée: la souris reste muette face à la page détournée
+    #: origin refused: the mouse stays silent facing the hijacked page
     assert "origin rejected" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
     location_reads = [
@@ -1690,13 +1695,13 @@ def test_replay_origin_guard_uses_redirect_destination_before_mutation(mock, cli
         for params in mock.commands_for("Runtime.evaluate")
         if params["expression"] == "window.location.href"
     ]
-    #: une seule lecture d'URL a suffi: le refus est immédiat, jamais retenté
-    assert len(location_reads) == 1  # destination réelle refusée immédiatement après goto
+    #: a single URL read was enough: the refusal is immediate, never retried
+    assert len(location_reads) == 1  # real destination refused immediately after goto
 
 
 def test_replay_rejects_forbidden_goto_before_navigation(mock, client, tmp_path):
-    """Un goto du journal vers une origine interdite est refusé avant de
-    naviguer: le garde couvre aussi les actions qui déplacent le contexte."""
+    """A journal goto to a forbidden origin is refused before navigating:
+    the guard also covers actions that move the context."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"action":["goto","https://forbidden.example/"],"ok":true}\n',
@@ -1709,19 +1714,20 @@ def test_replay_rejects_forbidden_goto_before_navigation(mock, client, tmp_path)
         context=orchestration("http://allowed.test"),
     )
 
-    #: rejeu refusé à zéro action jouée, motivé par l'origine interdite
+    #: replay refused with zero actions played, justified by the forbidden origin
     assert result["ok"] is False and result["played"] == 0
     assert "origin rejected" in result["divergence"]
-    #: la navigation interdite n'a jamais été émise vers le navigateur
+    #: the forbidden navigation was never emitted toward the browser
     assert mock.commands_for("Page.navigate") == []
 
 
 def test_record_rejects_forbidden_goto_before_navigation_or_journal(mock, client, tmp_path):
-    """record refuse un goto hors origines avant de naviguer ET avant d'ouvrir
-    le journal: une action interdite ne laisse aucun artefact."""
+    """record refuses a goto outside the origins before navigating AND
+    before opening the journal: a forbidden action leaves no artifact
+    behind."""
     path = tmp_path / "record.ndjson"
 
-    #: l'interdiction se joue en amont de tout effet de bord
+    #: the prohibition kicks in upstream of any side effect
     with pytest.raises(ValueError, match="origin rejected"):
         recording.record(
             client,
@@ -1730,7 +1736,7 @@ def test_record_rejects_forbidden_goto_before_navigation_or_journal(mock, client
             context=orchestration("http://allowed.test"),
         )
 
-    #: ni navigation émise, ni fichier journal créé sur disque
+    #: no navigation emitted, no journal file created on disk
     assert mock.commands_for("Page.navigate") == []
     assert not path.exists()
 
@@ -1749,25 +1755,25 @@ def test_record_rejects_forbidden_goto_before_navigation_or_journal(mock, client
 def test_replay_origin_guard_fails_closed_when_current_url_is_unknown(
     mock, client, tmp_path, events, played
 ):
-    """Quand l'URL courante est indéterminable, le garde échoue fermé: la
-    mutation est refusée, que le journal commence ou non par un goto
-    autorisé."""
+    """When the current URL cannot be determined, the guard fails closed:
+    the mutation is refused, whether or not the journal starts with an
+    allowed goto."""
     path = tmp_path / "record.ndjson"
     path.write_text(events, encoding="utf-8")
     mock.on_eval("window.location.href", None)
 
     res = recording.replay(client, str(path), context=orchestration())
 
-    #: le rejeu s'arrête exactement là où l'URL devient nécessaire au jugement
+    #: the replay stops exactly where the URL becomes necessary for the judgment
     assert res["ok"] is False and res["played"] == played
-    #: le motif est l'indétermination, et aucun clic n'est parti à l'aveugle
+    #: the reason is indeterminacy, and no click went out blindly
     assert "unable to determine the current URL" in str(res["divergence"])
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
 def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
-    """Le garde reste actif après chaque mutation: une redirection post-clic
-    hors zone autorisée est détectée et signalée comme divergence."""
+    """The guard stays active after every mutation: a post-click redirection
+    outside the allowed zone is detected and reported as a divergence."""
     path = tmp_path / "record.ndjson"
     path.write_text('{"action":["click","#submit"],"ok":true}\n', encoding="utf-8")
     mock.on_eval(
@@ -1782,26 +1788,26 @@ def test_replay_origin_guard_is_kept_after_mutation(mock, client, tmp_path):
 
     res = recording.replay(client, str(path), context=orchestration())
 
-    #: le clic s'est joué puis la destination résultante a été refusée
+    #: the click did play, then the resulting destination was refused
     assert res["ok"] is False and res["played"] == 1
     assert "destination after action: origin rejected" in str(res["divergence"])
-    #: la mutation avait bien eu lieu (séquence souris complète) avant détection
+    #: the mutation really had taken place (complete mouse sequence) before detection
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
 
 
 def test_run_action_dispatches_and_rejects_unknown(mock, client):
-    """run_action route chaque verbe connu vers sa primitive — preuve
-    protocolaire à l'appui — et rejette tout verbe hors grammaire, action
-    vide comprise."""
+    """run_action routes every known verb to its primitive — protocol proof
+    included — and rejects every verb outside the grammar, including an
+    empty action."""
 
     res = actions.run_action_argv(client, ["goto", "http://site.test/"])
-    #: le verbe goto atteint la vraie primitive de navigation, protocole émis
+    #: the goto verb reaches the real navigation primitive, protocol emitted
     assert res["ok"] is True
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/"}]
     mock.on_eval("2 + 2", 4)
-    #: le verbe eval retourne la valeur calculée par la page
+    #: the eval verb returns the value computed by the page
     assert actions.run_action(client, EvalAction("2 + 2")) == {"value": 4}
-    #: verbe inconnu et action vide sont tous deux refusés par la grammaire
+    #: an unknown verb and an empty action are both refused by the grammar
     with pytest.raises(ValueError):
         actions.run_action_argv(client, ["shell", "rm -rf /"])
     with pytest.raises(ValueError):

@@ -1,6 +1,6 @@
-"""Le site témoin est lui-même sous test: chaque page et endpoint doit exister
-et porter les marqueurs attendus par le e2e (M1). Si une fixture bouge, ça
-casse ICI, pas silencieusement dans le e2e."""
+"""The reference site is itself under test: every page and endpoint must
+exist and carry the markers expected by e2e (M1). If a fixture moves, it
+breaks HERE, not silently in e2e."""
 
 import json
 import urllib.error
@@ -46,96 +46,98 @@ PAGES_MARKERS = {
 
 
 def test_all_pages_served_with_markers(fixtures_http, evidence_case):
-    """Chaque page du site témoin existe et porte les points d'ancrage dont
-    dépendent les scénarios e2e: une fixture qui bouge casse ici, en clair,
-    plutôt que silencieusement dans un test navigateur."""
+    """Every page of the reference site exists and carries the anchor
+    points that e2e scenarios depend on: a fixture that moves breaks here,
+    plainly, rather than silently in a browser test."""
     for path, markers in PAGES_MARKERS.items():
         status, body, headers = _get(fixtures_http.base_url, path)
-        #: la page annoncée au e2e est réellement servie
+        #: the page announced to e2e is actually served
         assert status == 200, f"{path} -> {status}"
         for marker in markers:
-            #: chaque ancre (id, attribut, texte) utilisée par un scénario
-            #: e2e est présente dans le HTML servi
-            assert marker in body, f"marqueur '{marker}' absent de {path}"
-        #: no-store interdit tout cache: le contenu observé par le navigateur
-        #: reste déterministe d'une navigation à l'autre
+            #: every anchor (id, attribute, text) used by an e2e scenario
+            #: is present in the served HTML
+            assert marker in body, f"marker '{marker}' missing from {path}"
+        #: no-store forbids any cache: the content observed by the browser
+        #: stays deterministic from one navigation to the next
         assert headers.get("Cache-Control") == "no-store"
 
     if evidence_case is not None:
-        # Preuve du contrat fixtures/e2e: la carte page -> marqueurs vérifiés.
-        evidence_case.attach_json("Carte PAGES_MARKERS (contrat fixtures/e2e)", PAGES_MARKERS)
+        # Proof of the fixtures/e2e contract: the page -> verified markers map.
+        evidence_case.attach_json("PAGES_MARKERS map (fixtures/e2e contract)", PAGES_MARKERS)
 
 
 def test_root_serves_index(fixtures_http):
-    """La racine du site témoin sert la page d'accueil elle-même: naviguer
-    vers la base URL suffit aux scénarios, sans chemin explicite."""
+    """The reference site's root serves the home page itself: navigating
+    to the base URL is enough for scenarios, with no explicit path."""
     status, body, _ = _get(fixtures_http.base_url, "/")
-    #: «/» répond avec le marqueur de titre propre à index.html
+    #: "/" responds with the title marker specific to index.html
     assert status == 200 and 'id="main-title"' in body
 
 
 def test_api_json(fixtures_http):
-    """L'endpoint JSON du témoin répond un payload figé au champ près:
-    c'est la référence exacte des assertions d'observation réseau."""
+    """The reference server's JSON endpoint responds with a payload fixed
+    down to the field: it is the exact reference for network observation
+    assertions."""
     status, body, _ = _get(fixtures_http.base_url, "/api/json")
-    #: le corps est intégralement déterministe — toute dérive invaliderait
-    #: les comparaisons faites par les scénarios réseau
+    #: the body is fully deterministic — any drift would invalidate the
+    #: comparisons made by network scenarios
     assert status == 200
     assert json.loads(body) == {"ok": True, "items": [1, 2, 3], "source": "fixture"}
 
 
 def test_api_status_codes(fixtures_http):
-    """/api/status/<code> rejoue fidèlement le code HTTP demandé, erreurs
-    comprises: le témoin sait provoquer des réponses dégradées à la demande."""
+    """/api/status/<code> faithfully replays the requested HTTP code,
+    errors included: the reference server can trigger degraded responses
+    on demand."""
     for code in (204, 404, 500):
         status, _, _ = _get(fixtures_http.base_url, f"/api/status/{code}")
-        #: le code demandé dans l'URL est restitué tel quel, succès comme
-        #: erreur serveur — c'est ce qui rend les pannes scriptables
+        #: the code requested in the URL is returned as-is, success as well
+        #: as server error — this is what makes failures scriptable
         assert status == code
 
 
 def test_api_slow_actually_waits(fixtures_http):
-    """/api/slow impose une latence réelle et mesurable, pas seulement
-    annoncée: indispensable pour éprouver les timeouts côté navigateur."""
+    """/api/slow imposes a real, measurable latency, not merely a declared
+    one: essential for exercising timeouts on the browser side."""
     import time
 
     t0 = time.monotonic()
     status, body, _ = _get(fixtures_http.base_url, "/api/slow?ms=150")
-    #: la réponse déclare la durée dormie demandée dans la requête
+    #: the response declares the sleep duration requested in the request
     assert status == 200
     assert json.loads(body)["slept_ms"] == 150
-    #: l'horloge confirme que l'attente a réellement eu lieu: la latence
-    #: n'est pas seulement déclarative
+    #: the clock confirms the wait actually took place: the latency is not
+    #: merely declarative
     assert time.monotonic() - t0 >= 0.15
 
 
 def test_api_echo_post(fixtures_http):
-    """/api/echo restitue méthode, chemin et corps d'un POST: le témoin sait
-    prouver ce que le navigateur a réellement envoyé sur le fil."""
+    """/api/echo returns the method, path, and body of a POST: the
+    reference server can prove what the browser actually sent over the wire."""
     req = urllib.request.Request(
         fixtures_http.base_url + "/api/echo", data=b"payload", method="POST"
     )
     with urllib.request.urlopen(req, timeout=5) as r:
         data = json.loads(r.read())
-    #: l'écho reflète la requête émise dans son intégralité, corps compris,
-    #: ce qui permet de vérifier les envois interceptés ou rejoués
+    #: the echo reflects the emitted request in full, body included, which
+    #: allows verifying intercepted or replayed sends
     assert data == {"method": "POST", "path": "/api/echo", "body": "payload"}
 
 
 def test_api_set_cookie(fixtures_http):
-    """Le témoin sait poser un cookie via l'en-tête HTTP, matière première
-    des scénarios d'état et de masquage des valeurs sensibles."""
+    """The reference server can set a cookie via the HTTP header, raw
+    material for state and sensitive-value redaction scenarios."""
     _, _, headers = _get(fixtures_http.base_url, "/api/set-cookie")
-    #: le Set-Cookie déterministe attendu par les scénarios d'état est émis
+    #: the deterministic Set-Cookie expected by state scenarios is emitted
     assert "fixture=on" in headers.get("Set-Cookie", "")
 
 
 def test_api_profiler_sim(fixtures_http):
-    """La simulation du profiler Symfony expose l'en-tête X-Debug-Token-Link,
-    point d'entrée que la primitive d'audit suit pour trouver les panels."""
+    """The Symfony profiler simulation exposes the X-Debug-Token-Link
+    header, the entry point the audit primitive follows to find the panels."""
     status, body, headers = _get(fixtures_http.base_url, "/api/profiler-sim")
-    #: la réponse s'assume comme simulation et son en-tête pointe vers le
-    #: token fixe, exactement comme le ferait une vraie app Symfony en dev
+    #: the response identifies itself as a simulation and its header points
+    #: to the fixed token, exactly as a real Symfony dev app would
     assert status == 200 and json.loads(body)["profiler"] == "sim"
     assert headers["X-Debug-Token-Link"].endswith("/_profiler/fixed-token")
 
@@ -154,43 +156,43 @@ PROFILER_PANEL_MARKERS = {
 
 
 def test_profiler_serves_panel_html(fixtures_http):
-    """Chaque panel simulé du profiler est servi en HTML avec les libellés
-    que la primitive d'audit extrait; sans paramètre on retombe sur le panel
-    request, et un panel inconnu échoue franchement."""
+    """Every simulated profiler panel is served in HTML with the labels
+    the audit primitive extracts; with no parameter we fall back to the
+    request panel, and an unknown panel fails plainly."""
     for panel, markers in PROFILER_PANEL_MARKERS.items():
         status, body, headers = _get(
             fixtures_http.base_url, f"/_profiler/fixed-token?panel={panel}"
         )
-        #: le panel est servi en HTML, comme le vrai profiler Symfony
+        #: the panel is served in HTML, like the real Symfony profiler
         assert status == 200, f"panel {panel} -> {status}"
         assert headers["Content-Type"].startswith("text/html"), panel
         for marker in markers:
-            #: les libellés que la primitive d'audit repère sont présents
-            #: dans le HTML du panel
-            assert marker in body, f"marqueur '{marker}' absent du panel {panel}"
-    # sans paramètre: panel request; panel inconnu: 404
+            #: the labels the audit primitive spots are present in the
+            #: panel's HTML
+            assert marker in body, f"marker '{marker}' missing from panel {panel}"
+    # with no parameter: request panel; unknown panel: 404
     status, body, _ = _get(fixtures_http.base_url, "/_profiler/fixed-token")
-    #: l'absence de paramètre retombe sur le panel request par défaut,
-    #: aligné sur le comportement du profiler réel
+    #: the absence of a parameter falls back to the request panel by
+    #: default, aligned with the real profiler's behavior
     assert status == 200 and "_route" in body
     status, _, _ = _get(fixtures_http.base_url, "/_profiler/fixed-token?panel=nope")
-    #: un panel inexistant répond 404 au lieu de servir un HTML vide qui
-    #: masquerait une faute de frappe côté audit
+    #: a nonexistent panel responds 404 instead of serving empty HTML that
+    #: would mask a typo on the audit side
     assert status == 404
 
 
 def test_path_traversal_blocked(fixtures_http):
-    """Le serveur témoin ne sert jamais un fichier hors de sa racine: une
-    tentative de remontée de chemin est rejetée."""
+    """The reference server never serves a file outside its root: a path
+    traversal attempt is rejected."""
     status, _, _ = _get(fixtures_http.base_url, "/../pyproject.toml")
-    #: le chemin qui remonte vers le dépôt est refusé — aucun fichier du
-    #: projet ne peut fuir à travers le serveur de fixtures
+    #: the path climbing back into the repository is refused — no project
+    #: file can leak through the fixture server
     assert status in (403, 404)
 
 
 def test_unknown_file_404(fixtures_http):
-    """Un chemin inconnu répond 404 explicite: pas de repli sur l'index qui
-    masquerait la disparition d'une fixture."""
+    """An unknown path responds with an explicit 404: no fallback to the
+    index that would mask the disappearance of a fixture."""
     status, _, _ = _get(fixtures_http.base_url, "/nope.html")
-    #: l'absence est signalée franchement, sans page de substitution
+    #: the absence is reported plainly, with no substitute page
     assert status == 404

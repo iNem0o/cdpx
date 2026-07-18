@@ -43,7 +43,7 @@ Demo.
 
 ### `cdpx demo`
 
-Lance la démo. Sortie: `{"demo": true}`.
+Runs the demo. Output: `{"demo": true}`.
 
 ## User journeys
 Demo.
@@ -60,17 +60,17 @@ Demo.
 
 
 def test_parse_feature_doc_requires_structured_markdown(tmp_path):
-    """Une fiche feature valide (front-matter TOML + sections imposées) est
-    parsée en spec complète: entrypoints, journeys, scénarios et rendu HTML
-    ancré de la doc utilisateur."""
+    """A valid feature sheet (TOML front-matter + required sections) is
+    parsed into a complete spec: entrypoints, journeys, scenarios, and
+    anchored HTML rendering of the user doc."""
     path = tmp_path / "demo.md"
     path.write_text(DEMO_DOC, encoding="utf-8")
 
     spec = parse_feature_doc(path)
 
-    #: le front-matter alimente chaque volet de la spec (identité, journeys,
-    #: scénarios) et la section Usage produit un heading HTML ancré que le
-    #: cockpit peut cibler par lien
+    #: the front-matter feeds every facet of the spec (identity, journeys,
+    #: scenarios) and the Usage section produces an anchored HTML heading
+    #: that the cockpit can target by link
     assert spec.id == "demo-feature"
     assert spec.entrypoints == ["cdpx demo"]
     assert spec.journeys[0]["id"] == "demo"
@@ -80,64 +80,65 @@ def test_parse_feature_doc_requires_structured_markdown(tmp_path):
 
 
 def test_parse_feature_doc_requires_usage_section(tmp_path):
-    """Une fiche sans section ## Usage est rejetée au parsing: la doc
-    utilisateur n'est pas un champ optionnel du contrat de fiche."""
+    """A sheet without a ## Usage section is rejected at parsing: the user
+    doc is not an optional field of the sheet contract."""
     path = tmp_path / "demo.md"
     path.write_text(
-        DEMO_DOC.replace("## Usage", "## Autre").replace("### `cdpx demo`", ""),
+        DEMO_DOC.replace("## Usage", "## Other").replace("### `cdpx demo`", ""),
         encoding="utf-8",
     )
-    #: l'erreur nomme la section absente pour guider l'auteur de la fiche
+    #: the error names the missing section to guide the sheet's author
     with pytest.raises(ValueError, match="missing section ## Usage"):
         parse_feature_doc(path)
 
 
 def test_parse_feature_doc_requires_usage_heading_per_entrypoint(tmp_path):
-    """Chaque entrypoint déclaré dans le front-matter doit avoir son heading
-    dans la section Usage: un entrypoint sans mode d'emploi fait échouer le
-    parsing de la fiche."""
+    """Every entrypoint declared in the front-matter must have its heading
+    in the Usage section: an entrypoint without usage instructions fails
+    the sheet's parsing."""
     path = tmp_path / "demo.md"
-    # la section Usage existe mais ne documente pas l'entrypoint déclaré
-    path.write_text(DEMO_DOC.replace("### `cdpx demo`", "### `cdpx autre`"), encoding="utf-8")
-    #: l'erreur cite l'entrypoint orphelin plutôt qu'un message générique
+    # the Usage section exists but does not document the declared entrypoint
+    path.write_text(DEMO_DOC.replace("### `cdpx demo`", "### `cdpx other`"), encoding="utf-8")
+    #: the error cites the orphan entrypoint rather than a generic message
     with pytest.raises(ValueError, match="cdpx demo"):
         parse_feature_doc(path)
 
 
 def test_usage_heading_outside_usage_section_does_not_count(tmp_path):
-    """Un heading d'entrypoint déplacé hors de la section Usage ne satisfait
-    pas l'exigence de doc: elle doit se trouver là où l'utilisateur la
-    cherche, pas n'importe où dans la fiche."""
+    """An entrypoint heading moved outside the Usage section does not
+    satisfy the doc requirement: it must be where the user looks for it,
+    not just anywhere in the sheet."""
     path = tmp_path / "demo.md"
-    moved = DEMO_DOC.replace('### `cdpx demo`\n\nLance la démo. Sortie: `{"demo": true}`.\n', "")
+    moved = DEMO_DOC.replace('### `cdpx demo`\n\nRuns the demo. Output: `{"demo": true}`.\n', "")
     moved = moved.replace(
         "## Known limitations\nDemo.", "## Known limitations\nDemo.\n\n### `cdpx demo`\n"
     )
-    #: garde-fou du montage: le heading existe toujours dans le document
-    assert "### `cdpx demo`" in moved  # bien présent, mais hors section Usage
+    #: fixture guard: the heading still exists in the document
+    assert "### `cdpx demo`" in moved  # present, but outside the Usage section
     path.write_text(moved, encoding="utf-8")
-    #: malgré sa présence ailleurs, l'entrypoint est jugé non documenté
+    #: despite its presence elsewhere, the entrypoint is judged undocumented
     with pytest.raises(ValueError, match="cdpx demo"):
         parse_feature_doc(path)
 
 
 def test_load_feature_specs_reads_project_catalog():
-    """Le catalogue de fiches réellement livré dans le dépôt se charge sans
-    erreur: ce test casse dès qu'une fiche committée devient invalide."""
+    """The catalog of sheets actually shipped in the repository loads
+    without error: this test breaks as soon as a committed sheet becomes
+    invalid."""
     specs, errors = load_feature_specs()
 
     ids = {spec.id for spec in specs}
-    #: zéro erreur de parsing sur les fiches réelles, et les features
-    #: pivots du produit sont bien présentes dans le catalogue
+    #: zero parsing errors on the real sheets, and the product's pivotal
+    #: features are indeed present in the catalog
     assert errors == []
     assert "harness-proof-cockpit" in ids
     assert "browser-navigation" in ids
 
 
 def test_build_feature_inventory_maps_entrypoints_and_scenarios():
-    """L'inventaire croise commandes CLI, tests exécutés et fichiers modifiés
-    pour rattacher chaque preuve à sa feature, son journey et son scénario
-    documenté."""
+    """The inventory cross-references CLI commands, executed tests, and
+    changed files to attach each proof to its feature, journey, and
+    documented scenario."""
     scenarios = {
         "suites": {
             "unit": [
@@ -155,13 +156,13 @@ def test_build_feature_inventory_maps_entrypoints_and_scenarios():
     }
 
     inventory = build_feature_inventory(
-        [{"name": "tabs", "help": "gestion des onglets"}],
+        [{"name": "tabs", "help": "tab management"}],
         scenarios,
         {"changed_files": [{"path": "src/cdpx/discovery.py"}]},
     )
 
-    #: le test unitaire passé remonte jusqu'à la feature via l'entrypoint
-    #: tabs, sans qu'aucun échec d'inventaire ne soit levé
+    #: the passed unit test traces back to the feature via the tabs
+    #: entrypoint, with no inventory failure raised
     assert feature_failures(inventory) == []
     feature = next(item for item in inventory["features"] if item["id"] == "browser-navigation")
     assert feature["matched_entrypoints"][0]["id"] == "cdpx tabs"
@@ -173,20 +174,20 @@ def test_build_feature_inventory_maps_entrypoints_and_scenarios():
     journey_scenario = next(
         item for item in journey["scenarios"] if item["id"] == "wait-for-rendered-state"
     )
-    #: le même test est visible aux niveaux scénario ET journey, accompagné
-    #: du texte destiné aux humains dans le rapport
+    #: the same test is visible at both the scenario AND journey levels,
+    #: accompanied by the human-facing text in the report
     assert scenario["matched_tests"] == ["tests/test_cli.py::test_tabs_list"]
     assert journey_scenario["matched_tests"] == ["tests/test_cli.py::test_tabs_list"]
     assert len(journey_scenario["matched_scenarios"]) == 1
     assert scenario["matched_scenarios"][0]["ui_text"]
-    #: les fichiers modifiés touchant la feature sont tracés pour relier le
-    #: diff aux preuves qui le couvrent
+    #: files changed that touch the feature are traced to link the diff to
+    #: the proofs that cover it
     assert feature["changed_paths"] == ["src/cdpx/discovery.py"]
 
 
 def test_build_feature_inventory_maps_explicit_scenario_id():
-    """Un test porteur d'un scenario_id explicite est rattaché directement au
-    scénario documenté, même si son chemin ne matche aucun glob de fiche."""
+    """A test carrying an explicit scenario_id is attached directly to the
+    documented scenario, even if its path matches no sheet glob."""
     scenarios = {
         "suites": {
             "unit": [
@@ -205,14 +206,14 @@ def test_build_feature_inventory_maps_explicit_scenario_id():
     }
 
     inventory = build_feature_inventory(
-        [{"name": "tabs", "help": "gestion des onglets"}],
+        [{"name": "tabs", "help": "tab management"}],
         scenarios,
         {"changed_files": []},
     )
 
     feature = next(item for item in inventory["features"] if item["id"] == "browser-navigation")
-    #: le marqueur explicite suffit au rattachement, et le scénario ressort
-    #: enrichi de son Given documenté pour le rapport
+    #: the explicit marker is enough for attachment, and the scenario comes
+    #: out enriched with its documented Given for the report
     assert feature["matched_scenarios"][0]["scenario_id"] == (
         "browser-navigation.open-page-success"
     )
@@ -220,26 +221,26 @@ def test_build_feature_inventory_maps_explicit_scenario_id():
 
 
 def test_project_features_expose_user_doc_html():
-    """Toute fiche livrée documente chacun de ses entrypoints dans son HTML
-    utilisateur: garde-fou global contre une commande publiée sans mode
-    d'emploi visible dans le cockpit."""
+    """Every shipped sheet documents each of its entrypoints in its user
+    HTML: a global guard against a published command with no usage
+    instructions visible in the cockpit."""
     specs, errors = load_feature_specs()
     assert errors == []
     for spec in specs:
         doc = spec.as_dict()["doc_html"]
         for entrypoint in spec.entrypoints:
-            #: chaque entrypoint déclaré apparaît dans la doc HTML rendue de
-            #: sa propre fiche, sinon le message désigne la fiche fautive
-            assert f"<code>{entrypoint}</code>" in doc, f"{spec.id}: doc manquante {entrypoint}"
+            #: every declared entrypoint appears in the rendered HTML doc of
+            #: its own sheet, otherwise the message names the offending sheet
+            assert f"<code>{entrypoint}</code>" in doc, f"{spec.id}: missing doc {entrypoint}"
 
 
 def test_undocumented_scenario_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
-    """Un test matché par la fiche mais par aucun scénario documenté consomme
-    le budget d'avertissements; à budget 0, c'est une violation — le ratchet
-    interdit toute régression de couverture documentaire."""
-    # Catalogue synthétique: un test_globs de fiche plus large que les tests
-    # des scénarios documentés -> mapping sans scénario documenté. Le vrai catalogue n'en a
-    # plus aucun (budget 0); ce test garde le garde-fou vivant.
+    """A test matched by the sheet but by no documented scenario consumes
+    the warning budget; at budget 0, it's a violation — the ratchet forbids
+    any regression in documentation coverage."""
+    # Synthetic catalog: a sheet's test_globs wider than the documented
+    # scenarios' tests -> mapping with no documented scenario. The real catalog
+    # has none left (budget 0); this test keeps the guard alive.
     from cdpx.proofing import features as features_module
 
     path = tmp_path / "demo.md"
@@ -257,7 +258,7 @@ def test_undocumented_scenario_warning_budget_is_a_ratchet(tmp_path, monkeypatch
         "suites": {
             "unit": [
                 {
-                    # matché par tests/test_extra.py::* (fiche) mais par aucun scénario
+                    # matched by tests/test_extra.py::* (sheet) but by no scenario
                     "nodeid": "tests/test_extra.py::test_undocumented",
                     "status": "passed",
                     "artifacts": [],
@@ -270,24 +271,24 @@ def test_undocumented_scenario_warning_budget_is_a_ratchet(tmp_path, monkeypatch
         "totals": {"scenarios": 1},
     }
     inventory = build_feature_inventory(
-        [{"name": "demo", "help": "démo"}], scenarios, {"changed_files": []}
+        [{"name": "demo", "help": "demo"}], scenarios, {"changed_files": []}
     )
-    #: le dépassement de budget devient une violation d'inventaire, donc un
-    #: motif de blocage au portail plutôt qu'un simple avertissement
+    #: exceeding the budget becomes an inventory violation, hence a gate
+    #: blocking reason rather than a mere warning
     assert any(
         "undocumented scenario warnings over budget" in item for item in inventory["violations"]
     )
 
 
 def test_build_feature_inventory_fails_unmapped_public_entrypoint():
-    """Une commande CLI publique absente de toute fiche feature est un échec
-    d'inventaire: impossible d'exposer un entrypoint que la doc ignore."""
+    """A public CLI command absent from every feature sheet is an inventory
+    failure: it is impossible to expose an entrypoint the docs ignore."""
     inventory = build_feature_inventory(
         [{"name": "unknown", "help": "new command"}],
         {"suites": {"unit": [], "integration": [], "e2e": []}, "files": [], "totals": {}},
         {"changed_files": []},
     )
 
-    #: l'échec nomme la commande orpheline pour rendre évidente la fiche
-    #: qu'il reste à écrire
+    #: the failure names the orphan command to make obvious which sheet
+    #: still needs to be written
     assert "feature inventory: entrypoint unmapped: cdpx unknown" in feature_failures(inventory)

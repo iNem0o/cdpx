@@ -144,12 +144,12 @@ def _inline_artifact(entry: dict, remaining: int) -> int:
     raw_path = str(entry.get("path", ""))
     path = Path(raw_path)
     if not raw_path or path.is_symlink() or not path.is_file():
-        entry["inline_skipped"] = "illisible"
+        entry["inline_skipped"] = "unreadable"
         return remaining
     size = path.stat().st_size
     unit_cap = INLINE_CAST_MAX_BYTES if entry.get("type") == "asciinema" else INLINE_MAX_BYTES
     if size > unit_cap or size > remaining:
-        entry["inline_skipped"] = "taille" if size > unit_cap else "budget"
+        entry["inline_skipped"] = "size" if size > unit_cap else "budget"
         entry["truncated"] = True
         if not entry.get("excerpt"):
             entry["excerpt"] = _artifact_excerpt(path.read_text(encoding="utf-8", errors="replace"))

@@ -207,13 +207,22 @@ def _teardown_runtime(runtime: SupervisorRuntime) -> None:
     chrome_log, runtime.chrome_log = runtime.chrome_log, None
     if chrome_log is not None:
         chrome_log.close()
-    try:
-        shutil.rmtree(runtime.session_dir)
-    except FileNotFoundError:
-        pass
-    except OSError as cleanup_error:
-        session._write_private(
-            runtime.error_path,
-            f"{type(cleanup_error).__name__}: session cleanup failed: {cleanup_error}\n",
-        )
-        raise
+    # Bounded retry: Chrome child processes (crashpad, renderers) can outlive
+    # the killed main process for a moment and recreate files inside the
+    # profile while rmtree walks it (ENOTEMPTY under CI load). The contract
+    # stays fail-closed: a tree still stuck after the deadline raises.
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            shutil.rmtree(runtime.session_dir)
+            break
+        except FileNotFoundError:
+            break
+        except OSError as cleanup_error:
+            if time.monotonic() >= deadline:
+                session._write_private(
+                    runtime.error_path,
+                    f"{type(cleanup_error).__name__}: session cleanup failed: {cleanup_error}\n",
+                )
+                raise
+            time.sleep(0.2)

@@ -1,9 +1,9 @@
-"""Fixtures pytest.
+"""Pytest fixtures.
 
-Deux serveurs locaux, portée `function` (isolation totale entre tests,
-ports éphémères -> zéro collision, parallélisable):
-- mock: un faux Chrome scriptable (cdpx.testing.mock_cdp.MockCDP),
-- fixtures_http: le site témoin statique (cdpx.testing.fixture_server).
+Two local servers, `function` scope (full isolation between tests,
+ephemeral ports -> zero collisions, parallelizable):
+- mock: a fake scriptable Chrome (cdpx.testing.mock_cdp.MockCDP),
+- fixtures_http: the static reference site (cdpx.testing.fixture_server).
 """
 
 import os
@@ -88,7 +88,7 @@ def mock():
 
 @pytest.fixture()
 def cli_manifest(mock, tmp_path, monkeypatch):
-    """Manifest privé relié au mock pour les tests du contrat CLI."""
+    """Private manifest linked to the mock for CLI contract tests."""
     monkeypatch.setattr(session_mod, "assert_session_active", lambda _manifest: None)
     target_id = next(iter(mock.targets))
     mock.targets[target_id]["url"] = "http://demo.test/page"

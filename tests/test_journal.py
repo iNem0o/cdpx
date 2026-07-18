@@ -19,16 +19,16 @@ def orchestration(redaction: RedactionContext | None = None) -> OrchestrationCon
 
 
 def test_type_literal_is_redacted_and_not_replayable():
-    """Une valeur secrète tapée en littéral est stockée sous forme redactée
-    et l'action perd son droit de rejeu: la valeur n'existe plus, rejouer
-    serait mentir."""
+    """A secret value typed as a literal is stored redacted and the action
+    loses its replay right: the value no longer exists, replaying it
+    would be a lie."""
     context = RedactionContext.from_secrets(["super-secret"])
     stored, replayable = serialize_action(
         TypeAction("#password", "super-secret", clear=True),
         context=context,
     )
-    #: la forme stockée ne garde que la structure de l'action,
-    #: jamais la valeur secrète elle-même
+    #: the stored form keeps only the action's structure,
+    #: never the secret value itself
     assert replayable is False
     assert stored == {
         "verb": "type",
@@ -37,43 +37,43 @@ def test_type_literal_is_redacted_and_not_replayable():
         "clear": True,
     }
     assert "super-secret" not in json.dumps(stored)
-    #: rejouer une action amputée de sa valeur serait un mensonge: refus net
+    #: replaying an action stripped of its value would be a lie: flat refusal
     with pytest.raises(JournalError, match="not replayable"):
         materialize_action(stored)
 
 
 def test_secret_env_reference_is_replayable_without_serializing_value(monkeypatch):
-    """Une référence @env: rend l'action rejouable: le journal ne stocke que
-    le nom de la variable et la valeur secrète est résolue au moment du
-    rejeu."""
+    """An @env: reference makes the action replayable: the journal stores
+    only the variable name and the secret value is resolved at replay
+    time."""
     monkeypatch.setenv("CHECKOUT_PASSWORD", "env-secret")
     stored, replayable = serialize_action(TypeAction("#password", "@env:CHECKOUT_PASSWORD"))
-    #: seule la référence est persistée, la valeur reste dans l'environnement
+    #: only the reference is persisted, the value stays in the environment
     assert replayable is True
     assert stored["input"] == {"secret_ref": "CHECKOUT_PASSWORD", "source": "env"}
     assert "env-secret" not in json.dumps(stored)
-    #: la matérialisation résout la référence au dernier moment et
-    #: reconstruit l'action complète pour l'exécution
+    #: materialization resolves the reference at the last moment and
+    #: rebuilds the complete action for execution
     assert materialize_action(stored) == TypeAction("#password", "env-secret")
 
 
 def test_missing_secret_ref_fails_before_action(monkeypatch):
-    """Une référence de secret absente de l'environnement fait échouer la
-    matérialisation avant toute exécution, en nommant la variable."""
+    """A secret reference missing from the environment fails materialization
+    before any execution, naming the variable."""
     monkeypatch.delenv("MISSING_SECRET", raising=False)
     stored, _ = serialize_action(TypeAction("#password", "@env:MISSING_SECRET"))
-    #: l'erreur cite la référence manquante, diagnostic immédiat sans avoir
-    #: lancé la moindre action navigateur
+    #: the error cites the missing reference, immediate diagnostic without
+    #: having launched a single browser action
     with pytest.raises(JournalError, match="MISSING_SECRET"):
         materialize_action(stored)
 
 
 def test_eval_is_redacted_and_non_replayable():
-    """Une expression eval est masquée dans le journal mais reste corrélable
-    par son empreinte SHA-256; l'action n'est jamais rejouable."""
+    """An eval expression is redacted in the journal but stays correlatable
+    by its SHA-256 fingerprint; the action is never replayable."""
     stored, replayable = serialize_action(EvalAction("document.cookie"))
-    #: l'expression disparaît du journal, seule son empreinte permet de la
-    #: corréler à une exécution connue
+    #: the expression disappears from the journal, only its fingerprint
+    #: allows correlating it to a known execution
     assert replayable is False
     assert stored["verb"] == "eval"
     assert stored["expression"] == "***"
@@ -82,73 +82,75 @@ def test_eval_is_redacted_and_non_replayable():
 
 
 def test_any_redacted_action_is_stored_safely_and_marked_non_replayable():
-    """Toute action dont un argument a dû être redacté (credentials d'URL,
-    chemin secret, token) perd son droit de rejeu; une action intacte le
-    conserve."""
+    """Any action whose argument had to be redacted (URL credentials,
+    secret path, token) loses its replay right; an untouched action keeps
+    it."""
     stored, replayable = serialize_action(
         GotoAction("https://user:pass@example.test/reset/private-path?token=value#trace"),
         context=RedactionContext.from_secrets(["private-path"]),
     )
 
-    #: l'URL stockée a perdu credentials, segment secret et fragment: la
-    #: rejouer produirait une autre navigation, donc rejeu interdit
+    #: the stored URL lost credentials, secret segment, and fragment:
+    #: replaying it would produce a different navigation, so replay is
+    #: forbidden
     assert stored == ["goto", "https://example.test/reset/***?token=***"]
     assert replayable is False
 
     unchanged, replayable = serialize_action(ClickAction("#submit"))
-    #: une action sans rien à masquer traverse intacte et reste rejouable
+    #: an action with nothing to redact passes through untouched and stays
+    #: replayable
     assert unchanged == ["click", "#submit"]
     assert replayable is True
 
 
 def test_v1_sensitive_actions_are_always_rejected():
-    """Le format liste v1 ne sait pas distinguer une valeur secrète d'une
-    référence: ses actions sensibles sont rejetées au rejeu, les actions
-    anodines passent."""
-    #: type et eval au format v1 sont irrécupérables sans risque de rejouer
-    #: une valeur qui aurait dû rester secrète
+    """The v1 list format cannot distinguish a secret value from a
+    reference: its sensitive actions are rejected at replay, harmless
+    actions pass."""
+    #: type and eval in v1 format are unrecoverable without risking a
+    #: replay of a value that should have stayed secret
     with pytest.raises(JournalError, match="sensitive v1"):
         materialize_action(["type", "#password", "raw"])
     with pytest.raises(JournalError, match="sensitive v1"):
         materialize_action(["eval", "1 + 1"])
-    #: une action v1 sans donnée sensible reste rejouable telle quelle
+    #: a v1 action with no sensitive data stays replayable as-is
     assert materialize_action(["click", "#go"]) == ClickAction("#go")
 
 
 def test_secure_append_permissions_are_enforced(tmp_path):
-    """L'append crée l'arborescence du journal avec des droits privés et
-    écrit un évènement ndjson tenant sur une seule ligne."""
+    """The append creates the journal's directory tree with private
+    permissions and writes an ndjson event fitting on a single line."""
     path = tmp_path / "private" / "record.ndjson"
     append_event(path, {"schema": "cdpx.record/v2", "ok": True})
-    #: dossier et journal naissent illisibles pour les autres comptes
+    #: folder and journal are born unreadable for other accounts
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    #: l'évènement tient sur une seule ligne, contrat ndjson respecté
+    #: the event fits on a single line, ndjson contract respected
     assert os.linesep not in path.read_text(encoding="utf-8").rstrip("\n")
 
 
 def test_secure_append_refuses_a_symbolic_journal(tmp_path):
-    """Un journal qui est en réalité un lien symbolique est refusé: l'append
-    ne peut pas servir à écraser un fichier arbitraire du système."""
+    """A journal that is actually a symbolic link is refused: the append
+    cannot be used to overwrite an arbitrary file on the system."""
     sensitive = tmp_path / "sensitive.txt"
     sensitive.write_text("preserve", encoding="utf-8")
     link = tmp_path / "record.ndjson"
     link.symlink_to(sensitive)
 
-    #: le lien est détecté et refusé avant toute écriture
+    #: the link is detected and refused before any write
     with pytest.raises(JournalError, match="symbolic"):
         append_event(link, {"ok": True})
 
-    #: le fichier visé par le lien n'a pas été touché
+    #: the file targeted by the link was not touched
     assert sensitive.read_text(encoding="utf-8") == "preserve"
 
 
 def test_record_v2_executes_secret_but_never_persists_it(
     mock, tmp_path, monkeypatch, evidence_case
 ):
-    """L'enregistrement v2 exécute l'action avec la vraie valeur secrète
-    résolue depuis l'environnement, mais ne persiste que la référence: le
-    journal reste rejouable sans jamais contenir la valeur."""
+    """v2 recording executes the action with the real secret value
+    resolved from the environment, but persists only the reference: the
+    journal stays replayable without ever containing the value."""
     path = tmp_path / "record.ndjson"
     seen = []
 
@@ -172,22 +174,22 @@ def test_record_v2_executes_secret_but_never_persists_it(
         )
     raw = path.read_text(encoding="utf-8")
     event = json.loads(raw)
-    #: l'action réellement exécutée a bien reçu la valeur résolue: la
-    #: redaction ne dégrade pas l'exécution
+    #: the action actually executed did receive the resolved value: redaction
+    #: does not degrade execution
     assert seen == [TypeAction("#password", "runtime-canary-secret")]
-    #: sur disque, seule la référence subsiste et le résultat est masqué
+    #: on disk, only the reference remains and the result is masked
     assert "runtime-canary-secret" not in raw
     assert event["schema"] == "cdpx.record/v2"
     assert event["action"]["input"]["secret_ref"] == "CHECKOUT_PASSWORD"
     assert event["result"]["typed"] == "***"
-    #: grâce à la référence, l'enregistrement reste rejouable malgré tout
+    #: thanks to the reference, the recording stays replayable regardless
     assert result["replayable"] is True
 
     if evidence_case is not None:
-        # Preuve directe: le journal persisté ne porte que la référence @env.
+        # Direct proof: the persisted journal carries only the @env reference.
         evidence_case.attach_file(
             path,
-            "Journal record.ndjson (référence @env, sans valeur secrète)",
+            "Journal record.ndjson (@env reference, no secret value)",
             excerpt=raw,
         )
 
@@ -196,9 +198,9 @@ def test_record_v2_executes_secret_but_never_persists_it(
 def test_record_eval_never_persists_result_or_error(
     mock, tmp_path, monkeypatch, fails, evidence_case
 ):
-    """Qu'un eval réussisse ou échoue, ni sa valeur de retour ni son message
-    d'erreur n'atteignent le journal: seuls des marqueurs masqués et un
-    drapeau explicite sont persistés."""
+    """Whether an eval succeeds or fails, neither its return value nor its
+    error message reach the journal: only masked markers and an explicit
+    flag are persisted."""
     path = tmp_path / "eval.ndjson"
     canary = "unknown-eval-result-canary-7734"
 
@@ -213,8 +215,8 @@ def test_record_eval_never_persists_result_or_error(
     target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
         if fails:
-            #: l'échec de l'eval remonte à l'appelant, le journal ne
-            #: l'avale pas
+            #: the eval's failure propagates to the caller, the journal does
+            #: not swallow it
             with pytest.raises(ValueError, match="eval failed"):
                 recording.record(
                     client,
@@ -232,23 +234,23 @@ def test_record_eval_never_persists_result_or_error(
 
     raw = path.read_text(encoding="utf-8")
     event = json.loads(raw)
-    #: le canari issu de l'eval (résultat comme erreur) n'atteint jamais
-    #: le disque
+    #: the canary from the eval (result as well as error) never reaches
+    #: disk
     assert canary not in raw
-    #: le journal ne garde qu'un marqueur masqué et un drapeau honnête,
-    #: côté succès comme côté échec
+    #: the journal keeps only a masked marker and an honest flag, on the
+    #: success side as well as the failure side
     if fails:
         assert event["result"] == {"error": "***", "error_masked": True}
     else:
         assert event["result"] == {"value": "***", "value_masked": True}
 
     if evidence_case is not None:
-        # Le même contrat de masquage dans les deux branches (succès/échec):
-        # le journal eval.ndjson ne montre que des marqueurs, jamais le canari.
-        branch = "echec" if fails else "succes"
+        # Same masking contract on both branches (success/failure): the
+        # eval.ndjson journal shows only markers, never the canary.
+        branch = "failure" if fails else "success"
         evidence_case.attach_file(
             path,
-            f"Journal eval.ndjson (résultat masqué, branche {branch})",
+            f"Journal eval.ndjson (masked result, {branch} branch)",
             excerpt=raw,
         )
 
@@ -256,9 +258,9 @@ def test_record_eval_never_persists_result_or_error(
 def test_replay_v2_resolves_all_refs_before_first_action(
     mock, tmp_path, monkeypatch, evidence_case
 ):
-    """Le rejeu valide toutes les références de secret avant la première
-    action: une référence manquante stoppe tout, sans le moindre effet de
-    bord côté navigateur."""
+    """Replay validates all secret references before the first action: a
+    missing reference stops everything, without the slightest side effect
+    on the browser side."""
     path = tmp_path / "record.ndjson"
     path.write_text(
         '{"schema":"cdpx.record/v2","action":{"verb":"type",'
@@ -273,14 +275,14 @@ def test_replay_v2_resolves_all_refs_before_first_action(
     target = mock._public_target(target_id)
     with CDPClient(target["webSocketDebuggerUrl"]) as client:
         result = recording.replay(client, str(path), context=orchestration())
-    #: la référence manquante interrompt le rejeu avant la première action
-    #: et la divergence la nomme pour le diagnostic
+    #: the missing reference interrupts replay before the first action
+    #: and the divergence names it for the diagnostic
     assert result["played"] == 0 and result["ok"] is False
     assert "MISSING" in result["divergence"]
-    #: aucun ordre CDP n'a été émis: l'échec précède tout effet de bord
+    #: no CDP order was emitted: the failure precedes any side effect
     assert mock.commands == []
 
     if evidence_case is not None:
-        # Documente le fail-fast du rejeu: played=0 et divergence nommant la
-        # référence manquante, sans le moindre effet de bord navigateur.
-        evidence_case.attach_json("Résultat du rejeu fail-fast (played=0)", result)
+        # Documents replay's fail-fast: played=0 and a divergence naming the
+        # missing reference, without the slightest browser side effect.
+        evidence_case.attach_json("Fail-fast replay result (played=0)", result)

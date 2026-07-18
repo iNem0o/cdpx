@@ -1,9 +1,10 @@
-"""E2E Symfony réel pour M2.
+"""Real Symfony E2E for M2.
 
-Ce test est lancé par docker-compose.symfony-e2e.yml. Il prouve que `cdpx
-profiler` suit un vrai header X-Debug-Token-Link émis par WebProfilerBundle
-et parse les vrais panels (Doctrine, Twig, cache, exceptions, HTTP client,
-Messenger, routing, temps, logs) alimentés par de vrais collecteurs.
+This test is launched by docker-compose.symfony-e2e.yml. It proves that
+`cdpx profiler` follows a real X-Debug-Token-Link header emitted by
+WebProfilerBundle and parses the real panels (Doctrine, Twig, cache,
+exceptions, HTTP client, Messenger, routing, time, logs) fed by real
+collectors.
 """
 
 import json
@@ -31,11 +32,11 @@ CHROME_BIN = next(
 SYMFONY_URL = os.environ.get("SYMFONY_E2E_URL")
 
 if CHROME_BIN is None:
-    pytest.fail("Chrome/Chromium obligatoire pour les e2e Symfony cdpx", pytrace=False)
+    pytest.fail("Chrome/Chromium required for cdpx Symfony e2e", pytrace=False)
 
 pytestmark = pytest.mark.skipif(
     not SYMFONY_URL,
-    reason="SYMFONY_E2E_URL absent (lancer make docker-symfony-e2e)",
+    reason="SYMFONY_E2E_URL missing (run make docker-symfony-e2e)",
 )
 
 E2E_PORT = 9778
@@ -217,16 +218,16 @@ JSON.stringify((() => {
   };
   const specs = [
     ['images', 'images', ['1.1', '1.2', '1.6'], checks.images],
-    ['cadres/iframes', 'frames', ['2.1'], checks.frames],
-    ['couleurs', 'colors', ['3.1', '3.2'], checks.colors],
-    ['multimédia', 'media', ['4.1'], checks.media],
-    ['tableaux', 'tables', ['5.4', '5.6', '5.7'], checks.tables],
-    ['liens', 'links', ['6.1', '6.2'], checks.links],
-    ['scripts/composants', 'scripts', ['7.1', '7.3'], checks.scripts],
-    ['éléments obligatoires', 'mandatory', ['8.3', '8.5', '8.6', '8.9'], checks.mandatory],
-    ['structuration', 'structure', ['9.1'], checks.structure],
-    ['présentation', 'presentation', ['10.11', '10.12'], checks.presentation],
-    ['formulaires', 'forms', ['11.1', '11.2', '11.10'], checks.forms],
+    ['frames/iframes', 'frames', ['2.1'], checks.frames],
+    ['colors', 'colors', ['3.1', '3.2'], checks.colors],
+    ['multimedia', 'media', ['4.1'], checks.media],
+    ['tables', 'tables', ['5.4', '5.6', '5.7'], checks.tables],
+    ['links', 'links', ['6.1', '6.2'], checks.links],
+    ['scripts/components', 'scripts', ['7.1', '7.3'], checks.scripts],
+    ['mandatory elements', 'mandatory', ['8.3', '8.5', '8.6', '8.9'], checks.mandatory],
+    ['structure', 'structure', ['9.1'], checks.structure],
+    ['presentation', 'presentation', ['10.11', '10.12'], checks.presentation],
+    ['forms', 'forms', ['11.1', '11.2', '11.10'], checks.forms],
     ['navigation', 'navigation', ['12.7', '12.8', '12.9'], checks.navigation],
     ['consultation', 'consultation', ['13.8', '13.9'], checks.consultation]
   ];
@@ -395,9 +396,9 @@ def managed_cli_session(tmp_path_factory):
     ],
 )
 def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_case):
-    """Contre la vraie app Symfony, `cdpx profiler` suit le header
-    X-Debug-Token-Link émis par WebProfilerBundle et livre des panels parsés
-    en métriques, sans jamais exposer le token lui-même."""
+    """Against the real Symfony app, `cdpx profiler` follows the
+    X-Debug-Token-Link header emitted by WebProfilerBundle and delivers
+    panels parsed into metrics, without ever exposing the token itself."""
     wait_for_symfony(SYMFONY_URL)
     target, client = open_tab(chrome)
     try:
@@ -418,20 +419,20 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
         )
         evidence_case.attach_screenshot(shot, "Symfony profiler target")
 
-    #: la navigation réelle a abouti sur la route profilée, en 200
+    #: the real navigation landed on the profiled route, with a 200
     assert res["url"].endswith("/profiler-target")
     assert res["status"] == 200
-    #: le vrai token émis par WebProfilerBundle reste secret: seule sa
-    #: présence est déclarée, et l'URL profiler dérivée répond bien en 200
+    #: the real token emitted by WebProfilerBundle stays secret: only its
+    #: presence is reported, and the derived profiler URL does answer 200
     assert res["token_present"] is True and "token" not in res
     assert res["profiler_url"].startswith(f"{SYMFONY_URL}/_profiler/")
     assert res["profiler_status"] == 200
-    #: les champs internes de collecte ne fuient pas dans le contrat CLI
+    #: internal collection fields do not leak into the CLI contract
     assert "signals" not in res and "profiler_bytes" not in res
     panels = res["panels"]
-    #: chaque collecteur réel (routing, exception, temps, Doctrine, logs) est
-    #: parsé en métriques cohérentes avec la route visitée: bonne route, pas
-    #: d'exception, durées typées et zéro requête SQL sur cette page
+    #: each real collector (routing, exception, time, Doctrine, logs) is
+    #: parsed into metrics consistent with the route visited: correct
+    #: route, no exception, typed durations and zero SQL query on this page
     assert panels["router"]["available"] is True
     assert panels["router"]["route"] == "profiler_target"
     assert panels["exception"]["available"] is True
@@ -439,7 +440,7 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
     assert panels["time"]["available"] is True
     assert isinstance(panels["time"]["total_ms"], float)
     assert panels["db"]["available"] is True
-    assert panels["db"]["queries"] == 0  # cette route ne touche pas la base
+    assert panels["db"]["queries"] == 0  # this route does not touch the database
     assert panels["logger"]["available"] is True
 
 
@@ -453,10 +454,10 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
     ],
 )
 def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evidence_case):
-    """Vingt routes scénario pilotent les vrais collecteurs Symfony et cdpx
-    retrouve dans les panels leurs signatures attendues (N+1, doublons,
-    hit/miss de cache, erreurs HTTP client, exceptions, headers) — en
-    comptes, classes et statuts, jamais en millisecondes."""
+    """Twenty scenario routes drive the real Symfony collectors and cdpx
+    finds their expected signatures in the panels (N+1, duplicates,
+    cache hit/miss, HTTP client errors, exceptions, headers) — in counts,
+    classes and statuses, never in milliseconds."""
     wait_for_symfony(SYMFONY_URL)
     target, client = open_tab(chrome)
     cases = [
@@ -481,9 +482,9 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
         "routing-500",
         "headers-cache",
     ]
-    # Captures individuelles des variantes clés, prises pendant que la page
-    # de la variante est affichée (juste après sa navigation profiler), au
-    # lieu d'une seule capture finale montrant la dernière route seulement.
+    # Individual captures of key variants, taken while the variant's page
+    # is displayed (right after its profiler navigation), instead of a
+    # single final capture that would only show the last route.
     captured_variants = ("doctrine-n-plus-one", "routing-404", "routing-500")
     try:
         with client as c:
@@ -519,17 +520,17 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
             "symfony-profiler-variant-comparison.json",
         )
 
-    # Déterminisme = comptes/classes/routes/statuts, jamais de millisecondes.
+    # Determinism = counts/classes/routes/statuses, never milliseconds.
     def db(case):
         return panels[case]["db"]
 
     def cache(case):
         return panels[case]["cache"]
 
-    #: le N+1 Doctrine réel laisse sa signature exacte dans le panel db:
-    #: 1 findAll + 5 lazy loads = 6 requêtes dont 4 doublons, quand la
-    #: variante saine en fait 3 sans aucun doublon — c'est le diagnostic
-    #: que cdpx vend, lu sur de vraies requêtes SQL
+    #: the real Doctrine N+1 leaves its exact signature in the db panel:
+    #: 1 findAll + 5 lazy loads = 6 queries including 4 duplicates, while
+    #: the healthy variant makes 3 with no duplicate at all — this is the
+    #: diagnosis cdpx sells, read on real SQL queries
     assert db("baseline")["queries"] < db("degraded")["queries"]
     assert db("degraded")["duplicates"] >= 3
     assert db("doctrine-normal")["queries"] == 3
@@ -539,9 +540,9 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     assert db("doctrine-duplicates")["duplicates"] >= 3
     assert any("FROM" in q["sql"].upper() for q in db("doctrine-n-plus-one")["list"])
 
-    #: miss, hit et expiration se distinguent par leurs compteurs
-    #: hits/misses/writes lus dans le vrai pool: un cache froid n'a aucun
-    #: hit, un cache chaud domine ses misses, l'expiration force la réécriture
+    #: miss, hit and expiration are distinguished by their hits/misses/writes
+    #: counters read in the real pool: a cold cache has no hit, a warm cache
+    #: dominates its misses, expiration forces a rewrite
     assert cache("cache-miss")["hits"] == 0
     assert cache("cache-miss")["misses"] >= 3
     assert cache("cache-hit")["hits"] >= 3
@@ -550,22 +551,22 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     assert cache("cache-expired")["hits"] == 0
     assert cache("cache-expired")["writes"] >= 2
 
-    #: la page lourde rend strictement plus de templates que la légère:
-    #: le panel Twig discrimine les deux variantes de rendu
+    #: the heavy page renders strictly more templates than the light one:
+    #: the Twig panel discriminates between the two rendering variants
     assert panels["twig-heavy"]["twig"]["templates"] > panels["twig-light"]["twig"]["templates"]
 
     time_panel = panels["stopwatch-sections"]["time"]
-    #: le stopwatch applicatif produit un panel temps typé; les sections
-    #: nommées ne sont exigées que si la timeline est remontée (best-effort)
+    #: the application stopwatch produces a typed time panel; named sections
+    #: are only required if the timeline comes back (best-effort)
     assert time_panel["available"] is True
     assert isinstance(time_panel["total_ms"], float)
-    if time_panel["events"]:  # timeline best-effort, sections réelles si présente
+    if time_panel["events"]:  # best-effort timeline, real sections if present
         assert any("cdpx.section" in (event["name"] or "") for event in time_panel["events"])
 
     success = panels["http-client-success"]["http_client"]
-    #: succès, erreur et timeout du client HTTP réel se distinguent par
-    #: statuts et compteur d'erreurs — jamais par durée: le timeout se lit
-    #: à l'absence de 200, pas à un chrono
+    #: success, error and timeout of the real HTTP client are distinguished
+    #: by statuses and error count — never by duration: the timeout is read
+    #: from the absence of a 200, not from a stopwatch
     assert success["requests"] == 1
     assert any(item.get("status") == 200 for item in success["list"])
     error = panels["http-client-error"]["http_client"]
@@ -575,17 +576,17 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     assert timeout["requests"] >= 1
     assert not any(item.get("status") == 200 for item in timeout["list"])
 
-    #: chaque variante messenger dispatch exactement un message; la classe
-    #: du message n'est vérifiée que si le panel liste les messages
+    #: each messenger variant dispatches exactly one message; the message
+    #: class is only checked if the panel lists the messages
     assert panels["messenger-sync"]["messenger"]["dispatched"] == 1
     assert panels["messenger-queued"]["messenger"]["dispatched"] == 1
     sync_classes = [item["class"] for item in panels["messenger-sync"]["messenger"]["list"]]
-    if sync_classes:  # liste best-effort
+    if sync_classes:  # best-effort list
         assert any(cls.endswith("SyncPing") for cls in sync_classes)
 
-    #: redirection, 404 et 500 traversent avec leur vrai statut HTTP, et les
-    #: exceptions remontent avec leur classe exacte — y compris la classe
-    #: globale sans namespace du 500 — pendant que le logger capte l'erreur
+    #: redirect, 404 and 500 come through with their real HTTP status, and
+    #: exceptions surface with their exact class — including the global,
+    #: namespace-less class of the 500 — while the logger captures the error
     assert results["routing-redirect"]["status"] == 302
     assert results["routing-404"]["status"] == 404
     assert results["routing-500"]["status"] == 500
@@ -596,8 +597,8 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     assert panels["routing-500"]["logger"]["available"] is True
 
     cache_control = results["headers-cache"]["response_headers"].get("cache-control", "")
-    #: les directives Cache-Control posées par le contrôleur traversent
-    #: jusqu'au rapport: les headers non sensibles ne sont pas masqués
+    #: the Cache-Control directives set by the controller carry through to
+    #: the report: non-sensitive headers are not redacted
     assert "max-age=60" in cache_control
     assert "public" in cache_control
 
@@ -612,9 +613,10 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     ],
 )
 def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_case):
-    """Les pages vitals baseline/degraded rendues par Symfony produisent des
-    mesures comparables: cdpx orchestre vitals, metrics et diagnostics et le
-    contraste attendu entre les deux variantes est observable."""
+    """The baseline/degraded vitals pages rendered by Symfony produce
+    comparable measurements: cdpx orchestrates vitals, metrics and
+    diagnostics, and the expected contrast between the two variants is
+    observable."""
     wait_for_symfony(SYMFONY_URL)
     target, client = open_tab(chrome)
     try:
@@ -668,20 +670,20 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
             "symfony-vitals-comparison.json",
         )
 
-    #: chaque mesure porte l'URL de sa variante: pas de mélange possible
-    #: entre les deux navigations successives dans le même onglet
+    #: each measurement carries its variant's URL: no possible mixup
+    #: between the two successive navigations in the same tab
     assert baseline["url"].endswith("/scenario/vitals/baseline")
     assert degraded["url"].endswith("/scenario/vitals/degraded")
-    #: le contraste est déclaré par les pages elles-mêmes: layout shift
-    #: seulement en dégradé, travail d'interaction et payload strictement
-    #: supérieurs — la comparaison reste déterministe, pas chronométrée
+    #: the contrast is declared by the pages themselves: layout shift only
+    #: in the degraded variant, strictly higher interaction work and
+    #: payload — the comparison stays deterministic, not timed
     assert degraded_expected["layout_shift"] is True
     assert baseline_expected["layout_shift"] is False
     assert degraded_expected["interaction_work_ms"] > baseline_expected["interaction_work_ms"]
     assert degraded_expected["payload_blocks"] > baseline_expected["payload_blocks"]
-    #: les seuils standards Web Vitals sont exposés et l'attribution CLS/INP
-    #: de la page dégradée dépasse celle de la baseline: le diagnostic est
-    #: mesuré dans le navigateur, pas seulement affirmé
+    #: the standard Web Vitals thresholds are exposed and the CLS/INP
+    #: attribution of the degraded page exceeds the baseline's: the
+    #: diagnosis is measured in the browser, not merely asserted
     assert baseline_diagnostics["thresholds"]["lcp"]["good"] == 2500
     assert degraded_diagnostics["cls_attribution"]["expected_shift_count"] >= 1
     assert (
@@ -700,9 +702,10 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
     ],
 )
 def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, evidence_case):
-    """Chaque route diagnostique (LCP image/texte, CLS injecté, INP sous CPU
-    ralenti, ressources bloquantes sous slow-3g) expose une attribution
-    déterministe que cdpx lit après avoir appliqué puis levé l'émulation."""
+    """Each diagnostic route (LCP image/text, injected CLS, INP under
+    throttled CPU, blocking resources under slow-3g) exposes a
+    deterministic attribution that cdpx reads after applying then lifting
+    emulation."""
     wait_for_symfony(SYMFONY_URL)
     target, client = open_tab(chrome)
     cases = [
@@ -753,14 +756,14 @@ def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, e
             "symfony-vitals-diagnostic-attribution.json",
         )
 
-    #: l'attribution LCP désigne l'élément fautif: type ET sélecteur pour
-    #: l'image héro, type texte pour la variante textuelle — c'est ce qui
-    #: rend le diagnostic actionnable
+    #: the LCP attribution names the culprit element: type AND selector for
+    #: the hero image, text type for the text variant — this is what makes
+    #: the diagnosis actionable
     assert evidence["lcp-image"]["diagnostics"]["lcp_attribution"]["type"] == "image"
     assert evidence["lcp-image"]["diagnostics"]["lcp_attribution"]["selector"] == "#hero-image"
     assert evidence["lcp-text"]["diagnostics"]["lcp_attribution"]["type"] == "text"
-    #: le shift injecté et la longue tâche INP laissent des traces
-    #: quantifiées dans leurs attributions respectives
+    #: the injected shift and the long INP task leave quantified traces in
+    #: their respective attributions
     assert (
         evidence["cls-injected-banner"]["diagnostics"]["cls_attribution"]["expected_shift_count"]
         >= 1
@@ -769,8 +772,8 @@ def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, e
         evidence["inp-long-task"]["diagnostics"]["inp_attribution"]["expected_event_duration_ms"]
         >= 90
     )
-    #: le resource timing compte exactement les 3 scripts critiques déclarés
-    #: par la page bloquante: la mesure recoupe le contrat de la route
+    #: resource timing counts exactly the 3 critical scripts declared by
+    #: the blocking page: the measurement cross-checks the route's contract
     assert evidence["resource-blocking"]["diagnostics"]["resource_timing"]["critical"]["js"] == 3
     assert evidence["resource-blocking"]["diagnostics"]["resource_timing"]["js"] >= 3
 
@@ -785,9 +788,9 @@ def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, e
     ],
 )
 def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence_case):
-    """Les états accessible et régressé rendus par Symfony sont discriminés
-    par les sondes RGAA automatisées, et chaque rapport thématique déclare sa
-    portée limitée: jamais une prétention d'audit RGAA complet."""
+    """The accessible and regressed states rendered by Symfony are
+    discriminated by the automated RGAA-like probes, and each themed report
+    declares its limited scope: never a claim of complete RGAA audit."""
     wait_for_symfony(SYMFONY_URL)
     target, client = open_tab(chrome)
     try:
@@ -831,9 +834,9 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
             "symfony-rgaa-subset.json",
         )
 
-    #: les sondes clés basculent toutes entre les deux états: elles
-    #: discriminent réellement l'accessible du régressé au lieu de toujours
-    #: passer (h1 unique, landmark, labels, focus visible)
+    #: the key probes all flip between the two states: they genuinely
+    #: discriminate the accessible from the regressed instead of always
+    #: passing (single h1, landmark, labels, focus visible)
     assert baseline["h1_count"] == 1
     assert baseline["has_main_landmark"] is True
     assert baseline["all_inputs_labelled"] is True
@@ -844,33 +847,33 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
     assert regression["focus_visible"] is False
     expected_themes = {
         "images",
-        "cadres/iframes",
-        "couleurs",
-        "multimédia",
-        "tableaux",
-        "liens",
-        "scripts/composants",
-        "éléments obligatoires",
-        "structuration",
-        "présentation",
-        "formulaires",
+        "frames/iframes",
+        "colors",
+        "multimedia",
+        "tables",
+        "links",
+        "scripts/components",
+        "mandatory elements",
+        "structure",
+        "presentation",
+        "forms",
         "navigation",
         "consultation",
     }
     baseline_reports = {item["theme"]: item for item in baseline["reports"]}
     regression_reports = {item["theme"]: item for item in regression["reports"]}
-    #: les treize thématiques RGAA couvertes sont présentes dans les deux
-    #: rapports: aucune ne disparaît silencieusement selon l'état de la page
+    #: the thirteen RGAA themes covered are present in both reports: none
+    #: silently disappears depending on the page's state
     assert set(baseline_reports) == expected_themes
     assert set(regression_reports) == expected_themes
-    #: chaque thème déclare sa portée automatisée et ses limitations: le
-    #: rapport ne peut pas être confondu avec un audit RGAA complet
+    #: each theme declares its automated scope and its limitations: the
+    #: report cannot be mistaken for a complete RGAA audit
     assert all(
         item["automated_scope"].startswith("automated subset") for item in baseline_reports.values()
     )
     assert all(item["limitations"] for item in baseline_reports.values())
-    #: verdict global cohérent: la baseline passe partout, la régression
-    #: échoue quelque part — les rapports portent le signal, pas le bruit
+    #: consistent overall verdict: the baseline passes everywhere, the
+    #: regression fails somewhere — the reports carry the signal, not noise
     assert all(item["status"] == "pass" for item in baseline_reports.values())
     assert any(item["status"] == "fail" for item in regression_reports.values())
 
@@ -885,18 +888,18 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
     ],
 )
 def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
-    """Le diff DOM de cdpx capture la transition d'état provoquée par un clic
-    sur une vraie page Symfony et la restitue en diff structuré exploitable
-    comme preuve."""
+    """cdpx's DOM diff captures the state transition triggered by a click on
+    a real Symfony page and renders it as a structured diff usable as
+    evidence."""
     wait_for_symfony(SYMFONY_URL)
     target, client = open_tab(chrome)
     try:
         with client as c:
             nav.navigate(c, f"{SYMFONY_URL}/scenario/front/states", timeout=20)
             expected = expected_from_page(c)
-            # Capture avant clic (état idle): prise après lecture de l'état
-            # initial et sans bandeau, elle ne touche pas au DOM comparé par
-            # dom_diff, dont la baseline reste intacte.
+            # Capture before click (idle state): taken after reading the
+            # initial state and with no banner, it does not touch the DOM
+            # compared by dom_diff, whose baseline stays intact.
             screenshot(
                 c,
                 tmp_path,
@@ -905,8 +908,8 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
                 "Symfony front state (idle, before click)",
             )
             diff = dev.dom_diff(c, ClickAction("#submit-btn"))
-            # Capture après clic (état submitted): matérialise la cible de la
-            # transition que le diff DOM prouve.
+            # Capture after click (submitted state): materializes the target
+            # of the transition that the DOM diff proves.
             screenshot(
                 c,
                 tmp_path,
@@ -924,12 +927,12 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
             "symfony-front-state-dom-diff.json",
         )
 
-    #: la page déclare elle-même la transition attendue idle -> submitted:
-    #: la référence de comparaison vient du serveur, pas du test
+    #: the page itself declares the expected idle -> submitted transition:
+    #: the comparison reference comes from the server, not the test
     assert expected["before"] == "idle"
     assert expected["after"] == "submitted"
-    #: le diff détecte le changement et le nouvel état apparaît dans les
-    #: lignes modifiées: la transition est capturée, pas seulement signalée
+    #: the diff detects the change and the new state appears in the
+    #: modified lines: the transition is captured, not merely signaled
     assert diff["changed"] is True
     assert any("submitted" in line for line in diff["diff"])
 
@@ -948,9 +951,10 @@ def test_declarative_scenarios_run_against_real_symfony(
     tmp_path,
     evidence_case,
 ):
-    """Les scénarios YAML déclaratifs s'exécutent contre la vraie app via la
-    session supervisée: succès, échec contrôlé et collecte profiler/vitals
-    produisent chacun un rapport avec verdict, artefacts et findings."""
+    """The declarative YAML scenarios run against the real app via the
+    supervised session: pass, controlled failure and profiler/vitals
+    collection each produce a report with a verdict, artifacts and
+    findings."""
     wait_for_symfony(SYMFONY_URL)
     cases = [
         ("symfony_front_pass.yml", 0, "pass", 12.0),
@@ -966,9 +970,9 @@ def test_declarative_scenarios_run_against_real_symfony(
             timeout=timeout,
         )
         attach_scenario_run(evidence_case, result, template.replace(".yml", ""))
-        #: pour chaque scénario, code de sortie CLI et verdict du rapport
-        #: concordent avec l'issue attendue, et des artefacts de preuve sont
-        #: produits même en cas d'échec contrôlé
+        #: for each scenario, the CLI exit code and the report verdict
+        #: agree with the expected outcome, and proof artifacts are
+        #: produced even on a controlled failure
         assert code == expected_code, err
         assert result["verdict"] == expected_verdict
         assert result["artifacts"]
@@ -979,11 +983,11 @@ def test_declarative_scenarios_run_against_real_symfony(
         for artifact in results["symfony_profiler_vitals.yml"]["artifacts"]
         if artifact["type"] == "profiler"
     ]
-    #: le scénario de collecte livre bien un artefact profiler: la preuve
-    #: métier est jointe au rapport, pas seulement le verdict
+    #: the collection scenario does deliver a profiler artifact: the
+    #: business proof is attached to the report, not just the verdict
     assert profiler_artifacts
-    #: l'échec contrôlé est attribué à l'étape fautive dans les findings,
-    #: ce qui rend le rapport diagnosticable sans relire les logs
+    #: the controlled failure is attributed to the faulty step in the
+    #: findings, which makes the report diagnosable without rereading logs
     assert any(
         finding["code"] == "step_failed"
         for finding in results["symfony_front_fail.yml"]["findings"]

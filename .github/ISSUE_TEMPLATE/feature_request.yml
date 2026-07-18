@@ -1,5 +1,5 @@
-name: Proposer une évolution
-description: Proposer une primitive, une amélioration CLI ou un use case documenté.
+name: Propose an evolution
+description: Propose a primitive, a CLI improvement or a documented use case.
 title: "[Feature] "
 labels:
   - enhancement
@@ -8,43 +8,43 @@ body:
     id: use-case
     attributes:
       label: Use case
-      description: Quel problème concret cette évolution résout-elle pour l'agent ou le développeur ?
+      description: What concrete problem does this evolution solve for the agent or the developer?
     validations:
       required: true
   - type: textarea
     id: proposed-contract
     attributes:
-      label: Contrat CLI proposé
-      description: Donnez si possible la commande, l'objet JSON attendu et les codes de sortie.
+      label: Proposed CLI contract
+      description: If possible, give the command, the expected JSON object and the exit codes.
       render: shell
     validations:
       required: true
   - type: textarea
     id: protocol
     attributes:
-      label: Protocole et validation
-      description: Commandes CDP attendues, scénario mock et éventuelle fixture Chrome réelle.
+      label: Protocol and validation
+      description: Expected CDP commands, mock scenario and real Chrome fixture if any.
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives envisagées
-      description: Décrivez les contournements ou primitives existantes déjà essayés.
+      label: Alternatives considered
+      description: Describe the workarounds or existing primitives already tried.
   - type: checkboxes
     id: definition-of-done
     attributes:
-      label: Definition of Done d'une primitive
+      label: Definition of Done of a primitive
       options:
-        - label: La primitive et sa sous-commande CLI sont définies.
+        - label: The primitive and its CLI subcommand are defined.
           required: true
-        - label: L'objet JSON, stderr et les codes de sortie 0/1/2 sont définis, y compris en cas d'évolution du contrat.
+        - label: The JSON object, stderr and the 0/1/2 exit codes are defined, including for a contract evolution.
           required: true
-        - label: Le protocole mock exact et les tests de sortie + protocole sont prévus.
+        - label: The exact mock protocol and the output + protocol tests are planned.
           required: true
-        - label: La fixture et le scénario Chrome ou Symfony E2E sont prévus, ou leur absence est motivée.
+        - label: The Chrome or Symfony E2E fixture and scenario are planned, or their absence is justified.
           required: true
-        - label: docs/PRIMITIVES.md et la fiche feature concernée seront mises à jour.
+        - label: docs/PRIMITIVES.md and the affected feature sheet will be updated.
           required: true
-        - label: Le scénario peut être testé sans connexion à un Chrome personnel.
+        - label: The scenario can be tested without connecting to a personal Chrome.
           required: true

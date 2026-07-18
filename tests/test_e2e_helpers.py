@@ -1,4 +1,4 @@
-"""Helpers e2e testables sans Chrome: bandeau de preuve éphémère."""
+"""E2E helpers testable without Chrome: ephemeral proof banner."""
 
 from pathlib import Path
 
@@ -18,27 +18,27 @@ def _case(tmp_path):
 
 
 def test_banner_scripts_are_json_escaped_and_self_cleaning():
-    """Le wording du bandeau de preuve est neutralisé (échappement JSON +
-    textContent) et le script jumeau de nettoyage cible le même nœud: le
-    bandeau ne peut ni injecter de HTML ni survivre à la capture."""
-    script = e2e.banner_inject_script('Formulaire soumis — état "final"')
+    """The proof banner's wording is neutralized (JSON escaping +
+    textContent) and the matching cleanup script targets the same node:
+    the banner can neither inject HTML nor survive the capture."""
+    script = e2e.banner_inject_script('Form submitted — state "final"')
 
-    #: le wording est passé en JSON et affecté via textContent: pas d'injection
+    #: the wording is passed as JSON and assigned via textContent: no injection
     assert '\\"final\\"' in script
     assert "textContent" in script and "innerHTML" not in script
     assert "cdpx-proof-banner" in script
-    #: le bandeau est fixed bottom: il n'altère jamais le layout mesuré
+    #: the banner is fixed bottom: it never alters the measured layout
     assert "position:fixed" in script
 
     cleanup = e2e.banner_cleanup_script()
-    #: le script de nettoyage retire exactement le nœud que l'injection a créé
+    #: the cleanup script removes exactly the node the injection created
     assert "remove()" in cleanup and "cdpx-proof-banner" in cleanup
 
 
 def test_attach_screenshot_injects_then_always_removes_the_banner(tmp_path, monkeypatch):
-    """La capture avec bandeau suit l'ordre strict injection → capture →
-    nettoyage: le screenshot montre le bandeau mais la page n'en garde
-    aucune trace après coup."""
+    """The capture with banner follows the strict order inject → capture →
+    cleanup: the screenshot shows the banner but the page keeps no trace
+    of it afterward."""
     calls = []
 
     def fake_evaluate(client, expression, **kwargs):
@@ -55,16 +55,16 @@ def test_attach_screenshot_injects_then_always_removes_the_banner(tmp_path, monk
     monkeypatch.setattr(e2e.js, "evaluate", fake_evaluate)
     monkeypatch.setattr(e2e.capture, "screenshot", fake_screenshot)
 
-    artifact = e2e.attach_screenshot(_case(tmp_path), object(), "final", banner="Étape 3")
+    artifact = e2e.attach_screenshot(_case(tmp_path), object(), "final", banner="Step 3")
 
-    #: injection avant capture, suppression après: la page redevient intacte
+    #: injection before capture, removal after: the page becomes intact again
     assert calls == ["inject", "capture", "cleanup"]
     assert artifact["type"] == "screenshot"
 
 
 def test_attach_screenshot_removes_the_banner_even_when_capture_fails(tmp_path, monkeypatch):
-    """Un échec de capture ne laisse jamais la page polluée: l'erreur remonte
-    à l'appelant mais le bandeau est retiré quand même."""
+    """A capture failure never leaves the page polluted: the error
+    propagates to the caller but the banner is removed anyway."""
     calls = []
 
     monkeypatch.setattr(e2e.js, "evaluate", lambda client, expression, **kwargs: calls.append("js"))
@@ -74,21 +74,21 @@ def test_attach_screenshot_removes_the_banner_even_when_capture_fails(tmp_path, 
 
     monkeypatch.setattr(e2e.capture, "screenshot", broken_screenshot)
 
-    #: l'échec de capture n'est pas avalé: l'appelant sait que la preuve manque
+    #: the capture failure is not swallowed: the caller knows the proof is missing
     with pytest.raises(RuntimeError, match="capture down"):
-        e2e.attach_screenshot(_case(tmp_path), object(), "final", banner="Étape 3")
+        e2e.attach_screenshot(_case(tmp_path), object(), "final", banner="Step 3")
 
-    #: le finally garantit le nettoyage même en cas d'échec de capture
+    #: the finally guarantees cleanup even when the capture fails
     assert calls == ["js", "js"]
 
 
 def test_attach_screenshot_without_banner_never_touches_the_page(tmp_path, monkeypatch):
-    """Sans bandeau demandé, la capture n'injecte aucun JavaScript dans la
-    page: un evaluate piégé qui lèverait à la moindre injection le prouve
-    par construction."""
+    """With no banner requested, the capture injects no JavaScript into the
+    page: a trapped evaluate that would raise on the slightest injection
+    proves it by construction."""
 
     def forbidden_evaluate(client, expression, **kwargs):  # pragma: no cover
-        raise AssertionError("aucun JS ne doit être injecté sans banner")
+        raise AssertionError("no JS must be injected without a banner")
 
     def fake_screenshot(client, path, *, full_page=False):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -101,5 +101,5 @@ def test_attach_screenshot_without_banner_never_touches_the_page(tmp_path, monke
 
     artifact = e2e.attach_screenshot(_case(tmp_path), object(), "final")
 
-    #: la capture aboutit alors que tout evaluate aurait levé: zéro JS injecté
+    #: the capture succeeds even though any evaluate would have raised: zero JS injected
     assert artifact["type"] == "screenshot"

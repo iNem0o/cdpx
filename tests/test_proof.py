@@ -22,21 +22,21 @@ def mode(path):
 
 
 def test_cast_private_write_creates_private_parent_and_refuses_symlink(tmp_path):
-    """L'écriture des .cast suit le protocole d'écriture privée partagé de
-    private_io (parent créé en 0700, fichier 0600, symlink refusé fail-closed)
-    au lieu d'un doublon local plus faible propre au module cast."""
+    """Writing .cast files follows the shared private-write protocol from
+    private_io (parent created 0700, file 0600, symlink refused fail-closed)
+    instead of a weaker local duplicate specific to the cast module."""
     cast_path = tmp_path / "nested" / "demo.cast"
 
     proof_cast._write_private_text(cast_path, '{"version":2}\n')
 
-    #: le parent est créé et durci, le cast reste privé
+    #: the parent is created and hardened, the cast stays private
     assert mode(cast_path.parent) == 0o700
     assert mode(cast_path) == 0o600
     outside = tmp_path / "outside.cast"
     outside.write_text("preserve", encoding="utf-8")
     link = tmp_path / "linked.cast"
     link.symlink_to(outside)
-    #: un lien symbolique à la place du cast est refusé sans suivre la cible
+    #: a symlink in place of the cast is refused without following the target
     with pytest.raises(ArtifactError, match="symlink forbidden"):
         proof_cast._write_private_text(link, "replace")
     assert outside.read_text(encoding="utf-8") == "preserve"
@@ -77,9 +77,9 @@ def _write_evidence_manifest(
 
 
 def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
-    """L'environnement transmis aux commandes de preuve est construit par
-    allowlist: les identifiants ambiants du shell n'y entrent jamais, seules
-    les variables utiles et le réglage de rétention passent."""
+    """The environment passed to proof commands is built via an allowlist:
+    ambient shell credentials never enter it, only useful variables and the
+    retention setting pass through."""
     monkeypatch.setenv("PATH", "/usr/bin")
     monkeypatch.setenv("HOME", "/tmp/home")
     monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
@@ -89,22 +89,22 @@ def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
 
     env = proof._repo_env()
 
-    #: seules les variables allowlistées survivent, PYTHONPATH garanti aux sous-processus
+    #: only allowlisted variables survive, PYTHONPATH is guaranteed for subprocesses
     assert env["PATH"] == "/usr/bin"
     assert env["HOME"] == "/tmp/home"
     assert "PYTHONPATH" in env
-    #: les identifiants présents dans le shell ne peuvent pas fuiter vers les logs de preuve
+    #: credentials present in the shell cannot leak into proof logs
     assert "GITHUB_TOKEN" not in env
     assert "AWS_SECRET_ACCESS_KEY" not in env
     assert "CDPX_TEST_SECRET" not in env
-    #: le réglage de rétention, non sensible, est explicitement laissé passer
+    #: the retention setting, not sensitive, is explicitly allowed through
     assert env["CDPX_PROOF_RETENTION_DAYS"] == "30"
 
 
 def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path, evidence_case):
-    """Une exécution d'évidence redacte sa sortie avant l'écriture disque et
-    protège le log en mode privé: la valeur secrète n'atteint jamais un
-    fichier lisible par d'autres."""
+    """An evidence run redacts its output before writing to disk and
+    protects the log in private mode: the secret value never reaches a
+    file readable by others."""
     secret = "proof-secret-123"
     context = RedactionContext.from_secrets([secret])
     log = tmp_path / "logs" / "command.log"
@@ -119,36 +119,37 @@ def test_run_evidence_redacts_command_and_output_and_uses_private_mode(tmp_path,
     )
 
     contents = log.read_text(encoding="utf-8")
-    #: la commande réelle a tourné et son verdict est capturé dans l'évidence
+    #: the real command ran and its verdict is captured in the evidence
     assert evidence.exit_code == 0
-    #: la valeur secrète (aussi présente dans l'argv) est remplacée par le
-    #: marqueur de redaction avant d'atteindre le log final
+    #: the secret value (also present in argv) is replaced by the
+    #: redaction marker before reaching the final log
     assert secret not in contents
     assert "***" in contents
-    #: répertoire 0700 et log 0600: l'évidence brute reste privée au propriétaire
+    #: directory 0700 and log 0600: the raw evidence stays private to the owner
     assert mode(log.parent) == 0o700
     assert mode(log) == 0o600
-    #: le flux brut intermédiaire *.partial est supprimé après la redaction
+    #: the intermediate raw stream *.partial is removed after redaction
     assert not log.with_name(f"{log.name}.partial").exists()
 
     if evidence_case is not None:
-        # Extrait ciblé sur le marqueur *** du log DÉJÀ redacté sur disque: la
-        # preuve visuelle montre la censure sans jamais transporter le secret.
+        # Excerpt targeted on the *** marker of the log ALREADY redacted on
+        # disk: the visual proof shows the censorship without ever carrying
+        # the secret.
         excerpt = evidence_case.attach_log_excerpt(
             log,
-            "Log d'évidence redacté — marqueur *** en place du secret",
+            "Redacted evidence log — *** marker in place of the secret",
             pattern=r"\*\*\*",
         )
-        #: l'artefact de preuve produit ne contient jamais la valeur secrète, seulement ***
+        #: the produced proof artifact never contains the secret value, only ***
         assert secret not in Path(excerpt["path"]).read_text(encoding="utf-8")
 
 
 def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(
     tmp_path, evidence_case
 ):
-    """Le staging partageable n'embarque que les textes sanitisés allowlistés;
-    les binaires opaques restent hors staging et sont classés non uploadables
-    dans le manifest privé."""
+    """The shareable staging only carries allowlisted sanitized text; opaque
+    binaries stay out of staging and are classified as not uploadable in the
+    private manifest."""
     proof_dir = tmp_path / ".proof"
     report = '<script>const graph={data:[1,2]};const icon="data:image/png;base64,abc";</script>'
     proof._write_private_text(proof_dir / "proof-report.html", report)
@@ -163,19 +164,19 @@ def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(
         pre_redacted_paths={"proof-report.html"},
     )
 
-    #: seuls le rapport et le résumé passent en staging, la capture binaire est retenue
+    #: only the report and summary make it into staging, the binary capture is withheld
     assert (staging / ".proof" / "proof-report.html").exists()
     assert (staging / ".proof" / "validation-summary.json").exists()
     assert not (staging / ".proof" / "evidence" / "shot.png").exists()
     public_manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
-    #: le manifest public annonce une expiration future et n'autorise que de l'uploadable
+    #: the public manifest announces a future expiration and only allows uploadable items
     assert public_manifest["expires_at"] > public_manifest["created_at"]
     assert all(item["upload_allowed"] for item in public_manifest["artifacts"])
-    #: le staging garde des permissions privées, rien n'est élargi avant l'upload
+    #: staging keeps private permissions, nothing is widened before upload
     assert mode(staging) == 0o700
     assert mode(staging / "manifest.json") == 0o600
     assert mode(staging / ".proof" / "proof-report.html") == 0o600
-    #: le rapport pré-redacté est copié tel quel, sans re-sanitisation destructive
+    #: the pre-redacted report is copied as-is, without destructive re-sanitization
     assert (staging / ".proof" / "proof-report.html").read_text(encoding="utf-8") == report
     private_manifest = json.loads(
         (proof_dir / "artifact-manifest.json").read_text(encoding="utf-8")
@@ -183,47 +184,48 @@ def test_build_shareable_proof_allowlists_sanitized_text_and_excludes_opaque(
     screenshot = next(
         item for item in private_manifest["artifacts"] if item["path"].endswith("shot.png")
     )
-    #: le manifest privé trace la décision d'exclusion du binaire, auditable après coup
+    #: the private manifest traces the decision to exclude the binary, auditable afterwards
     assert screenshot["classification"] == "opaque-restricted"
     assert screenshot["upload_allowed"] is False
 
     if evidence_case is not None:
-        # Les deux manifests matérialisent la décision d'allowlist: le public
-        # ne liste que l'uploadable, le privé garde la trace de l'exclusion.
+        # Both manifests materialize the allowlist decision: the public one
+        # only lists the uploadable, the private one keeps the trace of the
+        # exclusion.
         evidence_case.attach_json(
-            "Manifest public partageable (allowlist)",
+            "Shareable public manifest (allowlist)",
             public_manifest,
             filename="public-manifest.json",
         )
         evidence_case.attach_json(
-            "Manifest privé (exclusion du binaire opaque)",
+            "Private manifest (opaque binary exclusion)",
             private_manifest,
             filename="private-manifest.json",
         )
 
 
 def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
-    """La détection d'un canari dans un artefact fait échouer la construction
-    fermée: aucun staging partiel ne survit à l'échec."""
+    """Detecting a canary in an artifact fails the build closed: no partial
+    staging survives the failure."""
     proof_dir = tmp_path / ".proof"
-    # Un log du pipeline (allowlisté, donc uploadable) qui charrie le canari.
+    # A pipeline log (allowlisted, hence uploadable) that carries the canary.
     proof._write_private_text(proof_dir / "ruff-check.log", "leaked-canary")
 
-    #: le canari présent dans un artefact bloque la construction et est nommé dans l'erreur
+    #: a canary present in an artifact blocks the build and is named in the error
     with pytest.raises(ArtifactError, match="canary"):
         proof.build_shareable_proof(proof_dir, canaries=["leaked-canary"])
 
-    #: échec fermé: aucun résidu partageable n'a été créé
+    #: closed failure: no shareable residue was created
     assert not (proof_dir / "shareable").exists()
 
 
 def test_pre_redacted_report_still_fails_closed_on_canary(tmp_path):
-    """Déclarer un fichier pré-redacté ne l'exempte pas du contrôle canari:
-    la vérification anti-fuite reste systématique."""
+    """Declaring a pre-redacted file does not exempt it from the canary
+    check: the anti-leak verification stays systematic."""
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>leaked-canary</p>")
 
-    #: même un chemin déclaré pré-redacté est scanné et bloque la construction
+    #: even a path declared pre-redacted is scanned and blocks the build
     with pytest.raises(ArtifactError, match="canary"):
         proof.build_shareable_proof(
             proof_dir,
@@ -231,15 +233,16 @@ def test_pre_redacted_report_still_fails_closed_on_canary(tmp_path):
             pre_redacted_paths={"proof-report.html"},
         )
 
-    #: l'échec fermé n'a laissé aucun staging résiduel
+    #: the closed failure left no residual staging
     assert not (proof_dir / "shareable").exists()
 
 
 def test_secret_text_artifact_never_staged_even_if_not_canary(tmp_path):
-    """Un artefact texte déclaré secret et non uploadable au manifeste
-    d'évidence n'atteint jamais le staging partageable, même quand sa valeur
-    est inconnue des canaris: la classification déclarée par le test prime
-    sur la politique MIME qui l'aurait reclassé internal/uploadable."""
+    """A text artifact declared secret and not uploadable in the evidence
+    manifest never reaches the shareable staging, even when its value is
+    unknown to the canaries: the classification declared by the test takes
+    precedence over the MIME policy that would have reclassified it as
+    internal/uploadable."""
     proof_dir = tmp_path / ".proof"
     secret_value = "session-token-9f8e7d6c"
     secret_rel = "artifacts/unit/tests-test_demo-py-test_token/token.txt"
@@ -249,14 +252,14 @@ def test_secret_text_artifact_never_staged_even_if_not_canary(tmp_path):
 
     staging = proof.build_shareable_proof(proof_dir, canaries=["other-value"], ttl=3600)
 
-    #: le fichier secret, pourtant .txt, n'est pas copié dans le staging
+    #: the secret file, even though .txt, is not copied into staging
     assert not (staging / ".proof" / "evidence" / secret_rel).exists()
-    #: la valeur secrète est absente de tout l'arbre partageable
+    #: the secret value is absent from the whole shareable tree
     shared_files = [path for path in staging.rglob("*") if path.is_file()]
     assert shared_files
     assert all(secret_value.encode() not in path.read_bytes() for path in shared_files)
     public_manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
-    #: le manifest public n'annonce jamais l'artefact secret
+    #: the public manifest never announces the secret artifact
     assert not any(item["path"].endswith("token.txt") for item in public_manifest["artifacts"])
     private_manifest = json.loads(
         (proof_dir / "artifact-manifest.json").read_text(encoding="utf-8")
@@ -264,31 +267,31 @@ def test_secret_text_artifact_never_staged_even_if_not_canary(tmp_path):
     secret_entry = next(
         item for item in private_manifest["artifacts"] if item["path"].endswith("token.txt")
     )
-    #: le manifest privé trace la classification secret et l'interdiction d'upload
+    #: the private manifest traces the secret classification and the upload ban
     assert secret_entry["classification"] == "secret"
     assert secret_entry["upload_allowed"] is False
 
 
 def test_unmanifested_evidence_file_fails_closed(tmp_path):
-    """Un fichier d'évidence hors allowlist du pipeline et absent des
-    manifestes bloque le staging: aucun artefact inconnu ne peut se glisser
-    dans l'arbre partageable via la politique MIME."""
+    """An evidence file outside the pipeline allowlist and absent from the
+    manifests blocks staging: no unknown artifact can slip into the
+    shareable tree via the MIME policy."""
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
     proof._write_private_text(proof_dir / "evidence" / "artifacts" / "rogue.txt", "dump\n")
 
-    #: le fichier non manifesté est nommé dans l'erreur fail-closed
+    #: the unmanifested file is named in the fail-closed error
     with pytest.raises(ArtifactError, match="unmanifested proof artifact"):
         proof.build_shareable_proof(proof_dir, ttl=3600)
 
-    #: échec fermé: aucun staging résiduel n'a été produit
+    #: closed failure: no residual staging was produced
     assert not (proof_dir / "shareable").exists()
 
 
 def test_evidence_policy_merges_duplicates_to_most_restrictive(tmp_path):
-    """Quand deux manifestes déclarent le même chemin avec des classifications
-    divergentes, l'agrégation retient la plus restrictive et n'autorise
-    l'upload que si tous les manifestes l'autorisent."""
+    """When two manifests declare the same path with diverging
+    classifications, the aggregation keeps the most restrictive one and only
+    allows the upload if all manifests allow it."""
     proof_dir = tmp_path / ".proof"
     shared_rel = "artifacts/shared/output.txt"
     proof._write_private_text(proof_dir / "evidence" / shared_rel, "data\n")
@@ -306,48 +309,47 @@ def test_evidence_policy_merges_duplicates_to_most_restrictive(tmp_path):
     policy = proof._load_evidence_policy(proof_dir)
 
     classification, upload_allowed = policy[(proof_dir / "evidence" / shared_rel).resolve()]
-    #: la classification la plus restrictive gagne, quel que soit l'ordre des manifestes
+    #: the most restrictive classification wins, regardless of manifest order
     assert classification is ArtifactClassification.SECRET
-    #: l'upload exige l'unanimité des manifestes: un seul refus suffit à l'interdire
+    #: the upload requires unanimity across manifests: a single refusal is enough to forbid it
     assert upload_allowed is False
 
 
 def test_evidence_manifest_with_unexpected_schema_fails_closed(tmp_path):
-    """Un manifeste d'évidence au schéma inconnu invalide tout le staging:
-    plutôt que d'interpréter des classifications d'un format non prévu, la
-    construction échoue fermée."""
+    """An evidence manifest with an unknown schema invalidates the whole
+    staging: rather than interpreting classifications from an unforeseen
+    format, the build fails closed."""
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
     _write_evidence_manifest(proof_dir, [], schema="cdpx.evidence/v1")
 
-    #: le schéma inattendu est refusé avant toute décision de staging
+    #: the unexpected schema is rejected before any staging decision
     with pytest.raises(ArtifactError, match="unexpected evidence manifest schema"):
         proof.build_shareable_proof(proof_dir, ttl=3600)
 
-    #: échec fermé: aucun staging résiduel n'a été produit
+    #: closed failure: no residual staging was produced
     assert not (proof_dir / "shareable").exists()
 
 
 def test_evidence_manifests_with_mixed_redaction_policies_fail_closed(tmp_path):
-    """Des manifestes issus de politiques de redaction différentes ne sont
-    pas fusionnables: leurs garanties ne sont pas comparables, le staging
-    échoue fermé."""
+    """Manifests coming from different redaction policies cannot be merged:
+    their guarantees are not comparable, staging fails closed."""
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
     _write_evidence_manifest(proof_dir, [], name="evidence-manifest-unit.json")
     _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="2")
 
-    #: l'hétérogénéité des politiques de redaction est une erreur nommée, pas un merge silencieux
+    #: heterogeneous redaction policies is a named error, not a silent merge
     with pytest.raises(ArtifactError, match="heterogeneous redaction policies"):
         proof.build_shareable_proof(proof_dir, ttl=3600)
 
-    #: échec fermé: aucun staging résiduel n'a été produit
+    #: closed failure: no residual staging was produced
     assert not (proof_dir / "shareable").exists()
 
 
 def test_build_shareable_proof_uses_validated_environment_retention(tmp_path, monkeypatch):
-    """La rétention lue dans l'environnement pilote réellement l'expiration
-    inscrite au manifest partageable."""
+    """The retention read from the environment really drives the expiration
+    written into the shareable manifest."""
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "30")
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
@@ -357,28 +359,28 @@ def test_build_shareable_proof_uses_validated_environment_retention(tmp_path, mo
     manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
     created = datetime.fromisoformat(manifest["created_at"])
     expires = datetime.fromisoformat(manifest["expires_at"])
-    #: l'écart created/expires reflète exactement la rétention demandée via l'environnement
+    #: the created/expires gap reflects exactly the retention requested via the environment
     assert (expires - created).days == 30
 
 
 def test_build_shareable_proof_rejects_invalid_environment_retention(tmp_path, monkeypatch):
-    """Une rétention non numérique est rejetée avec une erreur nommant la
-    variable fautive, plutôt que remplacée en silence par un défaut."""
+    """A non-numeric retention is rejected with an error naming the faulty
+    variable, rather than silently replaced by a default."""
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "unbounded")
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
 
-    #: la valeur invalide est refusée et l'erreur cible la variable pour un diagnostic direct
+    #: the invalid value is rejected and the error targets the variable for a direct diagnosis
     with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
         proof.build_shareable_proof(proof_dir)
 
-    #: la validation intervient avant toute écriture: pas de staging malgré un rapport sain
+    #: validation happens before any write: no staging despite a healthy report
     assert not (proof_dir / "shareable").exists()
 
 
 def test_generate_rejects_invalid_retention_before_replacing_existing_proof(tmp_path, monkeypatch):
-    """generate() valide la rétention avant de purger .proof: une
-    configuration invalide ne détruit jamais la preuve existante."""
+    """generate() validates retention before purging .proof: an invalid
+    configuration never destroys the existing proof."""
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir()
     marker = proof_dir / "keep.txt"
@@ -387,32 +389,32 @@ def test_generate_rejects_invalid_retention_before_replacing_existing_proof(tmp_
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "0")
 
-    #: la rétention nulle est refusée dès l'entrée de generate()
+    #: zero retention is rejected right at the entry of generate()
     with pytest.raises(ValueError, match="CDPX_PROOF_RETENTION_DAYS"):
         proof.generate()
 
-    #: la preuve précédente est intacte: aucune purge avant validation réussie
+    #: the previous proof is intact: no purge before successful validation
     assert marker.read_text(encoding="utf-8") == "preserve"
 
 
 def test_proof_timeout_scale_is_validated_fail_closed():
-    """Le facteur d'échelle des deadlines est validé comme la rétention: seul
-    un flottant strictement positif est accepté, sinon l'erreur nomme la
-    variable fautive au lieu de retomber en silence sur le défaut."""
-    #: sans variable, le facteur neutre 1.0 s'applique
+    """The deadline scale factor is validated like retention: only a
+    strictly positive float is accepted, otherwise the error names the
+    faulty variable instead of silently falling back to the default."""
+    #: without the variable, the neutral factor 1.0 applies
     assert proof.proof_timeout_scale({}) == 1.0
-    #: un facteur valide multiplie uniformément les budgets de deadline
+    #: a valid factor uniformly multiplies deadline budgets
     assert proof.proof_timeout_scale({"CDPX_PROOF_TIMEOUT_SCALE": "2.5"}) == 2.5
-    #: une valeur non numérique, nulle ou négative est refusée en nommant la variable
+    #: a non-numeric, zero, or negative value is rejected, naming the variable
     for invalid in ("abc", "0", "-1", "1s"):
         with pytest.raises(ValueError, match="CDPX_PROOF_TIMEOUT_SCALE"):
             proof.proof_timeout_scale({"CDPX_PROOF_TIMEOUT_SCALE": invalid})
 
 
 def test_generate_preserves_previous_proof_when_a_step_fails(tmp_path, monkeypatch):
-    """Une exception au milieu de la génération laisse la preuve précédente
-    intacte: tout s'écrit dans un staging jetable et la bascule atomique n'a
-    jamais lieu sur un run raté."""
+    """An exception in the middle of generation leaves the previous proof
+    intact: everything is written to a disposable staging area and the
+    atomic swap never happens on a failed run."""
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir()
     sentinel = proof_dir / "keep.txt"
@@ -421,27 +423,27 @@ def test_generate_preserves_previous_proof_when_a_step_fails(tmp_path, monkeypat
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
 
     def explode(*_args, **_kwargs):
-        raise RuntimeError("étape de preuve cassée")
+        raise RuntimeError("proof step broken")
 
     monkeypatch.setattr(proof, "run_evidence", explode)
 
-    #: l'échec d'une étape remonte au lieu d'être maquillé en preuve partielle
-    with pytest.raises(RuntimeError, match="étape de preuve cassée"):
+    #: the step failure propagates instead of being disguised as a partial proof
+    with pytest.raises(RuntimeError, match="proof step broken"):
         proof.generate()
 
-    #: la preuve précédente n'a été ni détruite ni altérée par le run raté
+    #: the previous proof was neither destroyed nor altered by the failed run
     assert sentinel.read_text(encoding="utf-8") == "preserve"
-    #: aucune bascule partielle: pas de .proof.old, et le staging raté reste
-    #: hors de .proof, disponible pour diagnostic
+    #: no partial swap: no .proof.old, and the failed staging stays
+    #: outside .proof, available for diagnosis
     assert not (tmp_path / ".proof.old").exists()
     assert (tmp_path / ".proof.new").is_dir()
 
 
 def test_generate_recovers_interrupted_swap_before_purging_leftovers(tmp_path, monkeypatch):
-    """Un crash entre les deux os.replace de la bascule finale laisse la
-    dernière bonne preuve dans .proof.old sans .proof: le run suivant la
-    restaure à l'emplacement canonique AVANT la purge des restes, au lieu de
-    la détruire par rmtree."""
+    """A crash between the two os.replace calls of the final swap leaves the
+    last good proof in .proof.old without .proof: the next run restores it
+    to the canonical location BEFORE purging the leftovers, instead of
+    destroying it via rmtree."""
     proof_dir = tmp_path / ".proof"
     previous = tmp_path / ".proof.old"
     previous.mkdir()
@@ -450,25 +452,24 @@ def test_generate_recovers_interrupted_swap_before_purging_leftovers(tmp_path, m
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
 
     def explode(*_args, **_kwargs):
-        raise RuntimeError("étape de preuve cassée")
+        raise RuntimeError("proof step broken")
 
     monkeypatch.setattr(proof, "run_evidence", explode)
 
-    #: l'échec injecté interrompt le run APRÈS la récupération du swap
-    with pytest.raises(RuntimeError, match="étape de preuve cassée"):
+    #: the injected failure interrupts the run AFTER the swap recovery
+    with pytest.raises(RuntimeError, match="proof step broken"):
         proof.generate()
 
-    #: la dernière bonne preuve est revenue dans .proof, pas détruite en .proof.old
+    #: the last good proof is back in .proof, not destroyed in .proof.old
     assert (proof_dir / "keep.txt").read_text(encoding="utf-8") == "preserve"
-    #: le reste du swap interrompu a bien été purgé après récupération
+    #: the leftover of the interrupted swap was indeed purged after recovery
     assert not previous.exists()
 
 
 def test_generate_reports_unpurgeable_staging_with_actionable_error(tmp_path, monkeypatch):
-    """Un staging résiduel non purgeable (fichiers root laissés par un run
-    Docker interrompu) produit une erreur actionnable qui nomme le remède,
-    au lieu d'une PermissionError brute, et ne touche pas à la preuve en
-    place."""
+    """A non-purgeable residual staging (root files left by an interrupted
+    Docker run) produces an actionable error naming the remedy, instead of a
+    raw PermissionError, and does not touch the proof in place."""
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir()
     sentinel = proof_dir / "keep.txt"
@@ -483,19 +484,19 @@ def test_generate_reports_unpurgeable_staging_with_actionable_error(tmp_path, mo
 
     monkeypatch.setattr(proof.shutil, "rmtree", deny)
 
-    #: la purge impossible échoue fermé avec le remède (chown via conteneur jetable)
+    #: the impossible purge fails closed with the remedy (chown via disposable container)
     with pytest.raises(ArtifactError, match="leftover staging cannot be purged"):
         proof.generate()
 
-    #: la preuve précédente reste intacte malgré le run avorté
+    #: the previous proof stays intact despite the aborted run
     assert sentinel.read_text(encoding="utf-8") == "preserve"
 
 
 def _fake_run_evidence(
     id, label, argv, log_path, *, env, timeout=None, path_rewrites=(), **_kwargs
 ):
-    # Le faux honore le contrat de réécriture des chemins publiés: le log
-    # atteste que _generate() transmet bien les rewrites staging -> .proof.
+    # The fake honors the published-path rewrite contract: the log attests
+    # that _generate() correctly forwards the staging -> .proof rewrites.
     proof._write_private_text(
         log_path, proof._rewrite_text_paths(f"$ {' '.join(argv)}\nok\n", path_rewrites)
     )
@@ -511,7 +512,7 @@ def _fake_run_evidence(
 
 
 def _fake_symfony_evidence(*, proof_dir, **_kwargs):
-    # Faux portail Symfony vert: log écrit dans l'arbre cible (staging), ok.
+    # Fake green Symfony gate: log written into the target tree (staging), ok.
     log_path = proof_dir / "symfony-e2e.log"
     proof._write_private_text(log_path, "docker compose ok\n")
     return proof.CommandEvidence(
@@ -548,11 +549,11 @@ def _fake_git_context(**_kwargs):
 
 
 def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony=None, casts=None):
-    # Câble le pipeline _generate() sur des faux déterministes (aucun process
-    # externe) et retourne le .proof cible; chaque test remplace la brique
-    # dont il veut injecter la panne. Le store d'évidence runtime est lui
-    # aussi confiné au tmp_path: la purge de rétention du début de run ne doit
-    # jamais toucher le store réel du dépôt pendant les tests.
+    # Wires the _generate() pipeline to deterministic fakes (no external
+    # process) and returns the target .proof; each test replaces the brick
+    # in which it wants to inject the failure. The runtime evidence store is
+    # also confined to tmp_path: the retention purge at the start of the run
+    # must never touch the repo's real store during tests.
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
@@ -565,25 +566,25 @@ def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony
 
 
 def test_generate_publishes_staging_atomically_on_success(tmp_path, monkeypatch):
-    """Un run complet écrit tout dans .proof.new puis publie l'arbre final
-    dans .proof par bascule atomique: chemins publiés en .proof/…, aucun
-    résidu de staging, ancienne preuve remplacée."""
+    """A complete run writes everything to .proof.new then publishes the
+    final tree into .proof via an atomic swap: paths published under
+    .proof/…, no staging residue, previous proof replaced."""
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
-    (proof_dir / "stale.txt").write_text("ancien run", encoding="utf-8")
+    (proof_dir / "stale.txt").write_text("old run", encoding="utf-8")
 
     summary = proof.generate()
 
-    #: l'arbre final est publié à l'emplacement canonique, staging partageable inclus
+    #: the final tree is published at the canonical location, shareable staging included
     summary_path = proof_dir / "validation-summary.json"
     assert summary_path.is_file()
     assert (proof_dir / "proof-report.html").is_file()
     assert (proof_dir / "shareable" / "manifest.json").is_file()
-    #: la bascule est complète: ni staging ni ancienne preuve résiduels
+    #: the swap is complete: no residual staging nor previous proof
     assert not (tmp_path / ".proof.new").exists()
     assert not (tmp_path / ".proof.old").exists()
-    #: l'ancienne preuve a bien été remplacée par le nouveau run
+    #: the previous proof was indeed replaced by the new run
     assert not (proof_dir / "stale.txt").exists()
-    #: le contrat des chemins publiés tient: .proof/… partout, jamais le staging
+    #: the published-path contract holds: .proof/… everywhere, never the staging
     assert summary["report_html"] == ".proof/proof-report.html"
     summary_text = summary_path.read_text(encoding="utf-8")
     assert ".proof.new" not in summary_text
@@ -591,9 +592,9 @@ def test_generate_publishes_staging_atomically_on_success(tmp_path, monkeypatch)
 
 
 def test_generate_completes_with_red_verdict_when_a_command_fails(tmp_path, monkeypatch):
-    """Une commande de preuve qui échoue (ici tuée par deadline, exit 124)
-    rougit le verdict mais n'interrompt pas la génération: l'arbre complet est
-    publié avec la cause nommée dans proof_failures."""
+    """A proof command that fails (here killed by deadline, exit 124) turns
+    the verdict red but does not interrupt generation: the complete tree is
+    published with the cause named in proof_failures."""
 
     def failing_run_evidence(id, label, argv, log_path, **kwargs):
         evidence = _fake_run_evidence(id, label, argv, log_path, **kwargs)
@@ -605,33 +606,33 @@ def test_generate_completes_with_red_verdict_when_a_command_fails(tmp_path, monk
 
     summary = proof.generate()
 
-    #: l'échec de commande rougit le verdict au lieu de le maquiller
+    #: the command failure turns the verdict red instead of masking it
     assert summary["ok"] is False
-    #: la cause est nommée: la commande fautive et son log sont dans proof_failures
+    #: the cause is named: the faulty command and its log are in proof_failures
     assert any(
         failure.startswith("command failed: Pytest unit tests")
         for failure in summary["proof_failures"]
     )
-    #: la génération ABOUTIT malgré le rouge: l'arbre complet est publié dans .proof
+    #: generation SUCCEEDS despite the red: the complete tree is published in .proof
     assert (proof_dir / "validation-summary.json").is_file()
     assert (proof_dir / "proof-report.html").is_file()
     assert not (tmp_path / ".proof.new").exists()
-    #: le verdict écrit sur disque est cohérent avec le summary retourné
+    #: the verdict written to disk is consistent with the returned summary
     published = json.loads((proof_dir / "validation-summary.json").read_text(encoding="utf-8"))
     assert published["ok"] is False
 
 
 def test_generate_purges_orphans_when_pytest_dies_without_sessionfinish(tmp_path, monkeypatch):
-    """Un pytest mort sans épilogue (SIGKILL, returncode -9) laisse des
-    artefacts sans manifeste: la génération purge ces orphelins et aboutit à
-    un verdict rouge nommant la commande, au lieu d'échouer en ArtifactError
-    « non manifesté » trompeuse."""
+    """A pytest killed without an epilogue (SIGKILL, returncode -9) leaves
+    artifacts without a manifest: generation purges these orphans and
+    reaches a red verdict naming the command, instead of failing with a
+    misleading "unmanifested" ArtifactError."""
 
     def killed_run_evidence(id, label, argv, log_path, **kwargs):
         evidence = _fake_run_evidence(id, label, argv, log_path, **kwargs)
         if id == "unit":
             orphan = log_path.parent / "evidence" / "artifacts" / "unit" / "scn" / "orphan.txt"
-            proof._write_private_text(orphan, "écrit avant le SIGKILL\n")
+            proof._write_private_text(orphan, "written before the SIGKILL\n")
             return replace(evidence, exit_code=-9, status="failed")
         return evidence
 
@@ -639,28 +640,28 @@ def test_generate_purges_orphans_when_pytest_dies_without_sessionfinish(tmp_path
 
     summary = proof.generate()
 
-    #: la mort anormale rougit le verdict au lieu de bloquer la génération
+    #: the abnormal death turns the verdict red instead of blocking generation
     assert summary["ok"] is False
-    #: la cause visible reste l'échec de la commande, jamais un faux « non manifesté »
+    #: the visible cause stays the command failure, never a fake "unmanifested"
     assert any(
         failure.startswith("command failed: Pytest unit tests")
         for failure in summary["proof_failures"]
     )
-    #: l'orphelin sans manifeste a été purgé avant le staging partageable
+    #: the manifest-less orphan was purged before the shareable staging
     assert not (proof_dir / "evidence" / "artifacts" / "unit" / "scn" / "orphan.txt").exists()
-    #: l'arbre complet est publié malgré la suite tuée
+    #: the complete tree is published despite the killed suite
     assert (proof_dir / "validation-summary.json").is_file()
 
 
 def test_generate_warns_without_failing_when_previous_cleanup_is_denied(
     tmp_path, monkeypatch, capsys
 ):
-    """Un .proof.old non supprimable après publication (fichiers root) ne
-    rougit pas le run — la preuve est déjà publiée — mais l'avertissement
-    actionnable (remède docker chown) part immédiatement sur stderr au lieu
-    d'être avalé en silence."""
+    """A .proof.old that cannot be removed after publishing (root files)
+    does not turn the run red — the proof is already published — but the
+    actionable warning (docker chown remedy) is immediately emitted on
+    stderr instead of being silently swallowed."""
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
-    (proof_dir / "stale.txt").write_text("ancien run", encoding="utf-8")
+    (proof_dir / "stale.txt").write_text("old run", encoding="utf-8")
     real_rmtree = proof.shutil.rmtree
 
     def stubborn_rmtree(path, *args, **kwargs):
@@ -672,50 +673,50 @@ def test_generate_warns_without_failing_when_previous_cleanup_is_denied(
 
     proof.generate()
 
-    #: la génération aboutit: la nouvelle preuve est bien publiée
+    #: generation succeeds: the new proof is indeed published
     assert (proof_dir / "validation-summary.json").is_file()
     captured = capsys.readouterr()
-    #: l'avertissement nomme le dossier fautif et le remède chown sur stderr
+    #: the warning names the faulty folder and the chown remedy on stderr
     assert ".proof.old" in captured.err
     assert "chown" in captured.err
 
 
 def _write_retention_manifest(run_dir, expires_at):
-    # Manifeste minimal de rétention: seul expires_at est lu par la purge.
+    # Minimal retention manifest: only expires_at is read by the purge.
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "manifest.json").write_text(json.dumps({"expires_at": expires_at}), encoding="utf-8")
 
 
 def test_generate_purges_expired_evidence_runs_at_start(tmp_path, monkeypatch, capsys):
-    """La purge de rétention au début de generate() supprime les runs expirés
-    du store d'évidence runtime, conserve les runs frais, et atteste la
-    décision dans summary["retention"] comme sur stderr."""
+    """The retention purge at the start of generate() removes expired runs
+    from the runtime evidence store, keeps fresh runs, and attests the
+    decision both in summary["retention"] and on stderr."""
     monkeypatch.delenv("CDPX_PROOF_RETENTION_DAYS", raising=False)
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
     store = tmp_path / ".cdpx-evidence"
-    _write_retention_manifest(store / "run-perime", "2000-01-01T00:00:00+00:00")
-    _write_retention_manifest(store / "run-frais", "2999-01-01T00:00:00+00:00")
+    _write_retention_manifest(store / "run-expired", "2000-01-01T00:00:00+00:00")
+    _write_retention_manifest(store / "run-fresh", "2999-01-01T00:00:00+00:00")
 
     summary = proof.generate()
 
-    #: seul le run expiré disparaît; le run encore couvert par son TTL reste intact
-    assert not (store / "run-perime").exists()
-    assert (store / "run-frais" / "manifest.json").is_file()
-    #: le summary publié atteste la purge: run listé, .proof conservé, TTL nommé
-    assert summary["retention"]["purged"]["evidence_runs"] == ["run-perime"]
+    #: only the expired run disappears; the run still covered by its TTL remains intact
+    assert not (store / "run-expired").exists()
+    assert (store / "run-fresh" / "manifest.json").is_file()
+    #: the published summary attests the purge: run listed, .proof kept, TTL named
+    assert summary["retention"]["purged"]["evidence_runs"] == ["run-expired"]
     assert summary["retention"]["purged"]["proof_dir"] is False
     assert summary["retention"]["retention_days"] == 14
-    #: le champ atterrit bien dans validation-summary.json, pas seulement en mémoire
+    #: the field indeed lands in validation-summary.json, not just in memory
     published = json.loads((proof_dir / "validation-summary.json").read_text(encoding="utf-8"))
-    assert published["retention"]["purged"]["evidence_runs"] == ["run-perime"]
-    #: la purge est tracée sur stderr, jamais silencieuse
-    assert "run-perime" in capsys.readouterr().err
+    assert published["retention"]["purged"]["evidence_runs"] == ["run-expired"]
+    #: the purge is traced on stderr, never silent
+    assert "run-expired" in capsys.readouterr().err
 
 
 def test_generate_purges_expired_proof_dir_before_regeneration(tmp_path, monkeypatch, capsys):
-    """Un .proof dont le manifeste global artifact-manifest.json porte un
-    expires_at dépassé est purgé automatiquement au début du run, avant toute
-    régénération, et la décision est attestée dans le summary."""
+    """A .proof whose global artifact-manifest.json manifest carries an
+    expired expires_at is automatically purged at the start of the run,
+    before any regeneration, and the decision is attested in the summary."""
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
     (proof_dir / "artifact-manifest.json").write_text(
         json.dumps({"expires_at": "2000-01-01T00:00:00+00:00"}), encoding="utf-8"
@@ -723,58 +724,58 @@ def test_generate_purges_expired_proof_dir_before_regeneration(tmp_path, monkeyp
 
     summary = proof.generate()
 
-    #: la preuve expirée a été purgée puis un arbre neuf publié à sa place
+    #: the expired proof was purged then a fresh tree published in its place
     assert summary["retention"]["purged"]["proof_dir"] is True
     assert (proof_dir / "validation-summary.json").is_file()
-    #: la purge de la preuve expirée est tracée sur stderr avant régénération
+    #: the expired-proof purge is traced on stderr before regeneration
     assert "retention: expired local proof purged" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("corruption", ["absent", "invalide"])
+@pytest.mark.parametrize("corruption", ["absent", "invalid"])
 def test_purge_retention_keeps_proof_when_manifest_is_unreadable(tmp_path, monkeypatch, corruption):
-    """Manifeste de rétention absent ou corrompu => conservation fail-open:
-    la purge du début de run ne détruit jamais une preuve dont l'expiration
-    est inconnue, même contrat que purge_expired sur les runs d'évidence."""
+    """Missing or corrupted retention manifest => fail-open preservation: the
+    purge at the start of the run never destroys a proof whose expiration is
+    unknown, same contract as purge_expired on evidence runs."""
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir()
     (proof_dir / "keep.txt").write_text("preserve", encoding="utf-8")
-    if corruption == "invalide":
-        (proof_dir / "artifact-manifest.json").write_text("{pas du json", encoding="utf-8")
+    if corruption == "invalid":
+        (proof_dir / "artifact-manifest.json").write_text("{not valid json", encoding="utf-8")
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
 
     result = proof._purge_expired_local_proofs()
 
-    #: rien n'est purgé et la purge ne signale aucune suppression
+    #: nothing is purged and the purge reports no deletion
     assert result == {"evidence_runs": [], "proof_dir": False}
-    #: la preuve à l'expiration inconnue est conservée telle quelle
+    #: the proof with unknown expiration is kept as-is
     assert (proof_dir / "keep.txt").read_text(encoding="utf-8") == "preserve"
 
 
 def test_purge_retention_survives_evidence_run_without_manifest(tmp_path, monkeypatch, capsys):
-    """Un run d'évidence résiduel sans manifest.json (interruption, résidu
-    étranger) ne fait pas échouer make proof: la purge du début de run le
-    conserve fail-open et continue, même contrat que purge_expired."""
+    """A residual evidence run without manifest.json (interruption, foreign
+    residue) does not fail make proof: the purge at the start of the run
+    keeps it fail-open and continues, same contract as purge_expired."""
     store = tmp_path / ".cdpx-evidence"
-    orphan = store / "run-orphelin"
+    orphan = store / "run-orphan"
     orphan.mkdir(parents=True)
-    (orphan / "chrome.log").write_text("résidu", encoding="utf-8")
+    (orphan / "chrome.log").write_text("leftover", encoding="utf-8")
     monkeypatch.setattr(proof, "PROOF_DIR", tmp_path / ".proof")
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", store)
 
     result = proof._purge_expired_local_proofs()
 
-    #: le run sans manifeste est conservé et la purge se conclut sans erreur
+    #: the manifest-less run is kept and the purge concludes without error
     assert result == {"evidence_runs": [], "proof_dir": False}
-    assert (orphan / "chrome.log").read_text(encoding="utf-8") == "résidu"
+    assert (orphan / "chrome.log").read_text(encoding="utf-8") == "leftover"
 
 
 def test_purge_retention_warns_and_continues_on_unreadable_evidence_manifest(
     tmp_path, monkeypatch, capsys
 ):
-    """Un manifeste d'évidence illisible (fichiers root laissés par un run
-    Docker) ne casse pas make proof: la purge avertit avec le remède chown
-    et le run continue — le catch PermissionError du consommateur est vivant."""
+    """An unreadable evidence manifest (root files left by a Docker run)
+    does not break make proof: the purge warns with the chown remedy and the
+    run continues — the consumer's PermissionError catch is alive."""
     store = tmp_path / ".cdpx-evidence"
     protected = store / "run-root"
     protected.mkdir(parents=True)
@@ -793,18 +794,18 @@ def test_purge_retention_warns_and_continues_on_unreadable_evidence_manifest(
 
     result = proof._purge_expired_local_proofs()
 
-    #: le run n'est pas purgé et rien n'a explosé: purge best-effort
+    #: the run is not purged and nothing exploded: best-effort purge
     assert result == {"evidence_runs": [], "proof_dir": False}
     assert protected.exists()
-    #: l'avertissement actionnable nomme le store et le remède d'appropriation
+    #: the actionable warning names the store and the ownership remedy
     err = capsys.readouterr().err
     assert "warning: retention purge impossible" in err and "chown" in err
 
 
 def test_purge_retention_never_touches_transactional_dirs(tmp_path, monkeypatch):
-    """La purge de rétention ignore .proof.new et .proof.old même porteurs
-    d'un manifeste expiré: ces répertoires appartiennent à la logique
-    transactionnelle de _generate, jamais à la rétention."""
+    """The retention purge ignores .proof.new and .proof.old even when
+    carrying an expired manifest: these directories belong to _generate's
+    transactional logic, never to retention."""
     monkeypatch.setattr(proof, "PROOF_DIR", tmp_path / ".proof")
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
     expired = json.dumps({"expires_at": "2000-01-01T00:00:00+00:00"})
@@ -815,9 +816,9 @@ def test_purge_retention_never_touches_transactional_dirs(tmp_path, monkeypatch)
 
     result = proof._purge_expired_local_proofs()
 
-    #: la purge ne revendique aucune suppression: ni run d'évidence ni .proof
+    #: the purge claims no deletion: neither evidence run nor .proof
     assert result == {"evidence_runs": [], "proof_dir": False}
-    #: les répertoires transactionnels restent intacts malgré leur manifeste expiré
+    #: the transactional directories stay intact despite their expired manifest
     assert (tmp_path / ".proof.new" / "artifact-manifest.json").is_file()
     assert (tmp_path / ".proof.old" / "artifact-manifest.json").is_file()
 
@@ -825,16 +826,16 @@ def test_purge_retention_never_touches_transactional_dirs(tmp_path, monkeypatch)
 def test_generate_survives_denied_retention_purge_with_actionable_warning(
     tmp_path, monkeypatch, capsys
 ):
-    """Une PermissionError pendant la purge de rétention (fichiers root d'un
-    run Docker interrompu) produit un avertissement stderr avec le remède
-    chown et laisse la génération aboutir: la rétention est best-effort."""
+    """A PermissionError during the retention purge (root files from an
+    interrupted Docker run) produces an stderr warning with the chown remedy
+    and lets generation succeed: retention is best-effort."""
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
     store = tmp_path / ".cdpx-evidence"
-    _write_retention_manifest(store / "run-perime", "2000-01-01T00:00:00+00:00")
+    _write_retention_manifest(store / "run-expired", "2000-01-01T00:00:00+00:00")
     real_rmtree = proof.shutil.rmtree
 
     def deny(path, *args, **kwargs):
-        if Path(path).name == "run-perime":
+        if Path(path).name == "run-expired":
             raise PermissionError(13, "Permission denied", str(path))
         return real_rmtree(path, *args, **kwargs)
 
@@ -842,20 +843,20 @@ def test_generate_survives_denied_retention_purge_with_actionable_warning(
 
     summary = proof.generate()
 
-    #: la génération ABOUTIT malgré la purge refusée: l'arbre complet est publié
+    #: generation SUCCEEDS despite the denied purge: the complete tree is published
     assert (proof_dir / "validation-summary.json").is_file()
-    #: le run non purgeable n'est pas revendiqué comme purgé dans le summary
+    #: the non-purgeable run is not claimed as purged in the summary
     assert summary["retention"]["purged"]["evidence_runs"] == []
     captured = capsys.readouterr()
-    #: l'avertissement nomme le store fautif et le remède chown sur stderr
+    #: the warning names the faulty store and the chown remedy on stderr
     assert ".cdpx-evidence" in captured.err
     assert "chown" in captured.err
 
 
 def test_purge_retention_warns_when_expired_proof_dir_is_denied(tmp_path, monkeypatch, capsys):
-    """Un .proof expiré mais non supprimable (fichiers root) n'interrompt pas
-    la purge: avertissement actionnable sur stderr, preuve laissée en place et
-    jamais revendiquée comme purgée."""
+    """An expired but non-removable .proof (root files) does not interrupt
+    the purge: actionable warning on stderr, proof left in place and never
+    claimed as purged."""
     proof_dir = tmp_path / ".proof"
     proof_dir.mkdir()
     (proof_dir / "artifact-manifest.json").write_text(
@@ -871,9 +872,9 @@ def test_purge_retention_warns_when_expired_proof_dir_is_denied(tmp_path, monkey
 
     result = proof._purge_expired_local_proofs()
 
-    #: la suppression refusée n'est pas revendiquée comme purge réussie
+    #: the denied deletion is not claimed as a successful purge
     assert result == {"evidence_runs": [], "proof_dir": False}
-    #: la preuve reste en place, l'avertissement nomme le dossier et le remède chown
+    #: the proof stays in place, the warning names the folder and the chown remedy
     assert (proof_dir / "artifact-manifest.json").is_file()
     captured = capsys.readouterr()
     assert ".proof" in captured.err
@@ -881,27 +882,27 @@ def test_purge_retention_warns_when_expired_proof_dir_is_denied(tmp_path, monkey
 
 
 def test_generate_reports_missing_junit_as_red_verdict(tmp_path, monkeypatch):
-    """Toutes les commandes vertes mais aucun JUnit produit: le verdict est
-    rouge avec une défaillance « required JUnit missing » par suite requise —
-    un zéro test silencieux ne peut pas passer pour une preuve."""
+    """All commands green but no JUnit produced: the verdict is red with a
+    "required JUnit missing" failure per required suite — a silent
+    zero-test count cannot pass as proof."""
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
 
     summary = proof.generate()
 
-    #: sans XML JUnit, le verdict est rouge malgré les exits 0
+    #: without JUnit XML, the verdict is red despite the 0 exits
     assert summary["ok"] is False
-    #: chaque suite requise (unit, e2e) est nommée comme JUnit manquant
+    #: each required suite (unit, e2e) is named as missing JUnit
     missing = [f for f in summary["proof_failures"] if f.startswith("required JUnit missing")]
     assert any("unit-junit.xml" in failure for failure in missing)
     assert any("e2e-junit.xml" in failure for failure in missing)
-    #: le rapport est quand même publié pour diagnostic
+    #: the report is still published for diagnosis
     assert (proof_dir / "proof-report.html").is_file()
 
 
 def test_generate_marks_symfony_unavailable_as_blocking(tmp_path, monkeypatch):
-    """Un portail Symfony indisponible (Docker absent) traverse _generate()
-    jusqu'au verdict: scénario unavailable compté, verdict rouge, causes
-    nommées — jamais un skip silencieux."""
+    """An unavailable Symfony gate (Docker missing) flows through
+    _generate() all the way to the verdict: unavailable scenario counted,
+    red verdict, causes named — never a silent skip."""
 
     def unavailable_symfony(*, proof_dir, redaction_context=None, **_kwargs):
         log_path = proof_dir / "symfony-e2e.log"
@@ -925,22 +926,22 @@ def test_generate_marks_symfony_unavailable_as_blocking(tmp_path, monkeypatch):
 
     summary = proof.generate()
 
-    #: l'indisponibilité Symfony rougit le verdict et remonte dans les totaux
+    #: the Symfony unavailability turns the verdict red and shows up in the totals
     assert summary["ok"] is False
     assert summary["totals"]["unavailable"] == 1
-    #: la défaillance nomme l'évidence indisponible ET l'échec de la commande
+    #: the failure names both the unavailable evidence AND the command failure
     assert any("symfony evidence unavailable" in failure for failure in summary["proof_failures"])
     assert any(
         failure.startswith("command failed: Symfony E2E Docker")
         for failure in summary["proof_failures"]
     )
-    #: l'évidence explicite d'indisponibilité est publiée avec l'arbre
+    #: the explicit unavailability evidence is published with the tree
     assert (proof_dir / "evidence" / "symfony-scenarios.json").is_file()
 
 
 def test_generate_flags_degraded_cast_at_the_gate(tmp_path, monkeypatch):
-    """Un cast de démonstration dégradé pendant la collecte fait échouer le
-    portail cast au verdict final de _generate(), en nommant la démo fautive."""
+    """A demo cast degraded during collection fails the cast gate at
+    _generate()'s final verdict, naming the faulty demo."""
 
     def degraded_casts(root, **_kwargs):
         entries = _fake_cast_entries(root)
@@ -951,16 +952,16 @@ def test_generate_flags_degraded_cast_at_the_gate(tmp_path, monkeypatch):
 
     summary = proof.generate()
 
-    #: le portail cast est bloquant au niveau du pipeline complet, pas
-    #: seulement dans build_summary
+    #: the cast gate is blocking at the level of the complete pipeline, not
+    #: only within build_summary
     assert summary["ok"] is False
     assert any(failure.startswith("cast unavailable:") for failure in summary["proof_failures"])
 
 
 def test_generate_keeps_previous_proof_when_canary_reaches_staging(tmp_path, monkeypatch):
-    """Un canari qui atteint le staging partageable interrompt la génération
-    en ArtifactError: la bascule n'a pas lieu et la preuve précédente reste
-    intacte — la transaction protège contre la publication d'une fuite."""
+    """A canary that reaches the shareable staging interrupts generation
+    with an ArtifactError: the swap does not happen and the previous proof
+    stays intact — the transaction protects against publishing a leak."""
 
     def leaking_run_evidence(id, label, argv, log_path, **kwargs):
         evidence = _fake_run_evidence(id, label, argv, log_path, **kwargs)
@@ -972,23 +973,22 @@ def test_generate_keeps_previous_proof_when_canary_reaches_staging(tmp_path, mon
     sentinel.write_text("preserve", encoding="utf-8")
     monkeypatch.setattr(proof, "environment_secret_values", lambda: ["canary-123"])
 
-    #: le canari détecté dans le staging fait échouer la génération fermée
+    #: the canary detected in staging fails generation closed
     with pytest.raises(ArtifactError, match="canary"):
         proof.generate()
 
-    #: la preuve précédente n'a été ni remplacée ni altérée (transaction)
+    #: the previous proof was neither replaced nor altered (transaction)
     assert sentinel.read_text(encoding="utf-8") == "preserve"
     assert not (tmp_path / ".proof.old").exists()
-    #: le staging raté reste hors .proof pour diagnostic, sans arbre partageable
+    #: the failed staging stays outside .proof for diagnosis, without a shareable tree
     assert (tmp_path / ".proof.new").is_dir()
     assert not (tmp_path / ".proof.new" / "shareable").exists()
 
 
 def test_generate_converts_hardening_permission_error_into_actionable_error(tmp_path, monkeypatch):
-    """Une PermissionError pendant le durcissement du staging (fichiers root
-    laissés par un conteneur Symfony tué avant son chown) devient une
-    ArtifactError actionnable nommant le remède, et la preuve précédente
-    reste intacte."""
+    """A PermissionError during staging hardening (root files left by a
+    Symfony container killed before its chown) becomes an actionable
+    ArtifactError naming the remedy, and the previous proof stays intact."""
     proof_dir = _install_generate_fakes(monkeypatch, tmp_path)
     sentinel = proof_dir / "keep.txt"
     sentinel.write_text("preserve", encoding="utf-8")
@@ -998,20 +998,20 @@ def test_generate_converts_hardening_permission_error_into_actionable_error(tmp_
 
     monkeypatch.setattr(proof, "_harden_tree", deny)
 
-    #: la PermissionError brute est convertie en erreur actionnable
+    #: the raw PermissionError is converted into an actionable error
     with pytest.raises(ArtifactError, match="leftover staging cannot be purged") as excinfo:
         proof.generate()
-    #: le remède (chown via conteneur jetable) est nommé dans le message
+    #: the remedy (chown via disposable container) is named in the message
     assert "chown" in str(excinfo.value)
 
-    #: la preuve précédente n'a pas été touchée par le run avorté
+    #: the previous proof was not touched by the aborted run
     assert sentinel.read_text(encoding="utf-8") == "preserve"
 
 
 def test_run_evidence_times_out_with_redacted_final_log(tmp_path):
-    """Une commande qui dépasse sa deadline est tuée: exit 124 et statut
-    failed comme un échec conventionnel, log final redacté écrit, aucun flux
-    brut résiduel sur disque."""
+    """A command that exceeds its deadline is killed: exit 124 and status
+    failed like a conventional failure, final redacted log written, no
+    residual raw stream on disk."""
     secret = "deadline-secret-42"
     context = RedactionContext.from_secrets([secret])
     log = tmp_path / "slow.log"
@@ -1032,35 +1032,35 @@ def test_run_evidence_times_out_with_redacted_final_log(tmp_path):
         redaction_context=context,
     )
 
-    #: la deadline convertit le blocage en échec conventionnel exit 124
+    #: the deadline converts the hang into a conventional exit-124 failure
     assert evidence.exit_code == 124
     assert evidence.status == "failed"
     contents = log.read_text(encoding="utf-8")
-    #: le log final est écrit malgré le kill, nomme le timeout et reste redacté
+    #: the final log is written despite the kill, names the timeout, and stays redacted
     assert "timeout" in contents
     assert "exit_code: 124" in contents
     assert secret not in contents
     assert "***" in contents
-    #: le flux brut *.partial ne survit pas au run, même tué par deadline
+    #: the raw *.partial stream does not survive the run, even killed by deadline
     assert not log.with_name(f"{log.name}.partial").exists()
 
 
 def test_run_evidence_streams_progress_into_partial_file(tmp_path):
-    """Pendant l'exécution, la sortie brute est observable dans le flux privé
-    *.partial (tail -f): la progression n'est plus bufferisée en mémoire, et
-    le log final redacté remplace le flux en fin de run."""
+    """During execution, the raw output is observable in the private
+    *.partial stream (tail -f): progress is no longer buffered in memory,
+    and the final redacted log replaces the stream at the end of the run."""
     log = tmp_path / "stream.log"
     partial = log.with_name(f"{log.name}.partial")
     sync = tmp_path / "sync"
     script = (
         "import pathlib, time\n"
-        "print('premiere-ligne', flush=True)\n"
+        "print('first-line', flush=True)\n"
         f"sync = pathlib.Path({str(sync)!r})\n"
         "for _ in range(400):\n"
         "    if sync.exists():\n"
         "        break\n"
         "    time.sleep(0.025)\n"
-        "print('seconde-ligne', flush=True)\n"
+        "print('second-line', flush=True)\n"
     )
     result = {}
 
@@ -1078,48 +1078,48 @@ def test_run_evidence_streams_progress_into_partial_file(tmp_path):
     worker.start()
     try:
         for _ in range(400):
-            if partial.exists() and "premiere-ligne" in partial.read_text(encoding="utf-8"):
+            if partial.exists() and "first-line" in partial.read_text(encoding="utf-8"):
                 break
             time.sleep(0.025)
-        #: la première ligne est visible dans le .partial pendant que la commande tourne encore
-        assert "premiere-ligne" in partial.read_text(encoding="utf-8")
-        #: le flux brut, non encore redacté, reste privé au propriétaire (0600)
+        #: the first line is visible in the .partial file while the command is still running
+        assert "first-line" in partial.read_text(encoding="utf-8")
+        #: the raw stream, not yet redacted, stays private to the owner (0600)
         assert mode(partial) == 0o600
     finally:
         sync.write_text("go", encoding="utf-8")
         worker.join(timeout=30)
     assert not worker.is_alive()
-    #: après déblocage, la commande aboutit proprement
+    #: after unblocking, the command completes cleanly
     assert result["evidence"].exit_code == 0
     contents = log.read_text(encoding="utf-8")
-    #: le log final agrège l'intégralité du flux et le .partial a disparu
-    assert "premiere-ligne" in contents and "seconde-ligne" in contents
+    #: the final log aggregates the entire stream and the .partial file is gone
+    assert "first-line" in contents and "second-line" in contents
     assert not partial.exists()
 
 
 def test_rewrite_text_paths_only_rewrites_anchored_paths():
-    """La réécriture des chemins publiés est ancrée: seuls le préfixe
-    `racine/…` et la valeur exactement égale à la racine changent — un
-    littéral `.proof.new` cité dans un extrait de code capturé est préservé
-    tel quel au lieu d'être corrompu par un remplacement naïf."""
+    """Published-path rewriting is anchored: only the `root/…` prefix and
+    the value exactly equal to the root change — a `.proof.new` literal
+    quoted in a captured code excerpt is preserved as-is instead of being
+    corrupted by a naive replacement."""
     rewrites = ((".proof.new", ".proof"),)
     excerpt = 'assert ".proof.new" not in summary_text\nlog: .proof.new/unit-junit.xml\n'
 
     rewritten = proof._rewrite_text_paths(excerpt, rewrites)
 
-    #: le vrai chemin, ancré par un slash, est réécrit vers la racine logique
+    #: the real path, anchored by a slash, is rewritten to the logical root
     assert "log: .proof/unit-junit.xml" in rewritten
-    #: le littéral cité sans slash survit: les extraits de code restent fidèles
+    #: the literal quoted without a slash survives: code excerpts stay faithful
     assert 'assert ".proof.new" not in summary_text' in rewritten
-    #: une valeur exactement égale à la racine physique est réécrite entière
+    #: a value exactly equal to the physical root is rewritten in full
     assert proof._rewrite_text_paths(".proof.new", rewrites) == ".proof"
 
 
 def test_stream_deadline_kills_the_entire_process_group(tmp_path):
-    """La deadline tue tout le groupe de processus, pas seulement l'enfant
-    direct: un petit-fils (Chrome, serveur de fixtures lancé par pytest) ne
-    survit jamais au kill, ne garde aucun port et ne peut plus écrire dans
-    l'évidence après la purge."""
+    """The deadline kills the entire process group, not just the direct
+    child: a grandchild (Chrome, fixture server launched by pytest) never
+    survives the kill, keeps no port, and can no longer write into evidence
+    after the purge."""
     pids_path = tmp_path / "pids.txt"
     wait_loop = "\nfor _ in range(400): time.sleep(0.025)\n"
     grandchild = "import time" + wait_loop
@@ -1135,12 +1135,12 @@ def test_stream_deadline_kills_the_entire_process_group(tmp_path):
         [sys.executable, "-u", "-c", child], sink, env={"PATH": "/usr/bin"}, timeout=2.0
     )
 
-    #: la deadline est convertie en exit conventionnel 124
+    #: the deadline is converted into a conventional exit 124
     assert code == 124
     assert timed_out is True
     pids = [int(value) for value in pids_path.read_text(encoding="utf-8").split()]
     assert len(pids) == 2
-    #: attente BORNÉE (≤ 10 s): l'enfant ET le petit-fils sont morts
+    #: BOUNDED wait (≤ 10 s): both the child AND the grandchild are dead
     deadline = time.monotonic() + 10
     for pid in pids:
         while True:
@@ -1148,62 +1148,62 @@ def test_stream_deadline_kills_the_entire_process_group(tmp_path):
                 os.kill(pid, 0)
             except ProcessLookupError:
                 break
-            assert time.monotonic() < deadline, f"processus {pid} survit au kill du groupe"
+            assert time.monotonic() < deadline, f"process {pid} survives the group kill"
             time.sleep(0.05)
 
 
 def test_stream_and_collect_unlinks_raw_partial_on_unexpected_failure(tmp_path, monkeypatch):
-    """Le flux brut *.partial (non redacté) est supprimé même quand une
-    exception inattendue interrompt la collecte: un staging partiel conservé
-    pour diagnostic ne contient jamais de sortie brute."""
+    """The raw *.partial stream (not redacted) is removed even when an
+    unexpected exception interrupts collection: a partial staging kept for
+    diagnosis never contains raw output."""
     log = tmp_path / "cmd.log"
 
     def exploding_stream(argv, sink, *, env, timeout):
-        sink.write_text("flux brut secret\n", encoding="utf-8")
+        sink.write_text("raw secret stream\n", encoding="utf-8")
         raise KeyboardInterrupt
 
     monkeypatch.setattr(proof, "_stream_to_private_file", exploding_stream)
 
-    #: l'exception inattendue remonte à l'appelant, elle n'est pas avalée
+    #: the unexpected exception propagates to the caller, it's not swallowed
     with pytest.raises(KeyboardInterrupt):
         proof._stream_and_collect(
-            ["cmd"], log, env={}, timeout=1.0, timeout_label="commande interrompue"
+            ["cmd"], log, env={}, timeout=1.0, timeout_label="interrupted command"
         )
 
-    #: le flux brut n'a pas survécu à l'échec: aucun résidu non redacté
+    #: the raw stream did not survive the failure: no unredacted residue
     assert not log.with_name(f"{log.name}.partial").exists()
 
 
 def test_pytest_timeout_orphans_are_purged_before_shareable_staging(tmp_path):
-    """Les artefacts d'un pytest tué par deadline (session sans manifeste)
-    sont purgés de l'arbre d'évidence: le staging partageable aboutit au lieu
-    d'échouer fermé avec un message trompeur, sans toucher aux artefacts
-    manifestés."""
+    """Artifacts from a pytest killed by deadline (session without a
+    manifest) are purged from the evidence tree: the shareable staging
+    succeeds instead of failing closed with a misleading message, without
+    touching manifested artifacts."""
     proof_dir = tmp_path / ".proof"
     kept = proof_dir / "evidence" / "artifacts" / "unit" / "scn" / "kept.txt"
     proof._write_private_text(kept, "manifested\n")
     orphan = proof_dir / "evidence" / "artifacts" / "e2e" / "scn" / "orphan.txt"
-    proof._write_private_text(orphan, "écrit avant le kill\n")
+    proof._write_private_text(orphan, "written before the kill\n")
     _write_evidence_manifest(
         proof_dir, [_manifest_entry("artifacts/unit/scn/kept.txt", "internal", True)]
     )
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
 
-    #: sans purge, l'orphelin fait toujours échouer le staging fermé (fail-closed conservé)
+    #: without the purge, the orphan still fails staging closed (fail-closed preserved)
     with pytest.raises(ArtifactError, match="unmanifested proof artifact"):
         proof.build_shareable_proof(proof_dir)
 
     removed = proof._purge_unmanifested_evidence(proof_dir)
 
-    #: seul l'orphelin sans manifeste est purgé; l'artefact manifesté survit
+    #: only the manifest-less orphan is purged; the manifested artifact survives
     assert removed == ["evidence/artifacts/e2e/scn/orphan.txt"]
     assert kept.is_file() and not orphan.exists()
-    #: les dossiers vidés disparaissent aussi: aucun résidu de la suite tuée
+    #: emptied folders disappear too: no residue from the killed suite
     assert not orphan.parent.exists()
 
     staging = proof.build_shareable_proof(proof_dir)
 
-    #: après purge, le staging partageable aboutit et embarque l'artefact manifesté
+    #: after the purge, the shareable staging succeeds and carries the manifested artifact
     manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
     assert any(
         entry["path"] == ".proof/evidence/artifacts/unit/scn/kept.txt"
@@ -1212,19 +1212,18 @@ def test_pytest_timeout_orphans_are_purged_before_shareable_staging(tmp_path):
 
 
 def test_project_unknowns_describe_private_screenshot_scope():
-    """Le packet risques/inconnues documente honnêtement les captures
-    visuelles: privées, exclues du partage, sans prétendre qu'elles ne sont
-    pas conservées."""
+    """The risks/unknowns packet honestly documents visual captures:
+    private, excluded from sharing, without claiming they are not kept."""
     packet = proof.build_project_risks_and_unknowns()
     screenshot = next(
         item for item in packet["unknowns"] if item["item"] == "Scope of visual captures"
     )
 
-    #: le texte situe les captures, affirme leur exclusion du partage et évite
-    #: la formulation trompeuse sur leur non-conservation
+    #: the text locates the captures, states their exclusion from sharing, and
+    #: avoids the misleading wording about them not being kept
     assert ".proof/evidence/" in screenshot["why"]
     assert "excluded from shareable staging" in screenshot["why"]
-    assert "sans le conserver" not in screenshot["why"]
+    assert "without keeping it" not in screenshot["why"]
 
 
 def empty_scenario_evidence():
@@ -1257,9 +1256,9 @@ def _evidence_with_artifacts(artifacts):
 
 
 def test_inline_scenario_artifacts_inlines_small_text_and_excerpts_large(tmp_path):
-    """L'inlining embarque les petits textes entiers, tronque honnêtement les
-    gros, refuse les binaires, signale les chemins illisibles et ne mute
-    jamais l'évidence d'entrée."""
+    """Inlining embeds small texts whole, honestly truncates large ones,
+    refuses binaries, flags unreadable paths, and never mutates the input
+    evidence."""
     small = tmp_path / "run.txt"
     small.write_text("$ cdpx version\nok\n", encoding="utf-8")
     large = tmp_path / "big.log"
@@ -1279,30 +1278,31 @@ def test_inline_scenario_artifacts_inlines_small_text_and_excerpts_large(tmp_pat
     inlined = proof.inline_scenario_artifacts(evidence)
     command, logs, screenshot, missing = inlined["suites"]["unit"][0]["artifacts"]
 
-    #: le petit texte voyage entier dans le payload
+    #: the small text travels whole in the payload
     assert command["inline_content"].startswith("$ cdpx version")
     assert command["truncated"] is False
 
-    #: le gros log devient un extrait tête+queue honnêtement tronqué
+    #: the large log becomes an honestly truncated head+tail excerpt
     assert "inline_content" not in logs
-    assert logs["inline_skipped"] == "taille"
+    assert logs["inline_skipped"] == "size"
     assert logs["truncated"] is True
     assert logs["excerpt"].startswith("line-0")
     assert "lines truncated" in logs["excerpt"]
 
-    #: le binaire n'est jamais inliné (il resterait dans le HTML partageable)
+    #: the binary is never inlined (it would remain in the shareable HTML)
     assert "inline_content" not in screenshot and "inline_skipped" not in screenshot
 
-    #: un chemin illisible est signalé, pas fatal
-    assert missing["inline_skipped"] == "illisible"
+    #: an unreadable path is flagged, not fatal
+    assert missing["inline_skipped"] == "unreadable"
 
-    #: les artefacts d'entrée ne sont pas mutés
+    #: the input artifacts are not mutated
     assert "inline_content" not in evidence["suites"]["unit"][0]["artifacts"][0]
 
 
 def test_inline_scenario_artifacts_respects_global_budget(tmp_path):
-    """Le budget global d'inlining borne le poids du rapport: les premiers
-    artefacts voyagent entiers, les suivants dégradent en extrait marqué."""
+    """The global inlining budget bounds the report's weight: the first
+    artifacts travel whole, the following ones degrade into a marked
+    excerpt."""
     files = []
     for index in range(3):
         path = tmp_path / f"part-{index}.txt"
@@ -1312,17 +1312,17 @@ def test_inline_scenario_artifacts_respects_global_budget(tmp_path):
     inlined = proof.inline_scenario_artifacts(_evidence_with_artifacts(files), budget=2500)
     first, second, third = inlined["suites"]["unit"][0]["artifacts"]
 
-    #: tant que le budget le permet, le contenu complet voyage
+    #: as long as the budget allows it, the full content travels
     assert "inline_content" in first and "inline_content" in second
-    #: budget épuisé => extrait marqué, jamais de contenu silencieusement absent
+    #: budget exhausted => marked excerpt, never silently missing content
     assert third["inline_skipped"] == "budget"
     assert third["truncated"] is True and third["excerpt"]
 
 
 def test_strip_inline_content_keeps_excerpts_but_drops_bodies(tmp_path):
-    """La version allégée destinée au JSON de synthèse retire les corps
-    inlinés tout en gardant les métadonnées d'extrait, sans toucher la copie
-    servant au rendu HTML."""
+    """The lean version meant for the summary JSON strips inlined bodies
+    while keeping excerpt metadata, without touching the copy used for HTML
+    rendering."""
     path = tmp_path / "run.txt"
     path.write_text("payload\n", encoding="utf-8")
     inlined = proof.inline_scenario_artifacts(
@@ -1332,16 +1332,16 @@ def test_strip_inline_content_keeps_excerpts_but_drops_bodies(tmp_path):
     lean = proof._strip_inline_content(inlined)
 
     artifact = lean["suites"]["unit"][0]["artifacts"][0]
-    #: le corps disparaît du payload allégé, les métadonnées de troncature restent
+    #: the body disappears from the lean payload, truncation metadata remains
     assert "inline_content" not in artifact
     assert artifact["truncated"] is False
-    #: la version inlinée reste intacte pour le rendu HTML
+    #: the inlined version stays intact for HTML rendering
     assert inlined["suites"]["unit"][0]["artifacts"][0]["inline_content"] == "payload\n"
 
 
 def test_render_html_size_stays_bounded():
-    """Le rapport HTML complet reste sous un plafond de taille connu: toute
-    dérive du shell/CSS/JS au-delà de la marge Mermaid casse le build."""
+    """The complete HTML report stays under a known size ceiling: any
+    shell/CSS/JS drift beyond the Mermaid margin breaks the build."""
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -1349,16 +1349,16 @@ def test_render_html_size_stays_bounded():
         scenario_evidence=empty_scenario_evidence(),
         cast_entries=generated_casts(),
     )
-    # Mermaid vendorisé ~3,5 Mo; le shell/CSS/JS du cockpit doit rester marginal.
-    #: au-delà du plafond, un asset a grossi sans justification: le portail le bloque
+    # Mermaid vendored ~3.5 MB; the cockpit shell/CSS/JS must stay marginal.
+    #: beyond the ceiling, an asset grew without justification: the gate blocks it
     assert len(proof.render_html(summary)) < 4_500_000
 
 
 def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
-    """Un *-scenarios.json v1 (sans clé schema ni intent) reste lisible tel
-    quel: la tolérance des lecteurs évite tout migrateur."""
-    # Un *-scenarios.json v1 (sans clé schema, sans intent/assertions) doit
-    # rester lisible: les lecteurs sont tolérants, aucun migrateur requis.
+    """A v1 *-scenarios.json (without a schema or intent key) stays readable
+    as-is: reader tolerance avoids any migrator."""
+    # A v1 *-scenarios.json (no schema key, no intent/assertions) must
+    # stay readable: readers are tolerant, no migrator required.
     legacy = {
         "suite": "unit",
         "generated_at": "2026-01-01T00:00:00+00:00",
@@ -1379,35 +1379,35 @@ def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
 
     evidence = proof.load_scenario_evidence(tmp_path)
 
-    #: le payload legacy est compté et restitué comme un scénario moderne
+    #: the legacy payload is counted and returned like a modern scenario
     assert evidence["totals"]["unit"] == 1
     assert evidence["suites"]["unit"][0]["nodeid"] == "tests/test_demo.py::test_legacy"
 
 
 def test_load_scenario_evidence_rejects_invalid_json(tmp_path):
-    """Un *-scenarios.json corrompu est rejeté avec une erreur nommant le
-    fichier fautif, au lieu d'une JSONDecodeError anonyme au milieu de la
-    génération de preuve."""
+    """A corrupted *-scenarios.json is rejected with an error naming the
+    faulty file, instead of an anonymous JSONDecodeError in the middle of
+    proof generation."""
     path = tmp_path / "unit-scenarios.json"
     path.write_text('{"suite": "unit", scenarios', encoding="utf-8")
 
-    #: l'erreur localise le fichier illisible et qualifie le problème
+    #: the error locates the unreadable file and qualifies the problem
     with pytest.raises(ArtifactError, match="unreadable scenarios JSON") as excinfo:
         proof.load_scenario_evidence(tmp_path)
     assert str(path) in str(excinfo.value)
 
 
 def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
-    """Une clé schema présente mais différente de cdpx.scenarios/v2 est
-    refusée en nommant fichier, version attendue et version trouvée — seule
-    l'absence de schema (legacy v1) reste tolérée."""
+    """A schema key present but different from cdpx.scenarios/v2 is rejected,
+    naming the file, the expected version, and the found version — only the
+    absence of schema (legacy v1) remains tolerated."""
     path = tmp_path / "unit-scenarios.json"
     path.write_text(
         json.dumps({"schema": "cdpx.scenarios/v3", "suite": "unit", "scenarios": []}),
         encoding="utf-8",
     )
 
-    #: le message d'erreur porte le fichier, la version attendue et la version reçue
+    #: the error message carries the file, the expected version, and the received version
     with pytest.raises(ArtifactError, match="unexpected scenarios schema") as excinfo:
         proof.load_scenario_evidence(tmp_path)
     message = str(excinfo.value)
@@ -1417,22 +1417,22 @@ def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
 
 
 def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
-    """Un JSON valide mais structurellement faux (racine non-objet, scenarios
-    non-liste, scénario sans nodeid, artifacts non-liste) échoue avec une
-    erreur localisée `{fichier}: …`, jamais une KeyError différée."""
+    """A JSON that is valid but structurally wrong (non-object root,
+    non-list scenarios, scenario without nodeid, non-list artifacts) fails
+    with a localized `{file}: …` error, never a deferred KeyError."""
     path = tmp_path / "unit-scenarios.json"
 
-    #: une racine non-objet est nommée comme telle
-    path.write_text(json.dumps(["pas", "un", "objet"]), encoding="utf-8")
+    #: a non-object root is named as such
+    path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
     with pytest.raises(ArtifactError, match="root expected as JSON object"):
         proof.load_scenario_evidence(tmp_path)
 
-    #: un champ scenarios non-liste est refusé avant tout parcours
+    #: a non-list scenarios field is rejected before any traversal
     path.write_text(json.dumps({"suite": "unit", "scenarios": {"oops": 1}}), encoding="utf-8")
     with pytest.raises(ArtifactError, match="`scenarios` must be a list"):
         proof.load_scenario_evidence(tmp_path)
 
-    #: un scénario sans nodeid textuel est localisé par son index et le fichier
+    #: a scenario without a textual nodeid is located by its index and the file
     path.write_text(
         json.dumps({"suite": "unit", "scenarios": [{"status": "passed"}]}), encoding="utf-8"
     )
@@ -1442,7 +1442,7 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
         proof.load_scenario_evidence(tmp_path)
     assert str(path) in str(excinfo.value)
 
-    #: des artifacts non-liste sont refusés en nommant le scénario porteur
+    #: non-list artifacts are rejected, naming the carrying scenario
     path.write_text(
         json.dumps(
             {"suite": "unit", "scenarios": [{"nodeid": "tests/x.py::t", "artifacts": "nope"}]}
@@ -1452,7 +1452,7 @@ def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
     with pytest.raises(ArtifactError, match="`artifacts` must be a list"):
         proof.load_scenario_evidence(tmp_path)
 
-    #: les champs imbriqués sont validés avant le cast vers les modèles stricts
+    #: nested fields are validated before casting to the strict models
     path.write_text(
         json.dumps(
             {
@@ -1518,8 +1518,9 @@ def test_scenario_evidence_normalizes_to_the_declared_model(tmp_path):
 
 
 def test_write_scenario_evidence_round_trips_versioned_suites(tmp_path):
-    """L'écrivain publie chaque suite non vide sous le schéma versionné v2,
-    scénarios triés par nodeid, et le lecteur relit le tout à l'identique."""
+    """The writer publishes every non-empty suite under the versioned v2
+    schema, scenarios sorted by nodeid, and the reader reads it all back
+    identically."""
     suites = {
         "unit": [
             {"nodeid": "tests/test_b.py::test_b", "suite": "unit", "status": "passed"},
@@ -1532,25 +1533,25 @@ def test_write_scenario_evidence_round_trips_versioned_suites(tmp_path):
     proof.write_scenario_evidence(tmp_path, evidence)
 
     payload = json.loads((tmp_path / "unit-scenarios.json").read_text(encoding="utf-8"))
-    #: la racine écrite est versionnée et cohérente (schema v2, suite, count)
+    #: the written root is versioned and consistent (schema v2, suite, count)
     assert payload["schema"] == "cdpx.scenarios/v2"
     assert payload["suite"] == "unit"
     assert payload["count"] == 2
-    #: les scénarios sont triés par nodeid pour un diff stable entre runs
+    #: scenarios are sorted by nodeid for a stable diff between runs
     assert [item["nodeid"] for item in payload["scenarios"]] == [
         "tests/test_a.py::test_a",
         "tests/test_b.py::test_b",
     ]
-    #: une suite vide n'écrit aucun fichier
+    #: an empty suite writes no file
     assert not (tmp_path / "e2e-scenarios.json").exists()
-    #: le lecteur validant relit ce que l'écrivain vient de produire
+    #: the validating reader reads back what the writer just produced
     reloaded = proof.load_scenario_evidence(tmp_path)
     assert reloaded["totals"]["unit"] == 2
 
 
 def test_parse_junit_extracts_counts_and_cases(tmp_path, evidence_case):
-    """Le parseur JUnit restitue les compteurs agrégés et le détail par cas
-    (statut, message d'échec) depuis le XML produit par pytest."""
+    """The JUnit parser restores the aggregated counts and the per-case
+    detail (status, failure message) from the XML produced by pytest."""
     junit = tmp_path / "junit.xml"
     junit.write_text(
         """<?xml version="1.0" encoding="utf-8"?>
@@ -1571,60 +1572,60 @@ def test_parse_junit_extracts_counts_and_cases(tmp_path, evidence_case):
 
     parsed = proof.parse_junit(junit)
 
-    #: les compteurs dérivés (dont passed) sont cohérents avec le XML source
+    #: the derived counters (including passed) are consistent with the source XML
     assert parsed["tests"] == 3
     assert parsed["passed"] == 1
     assert parsed["failures"] == 1
     assert parsed["skipped"] == 1
-    #: chaque cas conserve statut et message d'échec pour le rendu du cockpit
+    #: each case keeps status and failure message for the cockpit rendering
     assert parsed["cases"][1]["status"] == "failed"
     assert parsed["cases"][1]["message"] == "assertion failed"
 
     if evidence_case is not None:
-        # Entrée/sortie côte à côte: le XML source brut et le dict dérivé, pour
-        # vérifier à l'œil que compteurs et cas correspondent.
+        # Input/output side by side: the raw source XML and the derived dict,
+        # to visually verify that counts and cases match.
         evidence_case.attach_text(
-            "XML JUnit source (entrée du parseur)",
+            "Source JUnit XML (parser input)",
             junit.read_text(encoding="utf-8"),
             filename="junit-source.xml",
         )
         evidence_case.attach_json(
-            "Dict parsé par parse_junit (sortie)",
+            "Dict parsed by parse_junit (output)",
             parsed,
             filename="parsed-junit.json",
         )
 
 
 def test_parse_junit_reports_malformed_xml(tmp_path):
-    """Un XML tronqué ne fait pas planter la collecte: le parseur signale
-    l'erreur de parsing tout en confirmant l'existence du fichier."""
+    """A truncated XML does not crash the collection: the parser reports the
+    parsing error while still confirming the file's existence."""
     junit = tmp_path / "junit.xml"
     junit.write_text("<testsuite>", encoding="utf-8")
 
     parsed = proof.parse_junit(junit)
 
-    #: fichier présent mais illisible: zéro test compté et erreur explicite, jamais d'exception
+    #: file present but unreadable: zero tests counted and an explicit error, never an exception
     assert parsed["exists"] is True
     assert parsed["tests"] == 0
     assert parsed["parse_error"]
 
 
 def test_parse_help_commands_uses_captured_argparse_help():
-    """Le catalogue CLI du rapport provient de l'aide argparse réelle: les
-    sous-commandes phares y figurent avec leur texte d'aide."""
+    """The report's CLI catalog comes from the real argparse help: flagship
+    subcommands appear there with their help text."""
     help_text = build_parser().format_help()
 
     commands = proof.parse_help_commands(help_text)
 
     names = {command["name"] for command in commands}
-    #: retrouver les primitives clés prouve que l'extraction lit la vraie section subcommands
+    #: finding the key primitives proves the extraction reads the real subcommands section
     assert {"goto", "seo", "vitals", "replay"}.issubset(names)
     assert any(command["help"] for command in commands if command["name"] == "seo")
 
 
 def test_build_summary_preserves_historical_artifact_keys():
-    """Les clés historiques du summary restent stables: les chemins publiés
-    sont les emplacements canoniques, pas ceux des entrées passées."""
+    """The summary's historical keys stay stable: the published paths are
+    the canonical locations, not those of the input entries."""
     unit = {
         "tests": 2,
         "passed": 2,
@@ -1659,7 +1660,7 @@ def test_build_summary_preserves_historical_artifact_keys():
         cast_entries=generated_casts(),
     )
 
-    #: le contrat JSON historique est figé: verdict et chemins canoniques d'artefacts
+    #: the historical JSON contract is frozen: verdict and canonical artifact paths
     assert summary["ok"] is True
     assert summary["unit_log"] == ".proof/make-check-pytest.log"
     assert summary["e2e_log"] == ".proof/e2e-chrome.log"
@@ -1667,8 +1668,8 @@ def test_build_summary_preserves_historical_artifact_keys():
 
 
 def test_build_summary_adds_project_evidence_sections():
-    """Le summary embarque les sections projet (identité, matrice de
-    validation, catalogue d'évidence, inconnues) qui alimentent le cockpit."""
+    """The summary carries the project sections (identity, validation
+    matrix, evidence catalog, unknowns) that feed the cockpit."""
     unit = {
         "path": ".proof/unit-junit.xml",
         "exists": True,
@@ -1727,11 +1728,11 @@ def test_build_summary_adds_project_evidence_sections():
         cast_entries=generated_casts(),
     )
 
-    #: l'identité et les volumes projet sont calculés depuis le dépôt, pas codés en dur
+    #: project identity and volumes are computed from the repo, not hardcoded
     assert summary["project"]["name"] == "cdpx"
     assert summary["project"]["cli_command_count"] >= 20
     assert summary["project"]["fixture_count"] >= 1
-    #: matrice, catalogue et inconnues sont peuplés: la SPA a de quoi rendre chaque section
+    #: matrix, catalog, and unknowns are populated: the SPA has what it needs to render each section
     assert summary["validation_matrix"]
     assert summary["coverage_groups"] == []
     assert any(item["type"] == "junit" for item in summary["evidence_catalog"])
@@ -1739,8 +1740,8 @@ def test_build_summary_adds_project_evidence_sections():
 
 
 def test_build_summary_includes_symfony_suite_and_catalog():
-    """Fournie, la suite Symfony entre dans le verdict, les totaux et le
-    catalogue d'évidence au même titre que unit et e2e."""
+    """When provided, the Symfony suite enters the verdict, the totals, and
+    the evidence catalog on the same footing as unit and e2e."""
     unit = {
         "path": ".proof/unit-junit.xml",
         "exists": True,
@@ -1793,7 +1794,7 @@ def test_build_summary_includes_symfony_suite_and_catalog():
         cast_entries=generated_casts(),
     )
 
-    #: la suite Symfony verte contribue aux totaux et publie log et JUnit au catalogue
+    #: the green Symfony suite contributes to the totals and publishes log and JUnit to the catalog
     assert summary["ok"] is True
     assert summary["symfony_log"] == ".proof/symfony-e2e.log"
     assert summary["junit"]["symfony"]["tests"] == 1
@@ -1802,8 +1803,8 @@ def test_build_summary_includes_symfony_suite_and_catalog():
 
 
 def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
-    """L'indisponibilité Symfony laisse une évidence explicite sur disque
-    (suite, statut, raison) au lieu d'une absence silencieuse."""
+    """Symfony unavailability leaves explicit evidence on disk (suite,
+    status, reason) instead of a silent absence."""
     proof_dir = tmp_path / ".proof"
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
     monkeypatch.setattr(proof, "EVIDENCE_DIR", proof_dir / "evidence")
@@ -1814,22 +1815,24 @@ def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
     proof.write_symfony_unavailable_evidence("Docker daemon unavailable")
 
     payload = (proof.EVIDENCE_DIR / "symfony-scenarios.json").read_text(encoding="utf-8")
-    #: le JSON écrit nomme la suite, le statut unavailable et la raison, lisibles par le cockpit
+    #: the written JSON names the suite, the unavailable status, and the
+    #: reason, readable by the cockpit
     assert '"suite": "symfony"' in payload
     assert '"status": "unavailable"' in payload
     assert "Docker daemon unavailable" in payload
 
 
 def test_run_symfony_evidence_fails_when_docker_is_missing(tmp_path, monkeypatch):
-    """Sans binaire docker, la collecte Symfony échoue franchement: statut
-    unavailable, exit code non nul et log rappelant l'exigence release."""
+    """Without the docker binary, Symfony collection fails outright: status
+    unavailable, non-zero exit code, and a log recalling the release
+    requirement."""
     monkeypatch.setattr(proof, "EVIDENCE_DIR", tmp_path / "evidence")
     monkeypatch.setattr(proof, "SYMFONY_LOG", tmp_path / "symfony.log")
     monkeypatch.setattr(proof.shutil, "which", lambda _name: None)
 
     command = proof.run_symfony_evidence()
 
-    #: l'absence de Docker est un échec tracé que le portail release peut juger, pas un skip
+    #: the absence of Docker is a traced failure that the release gate can judge, not a skip
     assert command.exit_code == 1
     assert command.status == "unavailable"
     assert "required for release proof" in proof.SYMFONY_LOG.read_text(encoding="utf-8")
@@ -1863,11 +1866,11 @@ def _ok_command():
 
 
 def test_spa_renders_every_summary_key():
-    """Garde-fou "calculé => rendu": toute clé de premier niveau du summary
-    doit être consommée par la SPA, hors clés du shell HTML et métadonnées."""
-    # Garde-fou "calculé => rendu": toute clé de premier niveau du summary doit
-    # être lue par la SPA (data.<clé>), sauf celles rendues par le shell HTML ou
-    # purement méta (chemins d'artefacts, duplicats bruts).
+    """Guard rail "computed => rendered": every top-level summary key must be
+    consumed by the SPA, except shell HTML keys and metadata."""
+    # Guard rail "computed => rendered": every top-level summary key must be
+    # read by the SPA (data.<key>), except those rendered by the HTML shell or
+    # purely meta ones (artifact paths, raw duplicates).
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -1876,19 +1879,20 @@ def test_spa_renders_every_summary_key():
         scenario_evidence=empty_scenario_evidence(),
         cast_entries=generated_casts(),
     )
-    shell_keys = {"ok", "generated_at", "git"}  # rendus par render_html directement
+    shell_keys = {"ok", "generated_at", "git"}  # rendered directly by render_html
     meta_keys = {"artifact_dir", "report_html", "unit_log", "e2e_log", "symfony_log"}
-    meta_keys.add("scenario_evidence")  # duplicat brut de feature_inventory/matched_scenarios
-    #: une clé calculée mais jamais lue par la SPA échoue ici: le travail mort est un bug
+    meta_keys.add("scenario_evidence")  # raw duplicate of feature_inventory/matched_scenarios
+    #: a key computed but never read by the SPA fails here: dead work is a bug
     for key in summary:
         if key in shell_keys | meta_keys or f"data.{key}" in proof.cockpit_javascript():
             continue
-        raise AssertionError(f"clé du summary calculée mais jamais rendue par la SPA: {key}")
+        raise AssertionError(f"summary key computed but never rendered by the SPA: {key}")
 
 
 def test_render_html_embeds_payload_verdict_and_routes(evidence_case):
-    """Le HTML rendu embarque le payload JSON et le verdict, câble toutes les
-    routes de la SPA et verrouille le rapport par CSP, sans script externe."""
+    """The rendered HTML embeds the JSON payload and the verdict, wires all
+    SPA routes, and locks down the report via CSP, with no external
+    script."""
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -1897,10 +1901,10 @@ def test_render_html_embeds_payload_verdict_and_routes(evidence_case):
         cast_entries=generated_casts(),
     )
     html = proof.render_html(summary)
-    #: payload et verdict sont inlinés: le rapport est autonome et lisible hors ligne
+    #: payload and verdict are inlined: the report is self-contained and readable offline
     assert 'id="report-data"' in html and '"ok": true'.replace(" ", "") in html.replace(" ", "")
     assert ">OK<" in html
-    #: chaque route de navigation attendue est présente dans le shell
+    #: every expected navigation route is present in the shell
     for route in (
         "#/features",
         "#/docs",
@@ -1911,39 +1915,39 @@ def test_render_html_embeds_payload_verdict_and_routes(evidence_case):
         "#/project",
     ):
         assert route in html
-    #: CSP stricte et Mermaid en mode strict interdisent toute requête sortante
+    #: strict CSP and Mermaid in strict mode forbid any outgoing request
     assert "securityLevel: 'strict'" in html
     assert "connect-src 'none'" in html
     assert "media-src 'self'" in html
-    #: la modale d'artefacts existe et s'annonce comme dialogue accessible
+    #: the artifact modal exists and announces itself as an accessible dialog
     assert 'id="artifact-modal"' in html
     assert 'role="dialog"' in html
-    #: aucun script externe: l'autonomie hors ligne est structurelle
+    #: no external script: offline self-containment is structural
     assert "<script src=" not in html
 
     if evidence_case is not None:
-        # Le HTML complet embarque Mermaid (~3,5 Mo): on n'attache qu'un extrait
-        # significatif (tête du shell/CSP + zone du payload embarqué), sous le
-        # cap d'inline de 16 KiB du cockpit.
+        # The full HTML embeds Mermaid (~3.5 MB): only a meaningful excerpt is
+        # attached (shell/CSP head + embedded payload zone), under the
+        # cockpit's 16 KiB inline cap.
         marker = html.index('id="report-data"')
         shell_excerpt = "\n".join(
             [
-                "=== <head> / shell (extrait) ===",
+                "=== <head> / shell (excerpt) ===",
                 html[:1200],
-                "=== zone du payload embarqué (report-data) ===",
+                "=== embedded payload zone (report-data) ===",
                 html[max(0, marker - 200) : marker + 3500],
             ]
         )
         evidence_case.attach_text(
-            "Extrait du rapport HTML — shell + payload embarqué",
+            "HTML report excerpt — shell + embedded payload",
             shell_excerpt,
             filename="report-shell.html",
         )
 
 
 def test_build_summary_exposes_curated_documentation_catalog():
-    """Le catalogue documentaire du summary suit son schéma versionné, sans
-    violation, et référence les documents curés attendus."""
+    """The summary's documentation catalog follows its versioned schema,
+    with no violations, and references the expected curated documents."""
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -1953,39 +1957,40 @@ def test_build_summary_exposes_curated_documentation_catalog():
     )
 
     documentation = summary["documentation"]
-    #: schéma annoncé, zéro violation et présence d'un document clé: la curation est vérifiée
+    #: announced schema, zero violations, and presence of a key document: curation is verified
     assert documentation["schema"] == "cdpx.docs/v1"
     assert documentation["violations"] == []
     assert any(
         document["path"] == "docs/SESSION-LIFECYCLE.md" for document in documentation["documents"]
     )
-    #: un catalogue sain ne déclenche aucune défaillance de portail
+    #: a healthy catalog triggers no gate failure
     assert not any(failure.startswith("documentation:") for failure in summary["proof_failures"])
 
 
 def test_mermaid_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
-    """Le bundle Mermaid vendoré est chargé entier et vérifié par SHA-256:
-    un hash divergent est rejeté plutôt que d'embarquer un script altéré."""
+    """The vendored Mermaid bundle is loaded whole and verified via
+    SHA-256: a diverging hash is rejected rather than embedding a tampered
+    script."""
     bundle = proof._mermaid_bundle()
-    #: le bundle complet est réellement lu depuis les ressources du paquet
+    #: the complete bundle is actually read from the package resources
     assert len(bundle) > 3_000_000
     assert "mermaid" in bundle.lower()
 
     proof._mermaid_bundle.cache_clear()
     monkeypatch.setattr(proof, "MERMAID_SHA256", "0" * 64)
-    #: un hash inattendu fait échouer le chargement: intégrité avant embarquement
+    #: an unexpected hash fails the load: integrity before embedding
     with pytest.raises(ValueError, match="bundle vendor/mermaid"):
         proof._mermaid_bundle()
     proof._mermaid_bundle.cache_clear()
 
 
 def test_xterm_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
-    """Le bundle xterm.js et sa feuille de style vendorés sont chargés et
-    vérifiés par SHA-256, prêts à être inlinés comme Mermaid."""
-    # Le player cast s'appuie sur xterm.js vendoré (MIT): bundle + CSS vérifiés
-    # par SHA-256, embarqués inline dans le rapport comme Mermaid.
+    """The vendored xterm.js bundle and its stylesheet are loaded and
+    verified via SHA-256, ready to be inlined like Mermaid."""
+    # The cast player relies on vendored xterm.js (MIT): bundle + CSS verified
+    # via SHA-256, embedded inline in the report like Mermaid.
     bundle = proof._xterm_bundle()
-    #: JS et CSS xterm sont présents et substantiels dans les ressources du paquet
+    #: xterm JS and CSS are present and substantial in the package resources
     assert len(bundle) > 100_000
     assert "Terminal" in bundle
 
@@ -1994,29 +1999,30 @@ def test_xterm_vendor_bundle_is_integrity_checked_and_embedded(monkeypatch):
 
     proof._xterm_bundle.cache_clear()
     monkeypatch.setattr(proof, "XTERM_JS_SHA256", "0" * 64)
-    #: la vérification d'intégrité rejette un bundle dont le hash a changé
+    #: the integrity check rejects a bundle whose hash changed
     with pytest.raises(ValueError, match="bundle vendor/xterm"):
         proof._xterm_bundle()
     proof._xterm_bundle.cache_clear()
 
 
 def test_cockpit_assets_are_packaged_and_sane():
-    """Chaque ressource cockpit packagée existe, n'est pas vide et reste
-    inlinable; le shell se substitue sans placeholder manquant ni orphelin."""
-    # La présentation vit dans des ressources dédiées (cockpit/) chargées via
-    # importlib.resources: chaque asset doit exister, être non vide, et les
-    # scripts/styles doivent rester inlinables (pas de </script> prématuré).
+    """Every packaged cockpit resource exists, is not empty, and stays
+    inlinable; the shell substitutes with no missing placeholder and no
+    orphan."""
+    # The presentation lives in dedicated resources (cockpit/) loaded via
+    # importlib.resources: every asset must exist, be non-empty, and
+    # scripts/styles must stay inlinable (no premature </script>).
     from string import Template
 
-    #: chaque asset embarqué est non vide et ne peut pas fermer prématurément la balise script
+    #: every embedded asset is non-empty and cannot prematurely close the script tag
     for name in proof.COCKPIT_RESOURCES:
         asset = proof._cockpit_asset(name)
-        assert asset.strip(), f"asset cockpit vide: {name}"
+        assert asset.strip(), f"empty cockpit asset: {name}"
         if name != proof.COCKPIT_SHELL_RESOURCE:
-            assert "</script" not in asset.lower(), f"asset non inlinable: {name}"
+            assert "</script" not in asset.lower(), f"non-inlinable asset: {name}"
 
     shell = proof._cockpit_asset(proof.COCKPIT_SHELL_RESOURCE)
-    # Le shell doit se substituer sans placeholder manquant ni $ littéral orphelin.
+    # The shell must substitute with no missing placeholder and no orphan literal $.
     rendered = Template(shell).substitute(
         verdict="OK",
         pill="ok",
@@ -2028,40 +2034,39 @@ def test_cockpit_assets_are_packaged_and_sane():
         xterm_bundle="",
         spa_js="",
     )
-    #: la substitution complète du shell prouve qu'aucun placeholder n'est orphelin
+    #: the complete shell substitution proves no placeholder is orphaned
     assert rendered.startswith("<!doctype html>")
 
-    #: demander un asset inexistant échoue franchement au lieu de rendre une page vide
+    #: requesting a nonexistent asset fails outright instead of rendering an empty page
     with pytest.raises(FileNotFoundError):
         proof._cockpit_asset("cockpit/does-not-exist.js")
 
 
 def test_every_artifact_type_has_a_dedicated_viewer():
-    """Garde-fou taxonomie => rendu: chaque type d'artefact de la taxonomie
-    fermée possède son entrée dans le registre VIEWERS du cockpit."""
-    # Garde-fou "calculé => rendu" au niveau des artefacts: chaque type de la
-    # taxonomie fermée doit avoir une entrée dans le registre VIEWERS du
-    # cockpit. Un type collecté sans visualiseur casse le build.
+    """Guard rail taxonomy => rendering: every artifact type in the closed
+    taxonomy has its entry in the cockpit's VIEWERS registry."""
+    # Guard rail "computed => rendered" at the artifact level: every type in
+    # the closed taxonomy must have an entry in the cockpit's VIEWERS
+    # registry. A collected type with no viewer breaks the build.
     from cdpx.testing.evidence import ARTIFACT_TYPES
 
-    #: le registre doit exister sous la forme attendue avant d'en inspecter le contenu
+    #: the registry must exist in the expected form before inspecting its content
     assert "const VIEWERS = {" in proof.cockpit_javascript()
     registry = proof.cockpit_javascript().split("const VIEWERS = {", 1)[1].split("};", 1)[0]
-    #: un type collecté sans visualiseur casse le build: rien ne reste invisible au reviewer
+    #: a collected type with no viewer breaks the build: nothing stays invisible to the reviewer
     for artifact_type in sorted(ARTIFACT_TYPES):
         assert f"'{artifact_type}':" in registry, (
-            f"type d'artefact sans visualiseur dans le cockpit: {artifact_type}"
+            f"artifact type without a viewer in the cockpit: {artifact_type}"
         )
 
 
 def test_text_viewers_are_specialized_per_type():
-    """Chaque type textuel dispose d'un visualiseur spécialisé dans la SPA
-    (console, réseau, JSON, profiler, logs, commande), pas d'un simple
-    lien de téléchargement."""
-    # Chaque type textuel a un vrai visualiseur, pas un simple lien: console
-    # (niveaux + filtres), network (table statuts), json/profiler (arbre),
-    # logs (lignes numérotées + surlignage), command (argv + exit code).
-    #: chaque marqueur atteste qu'un visualiseur dédié est réellement câblé dans le JS
+    """Every textual type has a specialized viewer in the SPA (console,
+    network, JSON, profiler, logs, command), not a plain download link."""
+    # Every textual type has a real viewer, not a plain link: console
+    # (levels + filters), network (status table), json/profiler (tree),
+    # logs (numbered lines + highlighting), command (argv + exit code).
+    #: each marker attests that a dedicated viewer is actually wired in the JS
     for marker in (
         "function consoleViewer",
         "data-console-level",
@@ -2075,38 +2080,36 @@ def test_text_viewers_are_specialized_per_type():
         "function commandViewer",
         "transcriptSection(body, 'stderr')",
     ):
-        assert marker in proof.cockpit_javascript(), f"visualiseur texte manquant: {marker}"
+        assert marker in proof.cockpit_javascript(), f"missing text viewer: {marker}"
 
 
 def test_modal_resolves_inline_content_by_path():
-    """Les copies d'artefacts de feature_inventory (jamais inlinées côté
-    Python) récupèrent dans le modal le contenu embarqué de la source unique
-    scenario_evidence, résolu par path — plus de repli « Contenu non
-    embarqué » quand le contenu existe dans le payload."""
-    # feature_inventory duplique chaque artefact à plusieurs niveaux (proofs,
-    # matched_scenarios): inliner ces copies côté Python multiplierait le
-    # poids du rapport. La SPA résout donc l'inline par path au moment du
-    # rendu, depuis la copie unique de scenario_evidence.suites.
-    #: l'index est construit depuis scenario_evidence, la source unique inlinée
+    """feature_inventory artifact copies (never inlined on the Python side)
+    retrieve, in the modal, the embedded content from the single source
+    scenario_evidence, resolved by path — no more falling back to "Content
+    not embedded" when the content exists in the payload."""
+    # feature_inventory duplicates every artifact at several levels (proofs,
+    # matched_scenarios): inlining these copies on the Python side would
+    # multiply the report's weight. The SPA therefore resolves the inline by
+    # path at render time, from the single copy in scenario_evidence.suites.
+    #: the index is built from scenario_evidence, the single inlined source
     for marker in (
         "const inlineByPath",
         "(data.scenario_evidence || {}).suites",
         "function resolveInline",
     ):
-        assert marker in proof.cockpit_javascript(), (
-            f"résolution inline par path manquante: {marker}"
-        )
-    #: le modal enrichit l'artefact avant de choisir son visualiseur
+        assert marker in proof.cockpit_javascript(), f"missing inline-by-path resolution: {marker}"
+    #: the modal enriches the artifact before choosing its viewer
     assert "resolveInline(modalState.items[modalState.index])" in proof.cockpit_javascript()
 
 
 def test_cast_viewer_replays_v2_in_xterm_and_keeps_a_raw_fallback():
-    """Le player de casts rejoue l'asciicast v2 dans xterm.js avec une
-    toolbar maison (scrubber, vitesses) et conserve une vue brute de repli."""
-    # Player réel: xterm.js vendoré (MIT — asciinema-player est GPL-3), piloté
-    # par la toolbar maison (scrubber, vitesses), vue brute de repli conservée.
-    #: chaque brique du player (parsing v2, cycle de vie xterm, contrôles,
-    #: repli brut) est présente
+    """The cast player replays the asciicast v2 in xterm.js with a homemade
+    toolbar (scrubber, speeds) and keeps a raw fallback view."""
+    # Real player: vendored xterm.js (MIT — asciinema-player is GPL-3), driven
+    # by the homemade toolbar (scrubber, speeds), raw fallback view kept.
+    #: every player building block (v2 parsing, xterm lifecycle, controls,
+    #: raw fallback) is present
     for marker in (
         "function parseCast",
         "header.version !== 2",
@@ -2119,21 +2122,21 @@ def test_cast_viewer_replays_v2_in_xterm_and_keeps_a_raw_fallback():
         "'asciinema': castViewer",
         "requestAnimationFrame(tick)",
     ):
-        assert marker in proof.cockpit_javascript(), f"player asciinema incomplet: {marker}"
+        assert marker in proof.cockpit_javascript(), f"incomplete asciinema player: {marker}"
 
 
 def test_cast_gate_blocks_the_verdict():
-    """Le portail cast est bloquant: collecte absente ou statut dégradé
-    rougissent le verdict avec une cause explicite dans proof_failures."""
-    # Portail cast: sans entrées (ou avec un statut dégradé), le verdict passe
-    # rouge et la cause est explicite dans proof_failures.
+    """The cast gate is blocking: missing collection or degraded status
+    turns the verdict red with an explicit cause in proof_failures."""
+    # Cast gate: with no entries (or a degraded status), the verdict goes red
+    # and the cause is explicit in proof_failures.
     missing = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
         _minimal_suite(".proof/e2e-junit.xml"),
         scenario_evidence=empty_scenario_evidence(),
     )
-    #: aucune collecte de cast => verdict rouge, un échec par démo attendue
+    #: no cast collection => red verdict, one failure per expected demo
     assert missing["ok"] is False
     assert any(failure.startswith("cast missing:") for failure in missing["proof_failures"])
 
@@ -2146,18 +2149,18 @@ def test_cast_gate_blocks_the_verdict():
         scenario_evidence=empty_scenario_evidence(),
         cast_entries=degraded_casts,
     )
-    #: un cast dégradé est bloquant et nomme la démo fautive
+    #: a degraded cast is blocking and names the faulty demo
     assert degraded["ok"] is False
     assert any(failure.startswith("cast unavailable:") for failure in degraded["proof_failures"])
-    #: le summary expose les entrées pour le rendu SPA (section Run)
+    #: the summary exposes the entries for the SPA rendering (Run section)
     assert degraded["casts"] == degraded_casts
 
 
 def test_catalog_casts_are_inlined_for_the_player(tmp_path, monkeypatch, evidence_case):
-    """Les .cast du catalogue sont inlinés dans le payload HTML: sous la CSP
-    du rapport, un simple lien serait injouable."""
-    # Les .cast du catalogue (produits hors scénario pytest) doivent être
-    # inlinés: sous la CSP du rapport, un lien seul serait injouable.
+    """Catalog .cast files are inlined into the HTML payload: under the
+    report's CSP, a plain link would be unplayable."""
+    # Catalog .cast files (produced outside a pytest scenario) must be
+    # inlined: under the report's CSP, a link alone would be unplayable.
     monkeypatch.setattr(proof, "PROOF_DIR", tmp_path)
     cast_file = tmp_path / "cli-help.cast"
     cast_file.write_text('{"version": 2}\n[0.1, "o", "ok"]\n', encoding="utf-8")
@@ -2165,24 +2168,24 @@ def test_catalog_casts_are_inlined_for_the_player(tmp_path, monkeypatch, evidenc
     catalog = proof.build_evidence_catalog({"commands": []}, {}, {}, {})
 
     entry = next(item for item in catalog if item["type"] == "asciinema")
-    #: le contenu voyage dans le payload HTML, prêt pour xterm
+    #: the content travels in the HTML payload, ready for xterm
     assert entry["inline_content"].startswith('{"version": 2}')
-    #: plus aucune entrée placeholder "optional": le cast est obligatoire
+    #: no more "optional" placeholder entry: the cast is mandatory
     assert not any(item.get("status") == "optional" for item in catalog)
 
     if evidence_case is not None:
-        # Le .cast synthétique du catalogue, rejouable tel quel dans le player
-        # xterm du cockpit (classé non uploadable par attach_cast).
+        # The catalog's synthetic .cast, replayable as-is in the cockpit's
+        # xterm player (classified not uploadable by attach_cast).
         evidence_case.attach_cast(
             cast_file,
-            "Cast synthétique du catalogue — rejouable dans le player xterm",
+            "Synthetic catalog cast — replayable in the xterm player",
         )
 
 
 def test_modal_and_keyboard_wiring_are_present():
-    """La modale d'artefacts et sa navigation clavier (Échap, flèches,
-    groupes) sont câblées dans le JS de la SPA."""
-    #: ouverture, fermeture, raccourcis clavier et contexte de navigation sont tous câblés
+    """The artifact modal and its keyboard navigation (Escape, arrows,
+    groups) are wired in the SPA's JS."""
+    #: opening, closing, keyboard shortcuts, and navigation context are all wired
     for marker in (
         "function openModal",
         "function closeModal",
@@ -2192,17 +2195,17 @@ def test_modal_and_keyboard_wiring_are_present():
         "data-modal-group",
         "ctx: {scenario, run}",
     ):
-        assert marker in proof.cockpit_javascript(), f"câblage modal manquant: {marker}"
+        assert marker in proof.cockpit_javascript(), f"missing modal wiring: {marker}"
 
 
 def test_reading_order_timeline_and_badges_guide_the_review():
-    """L'UX de relecture est guidée: les échecs remontent en tête, le
-    parcours et la chronologie du run sont visuels, les badges annoncent les
-    preuves avant le clic."""
-    # UX de lecture: le rouge remonte ("À lire d'abord"), le parcours est
-    # guidé, la chronologie du run est visuelle et les badges annoncent les
-    # preuves avant le clic.
-    #: chaque dispositif de guidage (à lire d'abord, parcours, timeline, badges) est câblé
+    """The review UX is guided: failures rise to the top, the run's path and
+    timeline are visual, and badges announce the evidence before the
+    click."""
+    # Reading UX: red rises to the top ("Read first"), the path is guided,
+    # the run's timeline is visual, and badges announce the evidence before
+    # the click.
+    #: every guidance device (read first, path, timeline, badges) is wired
     for marker in (
         "function renderReadFirst",
         "Read first",
@@ -2213,16 +2216,17 @@ def test_reading_order_timeline_and_badges_guide_the_review():
         "function failedRuns",
         "typeBadges(scenarioArtifacts(feature.matched_scenarios))",
     ):
-        assert marker in proof.cockpit_javascript(), f"UX de lecture incomplète: {marker}"
+        assert marker in proof.cockpit_javascript(), f"incomplete reading UX: {marker}"
 
 
 def test_scenario_view_renders_intent_and_assertion_hierarchy():
-    """La vue scénario rend l'intention extraite du code: docstring,
-    annotations d'assertion avec statut honnête, corrélation de la ligne
-    d'échec et sorties du run."""
-    # "Calculé => rendu" pour l'intention extraite du code: docstring,
-    # assertions #: avec statut honnête, corrélation failed_line, chronologie.
-    #: chaque champ d'intention calculé est consommé par la vue, y compris l'échec corrélé
+    """The scenario view renders the intent extracted from the code:
+    docstring, assertion annotations with honest status, correlation of the
+    failure line, and run outputs."""
+    # "Computed => rendered" for the intent extracted from the code:
+    # docstring, #: assertions with honest status, failed_line correlation,
+    # timeline.
+    #: every computed intent field is consumed by the view, including the correlated failure
     for marker in (
         "run.intent",
         "run.assertions",
@@ -2234,12 +2238,12 @@ def test_scenario_view_renders_intent_and_assertion_hierarchy():
         "run.stdout",
         "run.stderr",
     ):
-        assert marker in proof.cockpit_javascript(), f"vue scénario incomplète: {marker}"
+        assert marker in proof.cockpit_javascript(), f"incomplete scenario view: {marker}"
 
 
 def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
-    """Le summary embarque les cas JUnit détaillés, une liste focus qui fait
-    remonter les échecs et la queue de log de chaque commande."""
+    """The summary carries the detailed JUnit cases, a focus list that
+    surfaces failures, and each command's log tail."""
     cases = [
         {"classname": "tests.test_a", "name": "test_x", "time_s": 0.5, "status": "passed"},
         {"classname": "tests.test_a", "name": "test_y", "time_s": 0.1, "status": "failed"},
@@ -2251,15 +2255,15 @@ def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
         scenario_evidence=empty_scenario_evidence(),
         cast_entries=generated_casts(),
     )
-    #: cas complets restitués, échecs triés en tête du focus, queue de log prête au rendu
+    #: full cases returned, failures sorted to the top of the focus, log tail ready for rendering
     assert summary["junit"]["unit"]["cases"] == cases
-    assert summary["junit"]["unit"]["focus"][0]["status"] == "failed"  # échecs d'abord
+    assert summary["junit"]["unit"]["focus"][0]["status"] == "failed"  # failures first
     assert "log_tail" in summary["commands"][0]
 
 
 def test_symfony_unavailable_is_always_blocking(monkeypatch):
-    """Un scénario Symfony unavailable bloque le verdict même sans suite
-    JUnit Symfony: l'indisponibilité est comptée et nommée."""
+    """An unavailable Symfony scenario blocks the verdict even without a
+    Symfony JUnit suite: the unavailability is counted and named."""
     suites = {
         "unit": [],
         "integration": [],
@@ -2274,15 +2278,15 @@ def test_symfony_unavailable_is_always_blocking(monkeypatch):
         _minimal_suite(".proof/e2e-junit.xml"),
         scenario_evidence=evidence,
     )
-    #: l'indisponibilité apparaît dans les totaux, rougit le verdict et nomme sa cause
-    assert summary["totals"]["unavailable"] == 1  # visible dans le hero
+    #: the unavailability appears in the totals, turns the verdict red, and names its cause
+    assert summary["totals"]["unavailable"] == 1  # visible in the hero
     assert summary["ok"] is False
     assert any("symfony evidence unavailable" in failure for failure in summary["proof_failures"])
 
 
 def test_symfony_skips_are_release_blocking():
-    """Un seul skip dans la suite Symfony fait échouer la preuve de release:
-    aucun test esquivé n'est toléré sur ce portail."""
+    """A single skip in the Symfony suite fails the release proof: no
+    dodged test is tolerated on this gate."""
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -2292,14 +2296,14 @@ def test_symfony_skips_are_release_blocking():
         cast_entries=generated_casts(),
     )
 
-    #: le skip Symfony rougit le verdict et la défaillance le nomme explicitement
+    #: the Symfony skip turns the verdict red and the failure names it explicitly
     assert summary["ok"] is False
     assert any("symfony tests skipped" in failure for failure in summary["proof_failures"])
 
 
 def test_chrome_skips_and_missing_junit_are_release_blocking():
-    """Côté Chrome e2e, un test skippé ou un JUnit absent sont tous deux
-    bloquants pour la release, chacun avec une défaillance nommée."""
+    """On the Chrome e2e side, a skipped test or a missing JUnit are both
+    blocking for the release, each with a named failure."""
     e2e_command = proof.CommandEvidence(
         id="e2e",
         label="Chrome E2E",
@@ -2328,17 +2332,17 @@ def test_chrome_skips_and_missing_junit_are_release_blocking():
         cast_entries=generated_casts(),
     )
 
-    #: un seul skip e2e rougit le verdict, avec son compte exact dans la défaillance
+    #: a single e2e skip turns the verdict red, with its exact count in the failure
     assert skipped_summary["ok"] is False
     assert "e2e tests skipped (1)" in skipped_summary["proof_failures"]
-    #: l'absence du JUnit requis est une défaillance distincte, pas un zéro silencieux
+    #: the missing required JUnit is a distinct failure, not a silent zero
     assert missing_summary["ok"] is False
     assert any("required JUnit missing" in item for item in missing_summary["proof_failures"])
 
 
 def test_build_summary_fails_when_e2e_screenshot_missing():
-    """Un scénario e2e sans capture attachée fait échouer la preuve et est
-    aussi signalé comme non mappé dans l'inventaire des features."""
+    """An e2e scenario without an attached capture fails the proof and is
+    also flagged as unmapped in the feature inventory."""
     unit = {
         "path": ".proof/unit-junit.xml",
         "exists": True,
@@ -2385,13 +2389,13 @@ def test_build_summary_fails_when_e2e_screenshot_missing():
 
     summary = proof.build_summary([command], unit, e2e, scenario_evidence=scenario_evidence)
 
-    #: le scénario fautif est nommé dans la défaillance de capture manquante
+    #: the faulty scenario is named in the missing-capture failure
     assert summary["ok"] is False
     assert (
         "missing e2e screenshot: tests/e2e/test_demo.py::test_without_shot"
         in summary["proof_failures"]
     )
-    #: le même nodeid est aussi tracé comme non mappé dans l'inventaire des features
+    #: the same nodeid is also traced as unmapped in the feature inventory
     assert (
         "feature inventory: scenario unmapped: tests/e2e/test_demo.py::test_without_shot"
         in summary["proof_failures"]
@@ -2399,16 +2403,16 @@ def test_build_summary_fails_when_e2e_screenshot_missing():
 
 
 def test_classify_change_categorizes_repository_paths():
-    """La classification des chemins modifiés route chaque famille de fichier
-    vers sa catégorie de relecture (code, tests, docs, harness, autre)."""
-    #: chaque famille de chemin part vers la catégorie attendue par la carte d'impact
+    """Classifying changed paths routes each file family to its review
+    category (code, tests, docs, harness, other)."""
+    #: every path family goes to the category expected by the impact map
     assert proof.classify_change("src/cdpx/proof.py") == "Product code"
     assert proof.classify_change("tests/test_proof.py") == "Tests"
     assert proof.classify_change("docs/TODO.md") == "Documentation"
     assert proof.classify_change("README.md") == "Documentation"
     assert proof.classify_change("Makefile") == "Harness / CI"
     assert proof.classify_change(".github/workflows/ci.yml") == "Harness / CI"
-    #: un chemin hors des familles connues reste honnêtement « Autre »
+    #: a path outside the known families honestly stays "Other"
     assert proof.classify_change("article/post.md") == "Other"
 
 
@@ -2422,35 +2426,36 @@ def _impact_git_context(paths):
 
 
 def test_build_impact_map_derives_entrypoints_and_change_types():
-    """La carte d'impact dérive catégories, points d'entrée et types de
-    changement des fichiers modifiés, et marque la surface CLI vérifiée quand
-    l'aide a été capturée."""
+    """The impact map derives categories, entry points, and change types
+    from the modified files, and flags the verified CLI surface when help
+    was captured."""
     git_context = _impact_git_context(
         ["Makefile", "src/cdpx/proof.py", "tests/test_proof.py", "docs/TODO.md"]
     )
 
-    impact = proof.build_impact_map(git_context, [{"name": "goto", "help": "ouvre une page"}])
+    impact = proof.build_impact_map(git_context, [{"name": "goto", "help": "opens a page"}])
 
-    #: chaque fichier modifié alimente sa catégorie de relecture
+    #: every modified file feeds its review category
     assert set(impact["categories"]) == {"Harness / CI", "Product code", "Tests", "Documentation"}
-    #: les points d'entrée connus (make proof, module, tests) sont tous déclarés
+    #: the known entry points (make proof, module, tests) are all declared
     assert [entry["name"] for entry in impact["entrypoints"]] == [
         "make proof",
         "python -m cdpx.proof",
         "tests/test_proof.py",
     ]
-    #: les types de changement incluent le marqueur de surface CLI vérifiée
+    #: the change types include the verified-CLI-surface marker
     assert impact["change_types"] == ["code", "tests", "harness", "docs", "verified-cli-surface"]
 
     empty = proof.build_impact_map(_impact_git_context([]), [])
-    #: sans changement ni aide capturée, le type est explicitement unknown
+    #: without changes or captured help, the type is explicitly unknown
     assert empty["change_types"] == ["unknown"]
     assert empty["entrypoints"] == []
 
 
 def test_build_review_guide_orders_reading_by_category():
-    """Le guide de relecture ordonne le parcours selon les catégories
-    touchées (harness d'abord) et fournit un repli quand rien n'est classé."""
+    """The review guide orders the reading path according to the affected
+    categories (harness first) and provides a fallback when nothing is
+    classified."""
     impact = proof.build_impact_map(
         _impact_git_context(["Makefile", "src/cdpx/proof.py", "tests/test_proof.py", "README.md"]),
         [],
@@ -2458,35 +2463,35 @@ def test_build_review_guide_orders_reading_by_category():
 
     guide = proof.build_review_guide(impact)
 
-    #: le parcours commence par le contrat utilisateur (Makefile) puis suit les couches
+    #: the path starts with the user contract (Makefile) then follows the layers
     assert guide["order"][0].startswith("Start with the Makefile")
     assert len(guide["order"]) == 4
-    #: les points de vigilance du reviewer sont toujours fournis
+    #: the reviewer's watch-outs are always provided
     assert guide["watch_outs"]
 
     fallback = proof.build_review_guide({"categories": {}})
-    #: sans catégorie connue, un ordre de repli unique guide quand même la lecture
+    #: without a known category, a single fallback order still guides the reading
     assert len(fallback["order"]) == 1
 
 
 def test_build_risks_and_unknowns_flags_versioned_generated_artifacts():
-    """Le packet risques/inconnues du changement garde son socle stable et
-    ajoute une inconnue dédiée quand git suit des artefacts générés."""
+    """The change's risks/unknowns packet keeps its stable base and adds a
+    dedicated unknown when git tracks generated artifacts."""
     base = proof.build_risks_and_unknowns({"generated_count": 0})
 
-    #: le socle risques/inconnues est constant quand aucun artefact généré n'est suivi
+    #: the risks/unknowns base is constant when no generated artifact is tracked
     assert len(base["risks"]) == 2
     assert len(base["unknowns"]) == 3
 
     tracked = proof.build_risks_and_unknowns({"generated_count": 2})
-    #: des artefacts générés versionnés déclenchent une inconnue supplémentaire nommée
+    #: versioned generated artifacts trigger an additional named unknown
     assert any(item["item"] == "Versioned generated artifacts" for item in tracked["unknowns"])
 
 
 def test_collect_git_context_filters_private_paths_and_splits_generated(tmp_path, monkeypatch):
-    """La collecte git filtre les chemins privés du worktree (AGENTS.md,
-    article/, presentation/), sépare les fichiers générés des vrais
-    changements et écrit les snapshots aux chemins demandés."""
+    """Git collection filters out private worktree paths (AGENTS.md,
+    article/, presentation/), separates generated files from real changes,
+    and writes the snapshots to the requested paths."""
 
     def fake_run_text(argv, timeout=None, env=None):
         if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
@@ -2509,28 +2514,28 @@ def test_collect_git_context_filters_private_paths_and_splits_generated(tmp_path
 
     context = proof.collect_git_context(status_path=status_path, diff_stat_path=diff_stat_path)
 
-    #: branche et sha proviennent des sorties git, pas d'un défaut statique
+    #: branch and sha come from git output, not a static default
     assert context["branch"] == "feature/proof"
     assert context["sha"] == "abc1234"
     written = status_path.read_text(encoding="utf-8")
-    #: les chemins privés du worktree (y compris cible d'un rename) ne fuient jamais
+    #: private worktree paths (including a rename's target) never leak
     assert "AGENTS.md" not in written
     assert "article/" not in written
     assert "presentation/" not in written
-    #: les artefacts générés (.proof/) sont séparés des changements à relire
+    #: generated artifacts (.proof/) are separated from changes to review
     assert [item["path"] for item in context["changed_files"]] == ["src/cdpx/proof.py"]
     assert [item["path"] for item in context["generated_files"]] == [".proof/report.html"]
     assert context["changed_count"] == 1
     assert context["generated_count"] == 1
-    #: le diff stat est écrit au chemin demandé pour le catalogue d'évidence
+    #: the diff stat is written to the requested path for the evidence catalog
     assert "proof.py" in diff_stat_path.read_text(encoding="utf-8")
 
 
 def test_collect_git_context_never_parses_failed_git_output_as_porcelain(tmp_path, monkeypatch):
-    """Une sortie git en échec (timeout exit 124, porcelain partiel suivi de
-    l'annotation de timeout) n'est jamais parsée comme du porcelain: listes
-    vides, snapshots vides, seul le code d'erreur publié porte le
-    diagnostic — aucune entrée corrompue n'atteint le summary."""
+    """A failed git output (timeout exit 124, partial porcelain followed by
+    the timeout annotation) is never parsed as porcelain: empty lists, empty
+    snapshots, only the published error code carries the diagnosis — no
+    corrupted entry reaches the summary."""
 
     def fake_run_text(argv, timeout=None, env=None):
         if argv[:2] == ["git", "status"]:
@@ -2545,20 +2550,20 @@ def test_collect_git_context_never_parses_failed_git_output_as_porcelain(tmp_pat
 
     context = proof.collect_git_context(status_path=status_path, diff_stat_path=diff_stat_path)
 
-    #: aucune ligne du porcelain partiel ne devient une entrée de fichier
+    #: no line of the partial porcelain becomes a file entry
     assert context["changed_files"] == []
     assert context["generated_files"] == []
-    #: les codes d'échec sont publiés tels quels pour le diagnostic
+    #: the failure codes are published as-is for diagnosis
     assert context["status_code"] == 124
     assert context["diff_stat_code"] == 124
-    #: les snapshots écrits sont vides: pas de porcelain corrompu publié
+    #: the written snapshots are empty: no corrupted porcelain published
     assert status_path.read_text(encoding="utf-8") == ""
     assert diff_stat_path.read_text(encoding="utf-8") == ""
 
 
 def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_codes=None):
-    # Docker entièrement simulé: which présent, checks/downs via _run_text,
-    # up streamé via _stream_to_private_file. Aucun conteneur réel.
+    # Docker fully simulated: which present, checks/downs via _run_text, up
+    # streamed via _stream_to_private_file. No real container.
     calls = {"down": 0, "argv": []}
     checks = check_codes or {}
 
@@ -2571,7 +2576,7 @@ def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_
         if "down" in argv:
             calls["down"] += 1
             return (post_down_code if calls["down"] == 2 else 0), "down ok\n"
-        raise AssertionError(f"commande docker inattendue: {argv}")
+        raise AssertionError(f"unexpected docker command: {argv}")
 
     def fake_stream(argv, sink, *, env, timeout):
         sink.parent.mkdir(parents=True, exist_ok=True)
@@ -2585,97 +2590,98 @@ def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_
 
 
 def test_run_symfony_evidence_composes_and_tears_down(tmp_path, monkeypatch):
-    """Docker présent et sain: la collecte Symfony enchaîne checks, down
-    préventif, up streamé puis down final, et publie un log vert exit 0."""
+    """Docker present and healthy: Symfony collection chains checks,
+    preventive down, streamed up, then final down, and publishes a green
+    exit-0 log."""
     calls = _mock_symfony_docker(monkeypatch)
 
     command = proof.run_symfony_evidence(proof_dir=tmp_path)
 
-    #: le run sain est un ok exit 0 jugé comme tel par le verdict
+    #: the healthy run is an ok exit 0, judged as such by the verdict
     assert command.exit_code == 0
     assert command.status == "ok"
-    #: le teardown est systématique: down avant ET après le up
+    #: teardown is systematic: down before AND after the up
     assert calls["down"] == 2
-    #: chaque down purge orphelins ET volumes: la boucle ne peut pas
-    #: accumuler de volumes anonymes même si une image en déclare un jour
+    #: every down purges orphans AND volumes: the loop cannot accumulate
+    #: anonymous volumes even if an image ever declares one
     for argv in calls["argv"]:
         if "down" in argv:
             assert "--remove-orphans" in argv and "--volumes" in argv
     log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
-    #: le log agrège le transcript streamé du up et le verdict de sortie
+    #: the log aggregates the streamed up transcript and the exit verdict
     assert "compose up transcript" in log
     assert "exit_code: 0" in log
 
 
 def test_run_symfony_evidence_fails_when_final_teardown_fails(tmp_path, monkeypatch):
-    """Un down final qui échoue rougit le run Symfony même si le up est vert:
-    laisser des conteneurs derrière soi est un échec de preuve."""
+    """A failing final down turns the Symfony run red even if the up is
+    green: leaving containers behind is a proof failure."""
     _mock_symfony_docker(monkeypatch, post_down_code=1)
 
     command = proof.run_symfony_evidence(proof_dir=tmp_path)
 
-    #: l'échec du teardown final devient l'exit code du run
+    #: the final teardown failure becomes the run's exit code
     assert command.exit_code == 1
     assert command.status == "failed"
 
 
 def test_run_symfony_evidence_converts_deadline_into_exit_124(tmp_path, monkeypatch):
-    """Un compose up qui dépasse sa deadline est converti en exit 124 avec la
-    mention du timeout dans le log, et le teardown a quand même lieu."""
+    """A compose up that exceeds its deadline is converted into exit 124
+    with the timeout mentioned in the log, and teardown still happens."""
     calls = _mock_symfony_docker(monkeypatch, up=(124, True))
 
     command = proof.run_symfony_evidence(proof_dir=tmp_path, timeout=5)
 
-    #: la deadline devient un échec conventionnel exit 124
+    #: the deadline becomes a conventional exit-124 failure
     assert command.exit_code == 124
     assert command.status == "failed"
-    #: même tué par deadline, le run rend la main conteneurs supprimés
+    #: even killed by deadline, the run returns control with containers removed
     assert calls["down"] == 2
     log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
-    #: le log nomme l'interruption et sa deadline
+    #: the log names the interruption and its deadline
     assert "docker compose up interrupted after 5s" in log
 
 
 def test_run_symfony_evidence_reports_unavailable_docker_daemon(tmp_path, monkeypatch):
-    """Docker installé mais daemon injoignable: la collecte s'arrête aux
-    checks, déclare le portail unavailable et écrit l'évidence explicite —
-    sans jamais tenter le up."""
+    """Docker installed but daemon unreachable: collection stops at the
+    checks, declares the gate unavailable, and writes the explicit
+    evidence — without ever attempting the up."""
     calls = _mock_symfony_docker(monkeypatch, check_codes={"info": 1})
 
     command = proof.run_symfony_evidence(proof_dir=tmp_path)
 
-    #: le daemon injoignable est un échec unavailable, pas un skip silencieux
+    #: the unreachable daemon is an unavailable failure, not a silent skip
     assert command.exit_code == 1
     assert command.status == "unavailable"
-    #: ni down ni up n'ont été tentés après le check raté
+    #: neither down nor up were attempted after the failed check
     assert calls["down"] == 0
     payload = (tmp_path / "evidence" / "symfony-scenarios.json").read_text(encoding="utf-8")
-    #: l'évidence d'indisponibilité est écrite pour le cockpit et le verdict
+    #: the unavailability evidence is written for the cockpit and the verdict
     assert '"status": "unavailable"' in payload
 
 
 def test_run_text_reports_exit_missing_binary_and_timeout():
-    """_run_text capture la sortie et l'exit des commandes, convertit un
-    binaire introuvable en 127 et une deadline dépassée en 124 annoté."""
-    code, output = proof._run_text([sys.executable, "-c", "print('sortie-ok')"])
-    #: une commande saine restitue sortie et exit 0
+    """_run_text captures command output and exit, converting a missing
+    binary into 127 and an exceeded deadline into an annotated 124."""
+    code, output = proof._run_text([sys.executable, "-c", "print('output-ok')"])
+    #: a healthy command returns output and exit 0
     assert code == 0
-    assert "sortie-ok" in output
+    assert "output-ok" in output
 
-    code, output = proof._run_text(["cdpx-binaire-inexistant-xyz"])
-    #: un binaire introuvable devient l'exit conventionnel 127 avec l'erreur en texte
+    code, output = proof._run_text(["cdpx-nonexistent-binary-xyz"])
+    #: a missing binary becomes the conventional exit 127 with the error as text
     assert code == 127
     assert output
 
     code, output = proof._run_text([sys.executable, "-c", "import time; time.sleep(60)"], 0.5)
-    #: la deadline tue la commande et l'annote en exit 124
+    #: the deadline kills the command and annotates it as exit 124
     assert code == 124
     assert "timeout after" in output
 
 
 def test_main_prints_compact_verdict_and_maps_exit_code(monkeypatch, capsys):
-    """L'entrée CLI du module imprime un JSON compact à trois clés (ok,
-    artifact_dir, report_html) et mappe le verdict sur l'exit code 0/1."""
+    """The module's CLI entry point prints a compact three-key JSON (ok,
+    artifact_dir, report_html) and maps the verdict to exit code 0/1."""
     monkeypatch.setattr(
         proof,
         "generate",
@@ -2690,7 +2696,7 @@ def test_main_prints_compact_verdict_and_maps_exit_code(monkeypatch, capsys):
     exit_code = proof.main()
 
     printed = json.loads(capsys.readouterr().out)
-    #: verdict vert => exit 0 et JSON compact limité aux trois clés du contrat
+    #: green verdict => exit 0 and compact JSON limited to the three contract keys
     assert exit_code == 0
     assert printed == {
         "ok": True,
@@ -2703,14 +2709,14 @@ def test_main_prints_compact_verdict_and_maps_exit_code(monkeypatch, capsys):
         "generate",
         lambda: {"ok": False, "artifact_dir": ".proof", "report_html": ".proof/x.html"},
     )
-    #: verdict rouge => exit 1, le portail Make voit l'échec
+    #: red verdict => exit 1, the Make gate sees the failure
     assert proof.main() == 1
 
 
 def test_sanitize_text_file_redacts_and_rewrites_in_place(tmp_path):
-    """La sanitisation in situ d'un fichier texte redacte les secrets et
-    réécrit les chemins physiques vers les chemins publiés; un chemin absent
-    est un no-op sans création de fichier."""
+    """In-place sanitization of a text file redacts secrets and rewrites
+    physical paths to published paths; a missing path is a no-op with no
+    file creation."""
     context = RedactionContext.from_secrets(["sanitize-secret-1"])
     target = tmp_path / "junit.xml"
     target.write_text(
@@ -2721,35 +2727,35 @@ def test_sanitize_text_file_redacts_and_rewrites_in_place(tmp_path):
     proof._sanitize_text_file(target, context, path_rewrites=(("/staging", ".proof"),))
 
     content = target.read_text(encoding="utf-8")
-    #: le secret est masqué avant que le fichier ne rejoigne l'arbre publiable
+    #: the secret is redacted before the file joins the publishable tree
     assert "sanitize-secret-1" not in content
     assert "***" in content
-    #: le chemin physique du staging est réécrit vers le chemin logique publié
+    #: the staging's physical path is rewritten to the published logical path
     assert ".proof/run.log" in content
-    #: la réécriture privée protège le fichier en 0600
+    #: the private rewrite protects the file at 0600
     assert mode(target) == 0o600
 
     missing = tmp_path / "absent.xml"
     proof._sanitize_text_file(missing, context)
-    #: un chemin absent reste absent: aucun fichier fantôme n'est créé
+    #: a missing path stays missing: no ghost file is created
     assert not missing.exists()
 
 
 def test_build_shareable_proof_guards_reject_bad_ttl_root_and_symlinks(tmp_path):
-    """Les gardes d'entrée du staging partageable refusent un TTL non positif,
-    une racine de preuve invalide et tout lien symbolique dans l'arbre."""
+    """The shareable staging's entry guards reject a non-positive TTL, an
+    invalid proof root, and any symlink in the tree."""
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>ok</p>")
 
-    #: un TTL nul est refusé avant toute écriture
+    #: a zero TTL is rejected before any write
     with pytest.raises(ArtifactError, match="TTL"):
         proof.build_shareable_proof(proof_dir, ttl=0)
 
-    #: une racine inexistante est un répertoire de preuve invalide
+    #: a nonexistent root is an invalid proof directory
     with pytest.raises(ArtifactError, match="invalid proof directory"):
         proof.build_shareable_proof(tmp_path / "absent", ttl=3600)
 
     (proof_dir / "evil.log").symlink_to(proof_dir / "proof-report.html")
-    #: un lien symbolique dans les preuves bloque le staging fermé
+    #: a symlink within the proofs blocks staging closed
     with pytest.raises(ArtifactError, match="symlink forbidden in proofs"):
         proof.build_shareable_proof(proof_dir, ttl=3600)

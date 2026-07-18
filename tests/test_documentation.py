@@ -1,4 +1,4 @@
-"""Catalogue hiérarchique et curaté de la rubrique Docs."""
+"""Hierarchical, curated catalog of the Docs section."""
 
 from pathlib import Path
 
@@ -11,16 +11,16 @@ from cdpx.proofing.documentation import build_documentation_catalog
     feature="harness-proof-cockpit",
     journey="publish-proof",
     scenario_id="harness-proof-cockpit.publish-feature-proof",
-    proves=["Le catalogue Docs livré publie références et fiches features sans violation."],
+    proves=["The shipped Docs catalog publishes references and feature sheets without violation."],
 )
 def test_real_documentation_catalog_publishes_references_and_all_features():
-    """Le catalogue construit depuis le dépôt réel publie les références
-    racines et toutes les fiches features en HTML, sans violation, avec des
-    liens internes réécrits vers le routeur du cockpit."""
+    """The catalog built from the real repository publishes the root
+    references and every feature sheet in HTML, without violation, with
+    internal links rewritten to the cockpit router."""
     catalog = build_documentation_catalog()
 
-    #: le catalogue livré respecte son schéma, désigne son index et ne
-    #: contient aucune violation résiduelle
+    #: the shipped catalog respects its schema, names its index, and
+    #: contains no residual violation
     assert catalog["schema"] == "cdpx.docs/v1"
     assert catalog["index"] == "README.md"
     assert catalog["violations"] == []
@@ -33,8 +33,8 @@ def test_real_documentation_catalog_publishes_references_and_all_features():
         "docs/VALIDATION.md",
     } <= paths
     feature_docs = [item for item in catalog["documents"] if item["kind"] == "feature"]
-    #: chaque fiche feature du dépôt est publiée en HTML corps-seul (sans
-    #: front-matter) et reste rattachée à son feature_id
+    #: every feature sheet of the repository is published as body-only HTML
+    #: (no front-matter) and stays attached to its feature_id
     assert len(feature_docs) == 8
     assert all(item["feature_id"] for item in feature_docs)
     assert all(item["html"].lstrip().startswith("<h2") for item in feature_docs)
@@ -42,21 +42,21 @@ def test_real_documentation_catalog_publishes_references_and_all_features():
     session = next(
         item for item in catalog["documents"] if item["path"] == "docs/SESSION-LIFECYCLE.md"
     )
-    #: les diagrammes mermaid survivent au rendu comme blocs natifs et les
-    #: liens relatifs sont réécrits vers la navigation interne du cockpit
+    #: mermaid diagrams survive rendering as native blocks and relative
+    #: links are rewritten to the cockpit's internal navigation
     assert session["html"].count('<pre class="mermaid">') == 4
     assert "#/docs/view/HARNESS.md" in session["html"]
     assert "#/docs/view/docs/features/state-session.md" in session["html"]
 
 
 def test_catalog_tree_follows_filesystem_and_applies_labels():
-    """L'arbre de navigation reflète l'arborescence réelle des fichiers du
-    dépôt tout en substituant les libellés curatés lisibles par un humain."""
+    """The navigation tree reflects the repository's real file layout while
+    substituting the human-readable curated labels."""
     catalog = build_documentation_catalog()
     tree = catalog["tree"]
 
-    #: chaque niveau du filesystem reçoit son libellé humain, et les huit
-    #: fiches sont rangées sous le nœud des spécifications fonctionnelles
+    #: every filesystem level receives its human label, and the eight
+    #: sheets are filed under the feature specifications node
     assert tree["label"] == "Product documentation"
     docs = next(child for child in tree["children"] if child["path"] == "docs")
     assert docs["label"] == "References"
@@ -79,34 +79,35 @@ exclude = []
 
 
 def test_catalog_rejects_paths_outside_repository(tmp_path):
-    """Un include pointant hors du dépôt est refusé en bloc: la rubrique Docs
-    ne peut pas servir de canal d'exfiltration de fichiers externes."""
+    """An include pointing outside the repository is rejected outright: the
+    Docs section cannot serve as an exfiltration channel for external
+    files."""
     _write_config(tmp_path, "../secret.md")
 
     catalog = build_documentation_catalog(root=tmp_path, feature_specs=[])
 
-    #: rien n'est publié et la violation explicite le motif du rejet
-    #: (chemin échappant à la racine du dépôt)
+    #: nothing is published and the violation explains the rejection reason
+    #: (path escaping the repository root)
     assert catalog["documents"] == []
     assert "path outside repository forbidden" in catalog["violations"][0]
 
 
 def test_catalog_rejects_empty_glob(tmp_path):
-    """Un glob de config sans correspondance est une violation, pas un
-    silence: une entrée morte de cockpit.toml doit se voir immédiatement."""
+    """A config glob with no match is a violation, not silence: a dead
+    entry in cockpit.toml must be seen immediately."""
     _write_config(tmp_path, "docs/missing-*.md")
 
     catalog = build_documentation_catalog(root=tmp_path, feature_specs=[])
 
-    #: le catalogue reste vide et la violation dénonce le motif sans
-    #: résultat au lieu de publier un sous-ensemble trompeur
+    #: the catalog stays empty and the violation reports the pattern with
+    #: no result instead of publishing a misleading subset
     assert catalog["documents"] == []
     assert "include with no results" in catalog["violations"][0]
 
 
 def test_catalog_rejects_symlinked_document(tmp_path):
-    """Un document atteint via un lien symbolique est refusé: seul un fichier
-    régulier du dépôt est publiable, contre les évasions par symlink."""
+    """A document reached through a symlink is rejected: only a regular
+    file from the repository is publishable, against symlink escapes."""
     target = tmp_path / "README.md"
     target.write_text("# README\n", encoding="utf-8")
     docs = tmp_path / "docs"
@@ -116,7 +117,7 @@ def test_catalog_rejects_symlinked_document(tmp_path):
 
     catalog = build_documentation_catalog(root=tmp_path, feature_specs=[])
 
-    #: le symlink est rejeté avec un message exigeant un fichier régulier,
-    #: même si sa cible vit dans le dépôt
+    #: the symlink is rejected with a message requiring a regular file,
+    #: even though its target lives inside the repository
     assert catalog["documents"] == []
     assert "regular document required" in catalog["violations"][0]

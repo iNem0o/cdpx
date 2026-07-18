@@ -22,9 +22,9 @@ def mode(path: Path) -> int:
 
 
 def test_secure_writer_creates_private_atomic_manifest(tmp_path):
-    """Tout artefact naît privé (0700/0600) et engagé dans un manifeste
-    versionné avec empreinte sha256 — le socle d'intégrité sur lequel
-    reposent toutes les vérifications de partage ultérieures."""
+    """Every artifact is born private (0700/0600) and committed to a
+    versioned manifest with a sha256 fingerprint — the integrity foundation
+    on which every later sharing check rests."""
     writer = SecureArtifactWriter(tmp_path, "run-1")
     entry = writer.write_text(
         "logs/result.txt",
@@ -33,11 +33,11 @@ def test_secure_writer_creates_private_atomic_manifest(tmp_path):
         upload_allowed=True,
     )
     path = writer.run_dir / entry.path
-    #: le contenu est intact et illisible pour tout autre utilisateur dès l'écriture
+    #: the content is intact and unreadable by any other user from the moment it is written
     assert path.read_text(encoding="utf-8") == "safe output"
     assert mode(writer.run_dir) == 0o700 and mode(path) == 0o600
     manifest = json.loads(writer.manifest_path.read_text(encoding="utf-8"))
-    #: le manifeste, lui-même privé, scelle schéma, empreinte et taille de l'artefact
+    #: the manifest, itself private, seals the artifact's schema, fingerprint, and size
     assert mode(writer.manifest_path) == 0o600
     assert manifest["schema"] == "cdpx.artifacts/v1"
     assert manifest["artifacts"][0]["sha256"] == entry.sha256
@@ -45,15 +45,15 @@ def test_secure_writer_creates_private_atomic_manifest(tmp_path):
 
 
 def test_opaque_and_secret_artifacts_can_never_be_shareable(tmp_path):
-    """Le partage n'est pas négociable pour les classifications sensibles:
-    demander upload_allowed=True sur SECRET ou OPAQUE_RESTRICTED est rejeté
-    avant même que le contenu ne touche le disque."""
+    """Sharing is not negotiable for sensitive classifications: requesting
+    upload_allowed=True on SECRET or OPAQUE_RESTRICTED is rejected before
+    the content even touches disk."""
     writer = SecureArtifactWriter(tmp_path, "run-1")
     for classification in (
         ArtifactClassification.SECRET,
         ArtifactClassification.OPAQUE_RESTRICTED,
     ):
-        #: la combinaison classification sensible + partage est une erreur, pas un avertissement
+        #: the combination of sensitive classification + sharing is an error, not a warning
         with pytest.raises(ArtifactError, match="non-shareable"):
             writer.write_text(
                 f"{classification.value}.txt",
@@ -64,40 +64,40 @@ def test_opaque_and_secret_artifacts_can_never_be_shareable(tmp_path):
 
 
 def test_writer_refuses_traversal_absolute_paths_and_symlinks(tmp_path):
-    """Aucune forme de chemin ne permet d'écrire ou de référencer hors du
-    répertoire du run: traversée relative, chemin absolu et lien symbolique
-    sont tous rejetés au nom du même confinement."""
+    """No path form allows writing to or referencing outside the run
+    directory: relative traversal, absolute path, and symbolic link
+    are all rejected in the name of the same containment."""
     writer = SecureArtifactWriter(tmp_path, "run-1")
     for name in ("../escape.txt", "/tmp/escape.txt", "a/../../escape.txt"):
-        #: chaque variante d'évasion (remontée, absolu, traversée imbriquée) est bloquée
+        #: every escape variant (climb-up, absolute, nested traversal) is blocked
         with pytest.raises(ArtifactError, match="artifact path"):
             writer.write_text(name, "x")
     target = tmp_path / "outside.txt"
     target.write_text("outside", encoding="utf-8")
     link = writer.run_dir / "link.txt"
     link.symlink_to(target)
-    #: un symlink déposé dans le run ne peut pas être adopté comme artefact légitime
+    #: a symlink dropped into the run cannot be adopted as a legitimate artifact
     with pytest.raises(ArtifactError, match="symbolic link"):
         writer.register_file(link, classification=ArtifactClassification.INTERNAL)
 
 
 def test_writer_refuses_a_symbolic_artifact_root(tmp_path):
-    """La racine des artefacts elle-même ne peut pas être un symlink: on ne
-    peut pas rediriger silencieusement toute l'écriture du run ailleurs."""
+    """The artifact root itself cannot be a symlink: the run's entire
+    writing cannot be silently redirected elsewhere."""
     target = tmp_path / "target"
     target.mkdir()
     root = tmp_path / "root"
     root.symlink_to(target, target_is_directory=True)
 
-    #: le refus intervient à la construction, avant la moindre écriture
+    #: the refusal happens at construction, before the slightest write
     with pytest.raises(ArtifactError, match="symbolic artifact directory"):
         SecureArtifactWriter(root, "run-1")
 
 
 def test_writer_redacts_text_json_and_registered_text_files(tmp_path, evidence_case):
-    """La redaction couvre les trois voies d'entrée (texte, JSON, fichier
-    enregistré): la valeur secrète n'atteint jamais le disque du run, quelle
-    que soit la façon dont l'artefact arrive."""
+    """Redaction covers the three entry paths (text, JSON, registered
+    file): the secret value never reaches the run's disk, whatever
+    the way the artifact arrives."""
     secret = "artifact-canary-7359"
     writer = SecureArtifactWriter(
         tmp_path,
@@ -113,8 +113,8 @@ def test_writer_redacts_text_json_and_registered_text_files(tmp_path, evidence_c
     source.write_text(f'{{"secret":"{secret}"}}\n', encoding="utf-8")
     writer.register_file(source, name="copy.ndjson")
 
-    #: le scanner canari ne retrouve le secret nulle part, et chaque fichier
-    #: porte le marqueur de redaction là où la valeur aurait dû apparaître
+    #: the canary scanner finds the secret nowhere, and every file
+    #: carries the redaction marker where the value should have appeared
     assert scan_canaries(writer.run_dir, [secret]) == []
     message_redacted = (writer.run_dir / "message.log").read_text(encoding="utf-8")
     result_redacted = (writer.run_dir / "result.json").read_text(encoding="utf-8")
@@ -123,24 +123,24 @@ def test_writer_redacts_text_json_and_registered_text_files(tmp_path, evidence_c
     assert "***" in (writer.run_dir / "copy.ndjson").read_text(encoding="utf-8")
 
     if evidence_case is not None:
-        # On n'attache que la sortie DÉJÀ assainie par le writer, jamais la
-        # valeur brute: la preuve visuelle montre le marqueur *** en place.
+        # We only attach the output ALREADY sanitized by the writer, never the
+        # raw value: the visual proof shows the *** marker in place.
         message_proof = evidence_case.attach_text(
-            "Journal redacté (message.log)", message_redacted, filename="message.log"
+            "Redacted log (message.log)", message_redacted, filename="message.log"
         )
         result_proof = evidence_case.attach_text(
-            "Résultat redacté (result.json)", result_redacted, filename="result.json"
+            "Redacted result (result.json)", result_redacted, filename="result.json"
         )
-        #: l'artefact de preuve produit ne contient jamais le canari, seulement
-        #: la version déjà marquée par *** que voit le lecteur du cockpit
+        #: the produced proof artifact never contains the canary, only
+        #: the version already marked with *** that the cockpit reader sees
         assert secret not in Path(message_proof["path"]).read_text(encoding="utf-8")
         assert secret not in Path(result_proof["path"]).read_text(encoding="utf-8")
 
 
 def test_shareable_staging_contains_only_manifested_allowed_files(tmp_path, evidence_case):
-    """Le staging partageable fonctionne en liste blanche: seuls les fichiers
-    manifestés ET autorisés à l'upload sont copiés, et le manifeste exporté
-    ne trahit même pas l'existence du reste."""
+    """Shareable staging works as an allowlist: only files that are
+    manifested AND upload-allowed are copied, and the exported manifest
+    does not even betray the existence of the rest."""
     writer = SecureArtifactWriter(tmp_path / "private", "run-1")
     writer.write_json(
         "safe.json",
@@ -155,37 +155,37 @@ def test_shareable_staging_contains_only_manifested_allowed_files(tmp_path, evid
         upload_allowed=False,
     )
     staging = writer.build_shareable(tmp_path / "shareable")
-    #: le fichier public autorisé est copié, le fichier interne non autorisé reste chez lui
+    #: the allowed public file is copied, the non-allowed internal file stays put
     assert (staging / "safe.json").exists()
     assert not (staging / "private.log").exists()
     shared_manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
-    #: le manifeste partagé ne liste que ce qui a réellement été exporté
+    #: the shared manifest lists only what was actually exported
     assert [item["path"] for item in shared_manifest["artifacts"]] == ["safe.json"]
 
     if evidence_case is not None:
         evidence_case.attach_json(
-            "Manifeste du staging partagé (liste blanche)",
+            "Shared staging manifest (allowlist)",
             shared_manifest,
             filename="shared-manifest.json",
         )
 
 
 def test_unmanifested_private_file_blocks_staging(tmp_path):
-    """Un fichier apparu dans le run sans passer par le writer bloque le
-    staging entier: rien d'inconnu ne peut se glisser dans un partage."""
+    """A file that appears in the run without going through the writer
+    blocks the entire staging: nothing unknown can slip into a share."""
     writer = SecureArtifactWriter(tmp_path, "run-1")
     writer.write_text("safe.txt", "safe")
     rogue = writer.run_dir / "rogue.txt"
     rogue.write_text("rogue", encoding="utf-8")
-    #: le fichier orphelin est traité comme une compromission, pas simplement ignoré
+    #: the orphan file is treated as a compromise, not simply ignored
     with pytest.raises(ArtifactError, match="unmanifested"):
         writer.build_shareable(tmp_path / "share")
 
 
 def test_mutated_manifested_file_blocks_staging(tmp_path):
-    """Un artefact modifié après écriture — donc après redaction — casse la
-    vérification d'intégrité: le staging refuse de propager un contenu qui
-    n'est plus celui qui a été assaini."""
+    """An artifact modified after writing — hence after redaction — breaks
+    the integrity check: staging refuses to propagate content that is
+    no longer what was sanitized."""
     writer = SecureArtifactWriter(tmp_path / "private", "run-1")
     writer.write_text(
         "safe.txt",
@@ -195,29 +195,29 @@ def test_mutated_manifested_file_blocks_staging(tmp_path):
     )
     (writer.run_dir / "safe.txt").write_text("secret-after-redaction", encoding="utf-8")
 
-    #: le sha256 du manifeste sert de sceau: toute mutation post-redaction est fatale
+    #: the manifest's sha256 serves as a seal: any post-redaction mutation is fatal
     with pytest.raises(ArtifactError, match="integrity"):
         writer.build_shareable(tmp_path / "share")
 
-    #: l'échec est atomique — aucun répertoire de partage partiel n'est laissé derrière
+    #: the failure is atomic — no partial sharing directory is left behind
     assert not (tmp_path / "share").exists()
 
 
 def test_missing_manifested_file_blocks_staging(tmp_path):
-    """La disparition d'un fichier manifesté est une anomalie bloquante:
-    l'export ne se contente pas d'omettre silencieusement ce qui manque."""
+    """The disappearance of a manifested file is a blocking anomaly:
+    the export does not simply silently omit what is missing."""
     writer = SecureArtifactWriter(tmp_path / "private", "run-1")
     writer.write_text("safe.txt", "safe", upload_allowed=True)
     (writer.run_dir / "safe.txt").unlink()
 
-    #: un manifeste qui promet un fichier absent invalide le staging complet
+    #: a manifest promising a missing file invalidates the entire staging
     with pytest.raises(ArtifactError, match="not found"):
         writer.build_shareable(tmp_path / "share")
 
 
 def test_replaced_manifested_file_symlink_blocks_staging(tmp_path):
-    """Substituer un symlink à un artefact manifesté ne permet pas d'exfiltrer
-    un fichier extérieur via la copie partageable."""
+    """Substituting a symlink for a manifested artifact does not allow
+    exfiltrating an outside file via the shareable copy."""
     writer = SecureArtifactWriter(tmp_path / "private", "run-1")
     writer.write_text("safe.txt", "safe", upload_allowed=True)
     outside = tmp_path / "outside.txt"
@@ -226,39 +226,39 @@ def test_replaced_manifested_file_symlink_blocks_staging(tmp_path):
     artifact.unlink()
     artifact.symlink_to(outside)
 
-    #: le lien substitué est démasqué au moment de la copie, malgré un nom manifesté
+    #: the substituted link is unmasked at copy time, despite a manifested name
     with pytest.raises(ArtifactError, match="symbolic link"):
         writer.build_shareable(tmp_path / "share")
 
-    #: rien n'a été copié: le contenu extérieur n'a jamais quitté sa place
+    #: nothing was copied: the outside content never left its place
     assert not (tmp_path / "share").exists()
 
 
 def test_overly_permissive_manifested_file_blocks_staging(tmp_path):
-    """Les permissions privées font partie du contrat vérifié: un artefact
-    devenu lisible par d'autres n'est plus digne d'être partagé."""
+    """Private permissions are part of the verified contract: an artifact
+    that became readable by others is no longer worthy of sharing."""
     writer = SecureArtifactWriter(tmp_path / "private", "run-1")
     writer.write_text("safe.txt", "safe", upload_allowed=True)
     (writer.run_dir / "safe.txt").chmod(0o644)
 
-    #: l'élargissement des droits est détecté avant toute copie hors du run
+    #: the permission widening is detected before any copy out of the run
     with pytest.raises(ArtifactError, match="permissions"):
         writer.build_shareable(tmp_path / "share")
 
 
 def test_canary_scanner_and_expiration_purge(tmp_path):
-    """Le scanner canari retrouve la valeur secrète jusque dans un artefact
-    binaire opaque, et la purge TTL efface réellement les runs expirés."""
+    """The canary scanner finds the secret value even inside an opaque
+    binary artifact, and the TTL purge actually erases expired runs."""
     writer = SecureArtifactWriter(tmp_path, "expired", ttl=1)
     writer.write_bytes(
         "leak.bin",
         b"CANARY-SECRET",
         classification=ArtifactClassification.OPAQUE_RESTRICTED,
     )
-    #: le canari planté est localisé même dans un blob binaire non textuel
+    #: the planted canary is located even inside a non-textual binary blob
     assert scan_canaries(writer.run_dir, ["CANARY-SECRET"]) == ["leak.bin"]
     future = datetime.now(UTC) + timedelta(seconds=2)
-    #: passé le TTL, le run est purgé du disque et son identifiant rapporté
+    #: past the TTL, the run is purged from disk and its identifier reported
     assert purge_expired(tmp_path, now=future) == ["expired"]
     assert not writer.run_dir.exists()
 
@@ -298,11 +298,11 @@ def test_expiration_purge_propagates_permission_error_as_is(tmp_path, monkeypatc
 
     monkeypatch.setattr(Path, "read_bytes", fail_manifest_read)
 
-    #: PermissionError traverse sans être requalifiée: le consommateur proof
-    #: la reconnaît (remède chown) et poursuit son run best-effort
+    #: PermissionError passes through without being requalified: the proof
+    #: consumer recognizes it (chown remedy) and continues its run best-effort
     with pytest.raises(PermissionError):
         purge_expired(tmp_path)
-    #: rien n'a été détruit sous le doute
+    #: nothing was destroyed under doubt
     assert run_dir.exists()
 
 
@@ -318,7 +318,7 @@ def test_expiration_purge_skips_dir_without_manifest(tmp_path):
 
     removed = purge_expired(tmp_path)
 
-    #: le répertoire sans manifeste est conservé fail-open, sans exception
+    #: the directory without a manifest is kept fail-open, without exception
     assert orphan.exists() and "orphan" not in removed
-    #: la purge a continué au-delà de l'orphelin: l'expiré daté est bien parti
+    #: the purge continued past the orphan: the dated expired one is indeed gone
     assert removed == ["expired"] and not expired.exists()

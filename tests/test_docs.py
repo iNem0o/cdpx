@@ -1,7 +1,7 @@
-"""Garde-fous documentation: le README et PRIMITIVES.md suivent la surface CLI
-réelle, chaque fiche feature est routée, et tout exemple `cdpx ...` documenté
-est syntaxiquement valide contre le vrai parseur. Une doc qui dérive casse
-`make check` (esprit HARNESS §6: une règle sans garde-fou mécanique est un vœu).
+"""Documentation guards: README and PRIMITIVES.md follow the real CLI
+surface, every feature sheet is routed, and every documented `cdpx ...`
+example is syntactically valid against the real parser. Drifting docs break
+`make check` (HARNESS §6 spirit: a rule without a mechanical guard is a wish).
 """
 
 import re
@@ -39,79 +39,79 @@ def cli_command_names() -> list[str]:
 
 
 def test_every_cli_command_appears_in_readme_and_primitives():
-    """La surface CLI réelle, extraite du parseur, est intégralement couverte
-    par le README et par PRIMITIVES.md: aucune sous-commande ne peut être
-    livrée sans documentation."""
-    # Aurait attrapé l'oubli historique de `cdpx pdf` dans PRIMITIVES.md.
+    """The real CLI surface, extracted from the parser, is fully covered
+    by README and PRIMITIVES.md: no subcommand can ship without
+    documentation."""
+    # Would have caught the historical omission of `cdpx pdf` from PRIMITIVES.md.
     for name in cli_command_names():
-        #: la liste des commandes vient du --help généré, pas d'une liste
-        #: maintenue à la main: toute commande ajoutée sans doc nomme ici
-        #: le document fautif
-        assert f"cdpx {name}" in README, f"commande absente du README: cdpx {name}"
-        assert f"cdpx {name}" in PRIMITIVES, f"commande absente de PRIMITIVES.md: cdpx {name}"
+        #: the command list comes from the generated --help, not a
+        #: hand-maintained list: any command added without docs names the
+        #: offending document here
+        assert f"cdpx {name}" in README, f"command missing from README: cdpx {name}"
+        assert f"cdpx {name}" in PRIMITIVES, f"command missing from PRIMITIVES.md: cdpx {name}"
 
 
 def test_readme_routes_to_every_feature_doc():
-    """Chaque fiche feature déclarée est atteignable depuis le README: une
-    fiche écrite mais non routée resterait invisible pour le lecteur."""
+    """Every declared feature sheet is reachable from the README: a sheet
+    written but not routed would remain invisible to the reader."""
     specs, errors = load_feature_specs()
-    #: des fiches illisibles fausseraient la couverture: on exige zéro
-    #: erreur de chargement avant de juger le routage
+    #: unreadable sheets would skew coverage: we require zero loading
+    #: errors before judging the routing
     assert errors == []
     for spec in specs:
         link = f"docs/features/{spec.id}.md"
-        #: le README est la porte d'entrée du dépôt: chaque fiche doit y
-        #: être liée par son chemin exact
-        assert link in README, f"fiche feature non routée depuis le README: {link}"
+        #: the README is the repository's entry point: every sheet must be
+        #: linked there by its exact path
+        assert link in README, f"feature sheet not routed from the README: {link}"
 
 
 def test_primitives_references_every_feature_doc():
-    """PRIMITIVES.md, le catalogue de référence, lie chaque fiche feature: le
-    catalogue ne peut pas ignorer une capacité documentée ailleurs."""
+    """PRIMITIVES.md, the reference catalog, links every feature sheet: the
+    catalog cannot ignore a capability documented elsewhere."""
     specs, _ = load_feature_specs()
     for spec in specs:
-        #: qui lit le catalogue doit pouvoir rebondir vers chaque fiche;
-        #: une capacité absente d'ici n'existe pas pour l'utilisateur
-        assert f"features/{spec.id}.md" in PRIMITIVES, f"fiche non liée dans PRIMITIVES: {spec.id}"
+        #: whoever reads the catalog must be able to jump to every sheet;
+        #: a capability missing from here does not exist for the user
+        assert f"features/{spec.id}.md" in PRIMITIVES, f"sheet not linked in PRIMITIVES: {spec.id}"
 
 
 def test_session_lifecycle_reference_is_routed_and_diagrammed():
-    """La référence du cycle de vie de session est routée depuis les deux
-    points d'entrée et conserve ses quatre diagrammes mermaid accessibles:
-    en ajouter ou en retirer un doit être un choix explicite."""
-    #: le document est atteignable depuis le README comme depuis le catalogue
+    """The session lifecycle reference is routed from both entry points and
+    keeps its four accessible mermaid diagrams: adding or removing one must
+    be an explicit choice."""
+    #: the document is reachable from the README as well as from the catalog
     assert "docs/SESSION-LIFECYCLE.md" in README
     assert "SESSION-LIFECYCLE.md" in PRIMITIVES
-    #: le compte exact fige le contrat visuel, et chaque diagramme porte
-    #: titre et description d'accessibilité (accTitle/accDescr)
+    #: the exact count freezes the visual contract, and every diagram
+    #: carries an accessibility title and description (accTitle/accDescr)
     assert SESSION_LIFECYCLE.count("```mermaid") == 4
     assert SESSION_LIFECYCLE.count("accTitle:") == 4
     assert SESSION_LIFECYCLE.count("accDescr:") == 4
 
 
 def test_readme_documents_cli_contract():
-    """Le README documente le contrat CLI global en entier: options
-    transverses, variables d'environnement de session et les trois codes
-    de sortie de l'invariant stdout/exit."""
+    """The README documents the entire global CLI contract: cross-cutting
+    options, session environment variables, and the three exit codes of
+    the stdout/exit invariant."""
     for token in GLOBAL_CONTRACT_TOKENS:
-        #: chaque jeton du contrat global (options et variables CDPX_*) doit
-        #: apparaître: un contrat partiellement documenté piège l'utilisateur
-        assert token in README, f"contrat CLI incomplet dans le README: {token}"
+        #: every token of the global contract (options and CDPX_* variables)
+        #: must appear: a partially documented contract traps the user
+        assert token in README, f"incomplete CLI contract in README: {token}"
     for exit_code in ("exit 0", "exit 1", "exit 2"):
-        #: les trois codes de sortie font partie du contrat public; la
-        #: recherche tolère l'espacement pour ne pas figer la mise en forme
+        #: the three exit codes are part of the public contract; the search
+        #: tolerates spacing to avoid freezing the formatting
         assert re.search(exit_code.replace(" ", r"\s*"), README, re.I), (
-            f"code de sortie non documenté: {exit_code}"
+            f"undocumented exit code: {exit_code}"
         )
 
 
 def test_active_user_docs_only_describe_the_supervised_session_contract():
-    """Aucun document utilisateur actif ne mentionne un contrat supprimé
-    (endpoints bruts, gestion d'onglets, mode équipe/legacy): la doc vivante
-    ne peut pas ressusciter une API retirée."""
+    """No active user document mentions a removed contract (raw endpoints,
+    tab management, team/legacy mode): the living docs cannot resurrect a
+    retired API."""
     specs, errors = load_feature_specs()
-    #: le corpus jugé inclut toutes les fiches; elles doivent se charger
-    #: sans erreur pour que la vérification soit exhaustive
+    #: the corpus under review includes every sheet; they must load
+    #: without error for the check to be exhaustive
     assert errors == []
     documents = {
         "README.md": README,
@@ -136,10 +136,10 @@ def test_active_user_docs_only_describe_the_supervised_session_contract():
     for source, content in documents.items():
         lowered = content.lower()
         for removed in removed_contracts:
-            #: la traque est insensible à la casse et nomme le document
-            #: fautif: une seule mention d'un contrat retiré casse le portail
+            #: the hunt is case-insensitive and names the offending
+            #: document: a single mention of a removed contract breaks the gate
             assert removed.lower() not in lowered, (
-                f"{source}: contrat supprimé encore documenté: {removed}"
+                f"{source}: removed contract still documented: {removed}"
             )
 
 
@@ -166,7 +166,7 @@ def _all_documented_examples() -> list[tuple[str, str]]:
     feature="harness-proof-cockpit",
     journey="publish-proof",
     scenario_id="harness-proof-cockpit.publish-feature-proof",
-    proves=["Tout exemple `cdpx ...` documenté est accepté par le vrai parseur CLI."],
+    proves=["Every documented `cdpx ...` example is accepted by the real CLI parser."],
 )
 @pytest.mark.parametrize(
     "source,line",
@@ -174,14 +174,14 @@ def _all_documented_examples() -> list[tuple[str, str]]:
     ids=[f"{src}:{line[:40]}" for src, line in _all_documented_examples()],
 )
 def test_documented_cdpx_examples_parse(source, line):
-    """Toute ligne `cdpx ...` extraite des blocs de code de la doc est
-    acceptée par le vrai parseur: un exemple copié-collé ne peut jamais
-    échouer en erreur d'usage."""
+    """Every `cdpx ...` line extracted from the doc's code blocks is
+    accepted by the real parser: a copy-pasted example can never fail with
+    a usage error."""
     argv = shlex.split(line)[1:]
     try:
         build_parser().parse_args(argv)
     except SystemExit as exc:
-        # --version / -h sortent en 0: exemples valides. Un exit 2 = exemple faux.
-        #: seule une sortie volontaire (aide, version) est tolérée; un exit
-        #: du parseur en erreur prouve que la doc ment sur la syntaxe
-        assert exc.code == 0, f"{source}: exemple invalide: {line}"
+        # --version / -h exit with 0: valid examples. Exit 2 = fake example.
+        #: only a voluntary exit (help, version) is tolerated; the parser
+        #: exiting on error proves the doc lies about the syntax
+        assert exc.code == 0, f"{source}: invalid example: {line}"

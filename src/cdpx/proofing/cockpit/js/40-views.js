@@ -54,7 +54,7 @@
   }
 
   function renderReadingPath() {
-    return `<div class="reading-path">Parcours de lecture — <strong>1.</strong> Verdict
+    return `<div class="reading-path">Reading path — <strong>1.</strong> Verdict
       · <strong>2.</strong> <a href="#/gaps">Failures &amp; gaps</a>
       · <strong>3.</strong> Features ci-dessous
       · <strong>4.</strong> <a href="#/run">Run proofs</a></div>`;
@@ -113,7 +113,7 @@
       : '';
     app.innerHTML = `${crumbs([{label: 'Documentation', href: '#/docs'}, {label: document.title}])}
       <div class="meta"><code>${esc(document.path)}</code>${featureLink}</div>
-      <section class="panel doc">${document.html || '<div class="empty">Document vide.</div>'}</section>`;
+      <section class="panel doc">${document.html || '<div class="empty">Empty document.</div>'}</section>`;
   }
 
   function renderFeature(feature) {
@@ -137,7 +137,7 @@
         })}</section>
         <section class="panel"><h2>Gaps</h2>${list(feature.gaps || [], (gap) => `<li>${esc(gap)}</li>`)}</section>
       </div>
-      <section class="panel doc"><h2>Documentation utilisateur</h2>${feature.doc_html || '<div class="empty">Aucune documentation.</div>'}</section>
+      <section class="panel doc"><h2>User documentation</h2>${feature.doc_html || '<div class="empty">No documentation.</div>'}</section>
       <h2>User journeys</h2><div class="grid">${journeys}</div>
       <h2>Tests and proofs</h2>
       <div class="two">
@@ -304,7 +304,7 @@
   function renderGaps() {
     const inv = data.feature_inventory || {};
     const proofFailures = data.proof_failures || [];
-    app.innerHTML = `${crumbs([{label: 'Gaps'}])}<h1>Gaps et violations</h1>
+    app.innerHTML = `${crumbs([{label: 'Gaps'}])}<h1>Gaps and violations</h1>
       <div class="two">
         <section class="panel"><h2>Violations</h2>${list(inv.violations || [], (item) => `<li>${esc(item)}</li>`)}</section>
         <section class="panel"><h2>Warnings</h2>${list(inv.warnings || [], (item) => `<li>${esc(item)}</li>`)}</section>
@@ -324,14 +324,14 @@
     const focusRows = Object.entries(junit).flatMap(([name, suite]) =>
       (suite.focus || []).map((tc) => `<tr><td>${esc(name)}</td><td>${statusPill(tc.status)}</td><td><code>${esc(tc.classname)}.${esc(tc.name)}</code></td><td>${esc(tc.time_s)}s</td></tr>`)
     ).join('');
-    const tails = commands.map((command) => `<details><summary>${esc(command.label)} — <code>${esc(command.log)}</code></summary><pre>${esc(command.log_tail || '(log vide)')}</pre></details>`).join('');
+    const tails = commands.map((command) => `<details><summary>${esc(command.label)} — <code>${esc(command.log)}</code></summary><pre>${esc(command.log_tail || '(empty log)')}</pre></details>`).join('');
     app.innerHTML = `${crumbs([{label: 'Run'}])}<h1>Run proofs</h1>${renderMetrics()}
       <h2>Chronologie</h2>${renderCommandTimeline(commands)}
       <h2>Commands</h2><div class="table-wrap"><table><thead><tr><th>Status</th><th>Proof</th><th>Command</th><th>Duration</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
       <h2>JUnit suites</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Tests</th><th>Passed</th><th>Failures</th><th>Skips</th><th>Duration</th><th>XML</th></tr></thead><tbody>${suiteRows}</tbody></table></div>
       <details class="panel secondary-table"><summary>Focus (failures or slowest)</summary><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Status</th><th>Test</th><th>Duration</th></tr></thead><tbody>${focusRows}</tbody></table></div></details>
       ${renderCastSection()}
-      <details class="panel secondary-table"><summary>Fins de logs</summary>${tails}</details>
+      <details class="panel secondary-table"><summary>Log tails</summary>${tails}</details>
       <details class="panel secondary-table"><summary>Proof catalog</summary>${renderEvidenceCatalog()}</details>`;
   }
 
@@ -376,7 +376,7 @@
       const link = featureId ? `<a href="#/features/${esc(featureId)}">${esc(featureId)}</a>` : '<span class="muted">unattached</span>';
       return `<tr><td><code>${esc(ep.id)}</code></td><td>${esc(ep.type)}</td><td>${esc(ep.label || '')}</td><td>${link}</td></tr>`;
     }).join('');
-    app.innerHTML = `${crumbs([{label: 'CLI'}])}<h1>Surface CLI et entrypoints</h1>
+    app.innerHTML = `${crumbs([{label: 'CLI'}])}<h1>CLI surface and entrypoints</h1>
       <p>${esc((data.project || {}).cli_command_count || 0)} cdpx subcommands. Every public entrypoint is attached to exactly one feature (otherwise the proof fails). Full help captured: <code>${esc(data.cli_help || '')}</code></p>
       <div class="table-wrap"><table><thead><tr><th>Entrypoint</th><th>Type</th><th>Description</th><th>Feature</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
@@ -386,7 +386,7 @@
     const coverageRows = (data.coverage_groups || []).map((group) => `<tr><td>${esc(group.suite)}</td><td><code>${esc(group.module)}</code></td><td>${esc(group.tests)}</td><td>${esc(group.failed)}</td><td>${esc(group.skipped)}</td></tr>`).join('');
     const riskRows = (data.risks || []).map((risk) => `<tr><td>${esc(risk.risk)}</td><td>${esc(risk.mitigation)}</td><td>${esc(risk.rollback)}</td></tr>`).join('');
     const unknownRows = (data.unknowns || []).map((item) => `<tr><td>${esc(item.item)}</td><td>${esc(item.why)}</td><td>${esc(item.how_to_verify)}</td></tr>`).join('');
-    app.innerHTML = `${crumbs([{label: 'Validation'}])}<h1>Matrice de validation</h1>
+    app.innerHTML = `${crumbs([{label: 'Validation'}])}<h1>Validation matrix</h1>
       <h2>Proof by milestone</h2><div class="table-wrap"><table><thead><tr><th>Milestone</th><th>Proof</th></tr></thead><tbody>${matrixRows}</tbody></table></div>
       <h2>Tests by module</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Module</th><th>Tests</th><th>Failures</th><th>Skips</th></tr></thead><tbody>${coverageRows}</tbody></table></div>
       <h2>Risks and mitigations</h2><div class="table-wrap"><table><thead><tr><th>Risk</th><th>Mitigation</th><th>Rollback</th></tr></thead><tbody>${riskRows}</tbody></table></div>
@@ -401,7 +401,7 @@
   function renderProject() {
     const project = data.project || {};
     const env = data.environment || {};
-    app.innerHTML = `${crumbs([{label: 'Projet'}])}<h1>Contexte projet</h1>
+    app.innerHTML = `${crumbs([{label: 'Project'}])}<h1>Project context</h1>
       <section class="panel"><h2>Mission</h2><p>${esc(project.mission || '')}</p><p>Version <code>${esc(project.version || 'unknown')}</code>, branche <code>${esc(data.git?.branch || 'unknown')}</code> @ <code>${esc(data.git?.sha || 'unknown')}</code>.</p>
       <p>Run environment: Python <code>${esc(env.python || '?')}</code>, <code>${esc(env.platform || '?')}</code>, Chrome/Chromium ${env.chrome_or_chromium ? 'present' : 'absent'}.</p></section>
       <div class="two">
