@@ -2,9 +2,8 @@
 
 ## Supported Versions
 
-Before the first release, security fixes target only the `master` branch.
-After release, they target the latest release and the default branch.
-Older pre-1.0 versions may not receive a backported fix.
+Security fixes target the current 0.x release and the `master` branch.
+Backports to other pre-1.0 versions are not guaranteed.
 
 ## Reporting a Vulnerability
 

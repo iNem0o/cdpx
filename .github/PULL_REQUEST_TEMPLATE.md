@@ -5,7 +5,7 @@ Describe the observable problem, the decision made and its user impact.
 ## Type of change
 
 - [ ] Bug fix
-- [ ] New primitive or functional evolution
+- [ ] New primitive or feature
 - [ ] Documentation or process
 - [ ] CI, packaging or maintenance
 

@@ -6,7 +6,7 @@ summary = "Audit the SEO contract of the rendered DOM, Web Vitals diagnostics, t
 entrypoints = ["cdpx seo", "cdpx vitals", "cdpx a11y", "cdpx coverage"]
 path_globs = ["src/cdpx/primitives/audit.py", "src/cdpx/primitives/diagnostics.py", "src/cdpx/primitives/frames.py", "tests/fixtures/seo*.html", "tests/fixtures/vitals.html", "tests/fixtures/coverage.html", "tests/fixtures/coverage.css", "tests/fixtures/coverage.js", "tests/fixtures/iframe.html", "tests/fixtures/child.html", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
 test_globs = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_vitals*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*", "tests/e2e/test_e2e_symfony.py::test_symfony_vitals*", "tests/e2e/test_e2e_symfony.py::test_symfony_rgaa*"]
-docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md", "docs/milestones/M4-seo-perf.md"]
+docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
@@ -119,34 +119,34 @@ Specific options:
   selected variant, SPA page after a client-side route).
 
 ```bash
-# Auditer une fiche produit (navigation puis audit du DOM rendu)
-cdpx seo https://www.exemple.fr/produit-42
+# Audit a product page after navigation and rendering
+cdpx seo https://shop.example.test/product-42
 
 # Audit the current page, without navigating (post-interaction state)
 cdpx seo
 
-# Lecture humaine
-cdpx --pretty seo https://www.exemple.fr/produit-42
+# Human-readable output
+cdpx --pretty seo https://shop.example.test/product-42
 ```
 
 Output (realistic excerpt):
 
 ```json
 {
-  "url": "https://www.exemple.fr/produit-42",
-  "lang": "fr",
-  "title": "Chaussures de trail Vertex 42 | Exemple.fr",
+  "url": "https://shop.example.test/product-42",
+  "lang": "en",
+  "title": "Vertex 42 trail shoes | Example Store",
   "metas": {
-    "description": "Chaussures de trail Vertex 42, accroche maximale.",
+    "description": "Vertex 42 trail shoes with maximum grip.",
     "robots": "index,follow",
-    "og:title": "Chaussures de trail Vertex 42"
+    "og:title": "Vertex 42 trail shoes"
   },
-  "canonical": "https://www.exemple.fr/produit-42",
+  "canonical": "https://shop.example.test/product-42",
   "robots": "index,follow",
-  "h1": ["Chaussures de trail Vertex 42"],
+  "h1": ["Vertex 42 trail shoes"],
   "hreflang": [
-    {"lang": "fr", "href": "https://www.exemple.fr/produit-42"},
-    {"lang": "en", "href": "https://www.exemple.fr/en/product-42"}
+    {"lang": "en", "href": "https://shop.example.test/product-42"},
+    {"lang": "de", "href": "https://shop.example.test/de/product-42"}
   ],
   "jsonld": [
     {"@type": "Product", "name": "Vertex 42", "sku": "VTX-42"}
@@ -155,7 +155,7 @@ Output (realistic excerpt):
   "links": {"internal": 34, "external": 3, "nofollow": 1},
   "title_px_estimate": 331,
   "description_px_estimate": 353,
-  "findings": ["2 image(s) sans alt"]
+  "findings": ["2 image(s) without alt text"]
 }
 ```
 
@@ -164,14 +164,14 @@ Pitfalls and edge cases:
 - Without `url`, a page must already be loaded in the target tab; on
   `about:blank` the audit returns an almost-empty contract with many
   `findings`.
-- An unparsable JSON-LD block is reported (`"JSON-LD invalide"` in
+- An unparsable JSON-LD block is reported (`"invalid JSON-LD"` in
   `findings`) instead of failing the command.
 - The `*_px_estimate` values are a stable approximation for agent/CI use
   (average desktop SERP width), not a pixel-perfect rendering.
 
 ### `cdpx vitals`
 
-Synopsis: `cdpx vitals url [--click SELECTEUR] [--settle S]`
+Synopsis: `cdpx vitals url [--click SELECTOR] [--settle S]`
 
 Measures LCP, CLS, and INP via `PerformanceObserver` instances pre-injected
 **before** navigation (`Page.addScriptToEvaluateOnNewDocument`), which
@@ -181,24 +181,24 @@ captures buffered entries from the very first paint. The optional
 Specific options:
 
 - `url` (positional, required) — page to measure.
-- `--click SELECTEUR` — CSS selector to click after loading to measure
+- `--click SELECTOR` — CSS selector to click after loading to measure
   INP (without a click, `inp` stays at 0).
 - `--settle S` — delay in seconds left for the observers to collect
   entries after loading/interaction (default: 0.5).
 
 ```bash
-# Vitals de chargement simple
-cdpx vitals https://www.exemple.fr/produit-42
+# Measure loading vitals
+cdpx vitals https://shop.example.test/product-42
 
-# Mesurer l'INP en cliquant le bouton d'ajout panier
-cdpx vitals https://www.exemple.fr/produit-42 --click "#ajouter-panier" --settle 1.0
+# Measure INP by clicking the add-to-cart button
+cdpx vitals https://shop.example.test/product-42 --click "#add-to-cart" --settle 1.0
 ```
 
 Output:
 
 ```json
 {
-  "url": "https://www.exemple.fr/produit-42",
+  "url": "https://shop.example.test/product-42",
   "lcp": 812.4,
   "cls": 0.031,
   "inp": 96
@@ -228,10 +228,10 @@ Specific options: none (the command operates on the current page of the
 target tab; navigate first with `cdpx goto` if needed).
 
 ```bash
-cdpx goto https://www.exemple.fr/produit-42
+cdpx goto https://shop.example.test/product-42
 cdpx a11y
 
-# Lecture humaine
+# Human-readable output
 cdpx --pretty a11y
 ```
 
@@ -240,11 +240,11 @@ Output:
 ```json
 {
   "nodes": [
-    {"role": "RootWebArea", "name": "Chaussures de trail Vertex 42", "ignored": false},
+    {"role": "RootWebArea", "name": "Vertex 42 trail shoes", "ignored": false},
     {"role": "banner", "name": "", "ignored": false},
-    {"role": "heading", "name": "Chaussures de trail Vertex 42", "ignored": false},
-    {"role": "button", "name": "Ajouter au panier", "ignored": false},
-    {"role": "link", "name": "Guide des tailles", "ignored": false}
+    {"role": "heading", "name": "Vertex 42 trail shoes", "ignored": false},
+    {"role": "button", "name": "Add to cart", "ignored": false},
+    {"role": "link", "name": "Size guide", "ignored": false}
   ],
   "count": 5
 }
@@ -274,17 +274,17 @@ Specific options:
   tracking starts before navigation so nothing is missed).
 
 ```bash
-cdpx coverage https://www.exemple.fr/produit-42
+cdpx coverage https://shop.example.test/product-42
 ```
 
 Output:
 
 ```json
 {
-  "url": "https://www.exemple.fr/produit-42",
+  "url": "https://shop.example.test/product-42",
   "files": [
-    {"url": "https://www.exemple.fr/assets/app.js", "functions": 214, "used_ranges": 87},
-    {"url": "https://www.exemple.fr/assets/vendor.js", "functions": 1032, "used_ranges": 240}
+    {"url": "https://shop.example.test/assets/app.js", "functions": 214, "used_ranges": 87},
+    {"url": "https://shop.example.test/assets/vendor.js", "functions": 1032, "used_ranges": 240}
   ],
   "count": 2,
   "css": {"rules": 418, "used": 137, "unused": 281}

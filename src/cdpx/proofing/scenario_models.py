@@ -3,7 +3,7 @@
 These TypedDicts describe the data contract shared between the pytest
 evidence plugin (writer), ``cdpx.proof`` (reader/rewriter), and the HTML
 cockpit (consumer of the embedded payload). Most fields are optional
-(``total=False``): legacy v1 payloads and synthetic scenarios (e.g. Symfony
+(``total=False``): schema-v1 payloads and synthetic scenarios (e.g. Symfony
 ``unavailable``) only carry a subset. Only ``nodeid`` is required — it is
 the correlation key of the entire pipeline.
 """
@@ -78,7 +78,7 @@ class Scenario(TypedDict, total=False):
 class ScenarioFile(TypedDict, total=False):
     """Versioned root of a ``*-scenarios.json`` file.
 
-    ``schema`` is absent from legacy v1 payloads, tolerated as-is by readers;
+    ``schema`` is absent from schema-v1 payloads and is accepted by readers;
     any value other than ``cdpx.scenarios/v2`` is an error.
     """
 

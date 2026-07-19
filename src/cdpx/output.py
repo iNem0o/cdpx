@@ -37,7 +37,7 @@ def _bound_value(value: Any, *, limit: int, root: bool = False) -> Any:
                 out[key] = _bound_value(item, limit=limit)
         return out
     if isinstance(value, list):
-        # Root lists keep their historical shape; nested lists get metadata from
+        # Root lists keep their published shape; nested lists get metadata from
         # their parent dict.
         items = value if root else value[:limit]
         return [_bound_value(v, limit=limit) for v in items]

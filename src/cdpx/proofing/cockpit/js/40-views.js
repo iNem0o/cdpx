@@ -56,7 +56,7 @@
   function renderReadingPath() {
     return `<div class="reading-path">Reading path — <strong>1.</strong> Verdict
       · <strong>2.</strong> <a href="#/gaps">Failures &amp; gaps</a>
-      · <strong>3.</strong> Features ci-dessous
+      · <strong>3.</strong> Features below
       · <strong>4.</strong> <a href="#/run">Run proofs</a></div>`;
   }
 
@@ -279,7 +279,7 @@
   function artifactChip(artifact, group, index) {
     const href = esc(hrefFor(artifact.path));
     const icon = VIEWER_ICONS[artifact.type] || VIEWER_ICONS.file;
-    const label = esc(artifact.label || artifact.type || 'artefact');
+      const label = esc(artifact.label || artifact.type || 'artifact');
     if (!VIEWERS[artifact.type]) {
       return `<a class="chip" href="${href}"><span class="chip-icon">${icon}</span>${label}</a>`;
     }
@@ -298,7 +298,7 @@
 
   function renderProofLinks(proofs) {
     if (!proofs.length) return '<div class="empty">No collected proof.</div>';
-    return list(proofs, (proof) => `<li><a href="${esc(hrefFor(proof.path))}">${esc(proof.label || proof.type || 'preuve')}</a> <code>${esc(proof.scenario_id || proof.scenario || '')}</code></li>`);
+    return list(proofs, (proof) => `<li><a href="${esc(hrefFor(proof.path))}">${esc(proof.label || proof.type || 'proof')}</a> <code>${esc(proof.scenario_id || proof.scenario || '')}</code></li>`);
   }
 
   function renderGaps() {
@@ -354,7 +354,7 @@
     </tr>`).join('');
     return `<h2>Demo casts</h2>
       <div class="badges">${chips}</div>
-      <div class="table-wrap"><table><thead><tr><th>Statut</th><th>Cast</th><th>Fichier</th><th>Octets</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <div class="table-wrap"><table><thead><tr><th>Status</th><th>Cast</th><th>File</th><th>Bytes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderCommandTimeline(commands) {
@@ -382,12 +382,12 @@
   }
 
   function renderValidation() {
-    const matrixRows = (data.validation_matrix || []).map((row) => `<tr><td>${esc(row.milestone)}</td><td>${esc(row.proof)}</td></tr>`).join('');
+    const matrixRows = (data.validation_matrix || []).map((row) => `<tr><td>${esc(row.capability)}</td><td>${esc(row.proof)}</td></tr>`).join('');
     const coverageRows = (data.coverage_groups || []).map((group) => `<tr><td>${esc(group.suite)}</td><td><code>${esc(group.module)}</code></td><td>${esc(group.tests)}</td><td>${esc(group.failed)}</td><td>${esc(group.skipped)}</td></tr>`).join('');
     const riskRows = (data.risks || []).map((risk) => `<tr><td>${esc(risk.risk)}</td><td>${esc(risk.mitigation)}</td><td>${esc(risk.rollback)}</td></tr>`).join('');
     const unknownRows = (data.unknowns || []).map((item) => `<tr><td>${esc(item.item)}</td><td>${esc(item.why)}</td><td>${esc(item.how_to_verify)}</td></tr>`).join('');
     app.innerHTML = `${crumbs([{label: 'Validation'}])}<h1>Validation matrix</h1>
-      <h2>Proof by milestone</h2><div class="table-wrap"><table><thead><tr><th>Milestone</th><th>Proof</th></tr></thead><tbody>${matrixRows}</tbody></table></div>
+      <h2>Proof by capability</h2><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Proof</th></tr></thead><tbody>${matrixRows}</tbody></table></div>
       <h2>Tests by module</h2><div class="table-wrap"><table><thead><tr><th>Suite</th><th>Module</th><th>Tests</th><th>Failures</th><th>Skips</th></tr></thead><tbody>${coverageRows}</tbody></table></div>
       <h2>Risks and mitigations</h2><div class="table-wrap"><table><thead><tr><th>Risk</th><th>Mitigation</th><th>Rollback</th></tr></thead><tbody>${riskRows}</tbody></table></div>
       <h2>Accepted unknowns</h2><div class="table-wrap"><table><thead><tr><th>Subject</th><th>Why</th><th>How to verify</th></tr></thead><tbody>${unknownRows}</tbody></table></div>`;
@@ -395,14 +395,14 @@
 
   function renderEvidenceCatalog() {
     const rows = (data.evidence_catalog || []).map((item) => `<tr><td>${esc(item.type)}</td><td>${esc(item.name)}</td><td>${statusPill(item.status)}</td><td><code>${esc(item.path || '-')}</code></td><td>${esc(item.roi)}</td></tr>`).join('');
-    return `<div class="table-wrap"><table><thead><tr><th>Type</th><th>Nom</th><th>Statut</th><th>Artefact</th><th>ROI</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr><th>Type</th><th>Name</th><th>Status</th><th>Artifact</th><th>ROI</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderProject() {
     const project = data.project || {};
     const env = data.environment || {};
     app.innerHTML = `${crumbs([{label: 'Project'}])}<h1>Project context</h1>
-      <section class="panel"><h2>Mission</h2><p>${esc(project.mission || '')}</p><p>Version <code>${esc(project.version || 'unknown')}</code>, branche <code>${esc(data.git?.branch || 'unknown')}</code> @ <code>${esc(data.git?.sha || 'unknown')}</code>.</p>
+      <section class="panel"><h2>Mission</h2><p>${esc(project.mission || '')}</p><p>Version <code>${esc(project.version || 'unknown')}</code>, branch <code>${esc(data.git?.branch || 'unknown')}</code> @ <code>${esc(data.git?.sha || 'unknown')}</code>.</p>
       <p>Run environment: Python <code>${esc(env.python || '?')}</code>, <code>${esc(env.platform || '?')}</code>, Chrome/Chromium ${env.chrome_or_chromium ? 'present' : 'absent'}.</p></section>
       <div class="two">
         <section class="panel"><h2>Docs</h2>${list(project.docs || [], (doc) => `<li><code>${esc(doc)}</code></li>`)}</section>

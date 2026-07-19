@@ -38,6 +38,7 @@ def test_version_has_single_source():
     #: exactly two dots = semver x.y.z, the format expected by v* tags and
     #: the CHANGELOG
     assert __version__.count(".") == 2  # x.y.z
+    assert __version__ == "0.1.0"
 
 
 def test_license_is_declared_and_present():
@@ -109,6 +110,7 @@ def test_public_project_metadata_points_to_github():
     #: every URL published on PyPI derives from the same repository: no
     #: dead link nor leftover from a former hosting
     assert project["authors"] == [{"name": "inem0o"}]
+    assert project["description"].startswith("Scriptable Chrome DevTools Protocol CLI")
     assert project["urls"]["Repository"] == REPOSITORY_URL
     assert project["urls"]["Issues"] == f"{REPOSITORY_URL}/issues"
     assert project["urls"]["Changelog"].startswith(REPOSITORY_URL)
@@ -190,7 +192,7 @@ def test_release_portal_and_ci_require_all_runtime_proofs():
     assert "smoke-dist" in makefile.split("dist:", 1)[1]
     assert "scripts/verify_dist.py" in makefile.split("dist:", 1)[1]
 
-    #: the GitLab -> GitHub migration is complete: no more GitLab CI file
+    #: GitHub Actions is the only CI configuration
     assert not Path(".gitlab-ci.yml").exists()
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     #: the CI replays the make gates (release included), publishes the

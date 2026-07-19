@@ -509,7 +509,7 @@ def build_evidence_catalog(
 
 
 def load_scenario_evidence(root: Path = EVIDENCE_DIR) -> ScenarioEvidence:
-    """Facade wrapper: default bound at import time, historical contract preserved."""
+    """Facade wrapper with a stable default bound at import time."""
 
     return _load_scenario_evidence_impl(root)
 
@@ -519,7 +519,7 @@ COCKPIT_CSS_RESOURCE = "cockpit/cockpit.css"
 # The cockpit JS is split into ordered parts, concatenated into a single
 # IIFE: the order is hardcoded (no glob) to stay deterministic, and each
 # part individually passes _cockpit_asset's anti-</script> guard. The
-# concatenation restores the historical closure scope.
+# concatenation restores the shared closure scope.
 COCKPIT_JS_PARTS = (
     "cockpit/js/00-helpers.js",
     "cockpit/js/10-viewers.js",
@@ -552,8 +552,8 @@ def cockpit_javascript() -> str:
     """SPA JS bundle assembled lazily: no resource I/O at cdpx.proof import
     time, fail-fast validation happens on the first call.
 
-    Each part ends with a newline: the join leaves a blank line between
-    parts, like in the former monolithic file.
+    Each part ends with a newline, so the join leaves a blank line between
+    shared bundle sections.
     """
     return "(function () {\n" + "\n".join(_cockpit_asset(p) for p in COCKPIT_JS_PARTS) + "})();\n"
 
@@ -823,7 +823,7 @@ def _generate() -> dict:
 
     # Separation of physical path (written into staging) / published
     # logical path (.proof/...): everything entering the summary, the HTML
-    # report and the logs is rewritten from the former to the latter before
+    # report and the logs is rewritten from the physical to the logical path before
     # publication. The roots are passed WITHOUT a trailing slash:
     # _rewrite_text_paths anchors them itself (`root/` prefix or exact
     # equality), which preserves the `.proof.new` literals quoted in

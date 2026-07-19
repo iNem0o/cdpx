@@ -61,7 +61,7 @@ def build_evidence_catalog(
             "name": "Project human report",
             "path": str(paths.report_html),
             "status": "generated",
-            "roi": "Human entry point: verdict, scope, milestones and collapsible proofs.",
+            "roi": "Human entry point: verdict, scope, capabilities and collapsible proofs.",
         },
         {
             "type": "json-summary",
@@ -193,22 +193,22 @@ def collect_project_inventory(help_commands: list[dict[str, str]]) -> dict:
         suffix = Path(path).suffix.lstrip(".") or "none"
         fixture_kinds[suffix] = fixture_kinds.get(suffix, 0) + 1
 
-    milestone_docs = sorted(str(path) for path in Path("docs/milestones").glob("*.md"))
     docs = [
         path
         for path in (
             "README.md",
             "HARNESS.md",
             "docs/CONTEXT.md",
+            "docs/GITHUB.md",
             "docs/PRIMITIVES.md",
-            "docs/ROADMAP.md",
-            "docs/TODO.md",
+            "docs/RELEASING.md",
+            "docs/SESSION-LIFECYCLE.md",
             "docs/VALIDATION.md",
         )
         if Path(path).exists()
     ]
 
-    # Source unique de version: cdpx.__version__ (pyproject la lit en dynamic).
+    # Single version source: pyproject reads cdpx.__version__ dynamically.
     from cdpx import __version__ as version
 
     return {
@@ -224,7 +224,6 @@ def collect_project_inventory(help_commands: list[dict[str, str]]) -> dict:
         "fixture_kinds": fixture_kinds,
         "fixtures": fixtures,
         "docs": docs,
-        "milestone_docs": milestone_docs,
     }
 
 
@@ -232,12 +231,20 @@ def parse_validation_matrix() -> list[dict[str, str]]:
     if not VALIDATION_DOC.exists():
         return []
     rows = []
+    in_matrix = False
     for line in VALIDATION_DOC.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("|") or "---" in line or "Milestone" in line:
+        if line == "## Capability matrix":
+            in_matrix = True
+            continue
+        if in_matrix and line.startswith("## "):
+            break
+        if not in_matrix:
+            continue
+        if not line.startswith("|") or "---" in line or "Capability" in line:
             continue
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         if len(cells) >= 2:
-            rows.append({"milestone": cells[0], "proof": cells[1]})
+            rows.append({"capability": cells[0], "proof": cells[1]})
     return rows
 
 

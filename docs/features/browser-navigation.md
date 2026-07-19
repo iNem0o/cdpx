@@ -89,7 +89,7 @@ cdpx tabs list
 Output of `list` (collection boundable by `--limit`, with the total count):
 
 ```json
-{"tabs":[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Produit 42","url":"http://demo.test/produit-42"}],"count":1,"_cdpx":{"content_trust":"untrusted"}}
+{"tabs":[{"id":"4FA1B2C3D4E5F6","type":"page","title":"Product 42","url":"http://demo.test/product-42"}],"count":1,"_cdpx":{"content_trust":"untrusted"}}
 ```
 
 Errors: exit 1 if the attested endpoint becomes unreachable or if the
@@ -135,12 +135,12 @@ Command-specific options:
   `none` (immediate return after the navigation is accepted).
 
 ```bash
-cdpx goto http://demo.test/produit-42
-cdpx goto http://demo.test/panier --wait domcontentloaded
+cdpx goto http://demo.test/product-42
+cdpx goto http://demo.test/cart --wait domcontentloaded
 ```
 
 ```json
-{"url":"http://demo.test/produit-42","frameId":"7C93","loaderId":"A1F0","errorText":null,"waited":"load","ok":true,"elapsed_ms":48.2}
+{"url":"http://demo.test/product-42","frameId":"7C93","loaderId":"A1F0","errorText":null,"waited":"load","ok":true,"elapsed_ms":48.2}
 ```
 
 Errors and gotchas: if Chrome refuses the navigation (DNS, connection

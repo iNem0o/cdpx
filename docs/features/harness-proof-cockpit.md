@@ -4,9 +4,9 @@ title = "Harness and proof cockpit"
 status = "validated"
 summary = "Run deterministic quality gates and publish a central, feature-oriented validation cockpit."
 entrypoints = ["make help", "make setup", "make check-local", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make site-casts", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make release", "make clean", "make dist", "make smoke-dist", "python -m cdpx.proof"]
-path_globs = ["Makefile", "pyproject.toml", "MANIFEST.in", "scripts/*.py", "scripts/language_ratchet_baseline.json", "Dockerfile", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/proofing/cockpit/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_intent.py", "tests/test_cast.py", "tests/test_e2e_helpers.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "tests/test_language_ratchet.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/features/*.md", "docs/milestones/*.md", "docs/milestones/*.json", "src/cdpx/cli_context.py", "src/cdpx/commands/*.py", "src/cdpx/option_types.py"]
-test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_language_ratchet.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid", "tests/e2e/test_e2e_chrome.py::test_cockpit_*", "tests/e2e/test_e2e_chrome.py::test_modal_*", "tests/test_cli.py::test_command_options_*", "tests/test_cli.py::test_prepare_builds_immutable_typed_invocation"]
-docs = ["README.md", "HARNESS.md", "CLAUDE.md", "docs/VALIDATION.md", "docs/ROADMAP.md", "docs/TODO.md"]
+path_globs = ["Makefile", "pyproject.toml", "MANIFEST.in", "scripts/*.py", "Dockerfile", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/proofing/cockpit/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_intent.py", "tests/test_cast.py", "tests/test_e2e_helpers.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "tests/test_public_surfaces.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/features/*.md", "src/cdpx/cli_context.py", "src/cdpx/commands/*.py", "src/cdpx/option_types.py"]
+test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_public_surfaces.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid", "tests/e2e/test_e2e_chrome.py::test_cockpit_*", "tests/e2e/test_e2e_chrome.py::test_modal_*", "tests/test_cli.py::test_command_options_*", "tests/test_cli.py::test_prepare_builds_immutable_typed_invocation"]
+docs = ["README.md", "HARNESS.md", "docs/CONTEXT.md", "docs/VALIDATION.md", "docs/RELEASING.md"]
 expected_proofs = ["junit"]
 
 [[journeys]]
@@ -68,15 +68,15 @@ tests = ["tests/e2e/test_e2e_chrome.py::test_modal_renders_every_textual_viewer"
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
-id = "enforce-language-ratchet"
+id = "enforce-public-copy"
 journey = "run-quality-gate"
-title = "Lock the English-migration progress with an exact language ratchet"
-ui_text = "The count of French lines per repository area must match the committed baseline exactly; any drift breaks the gate."
-report_text = "This scenario proves that the migration to English cannot regress silently: a per-area measurement of French markers is compared to a committed baseline, any drift (up or down) fails the test until the baseline is regenerated in the same commit, and the migration tooling itself is excluded from the scan so the count can reach zero."
-given = "A committed per-area baseline produced by scripts/language_ratchet.py on a full checkout."
-when = "The unit gate measures the French-marked lines of the repository and compares them to the baseline."
-then = "The measurement equals the baseline area by area, and the glossary/ratchet tooling stays out of the scanned corpus."
-tests = ["tests/test_language_ratchet.py::test_french_line_count_detects_accents_and_plain_french_words", "tests/test_language_ratchet.py::test_language_baseline_matches_current_measurement", "tests/test_language_ratchet.py::test_migration_tooling_is_excluded_from_the_scan"]
+title = "Keep public copy current and consistently English"
+ui_text = "Public documentation, metadata and interfaces use one language and describe only the current product."
+report_text = "This scenario proves that public copy is checked without a baseline: French prose, invalid document links and project-development narratives fail the unit gate."
+given = "The repository defines the authored public surfaces and explicit third-party exclusions."
+when = "The unit gate scans every selected surface and validates Markdown links."
+then = "All public copy is English, current and connected to an existing document."
+tests = ["tests/test_public_surfaces.py::*"]
 expected_proofs = ["junit"]
 +++
 
@@ -139,19 +139,19 @@ no Chrome required, no external network.
 
 ### `make test-e2e`
 
-e2e tests on real Chrome (M1) — fails if Chrome/Chromium is missing. This is
+e2e tests on real Chrome — fails if Chrome/Chromium is missing. This is
 the heavy check that validates real protocol behavior.
 
 ### `make cov`
 
 Unit tests with coverage measurement and a blocking threshold
 (`--cov-fail-under`, 85% by default via `COV_MIN`). Applied in CI across the
-Python matrix; locally, `make check` remains the fast gate.
+Python matrix; locally, `make check-local` remains the fast loop.
 
 ### `make typecheck`
 
-mypy check of `src/cdpx`. Blocking since it turned durably green (0 errors,
-2026-07): included in `make check` and without `allow_failure` in CI.
+mypy check of `src/cdpx`. It is blocking in `make check-local`, the Docker
+validation and CI.
 
 ### `make fixtures`
 

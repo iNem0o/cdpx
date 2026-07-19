@@ -32,10 +32,9 @@ IGNORED_PATH_PARTS = {
 }
 FEATURE_STATUSES = {"planned", "active", "validated", "deprecated"}
 
-# Ratchet: maximum number of tests attached only by a feature's broad
-# test_globs, without a documented scenario. It can only GO DOWN — an
-# overrun is a blocking violation, so narrative debt never grows back.
-UNDOCUMENTED_SCENARIO_WARNING_BUDGET = 0
+# Maximum number of tests attached only by a feature's broad test_globs,
+# without a documented scenario. Any overrun is a blocking violation.
+UNDOCUMENTED_SCENARIO_WARNING_LIMIT = 0
 
 # Mandatory sections of the Markdown body (displayed as-is in the proof
 # report). "Usage" carries the user documentation per entrypoint.
@@ -226,10 +225,10 @@ def build_feature_inventory(
         for warning in warnings
         if warning.startswith("scenario mapped only by feature test_globs")
     )
-    if undocumented_count > UNDOCUMENTED_SCENARIO_WARNING_BUDGET:
+    if undocumented_count > UNDOCUMENTED_SCENARIO_WARNING_LIMIT:
         violations.append(
             "undocumented scenario warnings over budget: "
-            f"{undocumented_count} > {UNDOCUMENTED_SCENARIO_WARNING_BUDGET} "
+            f"{undocumented_count} > {UNDOCUMENTED_SCENARIO_WARNING_LIMIT} "
             "(document the scenarios or widen the specs, not the budget)"
         )
 

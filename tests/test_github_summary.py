@@ -12,11 +12,11 @@ def test_github_summary_uses_real_proof_and_archives(tmp_path: Path, monkeypatch
     monkeypatch.setenv("GITHUB_SHA", "a" * 40)
     dist = tmp_path / "dist"
     dist.mkdir()
-    (dist / "cdpx-0.2.0-py3-none-any.whl").write_bytes(b"wheel")
-    (dist / "cdpx-0.2.0.tar.gz").write_bytes(b"sdist")
+    (dist / "cdpx-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
+    (dist / "cdpx-0.1.0.tar.gz").write_bytes(b"sdist")
     summary = {
         "ok": True,
-        "project": {"version": "0.2.0", "cli_command_count": 31},
+        "project": {"version": "0.1.0", "cli_command_count": 31},
         "cli_command_count": 31,
         "totals": {"passed": 343, "failed": 0, "skipped": 0, "unavailable": 0},
         "commands": [{"id": "e2e", "status": "ok"}, {"id": "symfony-e2e", "status": "ok"}],

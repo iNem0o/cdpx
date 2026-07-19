@@ -186,10 +186,11 @@ continues.
   not exhaustive certifications: their limits are documented in
   `docs/PRIMITIVES.md` and the feature sheets.
 
-## 7. Human takeover and harness evolution
+## 7. Maintenance and human steering
 
-- The why lives in `docs/CONTEXT.md`, the remaining work in `docs/TODO.md`
-  and `docs/ROADMAP.md`, the contracts in tested code.
+- Product rationale lives in `docs/CONTEXT.md`, command contracts in
+  `docs/PRIMITIVES.md`, validation in `docs/VALIDATION.md`, and publication
+  in `docs/RELEASING.md`.
 - Whatever has not been validated at runtime stays marked as such.
 - Any rule added here must be executable or verifiable through a test, a
   check or a behavioral default. A convention without a mechanical guard is

@@ -76,15 +76,15 @@ Command-specific options:
 - `--format`: encoding format, `png` or `jpeg` (default: `png`).
 
 ```bash
-cdpx screenshot -o preuves/accueil.png
-cdpx screenshot --full-page -o preuves/page-entiere.png
-cdpx screenshot --format jpeg -o preuves/accueil.jpg
+cdpx screenshot -o evidence/home.png
+cdpx screenshot --full-page -o evidence/full-page.png
+cdpx screenshot --format jpeg -o evidence/home.jpg
 ```
 
 JSON output (path written, size in bytes, format, and mode used):
 
 ```json
-{"path": "/runtime/session/artifacts/captures/accueil.jpg", "bytes": 48231, "format": "jpeg", "full_page": false, "classification": "opaque-restricted", "upload_allowed": false, "retention": "session", "_cdpx": {"content_trust": "untrusted"}}
+{"path": "/runtime/session/artifacts/captures/home.jpg", "bytes": 48231, "format": "jpeg", "full_page": false, "classification": "opaque-restricted", "upload_allowed": false, "retention": "session", "_cdpx": {"content_trust": "untrusted"}}
 ```
 
 The output adds `classification:"opaque-restricted"`,
@@ -95,7 +95,7 @@ file before returning the error.
 Gotchas:
 
 - The format is independent of the file extension: `--format jpeg` with
-  `-o etat.png` does write JPEG into a file named `.png`. Align the two to
+  `-o state.png` does write JPEG into a file named `.png`. Align the two to
   avoid confusion.
 - `--full-page` on a very long page produces a large file; the command
   has a 30s CDP timeout on the capture side.
@@ -123,13 +123,13 @@ Command-specific options:
   if the final origin is refused.
 
 ```bash
-cdpx pdf -o preuves/audit-accueil.pdf
+cdpx pdf -o evidence/home-audit.pdf
 ```
 
 JSON output:
 
 ```json
-{"path": "/runtime/session/artifacts/captures/audit-accueil.pdf", "bytes": 105320, "classification": "opaque-restricted", "upload_allowed": false, "retention": "session", "_cdpx": {"content_trust": "untrusted"}}
+{"path": "/runtime/session/artifacts/captures/home-audit.pdf", "bytes": 105320, "classification": "opaque-restricted", "upload_allowed": false, "retention": "session", "_cdpx": {"content_trust": "untrusted"}}
 ```
 
 Gotchas:

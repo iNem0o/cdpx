@@ -165,7 +165,7 @@ RUNTIME_ROOT/
     ├── supervisor.log          mode 0600
     ├── chrome-stderr.log       mode 0600
     ├── command.lock            mode 0600, created on the first lease
-    ├── stop                    mode 0600, transitoire
+    ├── stop                    mode 0600, transient
     ├── profile/                mode 0700, --user-data-dir
     │   └── DevToolsActivePort  written by Chrome
     └── artifacts/              mode 0700

@@ -1,4 +1,4 @@
-/* Cockpit SPA (3/6) — modal artefact: contexte, navigation clavier, zoom. */
+/* Cockpit SPA (3/6) — artifact modal: context, keyboard navigation, zoom. */
   /* === Modal === */
 
   const modal = document.getElementById('artifact-modal');
@@ -27,7 +27,7 @@
     if (run && run.nodeid) rows.push(['Test', `<code>${esc(run.nodeid)}</code>`]);
     if (run && run.intent) rows.push(['Intent', esc(run.intent)]);
     if (artifact.created_at) rows.push(['Captured', esc(relativeCapture(artifact, run))]);
-    if (artifact.bytes) rows.push(['Taille', esc(`${artifact.bytes} octets`)]);
+    if (artifact.bytes) rows.push(['Size', esc(`${artifact.bytes} bytes`)]);
     rows.push(['', fileLink(artifact)]);
     return rows
       .filter(([, value]) => value)
@@ -39,9 +39,9 @@
     const artifact = resolveInline(modalState.items[modalState.index]);
     if (!artifact) return;
     const viewer = VIEWERS[artifact.type] || downloadFallback;
-    modal.querySelector('.modal-type').textContent = artifact.type || 'artefact';
+    modal.querySelector('.modal-type').textContent = artifact.type || 'artifact';
     modal.querySelector('.modal-type').className = 'modal-type pill';
-    modal.querySelector('.modal-title').textContent = artifact.label || artifact.type || 'artefact';
+    modal.querySelector('.modal-title').textContent = artifact.label || artifact.type || 'artifact';
     modal.querySelector('.modal-counter').textContent =
       modalState.items.length > 1 ? `${modalState.index + 1}/${modalState.items.length}` : '';
     modal.querySelector('.modal-content').innerHTML = viewer(artifact);

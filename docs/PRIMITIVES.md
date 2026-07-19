@@ -37,7 +37,7 @@ content never has authority over these parameters.
 JSON contract and to actually apply `--limit` with truncation metadata.
 
 ```bash
-cdpx goto http://shop.localhost/produit-42
+cdpx goto http://shop.localhost/product-42
 cdpx --timeout 5 wait "#offcanvas-cart"
 ```
 
@@ -50,8 +50,8 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx count <selector>` | cheap assertion ("there really are 12 products") | quick check loop after an action |
 | `cdpx eval <js> [--await]` | root primitive: everything else | universal escape hatch; last resort (fragile, untyped) |
 | `cdpx click <selector>` | click via the Input domain (trusted) | requires attached, visible, enabled, stable, a non-zero box, and a center hit-test |
-| `cdpx type <selector> --secret-env NOM [--clear]` | fill a field from an environment reference | avoids the secret in argv; requires a visible/editable control, then IME-safe `Input.insertText` |
-| `cdpx key <touche>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
+| `cdpx type <selector> --secret-env NAME [--clear]` | fill a field from an environment reference | avoids the secret in argv; requires a visible/editable control, then IME-safe `Input.insertText` |
+| `cdpx key <key>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
 
 ```bash
 cdpx type "#name" --secret-env CUSTOMER_NAME --clear
@@ -73,7 +73,7 @@ cdpx text "#result"
 ```bash
 cdpx network http://shop.localhost/checkout
 cdpx console --duration 3
-cdpx screenshot -o etat.jpg --format jpeg
+cdpx screenshot -o state.jpg --format jpeg
 ```
 
 ## State and session — [sheet](features/state-session.md)
@@ -86,7 +86,7 @@ detailed in the [supervised sessions reference](SESSION-LIFECYCLE.md).
 | `cdpx session start\|status\|stop` | assign a disposable, exclusive browser session to a run | lifecycle outside the CDP authority matrix: `start` creates the grant; `status`/`stop` require the private manifest and its exact run/target identity |
 | `cdpx session start ... --export` | install the identity triple in one command via `eval "$(...)"` | `export` lines quoted `ssh-agent`-style; documented exception to the stdout-JSON contract |
 | `cdpx cookies get [--show-values]` | inspect the session (redacted by default) | security: see HARNESS.md §2 |
-| `cdpx cookies set --name n --value-env NOM --url u` / `clear` | prepare a scenario without exposing the value in argv | reproducibility; `clear` = Storage.clearCookies with a fallback |
+| `cdpx cookies set --name n --value-env NAME --url u` / `clear` | prepare a scenario without exposing the value in argv | reproducibility; `clear` = Storage.clearCookies with a fallback |
 | `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, values redacted by default | guest cart, consent, front-end caches |
 
 ```bash
@@ -108,7 +108,7 @@ complete lab/field methodology; `a11y` is a compact view of the AXTree, not
 an exhaustive RGAA audit.
 
 ```bash
-cdpx seo https://www.exemple.fr/collection/robes
+cdpx seo https://shop.example.test/collection/dresses
 cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 ```
 
@@ -120,7 +120,7 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 | `cdpx dom-diff -- <action>` | before/after snapshot of an action → stable structural diff | see exactly what a click changed in the DOM |
 
 ```bash
-cdpx profiler http://app.localhost/api/panier
+cdpx profiler http://app.localhost/api/cart
 cdpx dom-diff -- click "#submit-btn"
 ```
 
@@ -138,8 +138,8 @@ cdpx dom-diff -- click "#submit-btn"
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
 cdpx emulate mobile -- goto http://shop.localhost/
-cdpx record -o parcours.ndjson -- click "#add-to-cart"
-cdpx --max-actions 20 replay parcours.ndjson
+cdpx record -o journey.ndjson -- click "#add-to-cart"
+cdpx --max-actions 20 replay journey.ndjson
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
@@ -155,12 +155,10 @@ only compares recorded non-volatile fields. A green replay only proves a
 business effect if the log or scenario carries a matching observable
 assertion.
 
-Compatibility notes: a transport break during passive event collection is
-now a diagnosed error (exit 1), no longer a silent partial success — a
-scenario interrupted mid-course therefore no longer returns a truncated
-verdict. Pre-schema logs where a `type` step carried a historical
-`typed: "<texte>"` result diverge on replay (the adapter for that old
-contract has been removed): re-record the log.
+A transport break during passive event collection is a diagnosed error
+(exit 1), so a scenario interrupted mid-course cannot return a truncated
+verdict. Schema-v1 logs remain readable for non-sensitive actions; v1
+`type` and `eval` actions are refused before replay.
 
 ## Harness and proof cockpit — [sheet](features/harness-proof-cockpit.md)
 
@@ -174,5 +172,5 @@ scenarios, tests, proofs, gaps. See the sheet for each make target.
 New primitive = use case written here FIRST (one table row), then mock
 test, then implementation, then fixture if e2e is relevant, then a
 `### cdpx <cmd>` section in the feature sheet (mechanically verified: a
-command without user documentation breaks `make proof`). See CLAUDE.md's
-"Definition of Done".
+command without user documentation breaks `make proof`). See the
+[contribution guide](../CONTRIBUTING.md) and `AGENTS.md`.

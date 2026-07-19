@@ -148,7 +148,7 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
                 "name": "tests/test_proof.py",
                 "type": "Unit tests",
                 "evidence": "tests/test_proof.py",
-                "review_focus": "JUnit parsing, CLI help and historical summary.",
+                "review_focus": "JUnit parsing, CLI help and published summary fields.",
             }
         )
 
@@ -179,7 +179,7 @@ def build_review_guide(impact: dict) -> dict:
     if "Product code" in categories:
         order.append("Read `src/cdpx/proof.py`: collection, verdict, JSON summary, HTML rendering.")
     if "Tests" in categories:
-        order.append("Read `tests/test_proof.py`: locking of parsing and historical keys.")
+        order.append("Read `tests/test_proof.py`: parsing and published summary fields.")
     if "Documentation" in categories:
         order.append("Finish with README/HARNESS/VALIDATION: alignment of the public contract.")
     if not order:

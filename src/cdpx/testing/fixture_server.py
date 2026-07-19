@@ -1,8 +1,8 @@
 """Fixture HTTP server: the deterministic "reference site".
 
 Role: serve static HTML pages and API endpoints with fixed behavior, so
-that every cdpx primitive has a reproducible playground — first for the
-real-Chrome e2e (M1), and unit-tested right away (the server itself is
+that every cdpx primitive has a reproducible playground for real-Chrome
+e2e and deterministic unit tests (the server itself is
 under test: tests/test_fixture_server.py).
 
 Determinism rules:

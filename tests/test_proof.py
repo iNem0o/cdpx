@@ -1354,34 +1354,31 @@ def test_render_html_size_stays_bounded():
     assert len(proof.render_html(summary)) < 4_500_000
 
 
-def test_load_scenario_evidence_accepts_legacy_v1_payloads(tmp_path):
-    """A v1 *-scenarios.json (without a schema or intent key) stays readable
-    as-is: reader tolerance avoids any migrator."""
-    # A v1 *-scenarios.json (no schema key, no intent/assertions) must
-    # stay readable: readers are tolerant, no migrator required.
-    legacy = {
+def test_load_scenario_evidence_accepts_schema_v1_payloads(tmp_path):
+    """A schema-v1 payload without schema or intent remains readable."""
+    schema_v1 = {
         "suite": "unit",
         "generated_at": "2026-01-01T00:00:00+00:00",
         "count": 1,
         "scenarios": [
             {
-                "nodeid": "tests/test_demo.py::test_legacy",
+                "nodeid": "tests/test_demo.py::test_schema_v1",
                 "suite": "unit",
-                "title": "legacy",
+                "title": "schema v1",
                 "status": "passed",
                 "artifacts": [],
             }
         ],
     }
     (tmp_path / "unit-scenarios.json").write_text(
-        json.dumps(legacy, ensure_ascii=False), encoding="utf-8"
+        json.dumps(schema_v1, ensure_ascii=False), encoding="utf-8"
     )
 
     evidence = proof.load_scenario_evidence(tmp_path)
 
-    #: the legacy payload is counted and returned like a modern scenario
+    #: the schema-v1 payload participates in the current totals
     assert evidence["totals"]["unit"] == 1
-    assert evidence["suites"]["unit"][0]["nodeid"] == "tests/test_demo.py::test_legacy"
+    assert evidence["suites"]["unit"][0]["nodeid"] == "tests/test_demo.py::test_schema_v1"
 
 
 def test_load_scenario_evidence_rejects_invalid_json(tmp_path):
@@ -1400,7 +1397,7 @@ def test_load_scenario_evidence_rejects_invalid_json(tmp_path):
 def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
     """A schema key present but different from cdpx.scenarios/v2 is rejected,
     naming the file, the expected version, and the found version — only the
-    absence of schema (legacy v1) remains tolerated."""
+    absence of schema for v1 remains accepted."""
     path = tmp_path / "unit-scenarios.json"
     path.write_text(
         json.dumps({"schema": "cdpx.scenarios/v3", "suite": "unit", "scenarios": []}),
@@ -1623,8 +1620,8 @@ def test_parse_help_commands_uses_captured_argparse_help():
     assert any(command["help"] for command in commands if command["name"] == "seo")
 
 
-def test_build_summary_preserves_historical_artifact_keys():
-    """The summary's historical keys stay stable: the published paths are
+def test_build_summary_preserves_published_artifact_keys():
+    """The summary's published keys stay stable: the published paths are
     the canonical locations, not those of the input entries."""
     unit = {
         "tests": 2,
@@ -1660,7 +1657,7 @@ def test_build_summary_preserves_historical_artifact_keys():
         cast_entries=generated_casts(),
     )
 
-    #: the historical JSON contract is frozen: verdict and canonical artifact paths
+    #: the published JSON contract fixes verdict and canonical artifact paths
     assert summary["ok"] is True
     assert summary["unit_log"] == ".proof/make-check-pytest.log"
     assert summary["e2e_log"] == ".proof/e2e-chrome.log"
@@ -1734,6 +1731,7 @@ def test_build_summary_adds_project_evidence_sections():
     assert summary["project"]["fixture_count"] >= 1
     #: matrix, catalog, and unknowns are populated: the SPA has what it needs to render each section
     assert summary["validation_matrix"]
+    assert set(summary["validation_matrix"][0]) == {"capability", "proof"}
     assert summary["coverage_groups"] == []
     assert any(item["type"] == "junit" for item in summary["evidence_catalog"])
     assert summary["unknowns"]
@@ -2408,7 +2406,7 @@ def test_classify_change_categorizes_repository_paths():
     #: every path family goes to the category expected by the impact map
     assert proof.classify_change("src/cdpx/proof.py") == "Product code"
     assert proof.classify_change("tests/test_proof.py") == "Tests"
-    assert proof.classify_change("docs/TODO.md") == "Documentation"
+    assert proof.classify_change("docs/REFERENCE.md") == "Documentation"
     assert proof.classify_change("README.md") == "Documentation"
     assert proof.classify_change("Makefile") == "Harness / CI"
     assert proof.classify_change(".github/workflows/ci.yml") == "Harness / CI"
@@ -2430,7 +2428,7 @@ def test_build_impact_map_derives_entrypoints_and_change_types():
     from the modified files, and flags the verified CLI surface when help
     was captured."""
     git_context = _impact_git_context(
-        ["Makefile", "src/cdpx/proof.py", "tests/test_proof.py", "docs/TODO.md"]
+        ["Makefile", "src/cdpx/proof.py", "tests/test_proof.py", "docs/REFERENCE.md"]
     )
 
     impact = proof.build_impact_map(git_context, [{"name": "goto", "help": "opens a page"}])

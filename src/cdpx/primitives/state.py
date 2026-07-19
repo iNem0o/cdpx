@@ -43,7 +43,7 @@ def clear_cookies(client: CDPClient) -> dict:
         client.send("Storage.clearCookies")
         return {"cleared": True, "method": "Storage.clearCookies"}
     except CDPError:
-        # Legacy Chrome without Storage.clearCookies: deprecated method as fallback.
+        # Some supported endpoints expose cookie clearing through Network.
         client.send("Network.clearBrowserCookies")
         return {"cleared": True, "method": "Network.clearBrowserCookies"}
 

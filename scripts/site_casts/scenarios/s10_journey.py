@@ -20,8 +20,8 @@ SCENARIO = Scenario(
     steps=(
         Comment("record: every executed action leaves a redacted NDJSON journal"),
         Cmd(
-            argv=("record", "-o", "parcours.ndjson", "--", "goto", "{base}/form.html"),
-            display="cdpx record -o parcours.ndjson -- goto {base}/form.html",
+            argv=("record", "-o", "journey.ndjson", "--", "goto", "{base}/form.html"),
+            display="cdpx record -o journey.ndjson -- goto {base}/form.html",
             expect=('"schema":"cdpx.record/v2"', '"recorded":1', '"replayable":true'),
         ),
         Comment("the secret never crosses the journal: @env:FORM_NAME, not the value"),
@@ -29,27 +29,27 @@ SCENARIO = Scenario(
             argv=(
                 "record",
                 "-o",
-                "parcours.ndjson",
+                "journey.ndjson",
                 "--",
                 "type",
                 "#name",
                 "@env:FORM_NAME",
                 "--clear",
             ),
-            display='cdpx record -o parcours.ndjson -- type "#name" @env:FORM_NAME --clear',
+            display='cdpx record -o journey.ndjson -- type "#name" @env:FORM_NAME --clear',
             expect=('"recorded":1', '"replayable":true'),
         ),
         Cmd(
-            argv=("record", "-o", "parcours.ndjson", "--", "click", "#submit-btn"),
-            display='cdpx record -o parcours.ndjson -- click "#submit-btn"',
+            argv=("record", "-o", "journey.ndjson", "--", "click", "#submit-btn"),
+            display='cdpx record -o journey.ndjson -- click "#submit-btn"',
             expect=('"recorded":1', '"replayable":true'),
         ),
         Comment(
             "replay pre-validates the whole journal, then replays — stops at the first divergence"
         ),
         Cmd(
-            argv=("--max-actions", "20", "replay", "parcours.ndjson"),
-            display="cdpx --max-actions 20 replay parcours.ndjson",
+            argv=("--max-actions", "20", "replay", "journey.ndjson"),
+            display="cdpx --max-actions 20 replay journey.ndjson",
             expect=('"events":3', '"played":3', '"ok":true'),
         ),
         Comment("scenario: the declarative business journey — verdict, assertions, archived proof"),

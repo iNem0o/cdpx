@@ -968,11 +968,10 @@ def test_set_and_clear_cookies(mock, client):
     assert mock.cookies == []
 
 
-def test_clear_cookies_falls_back_on_legacy_method(mock, client):
-    """When Storage.clearCookies fails (old Chrome), the fallback to the
-    deprecated method succeeds and the output announces the method actually
-    used."""
-    # Legacy Chrome without Storage.clearCookies: fallback to the deprecated method.
+def test_clear_cookies_falls_back_to_network_method(mock, client):
+    """When Storage.clearCookies fails, the Network-domain fallback succeeds
+    and the output announces the method actually used."""
+    # Supported endpoint exposing cookie clearing through Network.
     mock.fail_on("Storage.clearCookies")
     res = state.clear_cookies(client)
     #: the output tells the truth: it is the fallback method that cleaned up
@@ -1304,16 +1303,14 @@ def test_intercept_accepts_explicit_continue(mock, client):
 
 def test_emulate_mobile_and_reset(mock, client):
     """Mobile emulation applies the device override, and the reset restores
-    everything — UA included (historical bug) — via the complete protocol
-    sequence."""
+    every dimension, including the UA, via the complete protocol sequence."""
     #: the mobile profile is applied with the matching device flag
     assert emulation.emulate(client, "mobile")["applied"] is True
     assert mock.commands_for("Emulation.setDeviceMetricsOverride")[0]["mobile"] is True
     mock.commands.clear()
     assert emulation.emulate(client, reset=True)["reset"] is True
-    # Full reset sequence, UA included (historical bug: mobile UA never
-    # restored; verified against real Chrome — setUserAgentOverride "" restores
-    # the default UA, clearDeviceMetricsOverride lifts the device override).
+    # Full reset sequence. setUserAgentOverride "" restores the default UA
+    # and clearDeviceMetricsOverride lifts the device override.
     #: the reset sequence covers device, UA, network and CPU — nothing is forgotten
     assert [m for (_t, m, _p) in mock.commands] == [
         "Emulation.clearDeviceMetricsOverride",
@@ -1517,10 +1514,10 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
     """A v1 journal containing clear-text typed text is refused without
     being replayed and without the inherited sensitive value leaking into
     the summary."""
-    path = tmp_path / "legacy-type.ndjson"
+    path = tmp_path / "schema-v1-type.ndjson"
     path.write_text(
-        '{"action":["type","#name","legacy-secret"],"ok":true,'
-        '"result":{"typed":"legacy-secret","selector":"#name","cleared":false}}\n',
+        '{"action":["type","#name","schema-v1-secret"],"ok":true,'
+        '"result":{"typed":"schema-v1-secret","selector":"#name","cleared":false}}\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(
@@ -1540,7 +1537,7 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
     assert result["ok"] is False and result["played"] == 0
     #: the refusal is justified and the inherited secret value appears nowhere
     assert "sensitive v1 action refused" in result["divergence"]
-    assert "legacy-secret" not in json.dumps(result)
+    assert "schema-v1-secret" not in json.dumps(result)
 
 
 @pytest.mark.scenario(

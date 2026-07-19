@@ -36,8 +36,8 @@ _TEXTUAL_PROOF_SUFFIXES = {
 # (outside pytest sessions): only they can be classified by the MIME policy.
 # Any other file must be covered by an evidence manifest, otherwise staging
 # fails closed. The names mirror the path constants of the `cdpx.proof`
-# facade (REPORT_HTML, SUMMARY_JSON, …), frozen at import like the historical
-# contract.
+# facade (REPORT_HTML, SUMMARY_JSON, …), frozen at import as part of the
+# published contract.
 _PIPELINE_TOP_LEVEL_FILES = frozenset(
     {
         "proof-report.html",

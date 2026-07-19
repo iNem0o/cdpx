@@ -95,11 +95,11 @@ Command-specific options:
 
 ```bash
 cdpx eval "document.title"
-cdpx eval "fetch('/api/panier').then(r => r.status)" --await
+cdpx eval "fetch('/api/cart').then(r => r.status)" --await
 ```
 
 ```json
-{"value":"Produit 42 — Demo"}
+{"value":"Product 42 — Demo"}
 ```
 
 Errors and gotchas: a JS exception in the page → exit 1 with the

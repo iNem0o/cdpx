@@ -247,7 +247,7 @@ def new_tab(host: str, port: int, url: str | None = None) -> DiscoveryTarget:
             url=endpoint,
         )
     except DiscoveryError as put_error:
-        if not _legacy_new_tab_method_rejection(put_error):
+        if not _put_rejection_allows_get_fallback(put_error):
             raise
         try:
             return _target(
@@ -257,21 +257,19 @@ def new_tab(host: str, port: int, url: str | None = None) -> DiscoveryTarget:
             )
         except DiscoveryError as get_error:
             raise DiscoveryError(
-                f"{put_error}; legacy GET fallback failed: {get_error}",
+                f"{put_error}; GET fallback failed: {get_error}",
                 method="GET",
                 url=get_error.url,
                 status=get_error.status,
             ) from get_error
 
 
-def _legacy_new_tab_method_rejection(error: DiscoveryError) -> bool:
-    """Recognize explicit legacy servers that cannot dispatch PUT /json/new.
+def _put_rejection_allows_get_fallback(error: DiscoveryError) -> bool:
+    """Recognize explicit method rejections that permit GET /json/new.
 
-    Factual basis for the predicate: Chrome 111+ requires PUT; earlier
-    DevTools servers respond 405 (compliant method rejection) or close the
-    connection without a response (RemoteDisconnected). Any other PUT
-    failure (5xx, network URLError) is not a legacy-server signal and must
-    not trigger a silent GET fallback.
+    A compatible endpoint may respond 405 or close the connection without a
+    response (RemoteDisconnected). Any other PUT failure (5xx or network
+    URLError) must not trigger a silent GET fallback.
     """
     return error.status == 405 or isinstance(error.__cause__, http.client.RemoteDisconnected)
 

@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
-  <title>Rapport de preuve cdpx - $verdict</title>
+  <title>cdpx proof report - $verdict</title>
   <style>
 $spa_css
   </style>
@@ -14,7 +14,7 @@ $xterm_css
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">cdpx · cockpit de preuve</div>
+    <div class="brand">cdpx · proof cockpit</div>
     <span class="pill $pill">$verdict</span>
     <span class="muted">$context</span>
     <nav>
@@ -24,36 +24,36 @@ $xterm_css
       <a href="#/validation" data-route="/validation">Validation</a>
       <a href="#/gaps" data-route="/gaps">Gaps</a>
       <a href="#/run" data-route="/run">Run</a>
-      <a href="#/project" data-route="/project">Projet</a>
+      <a href="#/project" data-route="/project">Project</a>
     </nav>
   </div>
   <div class="shell">
     <aside class="side">
       <section id="featureSide">
         <h2>Features</h2>
-        <input id="featureSearch" type="search" placeholder="Filtrer les features">
+        <input id="featureSearch" type="search" placeholder="Filter features">
         <nav id="featureNav"></nav>
       </section>
       <section id="docsSide" hidden>
         <h2>Documentation</h2>
-        <input id="docsSearch" type="search" placeholder="Filtrer les documents">
+        <input id="docsSearch" type="search" placeholder="Filter documents">
         <nav id="docsNav"></nav>
       </section>
     </aside>
     <main id="app" aria-live="polite"></main>
   </div>
-  <div id="artifact-modal" role="dialog" aria-modal="true" aria-label="Visualiseur de preuve" hidden>
+  <div id="artifact-modal" role="dialog" aria-modal="true" aria-label="Proof viewer" hidden>
     <div class="modal-overlay" data-modal-close></div>
     <div class="modal-frame">
       <header class="modal-head">
         <span class="modal-type pill"></span>
         <strong class="modal-title"></strong>
         <span class="modal-counter muted"></span>
-        <button type="button" class="modal-close" data-modal-close aria-label="Fermer">✕</button>
+        <button type="button" class="modal-close" data-modal-close aria-label="Close">✕</button>
       </header>
       <div class="modal-body">
         <div class="modal-content"></div>
-        <aside class="modal-context"><h2>Contexte</h2><div class="modal-context-body"></div></aside>
+        <aside class="modal-context"><h2>Context</h2><div class="modal-context-body"></div></aside>
       </div>
       <footer class="modal-foot muted">← previous · → next · z zoom · Esc close</footer>
     </div>

@@ -1,4 +1,4 @@
-name: Propose an evolution
+name: Propose an improvement
 description: Propose a primitive, a CLI improvement or a documented use case.
 title: "[Feature] "
 labels:
@@ -8,7 +8,7 @@ body:
     id: use-case
     attributes:
       label: Use case
-      description: What concrete problem does this evolution solve for the agent or the developer?
+      description: What concrete problem does this change solve for the agent or the developer?
     validations:
       required: true
   - type: textarea
@@ -38,7 +38,7 @@ body:
       options:
         - label: The primitive and its CLI subcommand are defined.
           required: true
-        - label: The JSON object, stderr and the 0/1/2 exit codes are defined, including for a contract evolution.
+        - label: The JSON object, stderr and the 0/1/2 exit codes are defined, including for a contract change.
           required: true
         - label: The exact mock protocol and the output + protocol tests are planned.
           required: true

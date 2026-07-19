@@ -1,13 +1,13 @@
-/* Cockpit SPA (2/6) — visualiseurs d'artefacts et registre VIEWERS. */
-  /* === Visualiseurs d'artefacts ===
-     Chaque type de la taxonomie (cdpx.testing.evidence.ARTIFACT_TYPES) doit
-     have a VIEWERS entry: the "computed => rendered" test fails otherwise.
-     Contrat payload: inline_content / excerpt / truncated / inline_skipped
+/* Cockpit SPA (2/6) — artifact viewers and VIEWERS registry. */
+  /* === Artifact viewers ===
+     Every type in cdpx.testing.evidence.ARTIFACT_TYPES must have a VIEWERS
+     entry: the "computed => rendered" test fails otherwise.
+     Payload contract: inline_content / excerpt / truncated / inline_skipped
      are optional — every viewer degrades into a download link. */
 
   /* feature_inventory carries artifact copies that are never inlined (the inliner
-     Python ne visite que scenario_evidence.suites, la source unique — inliner
-     each copy would multiply the report weight). The modal therefore resolves the
+     visits only scenario_evidence.suites, the single source; inlining each copy
+     would multiply the report weight). The modal therefore resolves the
      embedded content by path before picking the viewer. */
   const inlineByPath = (() => {
     const index = {};
@@ -225,7 +225,7 @@
     return `${head}${streams}`;
   }
 
-  /* === Player asciinema (.cast v2) sur xterm.js ===
+  /* === Asciinema player (.cast v2) on xterm.js ===
      Full terminal emulation via the vendored xterm.js bundle (MIT —
      the official asciinema-player is GPL-3.0, incompatible with the package).
      The in-house toolbar (play, scrub, speeds) writes into xterm; the
@@ -260,10 +260,10 @@
       <div class="cast-toolbar">
         <button type="button" data-cast-play>▶ play</button>
         <button type="button" data-cast-speed>×1</button>
-        <button type="button" data-cast-end>⏭ fin</button>
+        <button type="button" data-cast-end>⏭ end</button>
         <input type="range" data-cast-scrub min="0" max="${Math.max(Math.ceil(duration * 1000), 1)}" value="0">
         <span class="muted" data-cast-time></span>
-        <label class="muted cast-rawtoggle"><input type="checkbox" data-cast-rawtoggle> vue brute</label>
+        <label class="muted cast-rawtoggle"><input type="checkbox" data-cast-rawtoggle> raw view</label>
       </div>
       <div class="cast-screen" data-cast-screen></div>
       <pre class="viewer-text" data-cast-raw hidden>${esc(rawText)}</pre>

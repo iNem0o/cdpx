@@ -190,64 +190,64 @@
   .persona-chip[aria-pressed="true"] {
     color: #06281b; background: var(--accent); border-color: var(--accent); font-weight: 600;
   }
-  .persona-chip:focus-visible, .fam-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .persona-chip:focus-visible, .family-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---- explorateur des familles ---- */
+  /* ---- usage family explorer ---- */
   .explorer {
     display: grid; grid-template-columns: 252px minmax(0, 1fr);
     gap: 28px; align-items: start;
   }
   @media (max-width: 940px) { .explorer { grid-template-columns: 1fr; } }
-  .fam-rail { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 80px; }
+  .family-rail { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 80px; }
   @media (max-width: 940px) {
-    .fam-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 6px; }
-    .fam-tab { flex: 0 0 auto; }
+    .family-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 6px; }
+    .family-tab { flex: 0 0 auto; }
   }
-  .fam-tab {
+  .family-tab {
     text-align: left; border: 1px solid transparent; background: none;
     border-radius: 8px; padding: 10px 14px; cursor: pointer;
     color: var(--text-dim); font: inherit;
   }
-  .fam-tab .n { font-family: var(--mono); font-size: 11px; color: var(--accent-dim); display: block; letter-spacing: 0.1em; text-transform: uppercase; }
-  .fam-tab .t { font-size: 14.5px; font-weight: 600; }
-  .fam-tab:hover { background: var(--bg-raised); color: var(--text); }
-  .fam-tab[aria-selected="true"] { background: var(--bg-raised); border-color: var(--border); color: var(--text); }
-  .fam-tab[aria-selected="true"] .n { color: var(--accent); }
-  .fam-tab.dim { opacity: 0.38; }
-  .fam-tab.dim:hover { opacity: 0.8; }
+  .family-tab .n { font-family: var(--mono); font-size: 11px; color: var(--accent-dim); display: block; letter-spacing: 0.1em; text-transform: uppercase; }
+  .family-tab .t { font-size: 14.5px; font-weight: 600; }
+  .family-tab:hover { background: var(--bg-raised); color: var(--text); }
+  .family-tab[aria-selected="true"] { background: var(--bg-raised); border-color: var(--border); color: var(--text); }
+  .family-tab[aria-selected="true"] .n { color: var(--accent); }
+  .family-tab.dim { opacity: 0.38; }
+  .family-tab.dim:hover { opacity: 0.8; }
 
-  .fam-panel { display: none; }
-  .fam-panel.active { display: block; }
-  .fam-panel h3 { font-size: 22px; margin: 4px 0 10px; letter-spacing: -0.01em; }
+  .family-panel { display: none; }
+  .family-panel.active { display: block; }
+  .family-panel h3 { font-size: 22px; margin: 4px 0 10px; letter-spacing: -0.01em; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
   .chip {
     font-family: var(--mono); font-size: 11.5px;
     border: 1px solid var(--border); border-radius: 999px;
     padding: 2px 10px; color: var(--text-dim); background: var(--bg-inset);
   }
-  .fam-panel p.intent { color: var(--text-dim); max-width: 48em; margin: 0 0 14px; }
-  .fam-panel p.intent strong { color: var(--text); }
-  .fam-cmds { display: flex; gap: 7px; flex-wrap: wrap; margin: 0 0 6px; }
-  .fam-cmds code {
+  .family-panel p.intent { color: var(--text-dim); max-width: 48em; margin: 0 0 14px; }
+  .family-panel p.intent strong { color: var(--text); }
+  .family-commands { display: flex; gap: 7px; flex-wrap: wrap; margin: 0 0 6px; }
+  .family-commands code {
     font-size: 12.5px; padding: 3px 10px; border-radius: 999px;
     color: var(--cyan); border-color: rgba(90, 200, 224, 0.25);
     background: rgba(90, 200, 224, 0.06);
   }
 
-  /* ---- recipes (former use cases, collapsed) ---- */
-  .recettes { margin: 8px 0 14px; display: flex; flex-direction: column; gap: 8px; }
-  .recette { border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-raised); }
-  .recette summary {
+  /* ---- recipes ---- */
+  .recipes { margin: 8px 0 14px; display: flex; flex-direction: column; gap: 8px; }
+  .recipe { border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-raised); }
+  .recipe summary {
     cursor: pointer; padding: 11px 16px; font-size: 14.5px; font-weight: 600;
     list-style: none; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
   }
-  .recette summary::-webkit-details-marker { display: none; }
-  .recette summary::before { content: "▸"; color: var(--accent); font-size: 12px; }
-  .recette[open] summary::before { content: "▾"; }
-  .recette summary .gain { font-weight: 400; font-size: 13px; color: var(--text-dim); }
-  .recette .body { padding: 0 16px 16px; }
-  .recette .body p.pain { margin: 0 0 6px; font-size: 14px; color: var(--text-dim); max-width: 52em; }
-  .recette .term { margin: 14px 0; box-shadow: none; }
+  .recipe summary::-webkit-details-marker { display: none; }
+  .recipe summary::before { content: "▸"; color: var(--accent); font-size: 12px; }
+  .recipe[open] summary::before { content: "▾"; }
+  .recipe summary .gain { font-weight: 400; font-size: 13px; color: var(--text-dim); }
+  .recipe .body { padding: 0 16px 16px; }
+  .recipe .body p.pain { margin: 0 0 6px; font-size: 14px; color: var(--text-dim); max-width: 52em; }
+  .recipe .term { margin: 14px 0; box-shadow: none; }
   .payoff {
     border-left: 3px solid var(--accent-dim);
     background: var(--bg-inset);
@@ -258,9 +258,9 @@
     margin: 14px 0 0;
   }
   .payoff strong { color: var(--accent); }
-  .fam-more { font-family: var(--mono); font-size: 12.5px; margin: 10px 0 0; }
+  .family-more { font-family: var(--mono); font-size: 12.5px; margin: 10px 0 0; }
 
-  /* ---- grille des 31 commandes ---- */
+  /* ---- 31-command grid ---- */
   .cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; }
   .cmd-col {
     border: 1px solid var(--border-soft); border-radius: 10px;
@@ -279,7 +279,7 @@
   .cmd-row code { background: none; border: none; padding: 0; color: var(--text); font-size: 12.5px; white-space: nowrap; }
   .cmd-cast { margin: 8px 0 0; border-top: 1px solid var(--border-soft); padding-top: 8px; }
 
-  /* ---- modale des tutoriels (les details restent le fallback sans JS) ---- */
+  /* ---- tutorial modal; details remain the no-JavaScript fallback ---- */
   dialog.cast-dialog {
     width: min(960px, 94vw); max-height: 90vh;
     background: var(--bg-raised); color: var(--text);
@@ -352,9 +352,9 @@
 </style>
 <noscript><style>
   /* without JS: all content stays readable, stacked */
-  .fam-panel { display: block; }
-  .fam-panel + .fam-panel { border-top: 1px dashed var(--border); margin-top: 32px; padding-top: 32px; }
-  .fam-rail, .personas { display: none; }
+  .family-panel { display: block; }
+  .family-panel + .family-panel { border-top: 1px dashed var(--border); margin-top: 32px; padding-top: 32px; }
+  .family-rail, .personas { display: none; }
 </style></noscript>
 </head>
 <body>
@@ -363,10 +363,10 @@
   <div class="wrap">
     <span class="brand">cdpx<span class="cursor">▮</span></span>
     <nav class="links">
-      <a href="#familles">Usage families</a>
-      <a href="#commandes">Commands</a>
+      <a href="#families">Usage families</a>
+      <a href="#commands">Commands</a>
       <a href="#why">Why cdpx</a>
-      <a href="#securite">Security</a>
+      <a href="#security">Security</a>
       <a href="#installation">Installation</a>
       <a href="https://github.com/inem0o/cdpx">GitHub</a>
     </nav>
@@ -391,11 +391,11 @@
           <span class="badge">31 commands</span>
           <span class="badge">stdout = JSON · exit 0/1/2</span>
           <span class="badge live">12 tutorials recorded on real Chrome</span>
-          <span class="badge beta">pre-1.0 beta</span>
+          <span class="badge beta">0.1.0 · pre-1.0 beta</span>
         </div>
         <div class="cta">
           <a class="btn primary" href="https://github.com/inem0o/cdpx">View on GitHub</a>
-          <a class="btn ghost" href="#familles">Explore the usage families</a>
+          <a class="btn ghost" href="#families">Explore the usage families</a>
         </div>
       </div>
       <div class="term">
@@ -416,43 +416,44 @@
     </div>
   </div>
 
-  <section id="familles">
+  <section id="families">
     <div class="wrap">
       <span class="kicker">Six families · one catalog</span>
       <h2>One intent per family, its commands sorted below</h2>
       <p class="sub">
-        The original prototype gave the agent <strong>hands</strong>: seeing the
-        page, navigating, running JS. cdpx was born from the realization that it
-        lacked <strong>senses</strong> and <strong>measuring instruments</strong> —
-        then came proof and guardrails (<a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">docs/CONTEXT.md</a>).
-        Each family ships with its tutorial recorded on real Chrome and its
-        recipes; the cross-cutting foundation — supervised session, navigation, reading,
-        interaction — lives in <a href="#commandes">the grid of 31 commands</a>.
+        cdpx gives the agent controlled <strong>action</strong>,
+        <strong>senses</strong> and <strong>measuring instruments</strong>, then
+        connects every result to proof and guardrails
+        (<a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">product rationale and design</a>).
+        Each family includes a tutorial recorded on real Chrome and practical
+        recipes. The shared foundation — supervised sessions, navigation,
+        reading and trusted interaction — lives in
+        <a href="#commands">the grid of 31 commands</a>.
       </p>
 
       <div class="personas" role="group" aria-label="Filter families by role" id="personas">
         <span class="lbl">You are:</span>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="voir">front-end dev</button>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="mesurer">Symfony backend dev</button>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="reproduire,prouver">QA</button>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="verrouiller,prouver">DevOps / lead</button>
-        <button class="persona-chip" type="button" aria-pressed="false" data-fams="auditer">product / SEO</button>
+        <button class="persona-chip" type="button" aria-pressed="false" data-families="see">front-end dev</button>
+        <button class="persona-chip" type="button" aria-pressed="false" data-families="measure">Symfony backend dev</button>
+        <button class="persona-chip" type="button" aria-pressed="false" data-families="reproduce,prove">QA</button>
+        <button class="persona-chip" type="button" aria-pressed="false" data-families="lock-down,prove">DevOps / lead</button>
+        <button class="persona-chip" type="button" aria-pressed="false" data-families="audit">product / SEO</button>
       </div>
 
       <div class="explorer">
-        <div class="fam-rail" role="tablist" aria-label="Usage families">
-          <button class="fam-tab" type="button" role="tab" id="tab-voir" aria-selected="true" aria-controls="voir"><span class="n">01 · See</span><span class="t">Give the agent senses</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-mesurer" aria-selected="false" aria-controls="mesurer"><span class="n">02 · Measure</span><span class="t">Objectify instead of assume</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-auditer" aria-selected="false" aria-controls="auditer"><span class="n">03 · Audit</span><span class="t">The DOM that Googlebot indexes</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-reproduire" aria-selected="false" aria-controls="reproduire"><span class="n">04 · Reproduce</span><span class="t">Outages, mobile, state</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-prouver" aria-selected="false" aria-controls="prouver"><span class="n">05 · Prove</span><span class="t">Trust gets replayed</span></button>
-          <button class="fam-tab" type="button" role="tab" id="tab-verrouiller" aria-selected="false" aria-controls="verrouiller"><span class="n">06 · Lock down</span><span class="t">Merge gates, night watches</span></button>
+        <div class="family-rail" role="tablist" aria-label="Usage families">
+          <button class="family-tab" type="button" role="tab" id="tab-see" aria-selected="true" aria-controls="see"><span class="n">01 · See</span><span class="t">Give the agent senses</span></button>
+          <button class="family-tab" type="button" role="tab" id="tab-measure" aria-selected="false" aria-controls="measure"><span class="n">02 · Measure</span><span class="t">Objectify instead of assume</span></button>
+          <button class="family-tab" type="button" role="tab" id="tab-audit" aria-selected="false" aria-controls="audit"><span class="n">03 · Audit</span><span class="t">The DOM that Googlebot indexes</span></button>
+          <button class="family-tab" type="button" role="tab" id="tab-reproduce" aria-selected="false" aria-controls="reproduce"><span class="n">04 · Reproduce</span><span class="t">Outages, mobile, state</span></button>
+          <button class="family-tab" type="button" role="tab" id="tab-prove" aria-selected="false" aria-controls="prove"><span class="n">05 · Prove</span><span class="t">Trust gets replayed</span></button>
+          <button class="family-tab" type="button" role="tab" id="tab-lock-down" aria-selected="false" aria-controls="lock-down"><span class="n">06 · Lock down</span><span class="t">Merge gates, night watches</span></button>
         </div>
 
-        <div class="fam-panels">
+        <div class="family-panels">
 
-          <!-- ============================ F1 VOIR ============================ -->
-          <article class="fam-panel active" id="voir" role="tabpanel" aria-labelledby="tab-voir">
+          <!-- ============================ F1 SEE ============================ -->
+          <article class="family-panel active" id="see" role="tabpanel" aria-labelledby="tab-see">
             <span class="kicker">Family 01 · See</span>
             <h3>Give the agent senses — and the dev steering it</h3>
             <div class="chips"><span class="chip">front-end dev</span><span class="chip">agentic</span><span class="chip">daily dev</span></div>
@@ -463,13 +464,13 @@
               primitives in the whole tool, complemented by pixel capture and the
               semantic view of the accessibility tree.
             </p>
-            <div class="fam-cmds"><code>console</code><code>network</code><code>metrics</code><code>screenshot</code><code>pdf</code><code>a11y</code></div>
+            <div class="family-commands"><code>console</code><code>network</code><code>metrics</code><code>screenshot</code><code>pdf</code><code>a11y</code></div>
 
             <div class="cast" data-cast="assets/casts/observe.cast"></div>
             <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/observe.cast">cast source</a>): console, network, runtime metrics.</p>
 
-            <div class="recettes">
-              <details class="recette">
+            <div class="recipes">
+              <details class="recipe">
                 <summary>"It's fixed" — except the page is broken <span class="gain">· the exception, the 500 XHR and the dead click become three JSON objects</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -493,7 +494,7 @@
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>Reading the page like a screen reader <span class="gain">· roles and names, without the HTML noise</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -515,11 +516,11 @@
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/browser-capture-observability.md">observability &amp; capture sheet →</a></p>
+            <p class="family-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/browser-capture-observability.md">observability &amp; capture sheet →</a></p>
           </article>
 
           <!-- ============================ F2 MESURER ============================ -->
-          <article class="fam-panel" id="mesurer" role="tabpanel" aria-labelledby="tab-mesurer">
+          <article class="family-panel" id="measure" role="tabpanel" aria-labelledby="tab-measure">
             <span class="kicker">Family 02 · Measure</span>
             <h3>Objectify instead of assume</h3>
             <div class="chips"><span class="chip">Symfony backend dev</span><span class="chip">front-end dev</span><span class="chip">perf</span></div>
@@ -529,13 +530,13 @@
               Vitals and code coverage into <strong>numbers</strong> — and a number
               can be compared, tracked, refused.
             </p>
-            <div class="fam-cmds"><code>profiler</code><code>vitals</code><code>coverage</code></div>
+            <div class="family-commands"><code>profiler</code><code>vitals</code><code>coverage</code></div>
 
             <div class="cast" data-cast="assets/casts/profiler.cast"></div>
             <p class="cast-note">Recorded demo — real repository reference Symfony app (<a href="assets/casts/profiler.cast">cast source</a>): the same page in a healthy variant (3 queries, 0 duplicates) then N+1 (6 queries, 4 duplicates, SQL included), and the <code>jq -e</code> one-liner that refuses the merge.</p>
 
-            <div class="recettes">
-              <details class="recette">
+            <div class="recipes">
+              <details class="recipe">
                 <summary>The Doctrine N+1 caught on the product page, not in prod <span class="gain">· 6 queries including 4 duplicates: a number, not a hunch</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -545,18 +546,18 @@
                   </p>
                   <div class="term">
                     <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the profiler becomes data</span><span class="tag doc">sheet example</span></div>
-                    <pre><code><span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/produit/42 --panels db,cache</span>
+                    <pre><code><span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/product/42 --panels db,cache</span>
 <span class="out">{"token_present":true,"status":200,"panels":{"db":{"available":true,"queries":6,"statements":2,"duplicates":<span class="bad">4</span>,"time_ms":1.76,…},"cache":{"available":true,"calls":4,"hits":3,"misses":1,…}}}</span>
-<span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/produit/42 --panels db | jq -e '.panels.db.duplicates == 0' || echo "N+1 detected"</span>
+<span class="p">$</span> <span class="cmd">cdpx profiler http://127.0.0.1:8000/product/42 --panels db | jq -e '.panels.db.duplicates == 0' || echo "N+1 detected"</span>
 <span class="bad">N+1 detected</span></code></pre>
                   </div>
                   <p class="payoff"><strong>What changes:</strong> 6 queries including
                   4 duplicates — the N+1 is a number, not a hunch. The same one-liner,
-                  dropped into CI, prevents the next one (see <a href="#verrouiller">family 06</a>).</p>
+                  dropped into CI, prevents the next one (see <a href="#lock-down">family 06</a>).</p>
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>Core Vitals on a real interaction, dead code included <span class="gain">· the INP comes from a real dispatched click, not an estimate</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -580,14 +581,14 @@
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">performance sheet →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dev-profiler-diff.md">profiler sheet →</a></p>
+            <p class="family-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">performance sheet →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/dev-profiler-diff.md">profiler sheet →</a></p>
           </article>
 
           <!-- ============================ F3 AUDITER ============================ -->
-          <article class="fam-panel" id="auditer" role="tabpanel" aria-labelledby="tab-auditer">
+          <article class="family-panel" id="audit" role="tabpanel" aria-labelledby="tab-audit">
             <span class="kicker">Family 03 · Audit</span>
             <h3>Auditing the render — the one Googlebot indexes</h3>
-            <div class="chips"><span class="chip">product / SEO</span><span class="chip">e-commerce</span><span class="chip">migrations</span></div>
+            <div class="chips"><span class="chip">product / SEO</span><span class="chip">e-commerce</span><span class="chip">site changes</span></div>
             <p class="intent">
               For an SEO audit, what matters is the final DOM as seen by Googlebot's
               rendering, <strong>not the served HTML</strong>. curl and grep stop at
@@ -595,13 +596,13 @@
               call: title, metas, canonical, hreflang, JSON-LD, h1, alt, links — plus
               findings ready to assert.
             </p>
-            <div class="fam-cmds"><code>seo</code></div>
+            <div class="family-commands"><code>seo</code></div>
 
             <div class="cast" data-cast="assets/casts/seo.cast"></div>
             <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/seo.cast">cast source</a>): full SEO contract in one call, empty findings on the compliant page, named findings on the broken one.</p>
 
-            <div class="recettes">
-              <details class="recette">
+            <div class="recipes">
+              <details class="recipe">
                 <summary>The SEO contract, diffable between staging and prod <span class="gain">· a vanishing canonical shows up in the PR, not in Search Console</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -610,11 +611,11 @@
                   </p>
                   <div class="term">
                     <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">SEO becomes a comparable object</span><span class="tag doc">sheet example</span></div>
-                    <pre><code><span class="p">$</span> <span class="cmd">cdpx seo https://staging.exemple.fr/produit-42 > staging.json</span>
-<span class="p">$</span> <span class="cmd">cdpx seo https://www.exemple.fr/produit-42 > prod.json</span>
+                    <pre><code><span class="p">$</span> <span class="cmd">cdpx seo https://staging.example.test/product-42 > staging.json</span>
+<span class="p">$</span> <span class="cmd">cdpx seo https://www.example.test/product-42 > prod.json</span>
 <span class="p">$</span> <span class="cmd">diff &lt;(jq -S '{title,canonical,h1,robots}' staging.json) &lt;(jq -S '{title,canonical,h1,robots}' prod.json)</span>
 <span class="bad">&lt;   "canonical": null,</span>
-<span class="good">&gt;   "canonical": "https://www.exemple.fr/produit-42",</span>
+<span class="good">&gt;   "canonical": "https://www.example.test/product-42",</span>
 <span class="p">$</span> <span class="cmd">jq .findings staging.json</span>
 <span class="out">["2 image(s) without alt"]</span></code></pre>
                   </div>
@@ -624,7 +625,7 @@
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>Auditing state after interaction, not just the URL <span class="gain">· the intermediate states of a journey get audited like pages</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -636,7 +637,7 @@
                   <div class="term">
                     <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the audit follows the journey</span><span class="tag doc">sheet example</span></div>
                     <pre><code><span class="p">$</span> <span class="cmd">cdpx goto http://shop.localhost/collection/robes</span>
-<span class="p">$</span> <span class="cmd">cdpx click "#variante-taille-38"</span>
+<span class="p">$</span> <span class="cmd">cdpx click "#size-variant-38"</span>
 <span class="p">$</span> <span class="cmd">cdpx seo</span>
 <span class="c"># audits the rendered DOM of the current state — title, canonical, JSON-LD after client-side routing</span></code></pre>
                   </div>
@@ -646,11 +647,11 @@
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">SEO sheet →</a></p>
+            <p class="family-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/seo-performance-accessibility.md">SEO sheet →</a></p>
           </article>
 
           <!-- ============================ F4 REPRODUIRE ============================ -->
-          <article class="fam-panel" id="reproduire" role="tabpanel" aria-labelledby="tab-reproduire">
+          <article class="family-panel" id="reproduce" role="tabpanel" aria-labelledby="tab-reproduce">
             <span class="kicker">Family 04 · Reproduce</span>
             <h3>Reproducing the irreproducible: outages, mobile, state</h3>
             <div class="chips"><span class="chip">QA</span><span class="chip">support</span><span class="chip">front-end dev</span></div>
@@ -660,13 +661,13 @@
               the conditions: network interception, device emulation, prepared
               session state — all scripted, so it replays identically.
             </p>
-            <div class="fam-cmds"><code>intercept</code><code>emulate</code><code>cookies</code><code>storage</code></div>
+            <div class="family-commands"><code>intercept</code><code>emulate</code><code>cookies</code><code>storage</code></div>
 
             <div class="cast" data-cast="assets/casts/resilience.cast"></div>
             <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/resilience.cast">cast source</a>): simulated API outage, fallback read from the DOM, mobile emulation and slow 3G network.</p>
 
-            <div class="recettes">
-              <details class="recette">
+            <div class="recipes">
+              <details class="recipe">
                 <summary>What happens to the page when the payment API goes down? <span class="gain">· outage behavior reads straight from the DOM, without touching the infra</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -688,7 +689,7 @@
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>"It breaks on mobile" — okay, which one, and prove it <span class="gain">· a named, replayable preset instead of an anecdote</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -708,7 +709,7 @@
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>Preparing a scenario's state without leaking a session <span class="gain">· cookies and storage set from a script, values redacted by default</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -732,11 +733,11 @@
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">resilience sheet →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/state-session.md">state &amp; session sheet →</a></p>
+            <p class="family-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">resilience sheet →</a> · <a href="https://github.com/inem0o/cdpx/blob/master/docs/features/state-session.md">state &amp; session sheet →</a></p>
           </article>
 
           <!-- ============================ F5 PROUVER ============================ -->
-          <article class="fam-panel" id="prouver" role="tabpanel" aria-labelledby="tab-prouver">
+          <article class="family-panel" id="prove" role="tabpanel" aria-labelledby="tab-prove">
             <span class="kicker">Family 05 · Prove</span>
             <h3>Trust isn't declared, it's replayed</h3>
             <div class="chips"><span class="chip">reviewer / lead</span><span class="chip">QA</span><span class="chip">agentic</span></div>
@@ -747,13 +748,13 @@
               <code>record</code>, the divergences from <code>replay</code>, the
               verdicts from <code>scenario</code> form the run's admissible record.
             </p>
-            <div class="fam-cmds"><code>record</code><code>replay</code><code>scenario</code></div>
+            <div class="family-commands"><code>record</code><code>replay</code><code>scenario</code></div>
 
             <div class="cast" data-cast="assets/casts/journey.cast"></div>
             <p class="cast-note">Recorded demo — real Chrome, repository reference site (<a href="assets/casts/journey.cast">cast source</a>): journey logged, replayed, then the <code>pass</code> verdict of the YAML scenario.</p>
 
-            <div class="recettes">
-              <details class="recette">
+            <div class="recipes">
+              <details class="recipe">
                 <summary>The journey clicked once becomes a test <span class="gain">· the first divergence stops everything with exit 1</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -763,13 +764,13 @@
                   </p>
                   <div class="term">
                     <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">record → replay → divergence</span><span class="tag doc">sheet example</span></div>
-                    <pre><code><span class="p">$</span> <span class="cmd">cdpx record -o parcours.ndjson -- goto http://demo.test/produit-42</span>
-<span class="p">$</span> <span class="cmd">cdpx record -o parcours.ndjson -- click "#acheter"</span>
-<span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay parcours.ndjson</span>
-<span class="out">{"path":"parcours.ndjson","events":3,"played":3,"ok":<span class="good">true</span>}</span>
+                    <pre><code><span class="p">$</span> <span class="cmd">cdpx record -o journey.ndjson -- goto http://demo.test/product-42</span>
+<span class="p">$</span> <span class="cmd">cdpx record -o journey.ndjson -- click "#buy"</span>
+<span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay journey.ndjson</span>
+<span class="out">{"path":"journey.ndjson","events":3,"played":3,"ok":<span class="good">true</span>}</span>
 <span class="c"># … cart template redesign …</span>
-<span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay parcours.ndjson</span>
-<span class="out">{"path":"parcours.ndjson","events":3,"played":1,"ok":<span class="bad">false</span>,"divergence":"event 1: selector not found after 10.0s: #acheter"}</span></code></pre>
+<span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay journey.ndjson</span>
+<span class="out">{"path":"journey.ndjson","events":3,"played":1,"ok":<span class="bad">false</span>,"divergence":"event 1: selector not found after 10.0s: #buy"}</span></code></pre>
                   </div>
                   <p class="payoff"><strong>What changes:</strong> exploration leaves
                   behind a replayable log, validated in full before the first action;
@@ -778,7 +779,7 @@
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>The business scenario with verdict, assertions and attachments <span class="gain">· a structured verdict, not an impression</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -799,11 +800,11 @@
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">orchestration sheet →</a></p>
+            <p class="family-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">orchestration sheet →</a></p>
           </article>
 
           <!-- ============================ F6 VERROUILLER ============================ -->
-          <article class="fam-panel" id="verrouiller" role="tabpanel" aria-labelledby="tab-verrouiller">
+          <article class="family-panel" id="lock-down" role="tabpanel" aria-labelledby="tab-lock-down">
             <span class="kicker">Family 06 · Lock down &amp; watch</span>
             <h3>From merge gates to night watches</h3>
             <div class="chips"><span class="chip">devops</span><span class="chip">lead</span><span class="chip">CI</span><span class="chip">monitoring</span></div>
@@ -814,18 +815,18 @@
               merge, then <strong>watch</strong> in production. No dedicated
               command: just composition.
             </p>
-            <div class="fam-cmds"><code>jq -e</code><code>diff</code><code>exit 0/1/2</code><code>session --ttl</code><code>cron</code></div>
+            <div class="family-commands"><code>jq -e</code><code>diff</code><code>exit 0/1/2</code><code>session --ttl</code><code>cron</code></div>
 
             <div class="term">
               <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">four gates, four one-liners</span><span class="tag doc">pipeline example</span></div>
-              <pre><code><span class="p">$</span> <span class="cmd">cdpx vitals "$APP_URL/produit/42" --click "#ajouter-panier" | jq -e '.lcp &lt; 2500 and .cls &lt; 0.1'</span>
-<span class="p">$</span> <span class="cmd">cdpx profiler "$APP_URL/produit/42" --panels db | jq -e '.panels.db.duplicates == 0'</span>
-<span class="p">$</span> <span class="cmd">diff &lt;(cdpx seo "$APP_URL/produit/42" | jq -S '{title,canonical,robots}') contrat-seo.json</span>
-<span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay parcours-checkout.ndjson</span></code></pre>
+              <pre><code><span class="p">$</span> <span class="cmd">cdpx vitals "$APP_URL/product/42" --click "#add-to-cart" | jq -e '.lcp &lt; 2500 and .cls &lt; 0.1'</span>
+<span class="p">$</span> <span class="cmd">cdpx profiler "$APP_URL/product/42" --panels db | jq -e '.panels.db.duplicates == 0'</span>
+<span class="p">$</span> <span class="cmd">diff &lt;(cdpx seo "$APP_URL/product/42" | jq -S '{title,canonical,robots}') seo-contract.json</span>
+<span class="p">$</span> <span class="cmd">cdpx --max-actions 20 replay journey-checkout.ndjson</span></code></pre>
             </div>
 
-            <div class="recettes">
-              <details class="recette">
+            <div class="recipes">
+              <details class="recipe">
                 <summary>Budgets become merge gates <span class="gain">· the refusal arrives with its own JSON evidence, not with "it seems slower"</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -854,7 +855,7 @@
                 </div>
               </details>
 
-              <details class="recette">
+              <details class="recipe">
                 <summary>Anti-regression monitoring: the automatic round <span class="gain">· divergence or budget overrun = alert, within minutes</span></summary>
                 <div class="body">
                   <p class="pain">
@@ -875,10 +876,10 @@
                   <div class="term">
                     <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">the round, in shell</span><span class="tag doc">script example</span></div>
                     <pre><code><span class="c"># every 30 minutes, on a monitoring machine</span>
-<span class="p">$</span> <span class="cmd">eval "$(cdpx session start --run-id ronde --authority interaction --origins "https://www.exemple.fr" --ttl 300 --export)"</span>
+<span class="p">$</span> <span class="cmd">eval "$(cdpx session start --run-id monitor --authority interaction --origins "https://www.example.test" --ttl 300 --export)"</span>
 <span class="p">$</span> <span class="cmd">trap 'cdpx session stop' EXIT</span>
 <span class="p">$</span> <span class="cmd">cdpx scenario run checkout_guest.yml | jq -e '.verdict == "pass"' || alert "checkout broken"</span>
-<span class="p">$</span> <span class="cmd">cdpx vitals https://www.exemple.fr/ | jq -e '.lcp &lt; 2500' || alert "LCP degraded"</span></code></pre>
+<span class="p">$</span> <span class="cmd">cdpx vitals https://www.example.test/ | jq -e '.lcp &lt; 2500' || alert "LCP degraded"</span></code></pre>
                   </div>
                   <p class="payoff"><strong>What changes:</strong> functional or perf
                   regressions get detected within minutes, with the exact JSON evidence
@@ -887,7 +888,7 @@
                 </div>
               </details>
             </div>
-            <p class="fam-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">orchestration sheet →</a></p>
+            <p class="family-more"><a href="https://github.com/inem0o/cdpx/blob/master/docs/features/orchestration-control.md">orchestration sheet →</a></p>
           </article>
 
         </div>
@@ -895,7 +896,7 @@
     </div>
   </section>
 
-  <section id="commandes">
+  <section id="commands">
     <div class="wrap">
       <span class="kicker">Catalog</span>
       <h2>31 commands, one output contract</h2>
@@ -967,19 +968,19 @@
           <div class="cmd-row"><code>screenshot</code><span>pixel view — CSS bugs, renders; JPEG to keep it light</span></div>
           <div class="cmd-row"><code>pdf</code><span>freeze a page as printable proof of state</span></div>
           <div class="cmd-row"><code>a11y</code><span>compacted accessibility tree — structured semantic view</span></div>
-          <p class="cmd-more"><a href="#voir" class="js-fam-link">demos in the See family →</a></p>
+          <p class="cmd-more"><a href="#see" class="js-family-link">demos in the See family →</a></p>
         </div>
         <div class="cmd-col" id="cat-perf">
           <h3>02 · Measure</h3>
           <div class="cmd-row"><code>vitals</code><span>LCP/CLS/INP — the interaction for the INP, measured locally on every branch</span></div>
           <div class="cmd-row"><code>coverage</code><span>dead JS/CSS by file — front-end debt measured, not guessed</span></div>
           <div class="cmd-row"><code>profiler</code><span>parse the WebProfiler panels (Doctrine, Twig, cache, exceptions…) — the N+1 quantified by the agent</span></div>
-          <p class="cmd-more"><a href="#mesurer" class="js-fam-link">demos in the Measure family →</a></p>
+          <p class="cmd-more"><a href="#measure" class="js-family-link">demos in the Measure family →</a></p>
         </div>
         <div class="cmd-col" id="cat-seo">
           <h3>03 · Audit</h3>
           <div class="cmd-row"><code>seo</code><span>on-page diagnostic of the rendered DOM — diffable between staging and prod, assertable with <code>jq -e</code></span></div>
-          <p class="cmd-more"><a href="#auditer" class="js-fam-link">demos in the Audit family →</a></p>
+          <p class="cmd-more"><a href="#audit" class="js-family-link">demos in the Audit family →</a></p>
         </div>
         <div class="cmd-col" id="cat-state">
           <h3>04 · Reproduce</h3>
@@ -987,14 +988,14 @@
           <div class="cmd-row"><code>emulate</code><span>device, network/CPU throttling — applied for the duration of one action</span></div>
           <div class="cmd-row"><code>cookies</code><span>inspect (redacted by default) and prepare state via <code>--value-env</code></span></div>
           <div class="cmd-row"><code>storage</code><span>localStorage / sessionStorage — guest cart, consent, front-end caches</span></div>
-          <p class="cmd-more"><a href="#reproduire" class="js-fam-link">demos in the Reproduce family →</a></p>
+          <p class="cmd-more"><a href="#reproduce" class="js-family-link">demos in the Reproduce family →</a></p>
         </div>
         <div class="cmd-col" id="cat-journey">
           <h3>05 · Prove</h3>
           <div class="cmd-row"><code>record</code><span>redacted <code>cdpx.record/v2</code> log — secrets by reference <code>@env:</code></span></div>
           <div class="cmd-row"><code>replay</code><span>pre-validate then replay, stop at the first divergence, <code>--max-actions</code> budget</span></div>
           <div class="cmd-row"><code>scenario</code><span>declarative business journey — single verdict, findings, evidence folder</span></div>
-          <p class="cmd-more"><a href="#prouver" class="js-fam-link">demos in the Prove family →</a></p>
+          <p class="cmd-more"><a href="#prove" class="js-family-link">demos in the Prove family →</a></p>
         </div>
       </div>
     </div>
@@ -1028,7 +1029,7 @@
           <a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">docs/PRIMITIVES.md</a>.</li>
         </ul>
       </div>
-      <div id="securite">
+      <div id="security">
         <span class="kicker">Security</span>
         <h2>Safe by default, built for agents</h2>
         <p class="sub">
@@ -1070,11 +1071,10 @@
           without a browser.
         </p>
         <div class="note">
-          <strong>Status: pre-1.0 beta.</strong> The surface is tested against a
-          mock CDP, a real Chrome and a Dockerized Symfony application, but
-          contract changes remain possible before 1.0; they are announced in the
+          <strong>Version 0.1.0 · pre-1.0 beta.</strong> The surface is tested
+          against a mock CDP, a real Chrome and a Dockerized Symfony application.
+          Contract changes remain possible before 1.0 and are announced in the
           <a href="https://github.com/inem0o/cdpx/blob/master/CHANGELOG.md">changelog</a>.
-          PyPI publication will be documented once it actually goes live.
         </div>
       </div>
       <div class="term">
@@ -1082,11 +1082,7 @@
           <span class="dot"></span><span class="dot"></span><span class="dot"></span>
           <span class="title">installation</span>
         </div>
-        <pre><code><span class="p">$</span> <span class="cmd">git clone https://github.com/inem0o/cdpx.git</span>
-<span class="p">$</span> <span class="cmd">cd cdpx</span>
-<span class="p">$</span> <span class="cmd">python3 -m venv .venv</span>
-<span class="p">$</span> <span class="cmd">source .venv/bin/activate</span>
-<span class="p">$</span> <span class="cmd">python -m pip install .</span>
+        <pre><code><span class="p">$</span> <span class="cmd">python -m pip install cdpx</span>
 <span class="p">$</span> <span class="cmd">cdpx --version</span></code></pre>
       </div>
     </div>
@@ -1120,7 +1116,7 @@
         <ul>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/README.md">README</a></li>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">Primitives catalog</a></li>
-          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">Original intent</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">Product rationale and design</a></li>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/HARNESS.md">Harness and security</a></li>
         </ul>
       </div>
@@ -1145,11 +1141,11 @@
 <script>
 window.addEventListener('DOMContentLoaded', function () {
   /* ---- explorer: family tabs + persona filter ---- */
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('.fam-tab'));
-  var panels = Array.prototype.slice.call(document.querySelectorAll('.fam-panel'));
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.family-tab'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.family-panel'));
   var chips = Array.prototype.slice.call(document.querySelectorAll('.persona-chip'));
 
-  function selectFam(name) {
+  function selectFamily(name) {
     tabs.forEach(function (t) { t.setAttribute('aria-selected', String(t.id === 'tab-' + name)); });
     panels.forEach(function (p) { p.classList.toggle('active', p.id === name); });
   }
@@ -1159,7 +1155,7 @@ window.addEventListener('DOMContentLoaded', function () {
   }
   tabs.forEach(function (t) {
     t.addEventListener('click', function () {
-      selectFam(t.id.replace('tab-', ''));
+      selectFamily(t.id.replace('tab-', ''));
       clearPersona();
     });
   });
@@ -1169,46 +1165,27 @@ window.addEventListener('DOMContentLoaded', function () {
       clearPersona();
       if (wasActive) { return; }
       chip.setAttribute('aria-pressed', 'true');
-      var fams = chip.dataset.fams.split(',');
-      tabs.forEach(function (t) { t.classList.toggle('dim', fams.indexOf(t.id.replace('tab-', '')) === -1); });
-      selectFam(fams[0]);
+      var families = chip.dataset.families.split(',');
+      tabs.forEach(function (t) { t.classList.toggle('dim', families.indexOf(t.id.replace('tab-', '')) === -1); });
+      selectFamily(families[0]);
     });
   });
 
-  /* ---- routage des ancres : familles + anciennes ancres de la page ---- */
-  var famIds = panels.map(function (p) { return p.id; });
-  var legacy = {
-    'personas': { fam: null, scroll: 'familles' },
-    'catalogue': { fam: null, scroll: 'commandes' },
-    'cat-observe': { fam: 'voir', scroll: 'familles' },
-    'cat-capture': { fam: 'voir', scroll: 'familles' },
-    'cat-state': { fam: 'reproduire', scroll: 'familles' },
-    'cat-resilience': { fam: 'reproduire', scroll: 'familles' },
-    'cat-profiler': { fam: 'mesurer', scroll: 'familles' }
-  };
+  /* ---- usage family anchors ---- */
+  var familyIds = panels.map(function (p) { return p.id; });
   function routeHash(smooth) {
     var hash = location.hash.replace('#', '');
-    if (!hash) { return; }
-    var famName = null;
-    var scrollId = null;
-    if (famIds.indexOf(hash) !== -1) {
-      famName = hash;
-      scrollId = 'familles';
-    } else if (legacy[hash]) {
-      famName = legacy[hash].fam;
-      scrollId = legacy[hash].scroll;
-    }
-    if (famName) { selectFam(famName); clearPersona(); }
-    if (scrollId) {
-      var target = document.getElementById(scrollId);
-      if (target) { target.scrollIntoView(smooth ? { behavior: 'smooth' } : {}); }
-    }
+    if (familyIds.indexOf(hash) === -1) { return; }
+    selectFamily(hash);
+    clearPersona();
+    var target = document.getElementById('families');
+    if (target) { target.scrollIntoView(smooth ? { behavior: 'smooth' } : {}); }
   }
   window.addEventListener('hashchange', function () { routeHash(true); });
-  document.querySelectorAll('a.js-fam-link').forEach(function (a) {
+  document.querySelectorAll('a.js-family-link').forEach(function (a) {
     a.addEventListener('click', function () {
       var name = a.getAttribute('href').replace('#', '');
-      selectFam(name);
+      selectFamily(name);
       clearPersona();
     });
   });
@@ -1300,7 +1277,7 @@ window.addEventListener('DOMContentLoaded', function () {
         fontSize: '14px'
       }
     });
-    document.querySelectorAll('details.recette').forEach(function (d) {
+    document.querySelectorAll('details.recipe').forEach(function (d) {
       d.addEventListener('toggle', function () {
         if (!d.open) { return; }
         var nodes = Array.prototype.slice.call(d.querySelectorAll('pre.mermaid:not([data-processed])'));

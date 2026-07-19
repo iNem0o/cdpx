@@ -52,9 +52,8 @@ def load_scenario_evidence(root: Path) -> ScenarioEvidence:
         # Localized fail-closed validation: a corrupted file, an unknown
         # schema, or a structurally wrong one is named here, rather than
         # exploding into an anonymous KeyError/TypeError when computing
-        # totals or rendering the cockpit. Legacy v1 payloads (without a
-        # `schema` key) remain accepted as-is: reader tolerance avoids any
-        # migrator.
+        # totals or rendering the cockpit. Schema-v1 payloads without a
+        # `schema` key remain accepted by the current reader.
         decoded = _read_json_or_fail(path, "unreadable scenarios JSON")
         payload = validated_scenario_file(
             decoded, source=str(path), expected_schema=SCENARIOS_SCHEMA

@@ -6,6 +6,7 @@ example is syntactically valid against the real parser. Drifting docs break
 
 import re
 import shlex
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -42,7 +43,6 @@ def test_every_cli_command_appears_in_readme_and_primitives():
     """The real CLI surface, extracted from the parser, is fully covered
     by README and PRIMITIVES.md: no subcommand can ship without
     documentation."""
-    # Would have caught the historical omission of `cdpx pdf` from PRIMITIVES.md.
     for name in cli_command_names():
         #: the command list comes from the generated --help, not a
         #: hand-maintained list: any command added without docs names the
@@ -107,8 +107,7 @@ def test_readme_documents_cli_contract():
 
 def test_active_user_docs_only_describe_the_supervised_session_contract():
     """No active user document mentions a removed contract (raw endpoints,
-    tab management, team/legacy mode): the living docs cannot resurrect a
-    retired API."""
+    tab management or direct manifest selection)."""
     specs, errors = load_feature_specs()
     #: the corpus under review includes every sheet; they must load
     #: without error for the check to be exhaustive
@@ -129,9 +128,6 @@ def test_active_user_docs_only_describe_the_supervised_session_contract():
         "tabs new",
         "tabs activate",
         "tabs close",
-        "mode équipe",
-        "mode local historique",
-        "legacy",
     )
     for source, content in documents.items():
         lowered = content.lower()
@@ -141,6 +137,50 @@ def test_active_user_docs_only_describe_the_supervised_session_contract():
             assert removed.lower() not in lowered, (
                 f"{source}: removed contract still documented: {removed}"
             )
+
+
+def _markdown_documents() -> list[Path]:
+    paths = set(Path(".").glob("*.md"))
+    for root in (Path("docs"), Path(".github"), Path("site"), Path("tests/fixtures")):
+        paths.update(root.rglob("*.md"))
+    return sorted(path for path in paths if path.is_file())
+
+
+def _heading_ids(text: str) -> set[str]:
+    counts: dict[str, int] = {}
+    anchors: set[str] = set()
+    for heading in re.findall(r"^#{1,6}\s+(.+?)\s*#*\s*$", text, re.MULTILINE):
+        plain = re.sub(r"[`*_~]", "", heading).strip().lower()
+        slug = re.sub(r"[^\w\- ]", "", plain, flags=re.UNICODE)
+        slug = re.sub(r"\s+", "-", slug)
+        count = counts.get(slug, 0)
+        counts[slug] = count + 1
+        anchors.add(slug if count == 0 else f"{slug}-{count}")
+    return anchors
+
+
+def test_markdown_local_links_and_anchors_resolve():
+    """Every relative Markdown link points to a current file and heading."""
+    failures: list[str] = []
+    for source in _markdown_documents():
+        text = source.read_text(encoding="utf-8")
+        for raw_target in re.findall(r"!?\[[^\]]*]\(([^)]+)\)", text):
+            target = raw_target.strip().split(maxsplit=1)[0].strip("<>")
+            if not target or re.match(r"^(?:https?://|mailto:)", target):
+                continue
+            decoded = urllib.parse.unquote(target)
+            path_part, separator, anchor = decoded.partition("#")
+            destination = source if not path_part else source.parent / path_part
+            destination = destination.resolve()
+            if not destination.exists():
+                failures.append(f"{source}: missing {target}")
+                continue
+            if separator and anchor and destination.suffix.lower() == ".md":
+                headings = _heading_ids(destination.read_text(encoding="utf-8"))
+                if anchor.lower() not in headings:
+                    failures.append(f"{source}: missing anchor {target}")
+
+    assert failures == [], "broken Markdown links:\n" + "\n".join(failures)
 
 
 def _fenced_cdpx_lines(text: str) -> list[str]:

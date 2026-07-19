@@ -231,7 +231,7 @@ browser, prints the three exports, and cleans up the session on
 ### `cdpx cookies`
 
 ```text
-usage: cdpx cookies {get,set,clear} [--show-values] [--name NAME] [--value-env NOM] [--url URL]
+usage: cdpx cookies {get,set,clear} [--show-values] [--name NAME] [--value-env NAME] [--url URL]
 ```
 
 Reads, sets, or clears the cookies of the disposable profile. `get`

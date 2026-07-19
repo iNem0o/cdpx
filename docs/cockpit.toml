@@ -4,9 +4,10 @@ index = "README.md"
 include = [
   "README.md",
   "HARNESS.md",
-  "docs/CLAUDE-browser-snippet.md",
   "docs/CONTEXT.md",
+  "docs/GITHUB.md",
   "docs/PRIMITIVES.md",
+  "docs/RELEASING.md",
   "docs/SESSION-LIFECYCLE.md",
   "docs/VALIDATION.md",
   "docs/features/*.md",

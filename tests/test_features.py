@@ -234,10 +234,9 @@ def test_project_features_expose_user_doc_html():
             assert f"<code>{entrypoint}</code>" in doc, f"{spec.id}: missing doc {entrypoint}"
 
 
-def test_undocumented_scenario_warning_budget_is_a_ratchet(tmp_path, monkeypatch):
+def test_undocumented_scenario_warning_limit_blocks_gaps(tmp_path, monkeypatch):
     """A test matched by the sheet but by no documented scenario consumes
-    the warning budget; at budget 0, it's a violation — the ratchet forbids
-    any regression in documentation coverage."""
+    the warning limit; at zero, any missing scenario is a violation."""
     # Synthetic catalog: a sheet's test_globs wider than the documented
     # scenarios' tests -> mapping with no documented scenario. The real catalog
     # has none left (budget 0); this test keeps the guard alive.
@@ -253,7 +252,7 @@ def test_undocumented_scenario_warning_budget_is_a_ratchet(tmp_path, monkeypatch
     )
     spec = parse_feature_doc(path)
     monkeypatch.setattr(features_module, "load_feature_specs", lambda: ([spec], []))
-    monkeypatch.setattr(features_module, "UNDOCUMENTED_SCENARIO_WARNING_BUDGET", 0)
+    monkeypatch.setattr(features_module, "UNDOCUMENTED_SCENARIO_WARNING_LIMIT", 0)
     scenarios = {
         "suites": {
             "unit": [

@@ -14,7 +14,7 @@ What it guarantees:
   network, runnable in any CI.
 
 What it does NOT test (and this is intentional): the real behavior of
-Blink/V8. That is the role of the real-Chrome e2e (milestone M1), which
+Blink/V8. That is the role of the real-Chrome e2e suite, which
 reuses the same HTML fixtures.
 """
 

@@ -52,7 +52,7 @@ body:
     attributes:
       label: cdpx version
       description: Output of `cdpx --version`.
-      placeholder: cdpx 0.2.0
+      placeholder: cdpx 0.1.0
     validations:
       required: true
   - type: dropdown

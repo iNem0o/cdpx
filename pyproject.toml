@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cdpx"
 dynamic = ["version"]
-description = "CLI de primitives Chrome DevTools Protocol pour agents de dev (Symfony / e-commerce / SEO)"
+description = "Scriptable Chrome DevTools Protocol CLI for agents and developers to inspect, act, measure, audit, and prove browser behavior"
 readme = "README.md"
 authors = [{ name = "inem0o" }]
 requires-python = ">=3.11"

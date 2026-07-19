@@ -92,7 +92,7 @@ def test_render_markdown_rewrites_catalog_links_and_disables_excluded_paths():
     and explicit disabling for docs deliberately excluded."""
     rendered = render_markdown(
         "[session](docs/SESSION-LIFECYCLE.md#Lifecycle) "
-        "[external](https://example.com) [todo](docs/TODO.md)",
+        "[external](https://example.com) [missing](docs/MISSING.md)",
         source_path="README.md",
         catalog_paths={"README.md", "docs/SESSION-LIFECYCLE.md"},
     )
@@ -103,7 +103,7 @@ def test_render_markdown_rewrites_catalog_links_and_disables_excluded_paths():
     assert 'href="https://example.com" target="_blank" rel="noopener noreferrer"' in rendered
     #: the doc outside the catalog is marked unavailable instead of producing a dead link
     assert 'class="doc-link-unavailable"' in rendered
-    assert 'href="docs/TODO.md"' not in rendered
+    assert 'href="docs/MISSING.md"' not in rendered
 
 
 def test_render_markdown_full_document_structure():

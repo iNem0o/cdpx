@@ -1,89 +1,75 @@
 # AGENTS.md — cdpx
 
 Session anchor for any agent working on this repository. Read this file
-first, then `HARNESS.md` (rules), then `docs/CONTEXT.md` (why this project
-exists). The model acts, but the harness decides.
+first, then `HARNESS.md` for the execution rules and `docs/CONTEXT.md` for
+the product rationale. The model acts, but the harness decides.
 
 ## Mission
 
-cdpx = Chrome DevTools Protocol primitives exposed as a CLI, so that an agent
-(or the dev driving it) can **see, act and measure** inside a dev Chrome
-while building Symfony / e-commerce apps, and during SEO audits. See
-`docs/PRIMITIVES.md` for the implemented catalog.
+cdpx exposes Chrome DevTools Protocol primitives as a CLI so an agent, or the
+developer steering it, can see, act and measure inside a disposable
+development Chrome. See `docs/PRIMITIVES.md` for the public catalog.
 
 ## Working commands
 
-```
+```text
 make setup               # editable install + development tools
 make check-local         # short loop: lint + format + mypy + unit tests
 make check               # GATE: local + Docker + Chrome + Symfony
 make test                # deterministic unit tests, loopback only
 make test-e2e            # real local Chrome — its absence is an error
-make docker-symfony-e2e  # scenarios against a real Dockerized Symfony app
-make proof               # proof report generated into .proof/
+make docker-symfony-e2e  # real Dockerized Symfony scenarios
+make proof               # private proof report under .proof/
 make release             # check + proof + verified wheel/sdist
 make fixtures            # reference site on :8899
 make mock                # scriptable fake Chrome, no browser
 ```
 
-Quick try without Chrome:
+## Invariants
 
-```
-make mock &                    # prints the supervised session exports
-# copy the displayed CDPX_SESSION/CDPX_RUN_ID/CDPX_TARGET exports
-cdpx goto http://demo.test/
-cdpx tabs list
-```
+1. **`make check` is green before the session ends.**
+2. Unit tests are deterministic, loopback-only and browser-free. Real browser
+   coverage belongs in `tests/e2e/`; unavailable Chrome or Symfony blocks the
+   runtime and release gates.
+3. The CLI contract is stable: stdout is one JSON object, stderr carries
+   diagnostics, exit codes are 0/1/2. Contract changes require tests and an
+   update to `docs/PRIMITIVES.md`.
+4. Every primitive includes its implementation, CLI route, mock protocol and
+   output tests, an HTML fixture when relevant, and user documentation.
+5. Cookie and storage values are redacted by default. Examples use only
+   disposable Chrome profiles.
+6. The mock follows the real protocol. Browser protocol changes require mock,
+   client and test updates together.
 
-## Invariants (non-negotiable)
+## Repository map
 
-1. **`make check` green before any end of session.** No exception.
-2. **Unit tests = deterministic.** Loopback only, no external network, no
-   unbounded sleep, no Chrome required. Whatever needs a real browser goes
-   into `tests/e2e/`; Chrome being unavailable is blocking for the runtime
-   gates and the release.
-3. **Stable CLI contract**: stdout = one JSON object, stderr = diagnostics,
-   exit 0/1/2. Any contract change = test changes + a note in
-   `docs/PRIMITIVES.md`.
-4. **Every new primitive ships with**: its function in
-   `src/cdpx/primitives/`, its CLI subcommand, its mock tests (output AND
-   emitted protocol), its HTML fixture when an e2e scenario makes sense, its
-   entry in `docs/PRIMITIVES.md` (use case, why, example).
-5. **Security**: cookie values redacted by default in every output; never
-   connect to the user's personal Chrome in docs or examples (always a
-   disposable `--user-data-dir`). See `HARNESS.md`.
-6. **The mock follows the real protocol.** If Chrome changes behavior
-   (e.g. /json/new via PUT), the mock AND the client align, tests attached.
-
-## Where things are
-
-```
-src/cdpx/client.py        CDP WS client (commands, events, timeouts)
-src/cdpx/discovery.py     HTTP /json API (tabs)
-src/cdpx/primitives/      nav, js, inputs, capture, net, state, audit
-src/cdpx/cli.py           argparse -> primitives -> JSON
-src/cdpx/testing/         CDP mock + fixture server (shipped with the package)
-tests/                    unit tests (mock) — this is where check is decided
-tests/fixtures/           deterministic static reference site
-tests/e2e/                real Chrome + Symfony application, blocking gates
-docs/                     CONTEXT, PRIMITIVES, ROADMAP, TODO, milestones/
+```text
+src/cdpx/client.py        CDP WebSocket client
+src/cdpx/discovery.py     loopback HTTP discovery
+src/cdpx/primitives/      browser capabilities
+src/cdpx/cli.py           argparse to primitives to JSON
+src/cdpx/testing/         shipped mock and fixture server
+tests/                    deterministic unit and contract tests
+tests/fixtures/           static reference site
+tests/e2e/                blocking Chrome and Symfony scenarios
+docs/                     current product, feature and operating references
 ```
 
-## Expected work loop
+## Work loop
 
-1. Read `docs/TODO.md`, pick an item, announce the intent.
-2. Write/adapt the mock test first (the expected protocol IS the spec).
-3. Implement the primitive + the subcommand.
-4. `make check-local` during the loop, then `make check`. Iterate to green.
-5. Update `docs/PRIMITIVES.md` + tick `docs/TODO.md`.
-6. Atomic commit, imperative message, body explaining the why.
+1. State the concrete outcome and inspect the current contract.
+2. Write or adapt the mock test first; the emitted protocol is the spec.
+3. Implement the smallest coherent change.
+4. Run `make check-local`, then the mandatory `make check`.
+5. Update the affected canonical documentation and examples.
+6. Create one atomic commit with an imperative subject and a body explaining
+   why the change exists.
 
-## Definition of Done
+## Definition of done
 
-- [ ] `make check` green
-- [ ] mock test covering output + emitted protocol
-- [ ] primitive doc up to date (use case + CLI example)
-- [ ] HTML fixture added when an e2e scenario is relevant (+ markers tested
-      in `test_fixture_server.py`)
-- [ ] no secret/session value in default outputs
-- [ ] contribution compliant with `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`
+- [ ] `make check` is green
+- [ ] mock output and emitted protocol are covered
+- [ ] user documentation matches the current behavior
+- [ ] relevant fixture markers are tested
+- [ ] no secret or session value appears in default outputs
+- [ ] contribution follows `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`

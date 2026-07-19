@@ -535,7 +535,7 @@ def test_proof_cockpit_renders_offline_docs_and_mermaid(page, tmp_path, evidence
 # rich synthetic summary, then each test probes a view or a modal viewer via
 # CDP. Everything goes through the cdpx.proof facade (render_html,
 # build_shareable_proof): these tests are the behavioral safety net for the
-# upcoming internal refactor of proof.py.
+# the published behavior of proof.py.
 
 COCKPIT_FEATURE = "demo-checkout"
 COCKPIT_JOURNEY = "buy-item"
@@ -1026,7 +1026,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
             "docs": ["README.md", "HARNESS.md"],
             "fixtures": ["tests/fixtures/index.html"],
         },
-        "validation_matrix": [{"milestone": "M9", "proof": "Secondary proofs generalized"}],
+        "validation_matrix": [{"capability": "Session and security", "proof": "Policy proofs"}],
         "coverage_groups": [
             {"suite": "e2e", "module": "demo_checkout", "tests": 2, "failed": 1, "skipped": 0}
         ],
@@ -1328,7 +1328,7 @@ def test_modal_renders_every_textual_viewer(page, cockpit_report, evidence_case)
         "({total: document.querySelectorAll('#app .timeline-row a').length,"
         " openable: document.querySelectorAll('#app .timeline-row [data-modal-group]').length})",
     )
-    #: ratchet: every type of the closed taxonomy produces a chip able to
+    #: every type of the closed taxonomy produces a chip able to
     #: open the modal — a type added without a viewer would break this count
     assert chips == {"total": len(ARTIFACT_TYPES), "openable": len(ARTIFACT_TYPES)}
 
@@ -1718,7 +1718,7 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
 )
 def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
     """The CLI view lists the 31 real subcommands with their feature
-    attachment, and the Validation view renders the milestone matrix,
+    attachment, and the Validation view renders the capability matrix,
     coverage by module, risks and accepted unknowns."""
     client, _base = page
     _open_cockpit(
@@ -1757,14 +1757,14 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
     )
     #: the Validation view aligns its four panes, each with its table
     assert validation_view["headings"] == [
-        "Proof by milestone",
+        "Proof by capability",
         "Tests by module",
         "Risks and mitigations",
         "Accepted unknowns",
     ]
     assert validation_view["tables"] == 4
     #: matrix, coverage, risks and unknowns render the run's data
-    assert "M9" in validation_view["text"]
+    assert "Session and security" in validation_view["text"]
     assert "demo_checkout" in validation_view["text"]
     assert "make proof fails without a binary." in validation_view["text"]
     assert "Loopback fixtures only." in validation_view["text"]
@@ -1913,7 +1913,7 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     assert snapshot["input"] == "fresh"
     assert snapshot["mirror"] == "fresh"
     assert any(
-        event["type"] == "beforeinput" and event["value"] == "legacy"
+        event["type"] == "beforeinput" and event["value"] == "initial"
         for event in snapshot["inputEvents"]
     )
     assert any(
@@ -2210,7 +2210,7 @@ def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):
     pollute the page."""
     # Semantics proven against real Chrome:
     # 1. intra-connection, `--reset` restores BOTH device AND user-agent
-    #    (historical bug: the mobile preset's UA survived the reset);
+    #    including the mobile preset's user agent;
     # 2. emulation overrides die with the CDP connection — an isolated cdpx
     #    invocation therefore does NOT leave the page emulated behind it
     #    (hence the composed form `emulate <preset> -- <action>`).
@@ -2224,7 +2224,7 @@ def test_emulate_mobile_and_reset_real(chrome, fixtures_http, evidence_case):
             assert js.evaluate(c, "screen.width") == 390
             assert "cdpx-mobile" in js.evaluate(c, "navigator.userAgent")
             emulation.emulate(c, reset=True)
-            #: --reset restores both dimensions, including the UA (historical regression)
+            #: --reset restores both dimensions, including the user agent
             assert js.evaluate(c, "screen.width") == initial
             assert "cdpx-mobile" not in js.evaluate(c, "navigator.userAgent")
             emulation.emulate(c, "mobile")  # reapply the override, then the connection closes

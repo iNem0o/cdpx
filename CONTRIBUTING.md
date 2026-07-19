@@ -57,7 +57,7 @@ For a security change or a session contract change, the PR must
 additionally:
 
 1. preserve the mandatory identity triple and the loopback endpoint from
-   the manifest, or explicitly announce any contract migration;
+   the manifest, or explicitly document the contract change;
 2. prove the refusal before CDP effect for invalid run/target/authority/
    origin/secret, then the actual origin check after navigation;
 3. cover with stdout, stderr, log, scenario, and artifact canaries, without
@@ -98,7 +98,7 @@ documentation or workflows. The stable aggregator check
 `make release` have succeeded. The full job displays a native cockpit
 summary and publishes, for 14 days, the manifested textual staging of the
 available proofs; opaque files remain private. See
-[the validation documentation](docs/VALIDATION.md#proof-in-github-actions)
+[the validation documentation](docs/VALIDATION.md#github-actions)
 to read the artifact or reproduce a failure.
 
 Review and resolving conversations come after the proof. A maintainer only

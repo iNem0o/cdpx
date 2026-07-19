@@ -128,15 +128,15 @@ def test_new_activate_close_tab(mock):
 def test_new_tab_falls_back_to_get_only_for_method_not_allowed(monkeypatch):
     calls = []
 
-    def legacy_http(_host, _port, _path, method="GET"):
+    def compatible_http(_host, _port, _path, method="GET"):
         calls.append(method)
         if method == "PUT":
             raise discovery.DiscoveryError("PUT rejected", status=405)
-        return '{"id":"legacy"}'
+        return '{"id":"fallback"}'
 
-    monkeypatch.setattr(discovery, "_http", legacy_http)
+    monkeypatch.setattr(discovery, "_http", compatible_http)
 
-    assert discovery.new_tab("127.0.0.1", 9222)["id"] == "legacy"
+    assert discovery.new_tab("127.0.0.1", 9222)["id"] == "fallback"
     assert calls == ["PUT", "GET"]
 
 
@@ -156,7 +156,7 @@ def test_new_tab_preserves_non_compatibility_put_failure(monkeypatch):
     assert calls == ["PUT"]
 
 
-def test_new_tab_malformed_put_response_does_not_trigger_legacy_fallback(monkeypatch):
+def test_new_tab_malformed_put_response_does_not_trigger_get_fallback(monkeypatch):
     calls = []
 
     def malformed_http(_host, _port, _path, method="GET"):
@@ -187,15 +187,15 @@ def test_new_tab_reports_both_failed_compatibility_attempts(monkeypatch):
     assert error.value.status == 500
 
 
-def test_new_tab_malformed_legacy_get_response_keeps_fallback_context(monkeypatch):
-    def legacy_http(_host, _port, _path, method="GET"):
+def test_new_tab_malformed_get_response_keeps_fallback_context(monkeypatch):
+    def compatible_http(_host, _port, _path, method="GET"):
         if method == "PUT":
             raise discovery.DiscoveryError("PUT rejected", status=405)
         return "not-json"
 
-    monkeypatch.setattr(discovery, "_http", legacy_http)
+    monkeypatch.setattr(discovery, "_http", compatible_http)
 
-    with pytest.raises(discovery.DiscoveryError, match="legacy GET fallback failed") as error:
+    with pytest.raises(discovery.DiscoveryError, match="GET fallback failed") as error:
         discovery.new_tab("127.0.0.1", 9222)
 
     assert error.value.method == "GET"

@@ -6,7 +6,7 @@ summary = "Parse the Symfony Web Profiler panels (Doctrine, Twig, cache, excepti
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "make docker-symfony-e2e"]
 path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
 test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
-docs = ["docs/PRIMITIVES.md", "docs/milestones/M2-boucle-symfony.md"]
+docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
@@ -29,7 +29,7 @@ id = "read-symfony-profiler"
 journey = "read-profiler"
 title = "Read Symfony profiler data from a navigation"
 ui_text = "The agent can open a Symfony page and follow the profiler proof."
-report_text = "This scenario proves that framework diagnostics are reachable from a browser navigation. `make proof` automatically attempts the real Docker Symfony gate, records an unavailable Docker as an explicit non-blocking status, and blocks the verdict when Docker is available but the Symfony scenario fails."
+report_text = "This scenario proves that framework diagnostics are reachable from a browser navigation. `make proof` runs the real Docker Symfony gate and blocks the verdict when Docker is unavailable, a scenario is skipped, or the suite fails."
 given = "A fixture or the Symfony test app exposes profiler-style headers and pages."
 when = "cdpx reads the profiler data after navigation during the Chrome e2e and, when Docker is available, via the Symfony e2e gate."
 then = "The report links the profiler tests, the Docker status, JUnit, logs, the profiler JSON output and the screenshots to the developer diagnostics feature."
@@ -115,11 +115,11 @@ Command-specific options:
   an unknown name is a usage error (exit 2).
 
 ```bash
-# Parser tous les panels d'une route locale
-cdpx profiler http://127.0.0.1:8000/produit/42
+# Parse every panel for a local route
+cdpx profiler http://127.0.0.1:8000/product/42
 
-# Cibler la boucle Doctrine + cache uniquement
-cdpx profiler http://127.0.0.1:8000/produit/42 --panels db,cache
+# Focus on Doctrine and cache only
+cdpx profiler http://127.0.0.1:8000/product/42 --panels db,cache
 ```
 
 Output (realistic excerpt, truncated to the requested panels):
@@ -127,7 +127,7 @@ Output (realistic excerpt, truncated to the requested panels):
 ```json
 {
   "token_present": true,
-  "url": "http://127.0.0.1:8000/produit/42",
+  "url": "http://127.0.0.1:8000/product/42",
   "status": 200,
   "profiler_url": "http://127.0.0.1:8000/_profiler/***",
   "profiler_status": 200,
@@ -156,16 +156,14 @@ Output (realistic excerpt, truncated to the requested panels):
 
 Gotchas and error cases:
 
-- **Breaking change** (post-0.1.0): the `signals` fields (`X-CDPX-*`
-  headers) and `profiler_bytes` are gone; `panels` is now a structured
-  object per panel, never a `raw` envelope.
+- `panels` is a structured object per panel and never a raw envelope.
 - The raw token is never returned: the output only exposes
   `token_present`, redacts the segment in `profiler_url` and sanitizes
   headers, URL/query, SQL/messages and results a second time at the
   stdout boundary.
 - If no response carries `X-Debug-Token-Link` or `X-Debug-Token`
   (profiler disabled, `prod` environment), the command fails with
-  `header X-Debug-Token-Link/X-Debug-Token introuvable` (exit 1).
+  `header X-Debug-Token-Link/X-Debug-Token not found` (exit 1).
 - A panel whose collector isn't installed (no doctrine-bundle, no
   messenger...) outputs `{"available": false}` — this is not an error. A
   panel that is present but has unexpected markup outputs
@@ -209,14 +207,14 @@ Command-specific options:
   cdpx's own options.
 
 ```bash
-# Le clic ouvre-t-il l'off-canvas panier ?
+# Does the click open the cart off-canvas?
 cdpx dom-diff -- click "#offcanvas-cart"
 
-# Diff entre la page courante et une autre route (lecture pure)
-cdpx dom-diff -- goto http://127.0.0.1:8000/panier
+# Diff the current page against another route without mutation
+cdpx dom-diff -- goto http://127.0.0.1:8000/cart
 
 # Does typing trigger the autocomplete?
-cdpx dom-diff -- type "#recherche" "chaussures trail" --clear
+cdpx dom-diff -- type "#search" "trail shoes" --clear
 ```
 
 Output:
@@ -315,7 +313,7 @@ Docker availability depends on the environment; its absence blocks the
 proof and is resolved by installing Docker then re-running `make proof`
 or `make docker-symfony-e2e`. Panel parsing is coupled to the
 WebProfilerBundle 7.x HTML markup (no JSON API exists on the Symfony
-side): a major bundle evolution may require re-capturing the fixtures
+side): a major bundle update may require re-capturing the fixtures
 and adjusting the parsers — the tolerance contract (`available`/
 `parse_error`, never an exception) guarantees that in the meantime the
 command degrades cleanly instead of breaking.

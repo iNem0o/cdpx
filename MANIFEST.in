@@ -16,11 +16,10 @@ include Dockerfile
 include docker-compose.symfony-e2e.yml
 include .dockerignore
 include .gitignore
-include CLAUDE.md
 include HARNESS.md
 include scripts/verify_dist.py
 
-# Shipped source, documentation, deterministic tests and GitHub metadata.
+# Packaged source, documentation, deterministic tests and GitHub metadata.
 graft src
 graft docs
 graft tests
@@ -41,6 +40,7 @@ prune htmlcov
 exclude .coverage
 exclude .gitlab-ci.yml
 exclude AGENTS.md
+exclude CLAUDE.md
 global-exclude __pycache__
 global-exclude *.py[cod]
 global-exclude .DS_Store

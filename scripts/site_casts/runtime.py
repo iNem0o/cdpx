@@ -1,6 +1,6 @@
 """Runtime for recording the homepage's tutorial casts.
 
-Same doctrine as the historical casts (site/assets/casts/README.md): every
+The recording contract is defined in site/assets/casts/README.md: every
 JSON output and every duration comes from commands actually executed against
 a real Chrome and the repo's reference site; only the keystroke typing is
 synthesized (deterministic cadence) for readability. The cast is written
@@ -34,15 +34,14 @@ CAST_WIDTH = 100
 CAST_HEIGHT = 14
 MAX_CAST_BYTES = 2 * 1024 * 1024
 
-# Palette aligned on the historical casts and the page theme.
+# Palette aligned with the page theme.
 ANSI_PROMPT = "\x1b[38;5;242m$\x1b[0m \x1b[1m"
 ANSI_RESET = "\x1b[0m"
 ANSI_OUT = "\x1b[38;5;80m"
 ANSI_ERR = "\x1b[38;5;167m"
 ANSI_COMMENT = "\x1b[3;38;5;246m"
 
-# Deterministic typing cadence (seconds/char), same spirit as the
-# historical casts: cyclic jitter around ~30 ms.
+# Deterministic typing cadence (seconds/char): cyclic jitter around ~30 ms.
 _TYPE_CYCLE = (0.022, 0.03, 0.038, 0.026, 0.034, 0.03)
 _COMMENT_CYCLE = (0.010, 0.014, 0.012)
 

@@ -1,79 +1,57 @@
-# CONTEXT.md — where this project comes from
+# Product rationale and design
 
-## What already existed (starting point)
+cdpx gives agents and developers a narrow, scriptable interface to a
+development Chrome. Browser automation is useful only when the caller can
+identify the exact page, bound every action, inspect what happened and leave
+reproducible evidence. The CLI therefore favors focused primitives over a
+general remote-control layer.
 
-A first CLI tooling built on the Chrome DevTools Protocol gave an
-agent the ability to **see and navigate** in a development Chrome,
-in the context of Symfony applications, e-commerce sites
-(Shopware/PrestaShop) and SEO operations.
+## Product needs
 
-Capabilities of the initial prototype:
-- see the page,
-- navigate,
-- manage tabs,
-- execute raw JS in the page.
+cdpx covers six complementary needs:
 
-## The request
+1. **See** the rendered DOM, console and network activity.
+2. **Measure** browser metrics and Symfony profiler data.
+3. **Audit** rendered SEO, accessibility and code coverage.
+4. **Reproduce** state, network conditions and user journeys.
+5. **Prove** behavior with captures, scenarios and a validation cockpit.
+6. **Lock down** the browser through supervised sessions and explicit policy.
 
-1. **Find new usecases** offered by the CDP wiring already in place.
-2. **Script new primitives** that improve the output of
-   the agent AND of the dev driving it.
-3. Deliver a **complete stack**: CLI for the agent, all the primitives,
-   and above all a **deterministic test system** — a simple HTTP server +
-   static HTML pages covering all the usecases.
-4. Integrated agent harness, documentation of exchanges, complete todo list
-   (what/how/why + original intent + examples), roadmap by
-   milestones for what cannot be taken on right away.
-5. Only put in place **what is 100% validatable at runtime** at the time
-   of generation; document the rest.
+Navigation, synchronization and trusted input support every family.
 
-## The guiding idea (from the discussion)
+## Design choices
 
-The existing wiring (see/navigate/tabs/raw JS) gives the agent
-**hands**. What it lacks to produce better work are **senses** and
-**measurement instruments**:
+- **Synchronous CLI:** one invocation maps to one bounded action and one JSON
+  result. Shell scripts, agents and humans share the same interface.
+- **Supervised page target:** the session owns a disposable Chrome profile,
+  loopback endpoint and one assigned page. The session/run/target identity is
+  mandatory for browser commands.
+- **Direct page WebSocket:** commands connect to the assigned page target
+  without an extra multiplexing layer.
+- **Protocol-faithful mock:** deterministic tests assert returned data and the
+  exact CDP methods, parameters and order.
+- **Real runtime gates:** Chrome and the Dockerized Symfony application verify
+  browser engine and framework behavior that the mock cannot provide.
+- **Safe defaults:** origin checks fail closed, sensitive values are redacted,
+  outputs are bounded and page-derived content is untrusted.
+- **Private evidence:** screenshots, PDFs, logs and reports remain in managed
+  artifact directories. Only a cleaned manifest allowlist can become
+  shareable.
 
-- **console + network**: an agent that reads neither the JS console nor
-  failed requests debugs a frontend blind. These are the two feedback loops
-  of frontend dev, and the most cost-effective primitives to add.
-- **explicit wait** (`wait`): without it, the agent reads intermediate
-  states (SPA, injected content) and draws false conclusions.
-- **"trusted" interaction** (`click`/`type` via Input domain, not `el.click()`
-  JS): reproduce what a real user produces, including for
-  frameworks that filter `isTrusted`.
-- **SEO audit of the rendered DOM** (`seo`): for e-commerce and SEO audits,
-  what matters is the final DOM seen by Googlebot's rendering, not the served
-  HTML. One primitive = one SEO contract extracted in a single call (title,
-  metas, canonical, hreflang, JSON-LD, h1, alt, links).
-- **measurement** (`metrics`, network weight): make things objective
-  instead of just observing them.
-- **state** (`cookies`/`storage`): understand and prepare scenarios
-  (sessions, consent, cart) — with redaction by default, cf. HARNESS.md.
+Chrome discovery uses `PUT /json/new`; an explicit method rejection permits a
+bounded `GET` fallback for compatible endpoints. Cookie clearing similarly
+uses `Storage.clearCookies` with the browser-supported Network-domain
+fallback. These are current compatibility behaviors and are covered by
+protocol tests.
 
-Heavier usecases identified but deferred to the roadmap (see ROADMAP.md):
-reading the Symfony profiler via `x-debug-token-link`, request interception/
-mocking (Fetch domain), before/after action DOM diff, device/network
-emulation, the accessibility tree as a low-cost "semantic vision", session
-record/replay, Core Web Vitals.
+## Intended environment
 
-## Chrome execution constraint
+cdpx targets disposable development browsers, local or controlled reference
+applications, Symfony diagnostics, e-commerce journeys and rendered-page
+audits. It is not a way to attach to a personal Chrome profile, bypass browser
+security or certify an entire production system.
 
-Real Chrome e2e tests are now a blocking gate: `make test-e2e` and
-`make proof` fail if no Chrome/Chromium binary is available in
-the `PATH`. The tests start their own disposable headless profile and do
-not attach to an already-open personal Chrome.
-
-## Technical decisions and their reasons
-
-| Decision | Reason |
-|---|---|
-| Python 3.11+, stdlib + targeted runtime dependencies (`websockets`, `markdown-it-py`, `PyYAML`) | `websockets` carries the synchronous CDP transport, `markdown-it-py` the CommonMark rendering of the proof cockpit and `PyYAML` the declarative scenarios; no application framework is introduced |
-| **Sync** client (`websockets.sync`) | a CLI is sequential; no asyncio to propagate into the primitives or the tests |
-| Direct connection to the page target's `webSocketDebuggerUrl` | simple model from the initial prototype; no flattened sessions to manage |
-| CDP mock that **records commands** | test the protocol emitted, not just the output: a CDP params regression breaks a test, not a dev session |
-| HTTP and WS discovery on two ports in the mock | simplicity; the client follows the URL published by /json, so full compatibility with real Chrome (a single port) |
-| `/json/new` as PUT with GET fallback | Chrome ≥ 111 requires PUT; older headless versions accept GET |
-| Cookies redacted by default | an agent copies its outputs verbatim; a session must not leak by accident |
-| HTML fixtures with no external resource and no randomness | total determinism; the only delays are explicit (`/api/slow?ms=`, spa.html's 300ms setTimeout) |
-| `Input.dispatch*` rather than `el.click()` | trusted events, real browser pipeline |
-| CLI output = one JSON object | parsable by the agent, readable by humans, diffable in logs |
+The normative execution boundary is [HARNESS.md](../HARNESS.md). The command
+surface is [PRIMITIVES.md](PRIMITIVES.md), the lifecycle is
+[SESSION-LIFECYCLE.md](SESSION-LIFECYCLE.md), and release evidence is defined
+in [VALIDATION.md](VALIDATION.md).

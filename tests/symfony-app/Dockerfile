@@ -9,8 +9,8 @@ COPY src ./src
 COPY templates ./templates
 RUN mkdir -p var && chmod -R 777 var
 
-# CRITIQUE: les scénarios http-client-* appellent l'app elle-même; avec le
-# worker unique par défaut de php -S, ce serait un deadlock.
+# Important: the http-client-* scenarios call the app itself. A single
+# php -S worker would deadlock.
 ENV PHP_CLI_SERVER_WORKERS=8
 
 EXPOSE 8000

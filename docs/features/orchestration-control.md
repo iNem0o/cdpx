@@ -6,7 +6,7 @@ summary = "Control network behavior, emulate device constraints, read iframes, r
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
 path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
 test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
-docs = ["docs/PRIMITIVES.md", "docs/milestones/M3-interception-emulation.md", "docs/milestones/M5-orchestration.md"]
+docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
 [[journeys]]
@@ -112,7 +112,7 @@ Command-specific options:
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
-cdpx intercept --rule "*tracker* => block" --rule "*api* => continue" -- goto http://demo.test/produit-42
+cdpx intercept --rule "*tracker* => block" --rule "*api* => continue" -- goto http://demo.test/product-42
 ```
 
 ```json
@@ -144,8 +144,7 @@ http://demo.test/`).
 Command-specific options:
 
 - `preset` (positional, optional): `mobile`, `slow-3g` or `cpu-4x`.
-- `--reset`: restores the default state — device metrics, user-agent (fixed
-  historical bug: the mobile preset's UA used to survive the reset), network
+- `--reset`: restores the default state — device metrics, user-agent, network
   conditions and CPU rate. Used without a preset.
 - `action` (after `--`): composed action executed under emulation —
   `goto <url>`, `wait <selector>`, `click <selector>`,
@@ -153,7 +152,7 @@ Command-specific options:
 
 ```bash
 cdpx emulate mobile -- goto http://demo.test/
-cdpx emulate slow-3g -- goto http://demo.test/panier
+cdpx emulate slow-3g -- goto http://demo.test/cart
 cdpx emulate mobile -- eval "navigator.userAgent"
 cdpx emulate --reset
 ```
@@ -171,7 +170,7 @@ Output of `--reset`:
 ```
 
 Errors and pitfalls: without a preset or `--reset`, the command fails
-(`preset inconnu: None`, exit 1). MAIN PITFALL: `cdpx emulate mobile`
+(`unknown preset: None`, exit 1). MAIN PITFALL: `cdpx emulate mobile`
 without an action does apply the overrides, but they vanish as soon as the
 command ends — a `cdpx goto` launched afterward runs WITHOUT emulation (see
 Known limitations). The command is classified by its action's verb:
@@ -236,14 +235,14 @@ The journal is confined under the session's `artifacts/journals/`, at
 `replay` can only read a private regular file from that same folder.
 
 ```bash
-cdpx record -o parcours.ndjson -- goto http://demo.test/
-cdpx record -o parcours.ndjson -- click "#acheter"
-cdpx record -o parcours.ndjson -- type "#password" @env:CHECKOUT_PASSWORD --clear
-cdpx record -o parcours.ndjson -- wait "#confirmation"
+cdpx record -o journey.ndjson -- goto http://demo.test/
+cdpx record -o journey.ndjson -- click "#buy"
+cdpx record -o journey.ndjson -- type "#password" @env:CHECKOUT_PASSWORD --clear
+cdpx record -o journey.ndjson -- wait "#confirmation"
 ```
 
 ```json
-{"schema":"cdpx.record/v2","path":"parcours.ndjson","recorded":1,"replayable":true,"ok":true}
+{"schema":"cdpx.record/v2","path":"journey.ndjson","recorded":1,"replayable":true,"ok":true}
 ```
 
 NDJSON line written to the journal:
@@ -282,20 +281,20 @@ Command-specific options:
   exceeding it is rejected before any replay.
 
 ```bash
-cdpx replay parcours.ndjson
-cdpx --max-actions 20 replay parcours.ndjson
+cdpx replay journey.ndjson
+cdpx --max-actions 20 replay journey.ndjson
 ```
 
 Full successful replay:
 
 ```json
-{"path":"parcours.ndjson","events":3,"played":3,"ok":true}
+{"path":"journey.ndjson","events":3,"played":3,"ok":true}
 ```
 
 Divergence (exit 1, the JSON stays structured on stdout):
 
 ```json
-{"path":"parcours.ndjson","events":3,"played":1,"ok":false,"divergence":"event 1: selector not found after 10.0s: #acheter"}
+{"path":"journey.ndjson","events":3,"played":1,"ok":false,"divergence":"event 1: selector not found after 10.0s: #buy"}
 ```
 
 Errors and pitfalls: a non-JSON line or one without `action` produces
@@ -318,7 +317,7 @@ moments of the run (`capture` on a step). The output is always a single
 JSON object with `verdict` (`pass` or `fail`), `findings`, `steps`,
 `assertions`, `artifacts` and `evidence_dir`.
 
-Supported P0 format:
+Supported scenario schema:
 
 - `context.base_url`: origin or base URL for resolving relative `goto`
   calls.
@@ -343,7 +342,7 @@ context:
   emulation: mobile
 steps:
   - label: product_page
-    goto: /produit/42
+    goto: /product/42
     capture: [screenshot, console, network]
   - label: add_to_cart
     wait_visible: '[data-testid="add-to-cart"]'

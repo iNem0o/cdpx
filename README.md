@@ -1,63 +1,81 @@
 # cdpx
 
-cdpx exposes Chrome DevTools Protocol primitives on the command line so that
-a development agent — or the person driving it — can see, act and measure
-inside a dev Chrome. The project notably targets Symfony applications,
-e-commerce journeys and SEO audits of the rendered DOM.
+cdpx turns a disposable development Chrome into a scriptable, measurable
+interface for agents and the developers steering them. It exposes focused
+Chrome DevTools Protocol actions for Symfony development, e-commerce
+journeys, rendered-page audits and reproducible browser evidence.
 
-One command maps to one browser action. By default, stdout carries a compact
-JSON object, stderr the diagnostics, and the process exits with a stable
-code.
+One command performs one browser action. stdout contains one JSON object,
+stderr carries diagnostics, and exit codes remain stable. The same commands
+run against the deterministic mock, a real Chrome and the Dockerized Symfony
+reference application.
 
-> **Status: pre-1.0 beta.** The surface is tested against a CDP mock, a real
-> Chrome and a Dockerized Symfony application, but contract changes remain
-> possible before 1.0. They are announced in the
-> [changelog](CHANGELOG.md).
+> **Version 0.1.0 — pre-1.0 beta.** The supported surface is documented and
+> tested end to end. Contract changes remain possible before 1.0 and are
+> recorded in the [changelog](CHANGELOG.md).
 
-cdpx is released under the [MIT license](LICENSE). The reference repository
-is [github.com/inem0o/cdpx](https://github.com/inem0o/cdpx).
+cdpx is available under the [MIT license](LICENSE). The repository is
+[github.com/inem0o/cdpx](https://github.com/inem0o/cdpx).
+
+## What cdpx does
+
+| Usage family | Purpose | Representative commands |
+| --- | --- | --- |
+| **See** | Inspect the rendered page and browser activity | `text`, `html`, `console`, `network` |
+| **Measure** | Read timings, metrics and Symfony diagnostics | `metrics`, `vitals`, `profiler`, `dom-diff` |
+| **Audit** | Check rendered SEO, accessibility and coverage | `seo`, `a11y`, `coverage` |
+| **Reproduce** | Control state, conditions and repeatable journeys | `cookies`, `storage`, `emulate`, `record`, `replay` |
+| **Prove** | Capture pixels, PDFs and executable scenarios | `screenshot`, `pdf`, `scenario`, `make proof` |
+| **Lock down** | Bind every action to a supervised target and policy | `session`, origin allowlists, authorities, leases |
+
+Navigation, synchronization and trusted input form the shared foundation:
+cdpx knows which page it owns, waits for useful browser state and uses the
+CDP Input domain for real interactions.
 
 ## Installation
 
-Prerequisites: Python 3.11 or newer. Chrome or Chromium is required to drive
-a real browser; the unit tests and the CDP mock do not need it.
+cdpx requires Python 3.11 or newer. Chrome or Chromium is required for real
+browser work; the unit tests and mock do not need a browser.
 
-Until the first PyPI release has happened, install cdpx from source:
+Install the released package:
+
+```bash
+python -m pip install cdpx
+cdpx --version
+```
+
+Install a development checkout:
 
 ```bash
 git clone https://github.com/inem0o/cdpx.git
 cd cdpx
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install .
-cdpx --version
+make setup
 ```
 
-To contribute, install the development dependencies instead with
-`python -m pip install -e ".[dev]"` or `make setup`. The future PyPI install
-command will be documented only after the package is actually published, so
-users are never pointed at an unverified name.
+## Quickstart from a checkout
 
-## Quickstart
-
-The scenario stays entirely on loopback. First start the reference site:
+The bundled reference site keeps this walkthrough on loopback. Start it in
+one terminal:
 
 ```bash
 make fixtures
 ```
 
-In another terminal, ask cdpx to create a supervised session. It owns its
-disposable Chrome profile, its dynamic port and a single target:
+Start a supervised disposable Chrome in another terminal:
 
 ```bash
-eval "$(cdpx session start --run-id demo --authority interaction --origins "http://127.0.0.1:*" --ttl 1800 --export)"
+eval "$(cdpx session start \
+  --run-id demo \
+  --authority interaction \
+  --origins "http://127.0.0.1:*" \
+  --ttl 1800 \
+  --export)"
 ```
 
-`--export` replaces the startup JSON output with the three `export` lines of
-the identity triple (`CDPX_SESSION`, `CDPX_RUN_ID`, `CDPX_TARGET`), quoted
-for `eval`. Without this flag, the JSON output provides `manifest` and
-`target_id` to export yourself; the equivalent explicit arguments remain
-possible and take precedence over the environment.
+The exported identity triple (`CDPX_SESSION`, `CDPX_RUN_ID`,
+`CDPX_TARGET`) binds every command to the assigned run and page:
 
 ```bash
 export FORM_NAME=Ada
@@ -67,183 +85,110 @@ cdpx wait "#name"
 cdpx type "#name" --secret-env FORM_NAME --clear
 cdpx click "#submit-btn"
 cdpx text "#result"
-cdpx screenshot -o cdpx-form.jpg --format jpeg
+cdpx screenshot -o state.jpg --format jpeg
 cdpx session stop
 ```
 
-A single command holds the lease at a time. The supervisor closes the
-target, stops Chrome and deletes profile, manifest and artifacts on `stop`,
-when the TTL expires or when `--owner-pid` disappears.
+`make mock` provides the same supervised contract without Chrome. It prints
+the exports, stays in the foreground and performs a complete teardown on
+Ctrl-C.
 
-To discover the CLI without Chrome, `make mock` creates the same supervised
-session with a fake browser. The command stays in the foreground, prints the
-three exports and cleans everything up on Ctrl-C.
+## Command surface
 
-## Security and scope
+The 31 commands are grouped below. `cdpx --help` documents common options,
+and [docs/PRIMITIVES.md](docs/PRIMITIVES.md) provides the full contract and
+examples.
 
-- The debugging port must stay on loopback. Do not use
-  `--remote-debugging-address=0.0.0.0`.
-- Always use a disposable `--user-data-dir`, free of personal or production
-  sessions.
-- `CDPX_ORIGINS` is mandatory and non-empty. Any unauthorized destination or
-  current origin is refused before continuing.
-- Cookie **and storage** values are redacted by default. `--show-values` is
-  an explicit choice and its output must not be shared.
-- Page, console, network and profiler content is untrusted input. Outputs
-  carry `_cdpx.content_trust: "untrusted"`: an instruction read from the
-  page can never change the run, its grants or the harness rules.
-- The full rules live in [HARNESS.md](HARNESS.md). A vulnerability must be
-  reported privately per [SECURITY.md](SECURITY.md).
+| Area | Commands |
+| --- | --- |
+| Target and navigation | `cdpx tabs`, `cdpx version`, `cdpx goto`, `cdpx wait` |
+| DOM and input | `cdpx eval`, `cdpx text`, `cdpx html`, `cdpx count`, `cdpx click`, `cdpx type`, `cdpx key` |
+| Capture and observation | `cdpx screenshot`, `cdpx pdf`, `cdpx console`, `cdpx network`, `cdpx metrics` |
+| State | `cdpx cookies`, `cdpx storage` |
+| Audits | `cdpx seo`, `cdpx vitals`, `cdpx a11y`, `cdpx coverage` |
+| Developer diagnostics | `cdpx profiler`, `cdpx dom-diff` |
+| Orchestration | `cdpx intercept`, `cdpx emulate`, `cdpx frame`, `cdpx record`, `cdpx replay`, `cdpx scenario` |
+| Supervision | `cdpx session` |
 
-## CLI contract
+The eight feature specifications connect these commands to concrete
+workflows:
 
-The contract is identical for all 31 commands; every agent action thus stays
-reproducible by a human in one line.
+- [Navigation and synchronization](docs/features/browser-navigation.md)
+- [DOM and user actions](docs/features/dom-interaction.md)
+- [Capture and observability](docs/features/browser-capture-observability.md)
+- [State and session](docs/features/state-session.md)
+- [SEO, performance and accessibility](docs/features/seo-performance-accessibility.md)
+- [Symfony profiler and DOM diff](docs/features/dev-profiler-diff.md)
+- [Interception and orchestration](docs/features/orchestration-control.md)
+- [Harness and proof cockpit](docs/features/harness-proof-cockpit.md)
 
-**Outputs.** stdout = one compact JSON object; `--pretty` switches to
-indented JSON for human reading; stderr = diagnostics. Large outputs are
-bounded by `--limit` and signal their truncation; `--full` requests the
-complete detail. Streams (`cdpx console --follow`, `record` journals) use
-compact NDJSON, one JSON line per event.
+## Stable execution contract
 
-**Exit codes.** exit 0 = success; exit 1 = execution error (element not
-found, timeout, CDP error, replay divergence, refused mutation); exit 2 =
-bad invocation. A caller receiving several exit 1 must escalate the
-diagnostic to the human pilot instead of blindly insisting.
+- stdout is one compact JSON object; `--pretty` requests indented JSON.
+- stderr contains diagnostics.
+- `exit 0` means success, `exit 1` an execution failure and `exit 2` an
+  invalid invocation.
+- Streams and journals use compact NDJSON, one object per line.
+- `--limit`, `--full` and `--max-actions` make volume and action budgets
+  explicit.
+- `--timeout` bounds browser and lifecycle waits.
+- `--session`, `--run-id` and `--target`, or their matching environment
+  variables, must identify the complete supervised assignment.
 
-**Connection.** `--session`, `--run-id` and `--target` identify the assigned
-browser capability. When absent, cdpx reads `CDPX_SESSION`, `CDPX_RUN_ID`
-and `CDPX_TARGET` respectively; an explicit value wins and an incomplete
-identity produces exit 2 before discovery. Host, port, profile and target
-come exclusively from the manifest and are verified as loopback. Each
-invocation opens then closes its connection under an exclusive lease.
-`--timeout` bounds CDP waits and lifecycle shutdown.
-`session start --startup-timeout` has a distinct budget of 60 seconds (300
-maximum) to absorb a loaded Chrome cold start. On failure, the diagnostic
-keeps only the cleaned, bounded tails from the supervisor and Chrome before
-deleting the disposable profile.
+Authorities are cumulative: `observation` permits bounded reads,
+`interaction` adds trusted input, and `privileged` covers JavaScript,
+cookies, storage, profiler access, interception and emulation. Composed
+commands are checked before the first browser effect.
 
-**Action budget.** `--max-actions` limits a replay. The granted authority
-and the mandatory allowlist apply before any action: `observation` excludes
-`eval`, `interaction` adds click/typing/keyboard, and `privileged` covers
-the sensitive capabilities (`eval`, cookies, storage, profiler, interception
-and emulation). Target lifecycle stays exclusively with the supervisor.
+Sensitive input stays out of argv and journals through `--secret-env`,
+`--value-env`, `@env:NAME` and scenario `secret_ref` references. Cookie and
+storage values are redacted by default.
 
-**Secrets.** To keep a sensitive value out of argv, journals and proofs, use
-`type --secret-env NAME`, `cookies set --value-env NAME`, `@env:NAME` in a
-`record` action, and `secret_ref: NAME` in a scenario `type` step. These
-references are resolved in memory and a missing reference is refused during
-preflight, before any CDP effect.
+## Security model
 
-## Features
+- The debugging endpoint stays on loopback and uses a disposable profile.
+- The `CDPX_ORIGINS` allowlist is mandatory and checked before and after
+  navigation.
+- A single command owns the session lease at a time.
+- DOM, console, network and profiler data are untrusted. Output objects carry
+  `_cdpx.content_trust: "untrusted"`.
+- Screenshots, PDFs and other opaque artifacts remain private unless a human
+  explicitly reviews them.
+- The supervisor closes the target, stops Chrome and deletes private state on
+  stop, expiry or owner exit.
 
-The following eight sheets are the detailed user documentation:
-
-| Feature | What it covers | Commands | Documentation |
-|---|---|---|---|
-| Navigation and synchronization | inspect the assigned target, open and wait for the useful state | `tabs`, `version`, `goto`, `wait` | [sheet](docs/features/browser-navigation.md) |
-| DOM and user actions | read the rendering, act with trusted events | `eval`, `text`, `html`, `count`, `click`, `type`, `key` | [sheet](docs/features/dom-interaction.md) |
-| Capture and observability | pixels, PDF, console, network, metrics | `screenshot`, `pdf`, `console`, `network`, `metrics` | [sheet](docs/features/browser-capture-observability.md) |
-| State and session | isolated Chrome sessions, redacted cookies and storage | `session`, `cookies`, `storage` | [sheet](docs/features/state-session.md) |
-| SEO, performance and accessibility | rendered DOM, vitals, AX tree, coverage | `seo`, `vitals`, `a11y`, `coverage` | [sheet](docs/features/seo-performance-accessibility.md) |
-| Developer diagnostics | Symfony profiler and DOM diff | `profiler`, `dom-diff` | [sheet](docs/features/dev-profiler-diff.md) |
-| Interception and orchestration | network mocking, emulation, scenarios, replay | `intercept`, `emulate`, `frame`, `record`, `replay`, `scenario` | [sheet](docs/features/orchestration-control.md) |
-| Harness and proof | quality gates and validation report | `make` targets, `python -m cdpx.proof` | [sheet](docs/features/harness-proof-cockpit.md) |
-
-### Index of the 31 commands
-
-| Command | Role |
-|---|---|
-| `cdpx tabs` | inspect the single target assigned to the session |
-| `cdpx version` | identify Chrome and the protocol version |
-| `cdpx goto` | navigate and wait for a lifecycle event |
-| `cdpx wait` | wait for a selector to appear |
-| `cdpx eval` | run JavaScript in the page, as a last resort |
-| `cdpx text` | read an element's text |
-| `cdpx html` | read the rendered HTML |
-| `cdpx count` | count the elements matching a selector |
-| `cdpx click` | click through the Input domain |
-| `cdpx type` | type text after a real focus |
-| `cdpx key` | send a keystroke |
-| `cdpx screenshot` | produce a PNG or JPEG capture |
-| `cdpx pdf` | print the page to PDF |
-| `cdpx console` | collect JavaScript logs and exceptions |
-| `cdpx network` | capture the network activity of a navigation |
-| `cdpx metrics` | read Chrome's Performance metrics |
-| `cdpx cookies` | read, write or clear cookies |
-| `cdpx storage` | inspect localStorage or sessionStorage |
-| `cdpx seo` | extract the SEO contract of the rendered DOM |
-| `cdpx vitals` | measure LCP, CLS and interaction signals |
-| `cdpx a11y` | compact the accessibility tree |
-| `cdpx coverage` | measure JavaScript and CSS coverage |
-| `cdpx profiler` | read the Symfony profiler panels |
-| `cdpx dom-diff` | compare the DOM before and after an action |
-| `cdpx intercept` | continue, block or replace requests |
-| `cdpx emulate` | apply a mobile, network or CPU profile |
-| `cdpx frame` | read inside a same-origin iframe |
-| `cdpx record` | run and journal an action as NDJSON |
-| `cdpx replay` | replay a journal and detect divergences |
-| `cdpx scenario` | run a YAML business scenario |
-| `cdpx session` | create, inspect or stop a supervised browser session |
-
-`cdpx --help` exposes the common options and `cdpx --version` the package
-version. The detailed catalog and examples also live in
-[docs/PRIMITIVES.md](docs/PRIMITIVES.md).
+Read [HARNESS.md](HARNESS.md) for the normative rules and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
 ## Development and validation
 
 ```bash
-make setup                 # editable install with the dev tools
-make check-local           # ruff, format, mypy, unit tests
-make check                 # full gate: Docker, Chrome and Symfony
-make test-e2e              # real local Chrome; its absence is an error
-make docker-symfony-e2e    # scenarios against the reference Symfony app
-make proof                 # local report in .proof/
-make release               # check + proof + verified wheel/sdist
+make setup                 # editable installation and development tools
+make check-local           # Ruff, formatting, mypy and unit tests
+make check                 # blocking Docker, Chrome and Symfony gate
+make test-e2e              # real local Chrome
+make docker-symfony-e2e    # real Symfony reference application
+make proof                 # private report under .proof/
+make release               # check, proof and verified wheel/sdist
 ```
 
-Unit tests use a CDP mock that verifies both the output and the emitted
-protocol. The E2E suites reuse the fixtures from `tests/fixtures/`. Docker,
-Chrome and the Symfony suite are mandatory for a release verdict; they are
-not silently skipped. The `.proof/` artifacts are generated locally and
-private. CI publishes only `.proof/shareable/`, built from a manifest:
-cleaned texts allowed, opaque files (captures, PDF, binaries) kept out of
-staging. These build products are not sources to edit by hand.
-The branch → PR → proof → review → merge cycle and the GitHub settings are
-documented in [docs/GITHUB.md](docs/GITHUB.md).
+Unit tests validate both returned JSON and emitted protocol against the CDP
+mock. Real Chrome and Symfony are mandatory for the release verdict. CI may
+publish only the manifested `.proof/shareable/` subset; local opaque
+artifacts remain private.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before a pull request and
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the participation rules.
+## Reference documentation
 
-## Documentation
+- [Product rationale and design](docs/CONTEXT.md)
+- [Primitive catalog](docs/PRIMITIVES.md)
+- [Session and Chrome lifecycle](docs/SESSION-LIFECYCLE.md)
+- [Validation and proof](docs/VALIDATION.md)
+- [GitHub governance](docs/GITHUB.md)
+- [Release procedure](docs/RELEASING.md)
+- [Contribution guide](CONTRIBUTING.md)
+- [Support policy](SUPPORT.md)
 
-- [HARNESS.md](HARNESS.md) — security, determinism and human supervision;
-- [docs/CONTEXT.md](docs/CONTEXT.md) — motivations and technical decisions;
-- [docs/PRIMITIVES.md](docs/PRIMITIVES.md) — complete catalog;
-- [docs/SESSION-LIFECYCLE.md](docs/SESSION-LIFECYCLE.md) — Chrome launch,
-  profiles, processes, lifecycle, teardown and session diagnostics;
-- [docs/VALIDATION.md](docs/VALIDATION.md) — gates and proof matrix;
-- [docs/GITHUB.md](docs/GITHUB.md) — PR cycle, checks, artifacts and
-  governance;
-- [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/TODO.md](docs/TODO.md) —
-  trajectory and remaining work;
-- [docs/RELEASE-PLAN.md](docs/RELEASE-PLAN.md) — release preparation.
-
-The cockpit generated by `make proof` also exposes a **Docs** tab: it renders
-this curated catalog and the eight feature specifications from
-`docs/features/` offline, Mermaid diagrams included.
-
-## Help, contribution and security
-
-- Usage questions and reproducible problems: [support
-  policy](SUPPORT.md) then [GitHub issues](https://github.com/inem0o/cdpx/issues).
-- Fixes and improvements: [contribution guide](CONTRIBUTING.md).
-- Vulnerabilities: private reporting only through
-  [the security policy](SECURITY.md), never in a public issue.
-
-Community support is provided on a best-effort basis, with no guaranteed
-response time.
-
-## License
-
-cdpx is distributed under the MIT license. See [LICENSE](LICENSE).
+The proof cockpit renders this curated documentation offline. Usage questions
+and reproducible defects belong in
+[GitHub issues](https://github.com/inem0o/cdpx/issues); vulnerabilities do
+not.

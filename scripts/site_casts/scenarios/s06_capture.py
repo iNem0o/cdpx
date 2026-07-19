@@ -11,7 +11,7 @@ SCENARIO = Scenario(
         Cmd(argv=("goto", "{base}/form.html"), expect=('"ok":true',)),
         Comment("pixel vision, when text isn't enough (CSS bug, rendering)"),
         Cmd(
-            argv=("screenshot", "-o", "etat.png"),
+            argv=("screenshot", "-o", "state.png"),
             expect=('"format":"png"', '"full_page":false'),
         ),
         Cmd(
