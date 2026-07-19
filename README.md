@@ -1,9 +1,11 @@
 # cdpx
 
-cdpx turns a disposable development Chrome into a scriptable, measurable
-interface for agents and the developers steering them. It exposes focused
-Chrome DevTools Protocol actions for Symfony development, e-commerce
-journeys, rendered-page audits and reproducible browser evidence.
+cdpx is supervised browser automation for coding agents and the developers
+steering them: it turns a disposable development Chrome into a scriptable,
+measurable and policy-bound interface. Focused Chrome DevTools Protocol
+actions cover rendered-page inspection, trusted user input, audits, state
+control and reproducible browser evidence — proven on Symfony development,
+e-commerce journeys and SEO work.
 
 One command performs one browser action. stdout contains one JSON object,
 stderr carries diagnostics, and exit codes remain stable. The same commands
@@ -31,6 +33,11 @@ cdpx is available under the [MIT license](LICENSE). The repository is
 Navigation, synchronization and trusted input form the shared foundation:
 cdpx knows which page it owns, waits for useful browser state and uses the
 CDP Input domain for real interactions.
+
+cdpx is not a general computer-use layer: no vision model, no coordinate
+clicking, no attachment to a personal Chrome profile and no automation of
+third-party production sites. It drives disposable loopback development
+browsers through DOM selectors, explicit policy and supervised sessions.
 
 ## Installation
 

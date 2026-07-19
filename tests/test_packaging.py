@@ -110,7 +110,7 @@ def test_public_project_metadata_points_to_github():
     #: every URL published on PyPI derives from the same repository: no
     #: dead link nor leftover from a former hosting
     assert project["authors"] == [{"name": "inem0o"}]
-    assert project["description"].startswith("Scriptable Chrome DevTools Protocol CLI")
+    assert project["description"].startswith("Supervised browser automation CLI")
     assert project["urls"]["Repository"] == REPOSITORY_URL
     assert project["urls"]["Issues"] == f"{REPOSITORY_URL}/issues"
     assert project["urls"]["Changelog"].startswith(REPOSITORY_URL)

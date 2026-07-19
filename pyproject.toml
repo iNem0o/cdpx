@@ -5,13 +5,26 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cdpx"
 dynamic = ["version"]
-description = "Scriptable Chrome DevTools Protocol CLI for agents and developers to inspect, act, measure, audit, and prove browser behavior"
+description = "Supervised browser automation CLI for coding agents and developers — Chrome DevTools Protocol actions to inspect, act, measure, audit and prove browser behavior"
 readme = "README.md"
 authors = [{ name = "inem0o" }]
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["chrome", "devtools", "cdp", "cli", "agent", "symfony", "seo", "e2e"]
+keywords = [
+    "chrome",
+    "devtools",
+    "cdp",
+    "cli",
+    "browser-automation",
+    "agent",
+    "agentic",
+    "ai-agents",
+    "coding-agent",
+    "symfony",
+    "seo",
+    "e2e",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
