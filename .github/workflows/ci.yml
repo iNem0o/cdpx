@@ -124,6 +124,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Create a container-backed builder for attestations
+        run: docker buildx create --use --driver docker-container
       - name: Build and push immutable architecture candidate
         run: |
           docker buildx build --push --provenance=true --sbom=true \
