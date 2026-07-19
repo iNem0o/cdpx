@@ -43,9 +43,7 @@ def _assert_no_private_paths(paths: set[str]) -> None:
     )
     for path in paths:
         relative = path.split("/", 1)[1] if "/" in path and path.startswith("cdpx-") else path
-        assert not relative.startswith(forbidden), (
-            f"non-public content in the distribution: {path}"
-        )
+        assert not relative.startswith(forbidden), f"non-public content in the distribution: {path}"
 
 
 def verify_wheel(path: Path) -> dict[str, object]:
