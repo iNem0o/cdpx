@@ -50,7 +50,7 @@ def public_surfaces() -> list[Path]:
 def test_public_surfaces_are_english():
     violations: list[str] = []
     for path in public_surfaces():
-        text = path.read_text(encoding="utf-8").replace(".prototype", "").replace("inem0o", "")
+        text = path.read_text(encoding="utf-8").replace(".prototype", "")
         for line_number, line in enumerate(text.splitlines(), 1):
             if FRENCH_PROSE.search(line):
                 violations.append(f"{path}:{line_number}: {line.strip()}")
