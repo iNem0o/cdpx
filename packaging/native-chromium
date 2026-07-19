@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+BUNDLE=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+ROOT=${CDPX_BUNDLE_ROOT:-$BUNDLE/root}
+case "$(uname -m)" in
+    x86_64|amd64|aarch64|arm64) ;;
+    *)
+        printf 'cdpx: unsupported embedded architecture: %s\n' "$(uname -m)" >&2
+        exit 2
+        ;;
+esac
+
+libraries="$BUNDLE/chromium-libs:$ROOT/usr/lib/chromium"
+export LD_LIBRARY_PATH="$libraries"
+export FONTCONFIG_FILE="$ROOT/etc/fonts/fonts.conf"
+export FONTCONFIG_PATH="$ROOT/etc/fonts"
+export XDG_DATA_DIRS="$ROOT/usr/share"
+exec "$ROOT/usr/lib/chromium/chromium" "$@"

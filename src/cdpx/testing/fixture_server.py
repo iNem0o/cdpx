@@ -154,7 +154,7 @@ class FixtureServer:
         self.stop()
 
 
-def main() -> None:  # pragma: no cover - manual utility (make fixtures)
+def main() -> None:  # pragma: no cover - manual utility (`./dev fixtures`)
     import argparse
 
     p = argparse.ArgumentParser()

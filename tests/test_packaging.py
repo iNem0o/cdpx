@@ -1,7 +1,7 @@
 """Mechanical release guards (HARNESS §6).
 
 Version, MIT license, public metadata, and GitHub Actions stay aligned with
-the local gate. These tests run inside ``make check``.
+the local gate. These tests run inside ``./dev check``.
 """
 
 import hashlib
@@ -27,16 +27,9 @@ def test_action_journal_layer_does_not_depend_on_browser_primitives():
 
 
 def test_version_has_single_source():
-    """The version has a single source of truth (cdpx.__version__),
-    dynamically delegated by pyproject, and respects the x.y.z format."""
-    # The version lives in cdpx.__version__; pyproject declares it dynamic.
-    #: pyproject delegates the version to the package attribute: no static
-    #: value to desynchronize when tagging a release
-    assert "version" not in PYPROJECT["project"], "static version reintroduced in pyproject"
-    assert "version" in PYPROJECT["project"]["dynamic"]
-    assert PYPROJECT["tool"]["setuptools"]["dynamic"]["version"]["attr"] == "cdpx.__version__"
-    #: exactly two dots = semver x.y.z, the format expected by v* tags and
-    #: the CHANGELOG
+    """Static package metadata and runtime metadata resolve the same version."""
+    assert PYPROJECT["project"]["version"] == __version__
+    assert "dynamic" not in PYPROJECT["project"]
     assert __version__.count(".") == 2  # x.y.z
     assert __version__ == "0.1.0"
 
@@ -129,7 +122,8 @@ def test_python_floor_matches_ruff_target():
     """The declared Python floor and the ruff/mypy targets name the same
     version: tooling cannot validate syntax the package doesn't promise to
     support."""
-    floor = PYPROJECT["project"]["requires-python"].removeprefix(">=").strip()
+    constraint = PYPROJECT["project"]["requires-python"]
+    floor = constraint.split(",", 1)[0].removeprefix(">=").strip()
     ruff_target = PYPROJECT["tool"]["ruff"]["target-version"]
     #: ruff and mypy are derived from the same requires-python floor:
     #: raising one without the others would be a silent misalignment
@@ -141,66 +135,43 @@ def test_python_floor_matches_ruff_target():
 
 
 def test_dev_extra_pins_the_toolchain():
-    """The dev extra bundles the gate's entire toolchain: installing
-    `.[dev]` is enough to replay make check-local with no implicit
-    dependency on the environment."""
-    dev = PYPROJECT["project"]["optional-dependencies"]["dev"]
-    for tool in ("pytest", "pytest-cov", "ruff", "build", "twine", "mypy"):
+    """The uv development group freezes the internal gate toolchain."""
+    dev = PYPROJECT["dependency-groups"]["dev"]
+    for tool in ("pytest", "pytest-cov", "ruff", "build", "mypy"):
         #: every tool of the gate must be installable via the extra,
         #: otherwise the check would depend on a particular workstation
         assert any(dep.startswith(tool) for dep in dev), f"missing dev tool: {tool}"
 
 
-def test_release_image_contains_metadata_and_full_dev_toolchain():
-    """The release Docker image carries the legal files and the full dev
-    toolchain, and every base image is pinned by digest."""
+def test_multistage_images_share_a_pinned_python_314_toolchain():
+    """Development, CI, runtime and embedded outputs derive from one file."""
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    #: the legal files travel in the image and the install includes the
-    #: dev extra: the gate is replayable inside the container
-    assert "COPY LICENSE THIRD_PARTY_NOTICES.md CHANGELOG.md" in dockerfile
-    assert 'pip install -e ".[dev]"' in dockerfile
-    #: no residue of the former GitLab CI in the build context
+    assert "python:3.14-slim-bookworm@sha256:" in dockerfile
+    assert "uv sync --frozen" in dockerfile
+    assert "pip install -e" not in dockerfile
+    for stage in ("dev", "ci", "runtime", "embedded"):
+        assert re.search(rf"^FROM .+ AS {stage}$", dockerfile, re.MULTILINE)
     assert ".gitlab-ci.yml" not in dockerfile
-    for path in (Path("Dockerfile"), Path("tests/symfony-app/Dockerfile")):
-        from_line = path.read_text(encoding="utf-8").splitlines()[0]
-        #: a FROM on a floating tag makes the build non-reproducible; only
-        #: a sha256 digest actually freezes the base image
-        assert re.fullmatch(r"FROM [^\s]+@sha256:[0-9a-f]{64}", from_line), (
-            f"Docker image not pinned by digest: {path}"
-        )
+    for image in re.findall(r"^ARG \w+_IMAGE=(.+)$", dockerfile, re.MULTILINE):
+        assert re.fullmatch(r".+@sha256:[0-9a-f]{64}", image)
 
 
 def test_release_portal_and_ci_require_all_runtime_proofs():
-    """The make check gate aggregates every runtime proof, make release
-    chains check + proof + verified distribution, and the GitHub CI
-    replays these gates while publishing the shareable proofs."""
+    """The single development portal is replayed by CI and release."""
+    dev = Path("dev").read_text(encoding="utf-8")
+    harness = Path("tools/harness.py").read_text(encoding="utf-8")
     makefile = Path("Makefile").read_text(encoding="utf-8")
-    check_prerequisites = makefile.split("check:", 1)[1].split("\n", 1)[0]
-    #: removing a runtime gate from check's prerequisites would silently
-    #: weaken the Definition of Done: the list is frozen here
-    for portal in ("check-local", "docker-check", "docker-e2e", "docker-symfony-e2e"):
-        assert portal in check_prerequisites
-    assert "docker run --rm cdpx-ci make check-local" in makefile
-
-    #: release cannot short-circuit the check, the proof, nor the
-    #: distribution build
-    assert "release:" in makefile
-    for portal in ("check", "proof", "dist"):
-        assert portal in makefile.split("release:", 1)[1].split("\n", 1)[0]
-
-    #: the distribution is smoke-tested and verified before any publication
-    assert "smoke-dist" in makefile.split("dist:", 1)[1]
-    assert "scripts/verify_dist.py" in makefile.split("dist:", 1)[1]
+    assert "python -m tools.harness" in dev
+    assert "def check_local()" in harness and "def check()" in harness
+    assert "build_internal()" in harness
+    assert "$(HARNESS)" in makefile
 
     #: GitHub Actions is the only CI configuration
     assert not Path(".gitlab-ci.yml").exists()
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
-    #: the CI replays the make gates (release included), publishes the
-    #: summary and the shareable proofs, with no redundant logs nor path
-    #: filtering that would let an unverified commit through
-    assert "make check-local" in ci
-    assert "make cov" in ci
-    assert "make release" in ci
+    assert "./dev check-local" in ci
+    assert "./dev check" in ci
+    assert "ubuntu-24.04-arm" in ci and "macos-15" in ci
     assert "include-hidden-files: true" in ci
     assert "name: PR Gate / Required" in ci
     assert "if: ${{ always() }}" in ci
@@ -212,12 +183,7 @@ def test_release_portal_and_ci_require_all_runtime_proofs():
     assert "path: .proof/shareable/" in ci
     assert "paths:" not in ci and "paths-ignore:" not in ci
 
-    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     compose = Path("docker-compose.symfony-e2e.yml").read_text(encoding="utf-8")
-    #: the release keeps its proofs longer than the CI, and the Symfony
-    #: loop receives the same retention policy
-    assert 'CDPX_PROOF_RETENTION_DAYS: "30"' in release
-    assert "path: .proof/shareable/" in release
     assert "CDPX_PROOF_RETENTION_DAYS" in compose
 
 
@@ -253,26 +219,22 @@ def test_ci_and_release_workflows_keep_permissions_narrow():
     assert "pull_request_target" not in ci_text
 
     release_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-    #: the release only starts from a v* tag, publishes via OIDC in a
-    #: protected environment, and verifies that the tag matches the
-    #: version and does descend from master
-    assert "tags:" in release_text and '- "v*"' in release_text
-    assert "environment:" in release_text and "name: pypi" in release_text
-    assert "id-token: write" in release_text
-    assert "pypa/gh-action-pypi-publish@" in release_text
+    assert "tags:" in release_text and 'tags: ["v*"]' in release_text
+    assert "environment:" in release_text and "name: release" in release_text
+    assert "pypi" not in release_text.lower()
     assert "gh release create" in release_text
-    assert '"v${PACKAGE_VERSION}" = "${GITHUB_REF_NAME}"' in release_text
     assert "GH_REPO: ${{ github.repository }}" in release_text
-    assert "(cd dist && sha256sum *) > SHA256SUMS" in release_text
-    assert 'git merge-base --is-ancestor "${GITHUB_SHA}" origin/master' in release_text
+    assert "SHA256SUMS" in release_text
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/master' in release_text
+    assert "docker buildx build" not in release_text
 
     release = yaml.load(release_text, Loader=yaml.BaseLoader)
     jobs = release["jobs"]
-    #: every job declares exactly its permission (least privilege): no job
-    #: inherits a global right from the workflow
-    assert jobs["publish-pypi"]["permissions"] == {"id-token": "write"}
-    assert jobs["github-release"]["permissions"] == {"contents": "write"}
-    assert jobs["build-and-verify"]["permissions"] == {"contents": "read"}
+    assert jobs["promote"]["permissions"] == {
+        "actions": "read",
+        "contents": "write",
+        "packages": "write",
+    }
 
 
 def test_public_community_files_and_generated_artifact_policy():
@@ -314,7 +276,7 @@ def test_github_templates_enforce_the_project_contract():
     #: proof, and covers each harness invariant
     assert "PR Gate / Required" in pr_template
     assert "declarative checkbox never replaces" in pr_template
-    for requirement in ("CLI contract", "CDP protocol", "Fixture", "Security", "make release"):
+    for requirement in ("CLI contract", "CDP protocol", "Fixture", "Security", "./dev release"):
         assert requirement.lower() in pr_template.lower()
 
     bug = yaml.safe_load(Path(".github/ISSUE_TEMPLATE/bug_report.yml").read_text())

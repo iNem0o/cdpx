@@ -118,12 +118,12 @@ def extract_intent(func: Any) -> TestIntent | None:
     try:
         target = inspect.unwrap(func)
         source_lines, start_line = inspect.getsourcelines(target)
-    except (OSError, TypeError):
+    except OSError, TypeError:
         return None
     source = textwrap.dedent("".join(source_lines))
     try:
         tree = ast.parse(source)
-    except (SyntaxError, IndentationError, ValueError):
+    except SyntaxError, IndentationError, ValueError:
         return None
     func_nodes = [
         node for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)

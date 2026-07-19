@@ -18,6 +18,7 @@ src/*.egg-info
 .proof.new
 .proof.old
 .ci-artifacts
-AGENTS.md
+.cdpx
+.cache
 article/
 presentation/

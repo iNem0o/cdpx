@@ -1,0 +1,13 @@
+services:
+  app:
+    image: your-application
+    network_mode: service:cdpx
+  cdpx:
+    image: ghcr.io/inem0o/cdpx:0.1.0
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m
+    command: ["python", "-m", "cdpx.runtime", "guardian", "--idle-timeout", "86400"]

@@ -52,7 +52,7 @@ from cdpx.sessions.process import argv_has_markers as _argv_has_markers
 from cdpx.sessions.process import process_identity as _process_identity
 from cdpx.sessions.process import remove_tree as _remove_tree
 
-SCHEMA = "cdpx.session/v1"
+SCHEMA = "cdpx.session/v2"
 MANIFEST_NAME = "manifest.json"
 LOCK_NAME = "command.lock"
 STOP_NAME = "stop"
@@ -67,9 +67,11 @@ BROWSER_KINDS = {"chrome", "mock"}
 _SESSION_ID_RE = re.compile(r"[0-9a-f]{24}\Z")
 _PROFILE_ID_RE = re.compile(r"[0-9a-f]{16}\Z")
 _TARGET_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,256}\Z")
+_RUNTIME_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 _MAX_PID = 2_147_483_647
 DEFAULT_STARTUP_TIMEOUT = 60.0
 MAX_STARTUP_TIMEOUT = 300.0
+MAX_SESSION_TTL = 86_400.0
 _STARTUP_RESULT_GRACE = 2.0
 _DIAGNOSTIC_TAIL_BYTES = 2000
 _BOOTSTRAP_FIELDS = {
@@ -88,6 +90,7 @@ _BOOTSTRAP_FIELDS = {
     "artifacts_dir",
     "created_at",
     "expires_at",
+    "runtime_id",
 }
 _ATTESTED_POLICY_FIELDS = (
     "session_id",
@@ -103,6 +106,7 @@ _ATTESTED_POLICY_FIELDS = (
     "artifacts_dir",
     "created_at",
     "expires_at",
+    "runtime_id",
 )
 
 
@@ -153,6 +157,7 @@ class SessionManifest:
     artifacts_dir: str
     created_at: str
     expires_at: str
+    runtime_id: str = "standalone"
     schema: str = SCHEMA
 
     @property
@@ -180,6 +185,7 @@ class SessionManifest:
             "host": self.host,
             "port": self.port,
             "target_id": self.target_id,
+            "runtime_id": self.runtime_id,
             "created_at": self.created_at,
             "expires_at": self.expires_at,
         }
@@ -218,6 +224,7 @@ class SupervisorBootstrap:
     artifacts_dir: str
     created_at: str
     expires_at: str
+    runtime_id: str
 
 
 def _policy_attestation(
@@ -225,7 +232,15 @@ def _policy_attestation(
 ) -> str:
     payload: dict[str, Any] = {}
     for field in _ATTESTED_POLICY_FIELDS:
-        value = source[field] if isinstance(source, dict) else getattr(source, field)
+        if isinstance(source, dict):
+            if field in source:
+                value = source[field]
+            elif field == "runtime_id":
+                value = "standalone"
+            else:
+                raise KeyError(field)
+        else:
+            value = getattr(source, field)
         payload[field] = list(value) if field == "origins" else value
     encoded = json.dumps(
         payload,
@@ -283,7 +298,7 @@ def load_manifest(
     except (OSError, json.JSONDecodeError) as e:
         raise PolicyError(f"invalid session manifest: {e}") from e
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
-        raise PolicyError("unknown session schema")
+        raise PolicyError("unknown or stale session schema; run `cdpx runtime reset --force`")
     manifest = _manifest_from_payload(payload)
     _validate_manifest_paths(manifest_path, manifest)
     if run_id is not None and manifest.run_id != run_id:
@@ -293,6 +308,9 @@ def load_manifest(
             f"target not assigned to the session: expected {manifest.target_id}, got {target_id}"
         )
     assert_loopback_endpoint(manifest.host, manifest.websocket_url)
+    expected_runtime = os.environ.get("CDPX_RUNTIME_ID")
+    if expected_runtime and manifest.runtime_id != expected_runtime:
+        raise PolicyError("session belongs to a replaced cdpx runtime")
     return manifest
 
 
@@ -339,6 +357,10 @@ def _validate_manifest_fields(manifest: SessionManifest) -> None:
         raise PolicyError("session manifest: run/target must be strings")
     if not _TARGET_ID_RE.fullmatch(manifest.target_id):
         raise PolicyError("session manifest: invalid target")
+    if not isinstance(manifest.runtime_id, str) or not _RUNTIME_ID_RE.fullmatch(
+        manifest.runtime_id
+    ):
+        raise PolicyError("session manifest: invalid runtime_id")
     if not isinstance(manifest.authority, str) or not isinstance(manifest.origins, tuple):
         raise PolicyError("session manifest: invalid authority/origins")
     if manifest.browser_kind not in {"chrome", "mock"}:
@@ -521,6 +543,8 @@ def runtime_root() -> Path:
 
 
 def find_chrome(explicit: str | None = None) -> str:
+    if explicit is None:
+        explicit = os.environ.get("CDPX_BUNDLED_CHROME")
     if explicit:
         resolved = shutil.which(explicit) if os.sep not in explicit else explicit
         if resolved and Path(resolved).is_file():
@@ -539,7 +563,11 @@ def _ci_environment() -> bool:
 
 def _sandbox_must_be_disabled() -> bool:
     geteuid = getattr(os, "geteuid", None)
-    return bool((callable(geteuid) and geteuid() == 0) or _ci_environment())
+    return bool(
+        (callable(geteuid) and geteuid() == 0)
+        or _ci_environment()
+        or os.environ.get("CDPX_CONTAINERIZED") == "1"
+    )
 
 
 def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
@@ -620,6 +648,8 @@ def start_session(
         session_id="pending",
     )
     ttl = _positive_finite(ttl, "session TTL")
+    if ttl < 60 or ttl > MAX_SESSION_TTL:
+        raise PolicyError(f"session TTL out of range; expected 60..{MAX_SESSION_TTL:g}s")
     timeout = _positive_finite(timeout, "startup timeout")
     if timeout > MAX_STARTUP_TIMEOUT:
         raise PolicyError(f"startup timeout out of range; maximum={MAX_STARTUP_TIMEOUT:g}s")
@@ -665,6 +695,7 @@ def start_session(
             "artifacts_dir": str(artifacts_dir),
             "created_at": _iso(created),
             "expires_at": _iso(expires),
+            "runtime_id": os.environ.get("CDPX_RUNTIME_ID", "standalone"),
         }
         bootstrap_path = session_dir / "bootstrap.json"
         _write_private(bootstrap_path, json.dumps(bootstrap, ensure_ascii=False) + "\n")
@@ -950,7 +981,7 @@ def _read_devtools_port(profile_dir: Path, proc: subprocess.Popen[Any], timeout:
             port = int(first)
             if 1 <= port <= 65535:
                 return port
-        except (OSError, IndexError, ValueError):
+        except OSError, IndexError, ValueError:
             pass
         time.sleep(0.05)
     raise PolicyError("DevToolsActivePort not found")
@@ -966,7 +997,7 @@ def _wait_discovery(port: int, proc: subprocess.Popen[Any], timeout: float = 30)
             with opener.open(f"http://127.0.0.1:{port}/json/version", timeout=0.5) as response:
                 if response.status == 200:
                     return
-        except (OSError, urllib.error.URLError):
+        except OSError, urllib.error.URLError:
             pass
         time.sleep(0.05)
     raise PolicyError("Chrome discovery endpoint unavailable")
@@ -1103,8 +1134,13 @@ def _validate_bootstrap_payload(
         or not all(isinstance(item, str) and item for item in origins)
     ):
         raise PolicyError("session bootstrap: invalid origins")
-    if not all(isinstance(payload[key], str) for key in ("run_id", "authority", "browser_kind")):
+    if not all(
+        isinstance(payload[key], str)
+        for key in ("run_id", "authority", "browser_kind", "runtime_id")
+    ):
         raise PolicyError("session bootstrap: invalid run/authority/browser_kind")
+    if not _RUNTIME_ID_RE.fullmatch(payload["runtime_id"]):
+        raise PolicyError("session bootstrap: invalid runtime_id")
     if payload["browser_kind"] not in BROWSER_KINDS:
         raise PolicyError("session bootstrap: invalid browser_kind")
     context = ExecutionContext.create(
@@ -1166,6 +1202,7 @@ def _validate_bootstrap_payload(
         artifacts_dir=str(expected_paths["artifacts_dir"]),
         created_at=payload["created_at"],
         expires_at=payload["expires_at"],
+        runtime_id=payload["runtime_id"],
     )
 
 

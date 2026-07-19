@@ -11,13 +11,12 @@ keystrokes are synthesized (deterministic pacing) for readability.
 The full protocol lives in `scripts/site_casts/`:
 
 ```bash
-# from the repository root, with Chrome/Chromium + Docker installed
-make site-casts                                  # everything, Symfony app included
+# from the repository root; Docker is the only host dependency
+./dev site-record                               # everything, Symfony app included
 
-# or by hand, without the profiler scenario:
-python3 scripts/site_casts/generate.py list      # scenario catalog
-python3 scripts/site_casts/generate.py record    # (re)record on :8899
-python3 scripts/site_casts/generate.py check     # validate format + forbidden values
+# inspect or validate without recording:
+./dev site-record list                          # scenario catalog
+./dev site-record check                         # format + forbidden values
 ```
 
 `record` starts, for each scenario, the fixtures server and a disposable
@@ -49,7 +48,7 @@ it, then wiring it into `site/index.html`.
 | `profiler.cast` | Symfony Profiler | profiler --panels db,cache (healthy and N+1 variants, jq -e gate) |
 
 The `profiler` scenario is recorded against the real reference Symfony app
-(`tests/symfony-app`): `make site-casts` starts it via the
+(`tests/symfony-app`): `./dev site-record` starts it via the
 `docker-compose.site-casts.yml` overlay (loopback :8025) and passes
 `--symfony-base` to the generator. Without a base supplied, it is skipped
 cleanly (`skipped`), and `check` only treats it as an error if its cast is

@@ -1,7 +1,7 @@
 """Feature inventory for the proof cockpit.
 
 The inventory is deterministic and intentionally small: humans maintain feature
-Markdown files, while `make proof` derives entrypoint, code, test and evidence
+Markdown files, while `./dev proof` derives entrypoint, code, test and evidence
 coverage from those files and the collected pytest evidence.
 """
 
@@ -347,7 +347,7 @@ def parse_feature_doc(path: Path) -> FeatureSpec:
 
 def _require_usage_headings(path: Path, body: str, entrypoints: list[str]) -> None:
     """User doc guard: every declared entrypoint has its `### <id>`
-    heading in the Usage section. A command without doc breaks `make proof`."""
+    heading in the Usage section. A command without doc breaks `./dev proof`."""
     usage = re.search(r"^##\s+Usage\s*$(.*?)(?=^##\s|\Z)", body, re.M | re.S)
     usage_body = usage.group(1) if usage else ""
     headings = {

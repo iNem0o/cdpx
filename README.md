@@ -27,7 +27,7 @@ cdpx is available under the [MIT license](LICENSE). The repository is
 | **Measure** | Read timings, metrics and Symfony diagnostics | `metrics`, `vitals`, `profiler`, `dom-diff` |
 | **Audit** | Check rendered SEO, accessibility and coverage | `seo`, `a11y`, `coverage` |
 | **Reproduce** | Control state, conditions and repeatable journeys | `cookies`, `storage`, `emulate`, `record`, `replay` |
-| **Prove** | Capture pixels, PDFs and executable scenarios | `screenshot`, `pdf`, `scenario`, `make proof` |
+| **Prove** | Capture pixels, PDFs and executable scenarios | `screenshot`, `pdf`, `scenario`, `./dev proof` |
 | **Lock down** | Bind every action to a supervised target and policy | `session`, origin allowlists, authorities, leases |
 
 Navigation, synchronization and trusted input form the shared foundation:
@@ -41,24 +41,27 @@ browsers through DOM selectors, explicit policy and supervised sessions.
 
 ## Installation
 
-cdpx requires Python 3.11 or newer. Chrome or Chromium is required for real
-browser work; the unit tests and mock do not need a browser.
-
-Install the released package:
+Docker is the only runtime dependency. The portable launcher selects an
+immutable production image containing Python 3.14, Chromium and cdpx:
 
 ```bash
-python -m pip install cdpx
+curl -fsSL https://inem0o.github.io/cdpx/install | sh
 cdpx --version
 ```
 
-Install a development checkout:
+Linux is supported, WSL2 follows the Linux contract and macOS launcher
+support is beta. The experimental embedded bundle is available to
+Linux/glibc container integrators. See
+[Installation](docs/INSTALLATION.md), [workspace configuration](docs/CONFIGURATION.md)
+and the [integration guide](docs/INTEGRATION.md).
+
+Install a development checkout without creating a host Python environment:
 
 ```bash
 git clone https://github.com/inem0o/cdpx.git
 cd cdpx
-python3 -m venv .venv
-source .venv/bin/activate
-make setup
+./dev setup
+./dev check-local
 ```
 
 ## Quickstart from a checkout
@@ -67,7 +70,7 @@ The bundled reference site keeps this walkthrough on loopback. Start it in
 one terminal:
 
 ```bash
-make fixtures
+./dev fixtures
 ```
 
 Start a supervised disposable Chrome in another terminal:
@@ -96,7 +99,7 @@ cdpx screenshot -o state.jpg --format jpeg
 cdpx session stop
 ```
 
-`make mock` provides the same supervised contract without Chrome. It prints
+`./dev mock` provides the same supervised contract without Chrome. It prints
 the exports, stays in the foreground and performs a complete teardown on
 Ctrl-C.
 
@@ -170,13 +173,12 @@ Read [HARNESS.md](HARNESS.md) for the normative rules and
 ## Development and validation
 
 ```bash
-make setup                 # editable installation and development tools
-make check-local           # Ruff, formatting, mypy and unit tests
-make check                 # blocking Docker, Chrome and Symfony gate
-make test-e2e              # real local Chrome
-make docker-symfony-e2e    # real Symfony reference application
-make proof                 # private report under .proof/
-make release               # check, proof and verified wheel/sdist
+./dev setup                 # build pinned development and runtime images
+./dev check-local           # Ruff, formatting, mypy, unit and coverage
+./dev check                 # blocking Docker, Chrome and Symfony gate
+./dev test-e2e              # real Chrome
+./dev proof                 # private report under .proof/
+./dev release               # full gate plus internal wheel verification
 ```
 
 Unit tests validate both returned JSON and emitted protocol against the CDP
@@ -189,9 +191,16 @@ artifacts remain private.
 - [Product rationale and design](docs/CONTEXT.md)
 - [Primitive catalog](docs/PRIMITIVES.md)
 - [Session and Chrome lifecycle](docs/SESSION-LIFECYCLE.md)
+- [Installation and updates](docs/INSTALLATION.md)
+- [Workspace configuration](docs/CONFIGURATION.md)
+- [Application and sidecar integration](docs/INTEGRATION.md)
+- [Development portal](docs/DEVELOPMENT.md)
 - [Validation and proof](docs/VALIDATION.md)
 - [GitHub governance](docs/GITHUB.md)
 - [Release procedure](docs/RELEASING.md)
+- [Release architecture](docs/RELEASE-ARCHITECTURE.md)
+- [OCI runtime architecture decision](docs/architecture/decisions/0001-oci-runtime-and-digest-promotion.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Contribution guide](CONTRIBUTING.md)
 - [Support policy](SUPPORT.md)
 

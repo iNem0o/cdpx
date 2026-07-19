@@ -1,4 +1,4 @@
-"""Supervised CLI demonstration, recorded as .cast during ``make proof``.
+"""Supervised CLI demonstration, recorded as .cast during ``./dev proof``.
 
 Drives the mock backend (no Chrome required): the supervised session, the
 real commands and their JSON outputs compose a deterministic demonstration

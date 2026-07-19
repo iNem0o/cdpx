@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
 
 USAGE = (
     "supported action: goto <url>, wait <selector>, click <selector>, "
@@ -49,9 +48,7 @@ class EvalAction:
     verb: str = "eval"
 
 
-BrowserAction: TypeAlias = (
-    GotoAction | WaitAction | ClickAction | TypeAction | KeyAction | EvalAction
-)
+type BrowserAction = GotoAction | WaitAction | ClickAction | TypeAction | KeyAction | EvalAction
 
 
 def parse_action(argv: list[str]) -> BrowserAction:

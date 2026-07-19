@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Generate the human proof report consumed by `make proof`.
+"""Generate the human proof report consumed by `./dev proof`.
 
 The report is intentionally evidence-first: every human-facing conclusion is
 derived from command exits, pytest JUnit XML, captured logs, or the CLI help
@@ -23,7 +23,7 @@ Facade contract: tests import and monkeypatch everything via ``cdpx.proof``
 dependencies FROM this module's globals AT CALL TIME and passes them
 keyword-only to the extracted implementations; no ``cdpx.proofing`` module
 imports ``cdpx.proof`` (no cycle) nor reads these globals itself. The
-Makefile (smoke-dist) imports ``parse_help_commands`` from here: this
+The internal wheel verifier imports ``parse_help_commands`` from here: this
 entrypoint is part of the contract.
 """
 
@@ -306,7 +306,7 @@ EVIDENCE_DIR = PROOF_DIR / "evidence"
 SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
 # Default runtime evidence store (`cdpx run-scenario`): runs accumulate
 # there between sessions; the retention purge at the start of every
-# `make proof` applies the manifested TTLs there, with no manual step.
+# `./dev proof` applies the manifested TTLs there, with no manual step.
 EVIDENCE_STORE_DIR = Path(".cdpx-evidence")
 
 # Transactional generation: the whole tree is produced in `.proof.new/`
@@ -676,7 +676,7 @@ def _purge_expired_local_proofs(*, now: datetime | None = None) -> dict[str, Any
     try:
         payload = json.loads((PROOF_DIR / "artifact-manifest.json").read_text(encoding="utf-8"))
         expires = datetime.fromisoformat(payload["expires_at"])
-    except (OSError, KeyError, TypeError, ValueError):
+    except OSError, KeyError, TypeError, ValueError:
         # Missing, unreadable or corrupted manifest: fail-open retention —
         # the purge never destroys a proof whose expiration is unknown.
         expires = None
@@ -851,7 +851,7 @@ def _generate() -> dict:
         run_evidence(
             "ruff-check",
             "Ruff lint",
-            [sys.executable, "-m", "ruff", "check", "src", "tests"],
+            [sys.executable, "-m", "ruff", "check", "src", "tests", "tools"],
             staging / "ruff-check.log",
             env=env,
             timeout=scaled(RUFF_TIMEOUT_S),
@@ -861,7 +861,7 @@ def _generate() -> dict:
         run_evidence(
             "ruff-format",
             "Ruff format",
-            [sys.executable, "-m", "ruff", "format", "--check", "src", "tests"],
+            [sys.executable, "-m", "ruff", "format", "--check", "src", "tests", "tools"],
             staging / "ruff-format.log",
             env=env,
             timeout=scaled(RUFF_TIMEOUT_S),
@@ -871,7 +871,7 @@ def _generate() -> dict:
         run_evidence(
             "mypy",
             "Mypy typing",
-            [sys.executable, "-m", "mypy", "src/cdpx"],
+            [sys.executable, "-m", "mypy", "src/cdpx", "tools"],
             staging / "mypy.log",
             env=env,
             timeout=scaled(MYPY_TIMEOUT_S),
@@ -887,12 +887,34 @@ def _generate() -> dict:
                 "pytest",
                 "tests",
                 "--ignore=tests/e2e",
+                "--cov=cdpx",
+                "--cov-branch",
+                "--cov-report=term",
+                f"--cov-report=json:{staging / 'coverage.json'}",
+                "--cov-fail-under=0",
                 f"--cdpx-evidence-dir={evidence_dir}",
                 f"--junitxml={unit_xml}",
             ],
             staging / UNIT_LOG.name,
             env=env,
             timeout=scaled(UNIT_TIMEOUT_S),
+            redaction_context=context,
+            path_rewrites=publish_rewrites,
+        ),
+        run_evidence(
+            "coverage-thresholds",
+            "Line and branch coverage thresholds",
+            [
+                sys.executable,
+                "-m",
+                "tools.coverage_gate",
+                str(staging / "coverage.json"),
+                "85",
+                "75",
+            ],
+            staging / "coverage-thresholds.log",
+            env=env,
+            timeout=scaled(RUFF_TIMEOUT_S),
             redaction_context=context,
             path_rewrites=publish_rewrites,
         ),

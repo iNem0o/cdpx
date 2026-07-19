@@ -1,7 +1,7 @@
 """Symfony profiler: the real reference app's WebProfiler becomes data.
 
 Requires the tests/symfony-app app reachable from the host —
-`make site-casts` starts it via the docker-compose.site-casts.yml overlay
+`./dev site-record` starts it via the docker-compose.site-casts.yml overlay
 (loopback :8025) and passes `--symfony-base` to the generator. Without a
 base provided, the scenario is skipped cleanly.
 """

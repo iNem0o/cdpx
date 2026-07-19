@@ -3,21 +3,26 @@ id = "harness-proof-cockpit"
 title = "Harness and proof cockpit"
 status = "validated"
 summary = "Run deterministic quality gates and publish a central, feature-oriented validation cockpit."
-entrypoints = ["make help", "make setup", "make check-local", "make check", "make lint", "make fmt", "make test", "make test-e2e", "make cov", "make typecheck", "make fixtures", "make mock", "make site-casts", "make docker-build", "make docker-check", "make docker-e2e", "make proof", "make release", "make clean", "make dist", "make smoke-dist", "python -m cdpx.proof"]
-path_globs = ["Makefile", "pyproject.toml", "MANIFEST.in", "scripts/*.py", "Dockerfile", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/proofing/cockpit/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_intent.py", "tests/test_cast.py", "tests/test_e2e_helpers.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "tests/test_public_surfaces.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/features/*.md", "src/cdpx/cli_context.py", "src/cdpx/commands/*.py", "src/cdpx/option_types.py"]
-test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_public_surfaces.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid", "tests/e2e/test_e2e_chrome.py::test_cockpit_*", "tests/e2e/test_e2e_chrome.py::test_modal_*", "tests/test_cli.py::test_command_options_*", "tests/test_cli.py::test_prepare_builds_immutable_typed_invocation"]
-docs = ["README.md", "HARNESS.md", "docs/CONTEXT.md", "docs/VALIDATION.md", "docs/RELEASING.md"]
+entrypoints = ["./dev help", "./dev setup", "./dev check-local", "./dev check", "./dev fmt", "./dev test-e2e", "./dev fixtures", "./dev mock", "./dev site-record", "./dev image", "./dev proof", "./dev release", "./dev clean", "python -m cdpx.proof"]
+path_globs = ["dev", "cdpx", "Makefile", "pyproject.toml", "uv.lock", "MANIFEST.in", "scripts/*.py", "Dockerfile", "docker-bake.hcl", "packaging/*", "schemas/*.json", ".gitignore", ".dockerignore", ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml", ".github/*.md", ".github/dependabot.yml", "src/cdpx/__init__.py", "src/cdpx/cli.py", "src/cdpx/output.py", "src/cdpx/runtime.py", "src/cdpx/runtime_config.py", "src/cdpx/primitives/__init__.py", "src/cdpx/proof.py", "src/cdpx/proofing/*.py", "src/cdpx/proofing/vendor/*", "src/cdpx/proofing/cockpit/*", "src/cdpx/testing/*.py", "tests/conftest.py", "tests/e2e/test_e2e_chrome.py", "tests/fixtures/pixel.png", "tests/test_cli.py", "tests/test_coverage_gate.py", "tests/test_documentation.py", "tests/test_evidence.py", "tests/test_intent.py", "tests/test_cast.py", "tests/test_e2e_helpers.py", "tests/test_features.py", "tests/test_fixture_server.py", "tests/test_github_summary.py", "tests/test_primitives.py", "tests/test_proof.py", "tests/test_runtime_config.py", "tests/test_tooling_contract.py", "tests/test_markdown.py", "tests/test_docs.py", "tests/test_packaging.py", "tests/test_public_surfaces.py", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "HARNESS.md", "CLAUDE.md", "docs/*.md", "docs/*.toml", "docs/*.yaml", "docs/features/*.md", "src/cdpx/cli_context.py", "src/cdpx/commands/*.py", "src/cdpx/option_types.py"]
+test_globs = ["tests/test_proof.py::*", "tests/test_features.py::*", "tests/test_evidence.py::*", "tests/test_intent.py::*", "tests/test_cast.py::*", "tests/test_coverage_gate.py::*", "tests/test_runtime_config.py::*", "tests/test_tooling_contract.py::*", "tests/test_e2e_helpers.py::*", "tests/test_github_summary.py::*", "tests/test_markdown.py::*", "tests/test_documentation.py::*", "tests/test_docs.py::*", "tests/test_packaging.py::*", "tests/test_public_surfaces.py::*", "tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_conditional_cli_arguments*", "tests/test_cli.py::test_cookie_mutations_and_vitals*", "tests/e2e/test_e2e_chrome.py::test_cli_stdout_stderr*", "tests/e2e/test_e2e_chrome.py::test_proof_cockpit_renders_offline_docs_and_mermaid", "tests/e2e/test_e2e_chrome.py::test_cockpit_*", "tests/e2e/test_e2e_chrome.py::test_modal_*", "tests/test_cli.py::test_command_options_*", "tests/test_cli.py::test_prepare_builds_immutable_typed_invocation"]
+docs = ["README.md", "HARNESS.md", "docs/CONTEXT.md", "docs/VALIDATION.md", "docs/RELEASING.md", "docs/INSTALLATION.md", "docs/CONFIGURATION.md", "docs/INTEGRATION.md", "docs/DEVELOPMENT.md", "docs/RELEASE-ARCHITECTURE.md", "docs/TROUBLESHOOTING.md"]
 expected_proofs = ["junit"]
 
 [[journeys]]
 id = "run-quality-gate"
 title = "Run lint, format and deterministic tests"
-entrypoint = "make check"
+entrypoint = "./dev check"
 
 [[journeys]]
 id = "publish-proof"
 title = "Generate the human- and machine-readable validation report"
-entrypoint = "make proof"
+entrypoint = "./dev proof"
+
+[[journeys]]
+id = "ship-runtime"
+title = "Build and promote the same validated OCI runtime"
+entrypoint = "./dev release"
 
 [[scenarios]]
 id = "run-local-quality-gate"
@@ -29,6 +34,42 @@ given = "The repository dependencies are installed locally."
 when = "The harness runs lint, format check and deterministic tests, including the CLI dispatch safety net (harness contract test)."
 then = "Failures surface as command proofs and JUnit summaries."
 tests = ["tests/test_fixture_server.py::*", "tests/test_cli.py::test_pretty*", "tests/test_cli.py::test_agent_output*", "tests/test_cli.py::test_discovery_error*", "tests/test_cli.py::test_usage_error*", "tests/test_cli.py::test_origin_guard*", "tests/test_cli.py::test_cli_dispatch*", "tests/test_cli.py::test_cdpx_version", "tests/test_cli.py::test_command_options_*", "tests/test_cli.py::test_prepare_builds_immutable_typed_invocation"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "enforce-independent-coverage-gates"
+journey = "run-quality-gate"
+title = "Enforce line and branch coverage independently"
+ui_text = "The short gate rejects a regression in either line or branch coverage."
+report_text = "This scenario proves that aggregate line coverage cannot hide insufficient branch coverage, and conversely."
+given = "Coverage.py has emitted a machine-readable coverage report."
+when = "The harness evaluates line and branch percentages against their separately configured thresholds."
+then = "Both percentages must pass and both measured values remain visible in the gate output."
+tests = ["tests/test_coverage_gate.py::*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "compile-runtime-configuration"
+journey = "ship-runtime"
+title = "Validate and compile the runtime configuration"
+ui_text = "Integrators receive strict defaults and fail-closed validation for every runtime option."
+report_text = "This scenario proves that cdpx.yaml is compiled into a bounded runtime plan and forwards only explicitly declared environment variables."
+given = "A working tree contains either no configuration or an integrator-authored cdpx.yaml."
+when = "The launcher compiles the runtime configuration before creating or replacing its persistent container."
+then = "Defaults are deterministic, unknown or unsafe values fail closed, and undeclared host environment is absent."
+tests = ["tests/test_runtime_config.py::*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "standardize-oci-tooling-and-release"
+journey = "ship-runtime"
+title = "Keep tooling, documentation and release promotion standardized"
+ui_text = "Development, CI and release use one pinned image graph and every new surface maps to user and integrator documentation."
+report_text = "This scenario proves the multi-stage Docker contract, POSIX host portals, strict configuration schema, digest-only release promotion and documentation matrix."
+given = "The repository contains the Docker graph, launchers, workflows, schema and canonical documentation matrix."
+when = "The tooling contract suite statically validates those surfaces and shellchecks every portable script."
+then = "CI cannot rebuild during promotion, public scripts stay portable, and undocumented features fail the unit gate."
+tests = ["tests/test_tooling_contract.py::*"]
 expected_proofs = ["junit"]
 
 [[scenarios]]
@@ -83,8 +124,8 @@ expected_proofs = ["junit"]
 ## Intent
 
 Make the project's harness observable, reproducible and auditable through a
-central cockpit. The make targets are the gates: `make check` decides before
-any merge, the Docker targets isolate the heavy checks, and `make proof`
+central cockpit. The Docker-only `./dev` portal owns the gates:
+`./dev check` decides before any merge, and `./dev proof`
 turns the collected proofs (JUnit, logs, private local captures, feature
 sheets) into a feature-centric HTML report — the product's human
 documentation, where every claim is linked to its proof.
@@ -93,72 +134,49 @@ documentation, where every claim is linked to its proof.
 
 Global options and exit codes: see the CLI Contract section of the README.
 
-### `make help`
+### `./dev help`
 
-Lists the Makefile targets with their description (extracted from the
-`##` comments). Entry point for discovering the harness.
+Lists the supported development commands. This is the entry point for
+discovering the harness.
 
-### `make setup`
+### `./dev setup`
 
-Installs the package in editable mode plus the dev tools (pytest, ruff).
-Run once after cloning, before any `make check`.
+Builds the pinned development and production runtime images. Docker is the
+only host dependency; Python and all project tools remain inside the images.
 
-### `make check-local`
+### `./dev check-local`
 
-Short development loop: lint/format, mypy and deterministic unit tests.
-This sub-gate is not a release decision.
+Runs Ruff, the formatting check, mypy, deterministic unit tests and separate
+line/branch coverage thresholds inside the development image. This is the
+short loop, not a release decision.
 
-### `make check`
+### `./dev check`
 
-Full standard quality gate: `check-local`, reproduction inside the Docker
-image, real Chrome e2e in Docker and the real Symfony suite. Docker/Compose
-is therefore required to declare the repository green.
-
-THE quality gate: deterministic local checks, image reproduction, real
-Chrome and real Symfony. Nothing merges unless it passes; every work session
-ends with a green `make check`.
+Runs the full proof-backed quality gate: static and unit checks, real
+Chromium e2e, the real Dockerized Symfony suite, documentation contracts and
+artifact-policy validation. Nothing merges unless it passes; every work
+session ends with a green `./dev check`.
 
 ```bash
-make check
+./dev check
 ```
 
-### `make lint`
-
-`ruff check` plus a format check (`ruff format --check`) on `src` and
-`tests`, without changing anything.
-
-### `make fmt`
+### `./dev fmt`
 
 Reformats the code (`ruff format`) and applies automatic fixes
-(`ruff check --fix`). The corrective counterpart to `make lint`.
+(`ruff check --fix`). The corrective counterpart to `./dev check-local`.
 
-### `make test`
+### `./dev test-e2e`
 
-Deterministic unit tests only: mock CDP + fixture server, loopback only,
-no Chrome required, no external network.
+Runs only the real-Chromium e2e suite inside the development image. Missing
+Chromium is a failure.
 
-### `make test-e2e`
-
-e2e tests on real Chrome — fails if Chrome/Chromium is missing. This is
-the heavy check that validates real protocol behavior.
-
-### `make cov`
-
-Unit tests with coverage measurement and a blocking threshold
-(`--cov-fail-under`, 85% by default via `COV_MIN`). Applied in CI across the
-Python matrix; locally, `make check-local` remains the fast loop.
-
-### `make typecheck`
-
-mypy check of `src/cdpx`. It is blocking in `make check-local`, the Docker
-validation and CI.
-
-### `make fixtures`
+### `./dev fixtures`
 
 Starts the static reference site on port 8899, for manual inspection or a
 hand-driven e2e.
 
-### `make mock`
+### `./dev mock`
 
 Runs a supervised session in the foreground with a mock backend to debug the
 CLI without a browser. The command prints the `CDPX_SESSION`, `CDPX_RUN_ID`
@@ -166,7 +184,7 @@ and `CDPX_TARGET` exports, then waits. Business commands use these variables
 exactly as with real Chrome; no raw endpoint is exposed.
 
 ```bash
-make mock
+./dev mock
 ```
 
 In a second terminal, copy the printed exports then run for example
@@ -174,7 +192,7 @@ In a second terminal, copy the printed exports then run for example
 terminal stops the backend and removes the manifest, profile and private
 artifacts.
 
-### `make site-casts`
+### `./dev site-record`
 
 (Re-)records the homepage tutorial casts (`site/assets/casts/*.cast`) via
 `scripts/site_casts/generate.py`, then validates them (`check`). Requires a
@@ -187,63 +205,40 @@ written only if every expectation passes (genuine outputs and durations,
 synthesized keystrokes). See `site/assets/casts/README.md`.
 
 ```bash
-make site-casts
+./dev site-record
 ```
 
-### `make docker-build`
+### `./dev image`
 
-Builds the portable `cdpx-ci` image, the foundation of the Docker gates.
+Builds the production `runtime` target from the same pinned multi-stage
+graph used by development and CI.
 
-### `make docker-check`
-
-Runs `make check-local` inside the `cdpx-ci` image: reproduces lint, typing
-and unit tests in a clean environment without recursing into Docker.
-
-### `make docker-e2e`
-
-Runs the real-Chrome e2e tests inside the `cdpx-ci` image, without requiring
-Chrome installed locally.
-
-### `make clean`
+### `./dev clean`
 
 Removes build, proof and cache artifacts (pytest, ruff, `.proof`, dist,
 egg-info, `__pycache__`).
 
-### `make dist`
-
-Builds and checks the distributable artifacts (`python -m build`,
-`twine check --strict`, a check of the public content, then `make
-smoke-dist`): wheel + sdist in `dist/` — after a green `make check`, never
-without.
-
-### `make smoke-dist`
-
-Creates a temporary virtual environment, installs the built wheel into it
-and checks the MIT license, `cdpx --version`, `cdpx --help` and the 31
-commands. The environment is removed even on failure.
-
-### `make proof`
+### `./dev proof`
 
 Generates the human-readable HTML report from the proofs collected in
-`.proof/`. This is the make alias for `python -m cdpx.proof` (with
-`PYTHONPATH=src`): see the next entry for the detail of the produced
-artifacts.
+`.proof/` through the same containerized harness used by CI.
 
 ```bash
-make proof
+./dev proof
 ```
 
 Docker/Compose and the real Symfony suite are required. An unavailability or
 a skipped Symfony produces a red report and a non-zero exit.
 
-### `make release`
+### `./dev release`
 
 Final aggregated gate: full `check`, a green proof cockpit, then verified
-wheel/sdist. This is the release decision command; it requires Docker and
-Chrome.
+internal wheel build. The wheel is image-build evidence, not a public
+distribution. CI publishes a candidate OCI image for each architecture;
+release promotes the exact validated manifest digest without rebuilding.
 
 ```bash
-make release
+./dev release
 ```
 
 ### `python -m cdpx.proof`
@@ -287,7 +282,7 @@ transcript (`attach_command_output`), targeted log excerpt
 (`attach_log_excerpt`), terminal recording (`attach_cast`) — complement
 screenshots and JSON.
 
-`make proof` systematically records demonstration commands as `.cast`
+`./dev proof` systematically records demonstration commands as `.cast`
 (asciicast v2) via a native stdlib recorder (pty), with no `asciinema` or
 `agg` dependency. This gate is blocking: a missing, degraded or oversized
 cast fails the proof (`cast missing:`/`cast unavailable:` in
@@ -298,7 +293,7 @@ the in-house toolbar (playback, scrubber, speeds, raw fallback view).
 Folders are forced to `0700` and files to `0600`. A `cdpx.artifacts/v1`
 manifest classifies every file (`public`, `internal`, `secret`,
 `opaque-restricted`), recording its SHA-256, redaction version, TTL and
-upload permission. `make proof` then builds `.proof/shareable/` with only
+upload permission. `./dev proof` then builds `.proof/shareable/` with only
 the explicitly authorized `internal` text files. Captures, PDFs and binaries
 stay opaque/restricted locally. A canary scan fails closed before
 publication.
@@ -316,7 +311,7 @@ indefinite block. `CDPX_PROOF_TIMEOUT_SCALE`, a strictly positive float
 (e.g. `2` on a slow machine), uniformly multiplies these budgets; an invalid
 value blocks the proof before any destruction of the existing tree.
 `CDPX_PROOF_DIR` is the internal parameter of the Symfony Compose mount
-(default `./.proof`), which `make proof` points to its transactional
+(default `./.proof`), which `./dev proof` points to its transactional
 staging.
 
 An invalid feature sheet (missing section, entrypoint without user-facing
@@ -329,8 +324,8 @@ PYTHONPATH=src python3 -m cdpx.proof
 
 ## User journeys
 
-- Run `make check-local` for short feedback, `make check` for the full
-  quality verdict, then `make release` before any delivery.
+- Run `./dev check-local` for short feedback, `./dev check` for the full
+  quality verdict, then `./dev release` before any delivery.
 - Generate `.proof/proof-report.html` and `.proof/validation-summary.json`.
 - Inspect feature, scenario, test and proof coverage from a single page.
 
@@ -355,9 +350,9 @@ captures), plus `.proof/shareable/` and its manifest for CI.
 
 ## Known limitations
 
-- The short loop explicitly carries the name `make check-local`; `make
+- The short loop explicitly carries the name `./dev check-local`; `make
   check` always includes Docker, Chrome and Symfony.
-- Docker/Compose missing or a skipped Symfony test: `make proof` and `make
+- Docker/Compose missing or a skipped Symfony test: `./dev proof` and `make
   release` fail. The report keeps the `unavailable` status as a diagnostic,
   never as a degraded success.
 - `SecureArtifactWriter` automatically redacts text, JSON and saved text

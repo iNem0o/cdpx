@@ -86,6 +86,7 @@ def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
     monkeypatch.setenv("CDPX_TEST_SECRET", "cdpx-secret")
     monkeypatch.setenv("CDPX_PROOF_RETENTION_DAYS", "30")
+    monkeypatch.setenv("CDPX_CONTAINERIZED", "1")
 
     env = proof._repo_env()
 
@@ -93,6 +94,7 @@ def test_repo_env_is_allowlisted_and_excludes_credentials(monkeypatch):
     assert env["PATH"] == "/usr/bin"
     assert env["HOME"] == "/tmp/home"
     assert "PYTHONPATH" in env
+    assert env["CDPX_CONTAINERIZED"] == "1"
     #: credentials present in the shell cannot leak into proof logs
     assert "GITHUB_TOKEN" not in env
     assert "AWS_SECRET_ACCESS_KEY" not in env
@@ -2437,7 +2439,7 @@ def test_build_impact_map_derives_entrypoints_and_change_types():
     assert set(impact["categories"]) == {"Harness / CI", "Product code", "Tests", "Documentation"}
     #: the known entry points (make proof, module, tests) are all declared
     assert [entry["name"] for entry in impact["entrypoints"]] == [
-        "make proof",
+        "./dev proof",
         "python -m cdpx.proof",
         "tests/test_proof.py",
     ]
@@ -2462,7 +2464,7 @@ def test_build_review_guide_orders_reading_by_category():
     guide = proof.build_review_guide(impact)
 
     #: the path starts with the user contract (Makefile) then follows the layers
-    assert guide["order"][0].startswith("Start with the Makefile")
+    assert guide["order"][0].startswith("Start with `dev`")
     assert len(guide["order"]) == 4
     #: the reviewer's watch-outs are always provided
     assert guide["watch_outs"]

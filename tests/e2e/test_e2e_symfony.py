@@ -36,7 +36,7 @@ if CHROME_BIN is None:
 
 pytestmark = pytest.mark.skipif(
     not SYMFONY_URL,
-    reason="SYMFONY_E2E_URL missing (run make docker-symfony-e2e)",
+    reason="SYMFONY_E2E_URL missing (run ./dev check)",
 )
 
 E2E_PORT = 9778

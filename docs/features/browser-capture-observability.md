@@ -138,7 +138,7 @@ Gotchas:
   `Page.printToPDF`; some "headful" Chrome instances refuse it (CDP
   error, exit 1).
 - A PDF is also `opaque-restricted`: inspection and sharing remain a
-  human decision, never an automatic consequence of `make proof`.
+  human decision, never an automatic consequence of `./dev proof`.
 
 ### `cdpx console`
 

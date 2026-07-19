@@ -313,15 +313,24 @@ def test_chrome_command_forces_ephemeral_loopback_profile(tmp_path):
     assert "--disable-breakpad" in command
 
 
-def test_chrome_sandbox_is_disabled_only_for_root_or_ci(tmp_path, monkeypatch):
-    """The Chrome sandbox is sacrificed only where it cannot work (root or
-    CI): a normal user outside CI keeps the full sandbox."""
+def test_chrome_sandbox_is_disabled_only_when_required(tmp_path, monkeypatch):
+    """The Chrome sandbox is sacrificed only where it cannot work: a normal
+    host user outside CI keeps it, while CI, root and containers disable it."""
     monkeypatch.setattr(session_mod.os, "geteuid", lambda: 1000)
     monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("CDPX_CONTAINERIZED", raising=False)
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
     #: normal user outside CI: the sandbox stays active by default
     assert "--no-sandbox" not in command
 
+    monkeypatch.setenv("CDPX_CONTAINERIZED", "1")
+    command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
+    #: the OCI runtime already provides the isolation boundary; Chromium's
+    #: namespace sandbox is unavailable inside the hardened container
+    assert "--no-sandbox" in command
+    assert "--disable-dev-shm-usage" not in command
+
+    monkeypatch.delenv("CDPX_CONTAINERIZED")
     monkeypatch.setenv("CI", "true")
     command = build_chrome_command("/usr/bin/chromium", tmp_path / "profile")
     #: in CI, sandbox disabled and /dev/shm bypassed (containers with
@@ -798,6 +807,7 @@ def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, 
                 "artifacts_dir": str(artifacts_dir),
                 "created_at": now.isoformat(),
                 "expires_at": (now + timedelta(minutes=5)).isoformat(),
+                "runtime_id": "standalone",
             }
         ),
         encoding="utf-8",
@@ -1010,6 +1020,7 @@ def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypat
         "artifacts_dir": str(artifacts_dir),
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(minutes=5)).isoformat(),
+        "runtime_id": "standalone",
     }
     bootstrap.write_text(json.dumps(payload), encoding="utf-8")
     bootstrap.chmod(0o600)

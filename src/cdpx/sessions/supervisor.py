@@ -144,6 +144,7 @@ def _start_runtime(
         artifacts_dir=data.artifacts_dir,
         created_at=data.created_at,
         expires_at=data.expires_at,
+        runtime_id=data.runtime_id,
     )
     manifest = runtime.manifest
     session._validate_manifest_fields(manifest)

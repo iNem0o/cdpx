@@ -217,8 +217,7 @@ def run_symfony_evidence(
     compose_env["CDPX_E2E_UID"] = str(os.getuid())
     compose_env["CDPX_E2E_GID"] = str(os.getgid())
     # The compose `.proof` volume is parameterized: the container mounts the
-    # target tree (staging during `make proof`, `./.proof` by default via the
-    # Makefile).
+    # target tree (staging during `./dev proof`, `./.proof` by default).
     compose_env["CDPX_PROOF_DIR"] = str(
         (default_proof_dir if proof_dir is None else proof_dir).resolve()
     )

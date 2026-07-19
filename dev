@@ -1,0 +1,151 @@
+#!/bin/sh
+# Host-only development portal. Docker is the sole runtime dependency.
+set -eu
+
+ROOT=$(CDPATH='' cd -- "$(dirname "$0")" && pwd -P)
+DEV_IMAGE=cdpx-dev:local
+
+die() {
+    printf 'dev: %s\n' "$*" >&2
+    exit 1
+}
+
+require_docker() {
+    command -v docker >/dev/null 2>&1 || die "Docker is required"
+    docker info >/dev/null 2>&1 || die "Docker daemon is unavailable"
+}
+
+build() {
+    target=$1
+    REVISION=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf uncommitted)
+    export REVISION
+    (cd "$ROOT" && docker buildx bake --load "$target")
+}
+
+socket_path() {
+    endpoint=$(docker context inspect --format '{{ (index .Endpoints "docker").Host }}')
+    case "$endpoint" in
+        unix://*) printf '%s\n' "${endpoint#unix://}" ;;
+        *) die "only a local unix Docker context is supported: $endpoint" ;;
+    esac
+}
+
+socket_group() {
+    path=$1
+    if stat -c %g "$path" >/dev/null 2>&1; then
+        stat -c %g "$path"
+    else
+        stat -f %g "$path"
+    fi
+}
+
+run_dev() {
+    mkdir -p "$ROOT/.cache/home"
+    socket=$(socket_path)
+    [ -S "$socket" ] || die "Docker socket not found: $socket"
+    group=$(socket_group "$socket")
+    command=$1
+    shift
+    docker run --rm -i --init \
+        --user "$(id -u):$(id -g)" \
+        --group-add "$group" \
+        --mount "type=bind,source=$ROOT,target=$ROOT" \
+        --mount "type=bind,source=$socket,target=/var/run/docker.sock" \
+        --workdir "$ROOT" \
+        --add-host host.docker.internal:host-gateway \
+        --env DOCKER_HOST=unix:///var/run/docker.sock \
+        --env CDPX_IN_DEV=1 \
+        --env CDPX_CONTAINERIZED=1 \
+        --env CDPX_SITE_SYMFONY_BASE \
+        --env "HOME=$ROOT/.cache/home" \
+        --env "PYTHONPATH=$ROOT/src:$ROOT" \
+        "$DEV_IMAGE" "$command" "$@"
+}
+
+require_docker
+command=${1:-help}
+shift || true
+
+case "$command" in
+    setup)
+        [ "$#" -eq 0 ] || die "usage: ./dev setup"
+        build dev
+        build runtime
+        ;;
+    check-local|check|proof|release|fmt|clean|test-e2e)
+        [ "$#" -eq 0 ] || die "usage: ./dev $command"
+        build dev
+        run_dev /workspace/.venv/bin/python -m tools.harness "$command"
+        ;;
+    image)
+        [ "$#" -eq 0 ] || die "usage: ./dev image"
+        build runtime
+        ;;
+    shell)
+        build dev
+        run_dev /bin/sh "$@"
+        ;;
+    fixtures)
+        build dev
+        run_dev /workspace/.venv/bin/python -m cdpx.testing.fixture_server --port 8899 "$@"
+        ;;
+    mock)
+        build dev
+        run_dev /workspace/.venv/bin/python -m cdpx.testing.mock_session "$@"
+        ;;
+    site-record)
+        build dev
+        action=${1:-record}
+        if [ "$#" -eq 0 ]; then
+            set -- record
+        fi
+        case "$action" in
+            list|check)
+                run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py "$@"
+                ;;
+            record)
+                compose() {
+                    docker compose -p cdpx-site-casts \
+                        -f "$ROOT/docker-compose.symfony-e2e.yml" \
+                        -f "$ROOT/docker-compose.site-casts.yml" "$@"
+                }
+                cleanup_site_record() {
+                    compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+                }
+                trap cleanup_site_record EXIT INT TERM
+                cleanup_site_record
+                compose up -d --wait symfony
+                CDPX_SITE_SYMFONY_BASE=http://host.docker.internal:8025
+                export CDPX_SITE_SYMFONY_BASE
+                run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py "$@"
+                run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py check
+                cleanup_site_record
+                trap - EXIT INT TERM
+                ;;
+            *)
+                die "usage: ./dev site-record [list|check|record [options]]"
+                ;;
+        esac
+        ;;
+    help|-h|--help)
+        printf '%s\n' \
+            'usage: ./dev <command>' \
+            '' \
+            '  setup        build development and runtime images' \
+            '  check-local  lint, type-check and unit/coverage gate' \
+            '  check        full proof-backed Chrome/Symfony gate' \
+            '  proof        rebuild the full private proof' \
+            '  release      full gate plus internal wheel' \
+            '  fmt          apply Ruff formatting and safe fixes' \
+            '  test-e2e     run real Chrome tests' \
+            '  image        build the production runtime target' \
+            '  shell        open a shell in the development image' \
+            '  fixtures     serve the reference site' \
+            '  mock         run the protocol-faithful mock' \
+            '  site-record  regenerate site casts' \
+            '  clean        remove generated workspace artifacts'
+        ;;
+    *)
+        die "unknown command: $command (run ./dev help)"
+        ;;
+esac

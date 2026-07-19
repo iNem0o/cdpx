@@ -14,6 +14,7 @@ services:
   cdpx:
     build:
       context: .
+      target: ci
     volumes:
       # Parameterizable host target: `make proof` mounts its transactional
       # staging (.proof.new) via CDPX_PROOF_DIR; the default serves
@@ -34,5 +35,5 @@ services:
       [
         "/bin/sh",
         "-lc",
-        "cleanup() { chown -R $${CDPX_E2E_UID}:$${CDPX_E2E_GID} .proof; }; trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; cleanup; exit 143' TERM INT; python3 -m pytest tests/e2e/test_e2e_symfony.py -v --cdpx-evidence-dir=.proof/evidence --cdpx-evidence-suite=symfony --junitxml=.proof/symfony-e2e-junit.xml & pid=$$!; wait $$pid; status=$$?; cleanup; exit $$status",
+        "cleanup() { chown -R $${CDPX_E2E_UID}:$${CDPX_E2E_GID} .proof; }; trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; cleanup; exit 143' TERM INT; .venv/bin/python -m pytest tests/e2e/test_e2e_symfony.py -v --cdpx-evidence-dir=.proof/evidence --cdpx-evidence-suite=symfony --junitxml=.proof/symfony-e2e-junit.xml & pid=$$!; wait $$pid; status=$$?; cleanup; exit $$status",
       ]

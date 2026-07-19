@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" != "--link" ] || [ "$#" -ne 2 ]; then
+    printf 'usage: <bundle>/install --link /absolute/path/cdpx\n' >&2
+    exit 2
+fi
+target=$2
+case "$target" in
+    /*) ;;
+    *)
+        printf 'cdpx: embedded link target must be absolute\n' >&2
+        exit 2
+        ;;
+esac
+case "$(uname -s)" in
+    Linux) ;;
+    *)
+        printf 'cdpx: embedded mode supports Linux glibc only; use the Docker runtime\n' >&2
+        exit 2
+        ;;
+esac
+if [ ! -e /lib64/ld-linux-x86-64.so.2 ] && [ ! -e /lib/ld-linux-aarch64.so.1 ]; then
+    printf 'cdpx: glibc loader not found; use the Docker sidecar on musl/Alpine\n' >&2
+    exit 2
+fi
+mkdir -p "$(dirname "$target")"
+BUNDLE=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+ln -sfn "$BUNDLE/bin/native-cdpx" "$target"
+printf '{"installed":"embedded","path":"%s"}\n' "$target"

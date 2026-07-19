@@ -46,5 +46,7 @@ body:
           required: true
         - label: docs/PRIMITIVES.md and the affected feature sheet will be updated.
           required: true
+        - label: User and integrator documentation plus docs/surfaces.yaml will be updated for every new option or configuration.
+          required: true
         - label: The scenario can be tested without connecting to a personal Chrome.
           required: true

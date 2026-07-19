@@ -1,0 +1,113 @@
+#!/bin/sh
+# Stable installer served by GitHub Pages. It installs only verified assets.
+set -eu
+
+REPOSITORY=${CDPX_REPOSITORY:-inem0o/cdpx}
+VERSION=${CDPX_VERSION:-v0.1.0}
+INSTALL_DIR=${CDPX_INSTALL_DIR:-"$HOME/.local/bin"}
+MODE=launcher
+
+die() {
+    printf 'cdpx install: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    printf '%s\n' \
+        'usage: install [--version vX.Y.Z] [--install-dir DIR] [--embedded]' \
+        '' \
+        'Installs the Docker launcher by default. --embedded installs the' \
+        'experimental Linux/glibc bundle without requiring host Python.'
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --version)
+            [ "$#" -ge 2 ] || die "--version requires a value"
+            VERSION=$2
+            shift 2
+            ;;
+        --install-dir)
+            [ "$#" -ge 2 ] || die "--install-dir requires a value"
+            INSTALL_DIR=$2
+            shift 2
+            ;;
+        --embedded)
+            MODE=embedded
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown option: $1"
+            ;;
+    esac
+done
+
+case "$VERSION" in
+    v[0-9]*.[0-9]*.[0-9]*) ;;
+    *) die "version must look like v1.2.3" ;;
+esac
+
+command -v curl >/dev/null 2>&1 || die "curl is required"
+mkdir -p "$INSTALL_DIR"
+INSTALL_DIR=$(CDPATH='' cd -- "$INSTALL_DIR" && pwd -P)
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/cdpx-install.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+release_url="https://github.com/$REPOSITORY/releases/download/$VERSION"
+
+verify() {
+    asset=$1
+    expected=$(awk -v name="$asset" '$2 == name || $2 == "*" name { print $1 }' \
+        "$temporary/SHA256SUMS")
+    [ -n "$expected" ] || die "checksum is missing for $asset"
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$temporary/$asset" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "$temporary/$asset" | awk '{print $1}')
+    else
+        die "sha256sum or shasum is required"
+    fi
+    [ "$actual" = "$expected" ] || die "checksum mismatch for $asset"
+}
+
+curl -fsSL "$release_url/SHA256SUMS" -o "$temporary/SHA256SUMS"
+
+if [ "$MODE" = launcher ]; then
+    asset="cdpx"
+    curl -fsSL "$release_url/$asset" -o "$temporary/$asset"
+    verify "$asset"
+    chmod 0755 "$temporary/$asset"
+    mv "$temporary/$asset" "$INSTALL_DIR/.cdpx.new"
+    mv "$INSTALL_DIR/.cdpx.new" "$INSTALL_DIR/cdpx"
+    printf '{"installed":"launcher","version":"%s","path":"%s/cdpx"}\n' \
+        "$VERSION" "$INSTALL_DIR"
+    exit 0
+fi
+
+[ "$(uname -s)" = Linux ] || die "embedded mode supports Linux/glibc only"
+case "$(uname -m)" in
+    x86_64|amd64) architecture=amd64 ;;
+    aarch64|arm64) architecture=arm64 ;;
+    *) die "unsupported embedded architecture: $(uname -m)" ;;
+esac
+asset="cdpx-embedded-linux-$architecture.tar.gz"
+curl -fsSL "$release_url/$asset" -o "$temporary/$asset"
+verify "$asset"
+bundle_parent=$(dirname "$INSTALL_DIR")/lib
+bundle="$bundle_parent/cdpx-$VERSION"
+mkdir -p "$bundle_parent"
+rm -rf "$temporary/bundle"
+mkdir "$temporary/bundle"
+tar -xzf "$temporary/$asset" -C "$temporary/bundle"
+[ -x "$temporary/bundle/opt/cdpx/bin/native-cdpx" ] \
+    || die "embedded archive layout is invalid"
+rm -rf "$bundle.new"
+mv "$temporary/bundle/opt/cdpx" "$bundle.new"
+rm -rf "$bundle"
+mv "$bundle.new" "$bundle"
+"$bundle/install" --link "$INSTALL_DIR/cdpx" >/dev/null
+printf '{"installed":"embedded","version":"%s","path":"%s/cdpx"}\n' \
+    "$VERSION" "$INSTALL_DIR"

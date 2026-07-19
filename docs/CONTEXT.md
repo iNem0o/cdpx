@@ -32,6 +32,12 @@ Navigation, synchronization and trusted input support every family.
   exact CDP methods, parameters and order.
 - **Real runtime gates:** Chrome and the Dockerized Symfony application verify
   browser engine and framework behavior that the mock cannot provide.
+- **One OCI toolchain:** the same pinned multi-stage image graph supplies
+  development, CI, release and production. The host needs Docker, not a
+  project-specific Python toolchain.
+- **Digest-first distribution:** releases promote an already validated
+  multi-architecture image without rebuilding it. The small host launcher
+  manages that image per working tree and refuses silent runtime replacement.
 - **Safe defaults:** origin checks fail closed, sensitive values are redacted,
   outputs are bounded and page-derived content is untrusted.
 - **Private evidence:** screenshots, PDFs, logs and reports remain in managed
@@ -46,12 +52,17 @@ protocol tests.
 
 ## Intended environment
 
-cdpx targets disposable development browsers, local or controlled reference
-applications, Symfony diagnostics, e-commerce journeys and rendered-page
-audits. It is not a way to attach to a personal Chrome profile, bypass browser
-security or certify an entire production system.
+cdpx targets Docker-capable Linux and macOS hosts driving disposable
+development browsers, local or controlled reference applications, Symfony
+diagnostics, e-commerce journeys and rendered-page audits. A relocatable
+embedded Linux artifact is available as a compatibility path, but the OCI
+image is the normative runtime and release unit. cdpx is not a way to attach
+to a personal Chrome profile, bypass browser security or certify an entire
+production system.
 
 The normative execution boundary is [HARNESS.md](../HARNESS.md). The command
 surface is [PRIMITIVES.md](PRIMITIVES.md), the lifecycle is
-[SESSION-LIFECYCLE.md](SESSION-LIFECYCLE.md), and release evidence is defined
-in [VALIDATION.md](VALIDATION.md).
+[SESSION-LIFECYCLE.md](SESSION-LIFECYCLE.md), configuration is
+[CONFIGURATION.md](CONFIGURATION.md), integration is
+[INTEGRATION.md](INTEGRATION.md), and release evidence is defined in
+[VALIDATION.md](VALIDATION.md).

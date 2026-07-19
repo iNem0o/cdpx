@@ -127,9 +127,9 @@ def build_impact_map(git_context: dict, help_commands: list[dict[str, str]]) -> 
     if "Makefile" in paths:
         entrypoints.append(
             {
-                "name": "make proof",
-                "type": "Make target",
-                "evidence": "Makefile",
+                "name": "./dev proof",
+                "type": "Containerized portal",
+                "evidence": "dev",
                 "review_focus": "Public command that generates the report.",
             }
         )
@@ -175,7 +175,7 @@ def build_review_guide(impact: dict) -> dict:
     order = []
     categories = impact["categories"]
     if "Harness / CI" in categories:
-        order.append("Start with the Makefile: check the user contract of `make proof`.")
+        order.append("Start with `dev`: check the user contract of `./dev proof`.")
     if "Product code" in categories:
         order.append("Read `src/cdpx/proof.py`: collection, verdict, JSON summary, HTML rendering.")
     if "Tests" in categories:
@@ -197,11 +197,11 @@ def build_review_guide(impact: dict) -> dict:
 def build_risks_and_unknowns(git_context: dict) -> dict:
     risks = [
         {
-            "risk": "`make proof` becomes stricter.",
+            "risk": "`./dev proof` becomes stricter.",
             "mitigation": (
                 "Python tools go through `python -m ...`; the report is written even on failure."
             ),
-            "rollback": "Revert to the previous Makefile target if needed.",
+            "rollback": "Revert to the previous portal command if needed.",
         },
         {
             "risk": "Report too verbose for a PR.",
@@ -221,7 +221,7 @@ def build_risks_and_unknowns(git_context: dict) -> dict:
             "item": "Demonstration casts",
             "why": (
                 "The native recorder (pty) is part of the gate: a missing "
-                "or degraded cast fails `make proof`."
+                "or degraded cast fails `./dev proof`."
             ),
             "how_to_verify": "Open the report and play the casts from the proof catalog.",
         },
@@ -249,23 +249,23 @@ def build_project_risks_and_unknowns() -> dict:
         {
             "risk": "Chrome/Chromium prerequisite mandatory.",
             "mitigation": (
-                "Chrome/Chromium is mandatory: `make proof` fails if the binary is missing."
+                "Chromium is mandatory and bundled: `./dev proof` fails if it cannot start."
             ),
-            "rollback": "Install Chrome/Chromium then re-run `make test-e2e` or `make proof`.",
+            "rollback": "Rebuild the dev image, then re-run `./dev test-e2e` or `./dev proof`.",
         },
         {
             "risk": "Docker/Compose is a prerequisite of the full quality gate.",
             "mitigation": (
-                "`make check`, `make proof` and `make release` fail if Docker or the Symfony "
-                "proof is unavailable; `make check-local` remains a partial diagnostic."
+                "`./dev check`, `./dev proof` and `./dev release` fail if Docker or the "
+                "Symfony proof is unavailable; `./dev check-local` remains partial."
             ),
-            "rollback": "Install Docker then re-run `make proof` or `make docker-symfony-e2e`.",
+            "rollback": "Restore Docker, then re-run `./dev proof`.",
         },
     ]
     unknowns = [
         {
             "item": "External network dependencies",
-            "why": "`make proof` targets local fixtures and local Chrome.",
+            "why": "`./dev proof` targets local fixtures and bundled Chromium.",
             "how_to_verify": "Check the network logs and fixtures under `tests/fixtures/`.",
         },
         {
@@ -284,11 +284,11 @@ def build_project_risks_and_unknowns() -> dict:
             "item": "Full run cast",
             "why": (
                 "The gate natively records the demonstration commands; "
-                "the entire `make proof` run is not auto-recorded (duration and weight)."
+                "the entire `./dev proof` run is not auto-recorded (duration and weight)."
             ),
             "how_to_verify": (
-                "Demonstration casts are generated and judged at every `make proof`; "
-                "to record the full run, launch `make proof` inside an "
+                "Demonstration casts are generated and judged at every `./dev proof`; "
+                "to record the full run, launch `./dev proof` inside an "
                 "external terminal recorder."
             ),
         },

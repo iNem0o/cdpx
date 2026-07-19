@@ -18,20 +18,18 @@ Small documentation fixes or obvious corrections can be proposed directly.
 
 ## Development environment
 
-Prerequisites: Python 3.11+, Docker with Compose, and Chrome or Chromium for
-local browser tests.
+Prerequisite: Docker Engine or Docker Desktop with Compose. Python,
+Chromium and the quality toolchain are supplied by the development image.
 
 ```bash
 git clone https://github.com/inem0o/cdpx.git
 cd cdpx
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
-make check-local
+./dev setup
+./dev check-local
 ```
 
-`make check-local` is the short loop. The full gate `make check` also
-builds the Docker image and runs real Chrome as well as the Symfony
+`./dev check-local` is the short loop. The full gate `./dev check` also
+runs real Chrome as well as the Symfony
 reference app. The absence of Docker, Chrome, or Symfony is a failure, not
 a skip.
 
@@ -44,9 +42,10 @@ For a primitive or a protocol change:
 2. implement the change in `src/cdpx/`;
 3. add an E2E scenario if the behavior depends on Blink, rendering, or
    browser timing;
-4. update `docs/PRIMITIVES.md`, the relevant feature sheet, and the
-   changelog if public behavior changes;
-5. run `make check` before requesting a review.
+4. update `docs/PRIMITIVES.md`, the relevant feature sheet, user and
+   integrator documentation, `docs/surfaces.yaml`, and the changelog if
+   public behavior changes;
+5. run `./dev check` before requesting a review.
 
 The CLI contract remains: stdout JSON, stderr for diagnostics, and exit
 codes 0/1/2. Cookies, storage, and typed text are redacted by default.
@@ -77,12 +76,11 @@ target, origins, authority, or secrets.
 ## Useful commands
 
 ```bash
-make test                 # deterministic unit tests
-make fmt                  # formatting and safe Ruff fixes
-make test-e2e             # local Chrome E2E
-make docker-symfony-e2e   # real Symfony reference app
-make proof                # local proof report
-make release              # full gate and distributable artifacts
+./dev check-local         # deterministic short gate
+./dev fmt                 # formatting and safe Ruff fixes
+./dev test-e2e            # real Chrome E2E
+./dev proof               # local proof report
+./dev release             # full gate and internal package check
 ```
 
 ## Pull requests
@@ -94,8 +92,8 @@ tests and a documentation note in the same pull request.
 
 GitHub runs the full gate on **every** PR, with no exception for
 documentation or workflows. The stable aggregator check
-`PR Gate / Required` only succeeds if Python compatibility and
-`make release` have succeeded. The full job displays a native cockpit
+`PR Gate / Required` only succeeds if native amd64/arm64, the macOS launcher
+and the complete `./dev check` gate have succeeded. The full job displays a native cockpit
 summary and publishes, for 14 days, the manifested textual staging of the
 available proofs; opaque files remain private. See
 [the validation documentation](docs/VALIDATION.md#github-actions)

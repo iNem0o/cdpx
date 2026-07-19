@@ -3,7 +3,7 @@ id = "dev-profiler-diff"
 title = "Developer diagnostics"
 status = "validated"
 summary = "Parse the Symfony Web Profiler panels (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) from a browser navigation, then compare the DOM before/after an action."
-entrypoints = ["cdpx profiler", "cdpx dom-diff", "make docker-symfony-e2e"]
+entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev check"]
 path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
 test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
@@ -17,7 +17,7 @@ entrypoint = "cdpx profiler"
 [[journeys]]
 id = "compare-profiler-variants"
 title = "Compare deterministic variants of the Symfony profiler"
-entrypoint = "make docker-symfony-e2e"
+entrypoint = "./dev check"
 
 [[journeys]]
 id = "diff-dom-action"
@@ -29,7 +29,7 @@ id = "read-symfony-profiler"
 journey = "read-profiler"
 title = "Read Symfony profiler data from a navigation"
 ui_text = "The agent can open a Symfony page and follow the profiler proof."
-report_text = "This scenario proves that framework diagnostics are reachable from a browser navigation. `make proof` runs the real Docker Symfony gate and blocks the verdict when Docker is unavailable, a scenario is skipped, or the suite fails."
+report_text = "This scenario proves that framework diagnostics are reachable from a browser navigation. `./dev proof` runs the real Docker Symfony gate and blocks the verdict when Docker is unavailable, a scenario is skipped, or the suite fails."
 given = "A fixture or the Symfony test app exposes profiler-style headers and pages."
 when = "cdpx reads the profiler data after navigation during the Chrome e2e and, when Docker is available, via the Symfony e2e gate."
 then = "The report links the profiler tests, the Docker status, JUnit, logs, the profiler JSON output and the screenshots to the developer diagnostics feature."
@@ -248,9 +248,9 @@ Gotchas and error cases:
 - The diff is bounded by `--limit` (50 lines by default); pass `--full`
   for a complete diff on large mutations.
 
-### `make docker-symfony-e2e`
+### `./dev check`
 
-Synopsis: `make docker-symfony-e2e`
+Synopsis: `./dev check`
 
 Runs the profiler e2e suite against a **real** Symfony application served
 by Docker (`docker-compose.symfony-e2e.yml` + `tests/symfony-app/`): the
@@ -265,7 +265,7 @@ Command-specific options: none (a parameterless Make target; Docker and
 Docker Compose must be installed and startable).
 
 ```bash
-make docker-symfony-e2e
+./dev check
 ```
 
 The resulting proofs land in `.proof/` (`symfony-e2e.log`,
@@ -276,7 +276,7 @@ Gotchas and error cases:
 
 - Docker missing: the target and the release proof fail with an explicit
   `unavailable` status; there is no degraded release success.
-- Docker present but the Symfony scenario fails: `make proof`'s overall
+- Docker present but the Symfony scenario fails: `./dev proof`'s overall
   verdict is blocked — a real failure is never disguised as absence.
 - The first run builds the Symfony image: expect an initial build time
   before the scenarios execute.
@@ -296,7 +296,7 @@ Gotchas and error cases:
 
 The panel parsers are unit-tested against committed HTML
 (`tests/fixtures/profiler/`, trimmed real WebProfilerBundle markup), also
-served by the fixture server for the Chrome e2e. `make proof` runs the
+served by the fixture server for the Chrome e2e. `./dev proof` runs the
 Docker Symfony gate: unavailability, skip or failure blocks the verdict.
 
 ## Proofs
@@ -310,8 +310,8 @@ the DOM diff JSON and browser screenshots. Opaque screenshots stay out of
 ## Known limitations
 
 Docker availability depends on the environment; its absence blocks the
-proof and is resolved by installing Docker then re-running `make proof`
-or `make docker-symfony-e2e`. Panel parsing is coupled to the
+proof and is resolved by installing Docker then re-running `./dev proof`
+or `./dev check`. Panel parsing is coupled to the
 WebProfilerBundle 7.x HTML markup (no JSON API exists on the Symfony
 side): a major bundle update may require re-capturing the fixtures
 and adjusting the parsers — the tolerance contract (`available`/

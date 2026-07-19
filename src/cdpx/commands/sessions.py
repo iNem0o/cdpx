@@ -24,9 +24,12 @@ def register_commands(
         required=True,
     )
     start.add_argument("--origins", default=os.environ.get("CDPX_ORIGINS", ""))
-    start.add_argument("--ttl", type=float, default=3600.0)
-    start.add_argument("--owner-pid", type=int, default=None)
-    start.add_argument("--chrome", default=None)
+    start.add_argument(
+        "--ttl",
+        type=float,
+        default=float(os.environ.get("CDPX_SESSION_TTL", "3600")),
+        help="session lifetime in seconds (60..86400; default: 3600)",
+    )
     start.add_argument(
         "--export",
         action="store_true",
@@ -62,8 +65,6 @@ def cmd_session(args: CommandInvocation) -> None:
             authority=authority,
             origins=args.options.origins,
             ttl=args.options.ttl,
-            owner_pid=args.options.owner_pid,
-            chrome_bin=args.options.chrome,
             timeout=args.options.startup_timeout,
         )
         started = args.with_session(manifest)

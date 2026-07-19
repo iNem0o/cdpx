@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+BUNDLE=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+ROOT=${CDPX_BUNDLE_ROOT:-$BUNDLE/root}
+case "$(uname -m)" in
+    x86_64|amd64|aarch64|arm64) ;;
+    *)
+        printf 'cdpx: unsupported embedded architecture: %s\n' "$(uname -m)" >&2
+        exit 2
+        ;;
+esac
+
+libraries="$ROOT/usr/local/lib"
+export LD_LIBRARY_PATH="$libraries"
+export PYTHONHOME="$ROOT/usr/local"
+exec "$ROOT/usr/local/bin/python3.14" "$@"

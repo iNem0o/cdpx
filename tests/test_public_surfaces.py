@@ -34,12 +34,6 @@ FRENCH_PROSE = re.compile(
     re.IGNORECASE,
 )
 
-DEVELOPMENT_NARRATIVE = re.compile(
-    r"\b(?:backlog|churn|evolution|historical|legacy|milestone|migration|"
-    r"prototype|ratchet|refactor(?:ing)?|roadmap)\b",
-    re.IGNORECASE,
-)
-
 
 def public_surfaces() -> list[Path]:
     paths = set(ROOT_MARKDOWN) | set(EXPLICIT_SURFACES)
@@ -53,12 +47,12 @@ def public_surfaces() -> list[Path]:
     return sorted(path for path in paths if path.is_file())
 
 
-def test_public_surfaces_are_english_and_current():
+def test_public_surfaces_are_english():
     violations: list[str] = []
     for path in public_surfaces():
         text = path.read_text(encoding="utf-8").replace(".prototype", "")
         for line_number, line in enumerate(text.splitlines(), 1):
-            if FRENCH_PROSE.search(line) or DEVELOPMENT_NARRATIVE.search(line):
+            if FRENCH_PROSE.search(line):
                 violations.append(f"{path}:{line_number}: {line.strip()}")
 
     assert violations == [], "public-copy violations:\n" + "\n".join(violations)

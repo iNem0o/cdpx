@@ -6,6 +6,8 @@ on:
       - master
     paths:
       - "site/**"
+      - "packaging/install"
+      - "schemas/cdpx.schema.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -34,6 +36,11 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Publish the stable installer endpoint
+        run: |
+          cp packaging/install site/install
+          mkdir -p site/schema
+          cp schemas/cdpx.schema.json site/schema/cdpx-v1.json
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload the site artifact

@@ -27,6 +27,7 @@ from cdpx.security.redaction import RedactionContext, redact_text
 PROOF_TIMEOUT_SCALE_ENV = "CDPX_PROOF_TIMEOUT_SCALE"
 
 _ALLOWED_ENV_NAMES = {
+    "CDPX_CONTAINERIZED",
     "CI",
     "COLORTERM",
     "HOME",
@@ -144,7 +145,7 @@ def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
 
     try:
         os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError, PermissionError:
         # Group already gone or inaccessible: fall back to the direct child.
         proc.kill()
     proc.wait()

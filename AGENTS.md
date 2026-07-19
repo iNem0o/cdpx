@@ -13,21 +13,19 @@ development Chrome. See `docs/PRIMITIVES.md` for the public catalog.
 ## Working commands
 
 ```text
-make setup               # editable install + development tools
-make check-local         # short loop: lint + format + mypy + unit tests
-make check               # GATE: local + Docker + Chrome + Symfony
-make test                # deterministic unit tests, loopback only
-make test-e2e            # real local Chrome — its absence is an error
-make docker-symfony-e2e  # real Dockerized Symfony scenarios
-make proof               # private proof report under .proof/
-make release             # check + proof + verified wheel/sdist
-make fixtures            # reference site on :8899
-make mock                # scriptable fake Chrome, no browser
+./dev setup              # pinned Docker development/runtime images
+./dev check-local        # short loop: lint + format + mypy + unit/coverage
+./dev check              # GATE: Docker + Chrome + Symfony + proof
+./dev test-e2e           # real Chrome — its absence is an error
+./dev proof              # private proof report under .proof/
+./dev release            # gate + internal wheel verification
+./dev fixtures           # reference site on :8899
+./dev mock               # scriptable fake Chrome, no browser
 ```
 
 ## Invariants
 
-1. **`make check` is green before the session ends.**
+1. **`./dev check` is green before the session ends.**
 2. Unit tests are deterministic, loopback-only and browser-free. Real browser
    coverage belongs in `tests/e2e/`; unavailable Chrome or Symfony blocks the
    runtime and release gates.
@@ -60,14 +58,14 @@ docs/                     current product, feature and operating references
 1. State the concrete outcome and inspect the current contract.
 2. Write or adapt the mock test first; the emitted protocol is the spec.
 3. Implement the smallest coherent change.
-4. Run `make check-local`, then the mandatory `make check`.
+4. Run `./dev check-local`, then the mandatory `./dev check`.
 5. Update the affected canonical documentation and examples.
 6. Create one atomic commit with an imperative subject and a body explaining
    why the change exists.
 
 ## Definition of done
 
-- [ ] `make check` is green
+- [ ] `./dev check` is green
 - [ ] mock output and emitted protocol are covered
 - [ ] user documentation matches the current behavior
 - [ ] relevant fixture markers are tested

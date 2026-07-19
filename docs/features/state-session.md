@@ -170,7 +170,7 @@ Global options and exit codes: see the CLI Contract section of the README.
 ### `cdpx session`
 
 ```text
-usage: cdpx session start --run-id RUN --authority observation|interaction|privileged --origins ORIGINES [--ttl S] [--owner-pid PID] [--chrome BIN] [--startup-timeout S] [--export]
+usage: cdpx session start --run-id RUN --authority observation|interaction|privileged --origins ORIGINS [--ttl S] [--startup-timeout S] [--export]
 usage: cdpx session status --session PATH --run-id RUN --target ID
 usage: cdpx session stop --session PATH --run-id RUN --target ID
 ```
@@ -220,11 +220,11 @@ cdpx text "#cart"
 The manifest is `0600`, its folder/profile/artifacts are private, and a
 non-blocking lease prevents two commands from driving the target at the
 same time. The supervisor destroys the session on `stop`, TTL, or the
-disappearance of `--owner-pid`. The endpoint comes only from the
+disappearance of its runtime guardian. The endpoint comes only from the
 manifest, the allowlist cannot be empty, and every output carries
 `_cdpx.content_trust: "untrusted"`.
 
-`make mock` runs the same cycle in the foreground with a simulated
+`./dev mock` runs the same cycle in the foreground with a simulated
 browser, prints the three exports, and cleans up the session on
 `Ctrl-C`.
 
@@ -280,7 +280,7 @@ cdpx storage --kind session
 ## User journeys
 
 - Start a session, export its identity, inspect it, then stop it.
-- Exercise this exact cycle without real Chrome using `make mock`.
+- Exercise this exact cycle without real Chrome using `./dev mock`.
 - Read cookies and storage with values redacted by default.
 - Set a cookie from an environment reference, or purge the profile.
 

@@ -46,7 +46,7 @@ page is an invocation error.
 A single command holds the session lock. A concurrent one fails
 immediately with no CDP effect. The supervisor closes the target,
 terminates the browser and deletes profile, artifacts and manifest on
-`session stop`, when the TTL expires or when `--owner-pid` disappears. Its
+`session stop`, when the TTL expires or when its runtime guardian disappears. Its
 `finally` block also covers supervised shutdowns and startup errors; a
 brutal machine halt remains an operational case to clean up through the
 private runtime directory.
@@ -141,7 +141,7 @@ byte-identical and remains subject to the final canary scan.
 | `opaque-restricted` | screenshot, PDF or binary that cannot be safely inspected | forbidden |
 
 Every browser write is confined to its session's private artifacts
-directory. `make proof` keeps the local tree private, builds
+directory. `./dev proof` keeps the local tree private, builds
 `.proof/shareable/` from an explicit manifest, excludes opaque artifacts
 and fails closed if a known canary remains. PR CI publishes only this
 staging for 14 days; release proof is kept 30 days and distributions 90
@@ -151,7 +151,7 @@ A scenario's TTL is always bounded by the session's remaining time. The TTL
 written in a manifest enables purging (`purge_expired`) but creates no
 global daemon: the supervisor triggers deletion on stop, on expiry or when
 the owner disappears. Expired local proofs are additionally purged
-automatically at the start of every `make proof`: runs from the runtime
+automatically at the start of every `./dev proof`: runs from the runtime
 evidence store and any whole `.proof` tree whose `artifact-manifest.json`
 carries a past `expires_at` are deleted before regeneration (absent or
 unreadable manifest = kept). This purge is best-effort: a
@@ -161,8 +161,8 @@ continues.
 
 ## 5. Quality and determinism
 
-- Short loop: `make check-local` (Ruff, format, mypy, unit tests).
-  Mandatory gate: `make check`, which adds Docker, real Chrome and real
+- Short loop: `./dev check-local` (Ruff, format, mypy, unit tests).
+  Mandatory gate: `./dev check`, which adds Docker, real Chrome and real
   Symfony.
 - Unit tests: loopback, deterministic, no external network, no browser.
 - The mock records the emitted protocol: a test validates JSON output
@@ -179,7 +179,7 @@ continues.
   rather than insisting.
 - Large outputs are bounded (`--limit`); `--full` is deliberate and
   reserved for the `privileged` authority. Streams and journals use NDJSON.
-- `make mock` opens a supervised session in the foreground without a
+- `./dev mock` opens a supervised session in the foreground without a
   browser, prints the identity exports and exposes the received CDP
   commands. `Ctrl-C` triggers the full teardown.
 - `a11y`, `vitals`, `seo`, `network` and `replay` are bounded diagnostics,

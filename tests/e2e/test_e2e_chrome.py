@@ -7,7 +7,7 @@ browser + the fixture server.
 
 Launch target:
   chromium --headless=new --remote-debugging-port=0 ... (handled here)
-  make test-e2e
+  ./dev test-e2e
 """
 
 import json
@@ -1033,7 +1033,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
         "risks": [
             {
                 "risk": "Chrome required.",
-                "mitigation": "make proof fails without a binary.",
+                "mitigation": "./dev proof fails without a browser.",
                 "rollback": "Install Chrome then retry.",
             }
         ],
@@ -1766,7 +1766,7 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
     #: matrix, coverage, risks and unknowns render the run's data
     assert "Session and security" in validation_view["text"]
     assert "demo_checkout" in validation_view["text"]
-    assert "make proof fails without a binary." in validation_view["text"]
+    assert "./dev proof fails without a browser." in validation_view["text"]
     assert "Loopback fixtures only." in validation_view["text"]
     if evidence_case is not None:
         evidence_case.attach_json(

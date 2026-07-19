@@ -5,11 +5,18 @@ include = [
   "README.md",
   "HARNESS.md",
   "docs/CONTEXT.md",
+  "docs/INSTALLATION.md",
+  "docs/CONFIGURATION.md",
+  "docs/INTEGRATION.md",
+  "docs/DEVELOPMENT.md",
   "docs/GITHUB.md",
   "docs/PRIMITIVES.md",
   "docs/RELEASING.md",
+  "docs/RELEASE-ARCHITECTURE.md",
   "docs/SESSION-LIFECYCLE.md",
   "docs/VALIDATION.md",
+  "docs/TROUBLESHOOTING.md",
+  "docs/architecture/decisions/*.md",
   "docs/features/*.md",
 ]
 
@@ -19,3 +26,4 @@ exclude = []
 "." = "Product documentation"
 "docs" = "References"
 "docs/features" = "Feature specifications"
+"docs/architecture/decisions" = "Architecture decisions"

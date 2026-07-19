@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/cdpx-launcher-test.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+
+mkdir -p "$temporary/bin"
+cat > "$temporary/bin/docker" <<'EOF'
+#!/bin/sh
+case "$1" in
+  info) exit 0 ;;
+  container|inspect) exit 1 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod 0755 "$temporary/bin/docker"
+
+output=$(PATH="$temporary/bin:$PATH" CDPX_IMAGE_REF=example.invalid/cdpx@sha256:test \
+    "$root/cdpx" --version)
+printf '%s\n' "$output" | grep '"launcher_version":"0.1.0"' >/dev/null
+printf '%s\n' "$output" | grep '"image":"example.invalid/cdpx@sha256:test"' >/dev/null

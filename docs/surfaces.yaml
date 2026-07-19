@@ -1,0 +1,34 @@
+schema: cdpx.documentation/v1
+surfaces:
+  - id: docker-launcher
+    implementation: cdpx
+    user: docs/INSTALLATION.md
+    integrator: docs/INTEGRATION.md
+  - id: workspace-config
+    implementation: src/cdpx/runtime_config.py
+    user: docs/CONFIGURATION.md
+    integrator: schemas/cdpx.schema.json
+  - id: persistent-runtime
+    implementation: src/cdpx/runtime.py
+    user: docs/INTEGRATION.md
+    integrator: docs/INTEGRATION.md
+  - id: development-portal
+    implementation: dev
+    user: docs/DEVELOPMENT.md
+    integrator: docs/DEVELOPMENT.md
+  - id: production-image
+    implementation: Dockerfile
+    user: docs/INSTALLATION.md
+    integrator: docs/INTEGRATION.md
+  - id: embedded-bundle
+    implementation: packaging/embedded-install
+    user: docs/INSTALLATION.md
+    integrator: packaging/Dockerfile.embedded
+  - id: sidecar
+    implementation: packaging/compose.sidecar.yml
+    user: docs/INTEGRATION.md
+    integrator: packaging/compose.sidecar.yml
+  - id: candidate-promotion
+    implementation: .github/workflows/release.yml
+    user: docs/RELEASING.md
+    integrator: docs/RELEASE-ARCHITECTURE.md

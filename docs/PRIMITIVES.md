@@ -4,7 +4,7 @@ Each primitive = a function (`src/cdpx/primitives/`), a CLI subcommand, mock
 tests (output + protocol), a fixture if an e2e scenario makes sense. This
 catalog gives the **what/why** per feature; the exhaustive reference
 (options, JSON outputs, pitfalls) lives in each feature's sheet
-(`docs/features/`), also displayed in the proof report (`make proof`).
+(`docs/features/`), also displayed in the proof report (`./dev proof`).
 
 ## Output contract
 
@@ -162,15 +162,15 @@ verdict. Schema-v1 logs remain readable for non-sensitive actions; v1
 
 ## Harness and proof cockpit — [sheet](features/harness-proof-cockpit.md)
 
-Quality gates (`make check`, `make test-e2e`, Docker images) and generation
-of the proof report (`make proof` → `.proof/proof-report.html`), which
+Quality gates (`./dev check`, `./dev test-e2e`, Docker images) and generation
+of the proof report (`./dev proof` → `.proof/proof-report.html`), which
 serves as human-facing product documentation: per-feature user docs,
-scenarios, tests, proofs, gaps. See the sheet for each make target.
+scenarios, tests, proofs, gaps. See the sheet for each `./dev` command.
 
 ## Addition rule
 
 New primitive = use case written here FIRST (one table row), then mock
 test, then implementation, then fixture if e2e is relevant, then a
 `### cdpx <cmd>` section in the feature sheet (mechanically verified: a
-command without user documentation breaks `make proof`). See the
+command without user documentation breaks `./dev proof`). See the
 [contribution guide](../CONTRIBUTING.md) and `AGENTS.md`.

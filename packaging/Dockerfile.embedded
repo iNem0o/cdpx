@@ -1,0 +1,6 @@
+# syntax=docker/dockerfile:1.14
+# Copy the self-contained bundle without inheriting cdpx's runtime defaults.
+FROM ghcr.io/inem0o/cdpx:0.1.0 AS cdpx
+FROM debian:bookworm-slim
+COPY --from=cdpx /opt/cdpx /opt/cdpx
+RUN /opt/cdpx/install --link /usr/local/bin/cdpx

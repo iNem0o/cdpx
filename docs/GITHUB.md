@@ -14,8 +14,8 @@ publication.
 5. Resolve review conversations and merge with squash.
 6. Delete the merged branch.
 
-`make check` is the normative quality gate. `make release` adds proof and
-distribution validation but publishes nothing.
+`./dev check` is the normative quality gate. `./dev release` adds the
+internal package validation but publishes nothing.
 
 ## Required repository settings
 
@@ -30,7 +30,7 @@ distribution validation but publishes nothing.
 | Workflow permissions | `contents: read` by default; no PR approval |
 | Third-party actions | explicitly authorized and pinned by SHA |
 | Pull-request proof | `.proof/shareable/` only, retained 14 days |
-| Release environment | `pypi`, with Trusted Publishing and approval |
+| Release environment | `release`, with required approval |
 | Security | Dependabot alerts and private vulnerability reporting enabled where available |
 
 If the GitHub plan does not provide rulesets, branch protection, secret
@@ -62,7 +62,7 @@ setting after every administrative change.
 3. Inspect the job summary, then `validation-summary.json` and
    `proof-report.html`.
 4. Confirm that the branch is current and conversations are resolved.
-5. Reproduce the reported Make target locally, fix it and rerun the gate.
+5. Reproduce the reported `./dev` command locally, fix it and rerun the gate.
 
 A workflow modified by a pull request executes that branch's code. Read-only
 permissions and the absence of `pull_request_target` reduce the risk; an

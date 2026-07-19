@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+SCRIPT=$0
+while [ -L "$SCRIPT" ]; do
+    link=$(readlink "$SCRIPT")
+    case "$link" in
+        /*) SCRIPT=$link ;;
+        *) SCRIPT=$(dirname "$SCRIPT")/$link ;;
+    esac
+done
+BUNDLE=$(CDPATH='' cd -- "$(dirname "$SCRIPT")/.." && pwd -P)
+export CDPX_BUNDLE_ROOT="${CDPX_BUNDLE_ROOT:-$BUNDLE/root}"
+export CDPX_BUNDLED_CHROME="${CDPX_BUNDLED_CHROME:-$BUNDLE/bin/native-chromium}"
+export CDPX_CONTAINERIZED=1
+export PYTHONPATH="$BUNDLE/site-packages${PYTHONPATH:+:$PYTHONPATH}"
+exec "$BUNDLE/bin/native-python" -m cdpx.cli "$@"

@@ -7,10 +7,10 @@ model and validate at the transport boundary.
 
 from __future__ import annotations
 
-from typing import Any, NotRequired, TypeAlias, TypedDict
+from typing import Any, NotRequired, TypedDict
 
-CDPParams: TypeAlias = dict[str, Any]
-CDPResult: TypeAlias = dict[str, Any]
+type CDPParams = dict[str, Any]
+type CDPResult = dict[str, Any]
 
 
 class CDPErrorPayload(TypedDict):

@@ -54,6 +54,8 @@ _PIPELINE_TOP_LEVEL_FILES = frozenset(
         "ruff-check.log",
         "ruff-format.log",
         "mypy.log",
+        "coverage.json",
+        "coverage-thresholds.log",
         "artifact-manifest.json",
     }
 )

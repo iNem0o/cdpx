@@ -4,7 +4,7 @@ Stdlib producer (pty + select): no asciinema/agg dependency. Recorded
 commands are cheap secondary demonstration proofs — never the verdict
 commands (pytest/ruff/mypy), whose duplicated execution would be
 prohibitive. Recording is systematic and part of the gate: a missing or
-degraded cast fails ``make proof`` (see ``cast_failures`` in ``cdpx.proof``).
+degraded cast fails ``./dev proof`` (see ``cast_failures`` in ``cdpx.proof``).
 """
 
 from __future__ import annotations

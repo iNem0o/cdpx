@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import math
 import time
-from typing import Any, TypeAlias, TypeGuard
+from typing import Any, TypeGuard
 
 from websockets.sync.client import connect
 
@@ -31,7 +31,7 @@ from cdpx.cdp_types import (
 )
 
 DEFAULT_TIMEOUT = 15.0
-InboundMessage: TypeAlias = CDPEvent | CDPResponse
+type InboundMessage = CDPEvent | CDPResponse
 
 
 def validate_time_budget(value: float, label: str) -> float:

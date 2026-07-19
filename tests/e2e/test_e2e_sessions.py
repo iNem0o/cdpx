@@ -62,11 +62,10 @@ def start_managed_session(
         origins,
         "--ttl",
         "300",
-        "--owner-pid",
-        str(os.getpid()),
-        "--chrome",
-        chrome_bin,
-        env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+        env={
+            "XDG_RUNTIME_DIR": str(runtime_dir),
+            "CDPX_BUNDLED_CHROME": chrome_bin,
+        },
     )
     assert proc.returncode == 0 and not proc.stderr, (
         f"session start failed: exit={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"

@@ -2,8 +2,7 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -12,94 +11,84 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/cdpx
+
 jobs:
-  build-and-verify:
-    name: Build and verify tagged release
+  promote:
+    name: Approve and promote verified candidate
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      CDPX_PROOF_RETENTION_DAYS: "30"
+    timeout-minutes: 30
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/pkgs/container/cdpx
     permissions:
-      contents: read
+      actions: read
+      contents: write
+      packages: write
     steps:
       - name: Checkout tag
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.12"
-      - name: Install development dependencies
-        run: make setup
-      - name: Verify tag matches package version
-        shell: bash
+      - name: Verify tag, version, and ancestry
         run: |
-          set -euo pipefail
-          [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          PACKAGE_VERSION="$(python -c 'from cdpx import __version__; print(__version__)')"
-          test "v${PACKAGE_VERSION}" = "${GITHUB_REF_NAME}"
-      - name: Verify tagged commit belongs to master
-        run: git merge-base --is-ancestor "${GITHUB_SHA}" origin/master
-      - name: Run the complete release gate
-        run: make release
-      - name: Upload verified distributions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-package-distributions
-          path: dist/
-          if-no-files-found: error
-          retention-days: 90
-      - name: Upload proof cockpit
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-proof
-          path: .proof/shareable/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 30
-
-  publish-pypi:
-    name: Publish to PyPI
-    needs: build-and-verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    environment:
-      name: pypi
-      url: https://pypi.org/p/cdpx
-    permissions:
-      id-token: write
-    steps:
-      - name: Download verified distributions
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: python-package-distributions
-          path: dist/
-      - name: Publish distributions with Trusted Publishing
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
-
-  github-release:
-    name: Create GitHub Release
-    needs: publish-pypi
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    steps:
-      - name: Download verified distributions
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: python-package-distributions
-          path: dist/
-      - name: Create checksums
-        run: (cd dist && sha256sum *) > SHA256SUMS
-      - name: Create release from the existing tag
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) exit 1 ;;
+          esac
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          test "v$version" = "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+      - name: Locate the successful candidate workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" \
+            --status success --json databaseId --jq '.[0].databaseId')"
+          test -n "$run_id"
+          printf 'CANDIDATE_RUN=%s\n' "$run_id" >> "$GITHUB_ENV"
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Resolve and promote without rebuilding
+        run: |
+          candidate="$REGISTRY_IMAGE:sha-$GITHUB_SHA"
+          digest="sha256:$(docker buildx imagetools inspect "$candidate" --raw | sha256sum | awk '{print $1}')"
+          test -n "$digest"
+          version="${GITHUB_REF_NAME#v}"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          for tag in "$version" "$major.$minor" "$major" latest; do
+            docker buildx imagetools create --tag "$REGISTRY_IMAGE:$tag" \
+              "$REGISTRY_IMAGE@$digest"
+          done
+          printf 'IMAGE_DIGEST=%s\n' "$digest" >> "$GITHUB_ENV"
+      - name: Download candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh run download "$CANDIDATE_RUN" -n candidate-embedded-amd64 -D dist
+          gh run download "$CANDIDATE_RUN" -n candidate-embedded-arm64 -D dist
+      - name: Bake digest into the portable launcher
+        run: |
+          sed "s/__CDPX_IMAGE_DIGEST__/${IMAGE_DIGEST#sha256:}/" cdpx > dist/cdpx
+          chmod 0755 dist/cdpx
+          cp packaging/install dist/install
+          chmod 0755 dist/install
+          (cd dist && sha256sum cdpx cdpx-embedded-linux-*.tar.gz install > SHA256SUMS)
+      - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: >-
-          gh release create "${GITHUB_REF_NAME}"
-          dist/* SHA256SUMS
-          --verify-tag
-          --generate-notes
+        run: |
+          previous="$(git describe --tags --abbrev=0 "$GITHUB_SHA^" 2>/dev/null || true)"
+          set -- gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+          if [ -n "$previous" ]; then
+            set -- "$@" --notes-start-tag "$previous"
+          fi
+          "$@"

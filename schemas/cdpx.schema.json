@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inem0o.github.io/cdpx/schema/cdpx-v1.json",
+  "title": "cdpx workspace configuration",
+  "description": "Optional, automatically trusted workspace runtime configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "cdpx/v1",
+      "default": "cdpx/v1",
+      "description": "Configuration contract version."
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "type": "string",
+          "pattern": "^(host|bridge|network:[A-Za-z0-9_.-]+|container:[A-Za-z0-9_.-]+)$",
+          "default": "host",
+          "description": "Docker network mode for the persistent runtime."
+        },
+        "idle_timeout": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 300,
+              "maximum": 604800
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$"
+            }
+          ],
+          "default": "24h",
+          "description": "Stop an idle runtime after this duration."
+        },
+        "shm_size": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 268435456,
+              "maximum": 4294967296
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[kKmMgG]([iI]?[bB])?$"
+            }
+          ],
+          "default": "1g",
+          "description": "Shared memory available to embedded Chromium."
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/environmentName"
+          },
+          "default": [],
+          "description": "Host variables that must be non-empty and are forwarded per invocation."
+        },
+        "optional": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/environmentName"
+          },
+          "default": [],
+          "description": "Host variables forwarded only when present."
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Non-secret literal values passed to each invocation."
+        }
+      }
+    },
+    "mounts": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "target"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path inside the workspace, relative to its root unless absolute."
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "Absolute, non-reserved container path."
+          },
+          "read_only": {
+            "type": "boolean",
+            "default": true,
+            "description": "Mount read-only unless explicitly disabled."
+          }
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ttl": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$"
+            }
+          ],
+          "default": "1h",
+          "description": "Default supervised-session lifetime."
+        },
+        "origins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [],
+          "description": "Default HTTP(S) origin grants."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "environmentName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    }
+  }
+}

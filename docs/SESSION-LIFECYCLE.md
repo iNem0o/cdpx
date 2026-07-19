@@ -71,7 +71,6 @@ command.
 | --- | ---: | --- |
 | `--ttl` | 3600 s | absolute expiration of the session and its profile |
 | `--startup-timeout` | 60 s | shared cold-start budget, bounded to 300 s |
-| `--owner-pid` | absent | destroys the session when this process disappears |
 | global `--timeout` | 15 s | bounds CDP commands and the wait for `stop` |
 
 The TTL starts before the supervisor is launched. The startup budget
@@ -82,7 +81,9 @@ returned on stderr, then the private directory is deleted.
 
 ## Chrome binary and command line
 
-Without `--chrome`, cdpx looks for the first available executable in
+The runtime selects its bundled Chromium. Internal test harnesses may select
+another binary, but the public CLI has no browser-path override. In source
+internals cdpx looks for the first available executable in
 `PATH`:
 
 1. `chromium`;
@@ -91,7 +92,7 @@ Without `--chrome`, cdpx looks for the first available executable in
 4. `google-chrome-stable`;
 5. `chrome`.
 
-`--chrome NAME` resolves the name in `PATH`. A value containing a
+An internal browser name resolves in `PATH`. A value containing a
 separator is treated as a path, verified then made absolute. No
 Chrome found is a startup error; cdpx never falls back to an
 already-open personal session.
@@ -290,7 +291,7 @@ cdpx session status \
 
 | Symptom | Interpretation | Action |
 | --- | --- | --- |
-| Chrome/Chromium not found | no candidate and no valid `--chrome` | install Chrome or provide an explicit path |
+| Chrome/Chromium not found | bundled runtime is incomplete | reinstall the pinned image and report the digest |
 | startup timeout | `DevToolsActivePort`, discovery or target not ready within the budget | read the redacted tails, increase up to 300 s at most, check sandbox and `/dev/shm` |
 | manifest too open or symbolic | impaired private capability | fix the cause, do not bypass the check |
 | session already in use | lease held by another command | let the command finish then retry |

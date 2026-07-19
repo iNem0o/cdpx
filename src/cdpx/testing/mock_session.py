@@ -1,4 +1,4 @@
-"""Launch a supervised mock session in the foreground for ``make mock``."""
+"""Launch a supervised mock session in the foreground for ``./dev mock``."""
 
 from __future__ import annotations
 

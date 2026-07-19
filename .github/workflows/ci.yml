@@ -3,8 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - master
+    branches: [master]
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -16,73 +15,65 @@ concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/cdpx
+
 jobs:
-  python-compat:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+  core:
+    name: Core / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install development dependencies
-        run: make setup
-      - name: Run the local quality gate
-        run: make check-local
-      - name: Enforce coverage
-        run: make cov
+      - name: Run the containerized local gate
+        run: ./dev check-local
+      - name: Verify the native bundle
+        run: |
+          ./dev image
+          docker run --rm --entrypoint /opt/cdpx/bin/native-cdpx cdpx-runtime:dev --version
 
-  release-gate:
-    name: Full release gate
+  full:
+    name: Full Chrome / Symfony / proof gate
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
-      PROOF_ARTIFACT_NAME: pr-proof-${{ github.run_id }}-${{ github.run_attempt }}
+      PROOF_ARTIFACT_NAME: proof-${{ github.run_id }}-${{ github.run_attempt }}
       CDPX_PROOF_RETENTION_DAYS: "14"
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.12"
-      - name: Install development dependencies
-        run: make setup
-      - name: Run Docker, Chrome, Symfony, proof, and distribution gates
-        id: release
-        run: make release
-      - name: Build the native GitHub summary
+      - name: Run the canonical gate
+        id: gate
+        run: ./dev check
+      - name: Publish the native summary
         if: ${{ always() }}
         env:
-          RELEASE_OUTCOME: ${{ steps.release.outcome }}
-        shell: bash
+          RELEASE_OUTCOME: ${{ steps.gate.outcome }}
         run: |
-          set -o pipefail
-          # A `make proof` failure leaves the (already redacted) summary in
-          # the transactional staging .proof.new/: read it locally then.
-          # .proof.new is NEVER uploaded as an artifact — it may contain
-          # non-shareable evidence; only this step reads it.
           summary_path=".proof/validation-summary.json"
-          if [ ! -f "${summary_path}" ] && [ -f ".proof.new/validation-summary.json" ]; then
+          if [ ! -f "$summary_path" ] && [ -f ".proof.new/validation-summary.json" ]; then
             summary_path=".proof.new/validation-summary.json"
           fi
-          python scripts/github_summary.py \
-            --summary "${summary_path}" \
-            --artifact-name "${PROOF_ARTIFACT_NAME}" \
-            --release-outcome "${RELEASE_OUTCOME}" \
-            | tee -a "${GITHUB_STEP_SUMMARY}"
-      - name: Upload proof cockpit and diagnostics
+          docker run --rm --entrypoint python \
+            --mount "type=bind,source=$PWD,target=$PWD" --workdir "$PWD" \
+            cdpx-dev:local scripts/github_summary.py \
+            --summary "$summary_path" \
+            --artifact-name "$PROOF_ARTIFACT_NAME" \
+            --release-outcome "$RELEASE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload shareable proof
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -92,19 +83,107 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  launcher-macos:
+    name: Launcher / macOS beta
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Validate POSIX launcher behavior
+        run: sh tests/test_launcher.sh
+
+  candidate:
+    name: Candidate / ${{ matrix.arch }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    needs: [core, full, launcher-macos]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push immutable architecture candidate
+        run: |
+          docker buildx build --push --provenance=true --sbom=true \
+            --target runtime \
+            --build-arg "VERSION=0.1.0" \
+            --build-arg "REVISION=$GITHUB_SHA" \
+            --tag "$REGISTRY_IMAGE:sha-$GITHUB_SHA-${{ matrix.arch }}" .
+      - name: Export embedded bundle from the same source
+        run: |
+          mkdir -p candidate/opt
+          docker pull "$REGISTRY_IMAGE:sha-$GITHUB_SHA-${{ matrix.arch }}"
+          container="$(docker create "$REGISTRY_IMAGE:sha-$GITHUB_SHA-${{ matrix.arch }}")"
+          docker cp "$container:/opt/cdpx" candidate/opt/cdpx
+          docker rm "$container"
+          tar -C candidate -czf "cdpx-embedded-linux-${{ matrix.arch }}.tar.gz" opt/cdpx
+      - name: Upload embedded candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-embedded-${{ matrix.arch }}
+          path: cdpx-embedded-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  candidate-manifest:
+    name: Candidate / manifest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    needs: [candidate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Assemble the immutable multi-architecture candidate
+        run: |
+          docker buildx imagetools create \
+            --tag "$REGISTRY_IMAGE:sha-$GITHUB_SHA" \
+            "$REGISTRY_IMAGE:sha-$GITHUB_SHA-amd64" \
+            "$REGISTRY_IMAGE:sha-$GITHUB_SHA-arm64"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE:sha-$GITHUB_SHA" --format '{{json .}}' \
+            > candidate.json
+      - name: Upload candidate identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-identity
+          path: candidate.json
+          if-no-files-found: error
+          retention-days: 30
+
   required:
     name: PR Gate / Required
     if: ${{ always() }}
-    needs:
-      - python-compat
-      - release-gate
+    needs: [core, full, launcher-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every validation job
         env:
-          PYTHON_COMPAT_RESULT: ${{ needs.python-compat.result }}
-          RELEASE_GATE_RESULT: ${{ needs.release-gate.result }}
-        run: |
-          test "${PYTHON_COMPAT_RESULT}" = "success"
-          test "${RELEASE_GATE_RESULT}" = "success"
+          CORE: ${{ needs.core.result }}
+          FULL: ${{ needs.full.result }}
+          MACOS: ${{ needs.launcher-macos.result }}
+        run: test "$CORE" = success && test "$FULL" = success && test "$MACOS" = success

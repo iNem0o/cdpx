@@ -18,6 +18,8 @@ venv/
 .proof.new/
 .proof.old/
 .ci-artifacts/
+.cdpx/
+.cache/
 .codehealth/
 *.png
 *.pdf
