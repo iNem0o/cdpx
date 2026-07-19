@@ -20,7 +20,6 @@ venv/
 .ci-artifacts/
 .cdpx/
 .cache/
-.codehealth/
 *.png
 *.pdf
 !tests/fixtures/pixel.png
