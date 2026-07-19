@@ -57,7 +57,10 @@ docker-e2e:
 	docker run --rm cdpx-dev:local $(HARNESS) test-e2e
 
 docker-symfony-e2e:
-	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx
+	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; \
+	status=$$?; \
+	docker compose -f docker-compose.symfony-e2e.yml down --volumes --remove-orphans; \
+	exit $$status
 
 proof:
 	$(HARNESS) proof
