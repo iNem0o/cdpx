@@ -16,7 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/cdpx
+  REGISTRY_IMAGE: ghcr.io/inem0o/cdpx
+  # Hosted runners use the plain docker buildx driver, which cannot export a
+  # local cache directory.
+  DEV_CACHE: "0"
 
 jobs:
   core:

@@ -6,6 +6,12 @@ variable "REVISION" {
   default = "uncommitted"
 }
 
+# Local cache export requires a containerd-backed builder; CI runners use the
+# plain docker driver, so they opt out with DEV_CACHE=0.
+variable "DEV_CACHE" {
+  default = "1"
+}
+
 group "default" {
   targets = ["dev", "runtime"]
 }
@@ -19,8 +25,8 @@ target "dev" {
   inherits = ["_common"]
   target   = "dev"
   tags     = ["cdpx-dev:local"]
-  cache-from = ["type=local,src=.cache/buildkit-dev"]
-  cache-to   = ["type=local,dest=.cache/buildkit-dev,mode=max"]
+  cache-from = DEV_CACHE == "1" ? ["type=local,src=.cache/buildkit-dev"] : []
+  cache-to   = DEV_CACHE == "1" ? ["type=local,dest=.cache/buildkit-dev,mode=max"] : []
 }
 
 target "ci" {

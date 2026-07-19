@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/cdpx
+  REGISTRY_IMAGE: ghcr.io/inem0o/cdpx
 
 jobs:
   promote:
