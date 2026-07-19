@@ -31,7 +31,7 @@ def test_version_has_single_source():
     assert PYPROJECT["project"]["version"] == __version__
     assert "dynamic" not in PYPROJECT["project"]
     assert __version__.count(".") == 2  # x.y.z
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.1.1"
 
 
 def test_license_is_declared_and_present():

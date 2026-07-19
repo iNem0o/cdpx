@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cdpx"
-version = "0.1.0"
+version = "0.1.1"
 description = "Supervised browser automation CLI for coding agents and developers — Chrome DevTools Protocol actions to inspect, act, measure, audit and prove browser behavior"
 readme = "README.md"
 authors = [{ name = "inem0o" }]

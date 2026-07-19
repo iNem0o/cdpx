@@ -18,7 +18,7 @@ chmod 0755 "$temporary/bin/docker"
 
 output=$(PATH="$temporary/bin:$PATH" CDPX_IMAGE_REF=example.invalid/cdpx@sha256:test \
     "$root/cdpx" --version)
-printf '%s\n' "$output" | grep '"launcher_version":"0.1.0"' >/dev/null
+printf '%s\n' "$output" | grep '"launcher_version":"0.1.1"' >/dev/null
 printf '%s\n' "$output" | grep '"image":"example.invalid/cdpx@sha256:test"' >/dev/null
 
 # The source launcher refuses to run without a baked digest.

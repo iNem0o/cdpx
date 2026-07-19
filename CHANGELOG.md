@@ -3,6 +3,16 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [0.1.1] — 2026-07-19
+
+### Fixed
+
+- The released launcher refused to run: the release digest substitution
+  also rewrote the unreleased-guard pattern, so every published launcher
+  matched its own digest. The substitution is now anchored to the
+  `DEFAULT_IMAGE` line and the launcher test bakes a digest exactly as
+  the release workflow does.
+
 ## [0.1.0] — 2026-07-19
 
 ### Added
