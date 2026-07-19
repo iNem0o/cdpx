@@ -76,7 +76,7 @@ jobs:
           gh run download "$CANDIDATE_RUN" -n candidate-embedded-arm64 -D dist
       - name: Bake digest into the portable launcher
         run: |
-          sed "s/__CDPX_IMAGE_DIGEST__/${IMAGE_DIGEST#sha256:}/" cdpx > dist/cdpx
+          sed "/^DEFAULT_IMAGE=/s/__CDPX_IMAGE_DIGEST__/${IMAGE_DIGEST#sha256:}/" cdpx > dist/cdpx
           chmod 0755 dist/cdpx
           cp packaging/install dist/install
           chmod 0755 dist/install
