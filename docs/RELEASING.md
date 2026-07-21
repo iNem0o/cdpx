@@ -4,6 +4,28 @@ Public releases are Docker-first and require explicit maintainer approval.
 The workflow promotes an already verified image digest; it never rebuilds a
 tag and does not publish to PyPI.
 
+## Runbook
+
+The tag is the trigger, not the release: prepare, prove, tag, approve.
+The sections below detail each step; this is the complete order.
+
+1. Start from the merged, green tip: `git checkout master && git pull`.
+2. Bump every version pin to `X.Y.Z` in one commit named
+   `Prepare cdpx X.Y.Z`.
+   `tests/test_packaging.py::test_release_version_pins_move_together`
+   enumerates every pinned file and fails on any laggard; also move the
+   `[Unreleased]` changelog section to `[X.Y.Z] — DATE`.
+3. Prove the prep commit locally: `./dev check-local`, `./dev check`,
+   then `./dev release` and the pinned-image smoke test below.
+4. Push `master` and wait for the master CI run to be green through
+   `Candidate / manifest`: promotion needs the immutable `sha-COMMIT`
+   candidate that this run publishes.
+5. Tag that exact commit: `git tag -a vX.Y.Z -m "cdpx X.Y.Z"`, then push
+   only the tag.
+6. Approve the protected `release` environment when the workflow pauses.
+   Nothing publishes before this approval.
+7. Verify the promotion as described in "Tag and promotion" steps 5–7.
+
 ## Preconditions
 
 - `master` contains the intended clean release commit.
