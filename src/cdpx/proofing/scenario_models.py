@@ -98,7 +98,7 @@ class ScenarioTotals(TypedDict):
     e2e: int
     symfony: int
     screenshots: int
-    missing_e2e_screenshots: list[str]
+    missing_e2e_captures: list[str]
 
 
 class ScenarioEvidence(TypedDict):

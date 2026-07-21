@@ -16,6 +16,13 @@ cdpx uses semantic versioning.
   plan compilation, letting stack tooling drive the network name and
   extra hosts through exported variables.
 
+### Changed
+
+- **Breaking**: `$` is now reserved in every `cdpx.yaml` string value.
+  A literal `$` accepted by earlier releases must be escaped as `$$`;
+  any other bare `$` fails compilation with a `malformed placeholder`
+  error.
+
 ## [0.1.2] — 2026-07-21
 
 ### Added

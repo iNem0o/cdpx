@@ -117,6 +117,17 @@ def test_interpolation_distinguishes_empty_from_unset(tmp_path: Path):
     assert configuration["environment"]["set"] == {"PLAIN": "", "DEFAULTED": "fallback"}
 
 
+def test_interpolation_never_touches_keys(tmp_path: Path):
+    # A placeholder-looking key must reach validation uninterpolated: were
+    # keys resolved, "${NAME}" would become the valid name "SAFE" and load.
+    (tmp_path / "cdpx.yaml").write_text(
+        yaml.safe_dump({"environment": {"set": {"${NAME}": "value"}}}), encoding="utf-8"
+    )
+
+    with pytest.raises(ConfigurationError, match=r"invalid environment name: '\$\{NAME\}'"):
+        load_configuration(tmp_path, environ={"NAME": "SAFE"})
+
+
 def test_interpolated_values_change_the_fingerprint(tmp_path: Path):
     (tmp_path / "cdpx.yaml").write_text(
         yaml.safe_dump({"runtime": {"network": "network:${STACK_NET}"}}), encoding="utf-8"

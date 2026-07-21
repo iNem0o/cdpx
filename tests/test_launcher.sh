@@ -10,7 +10,15 @@ cat > "$temporary/bin/docker" <<'EOF'
 #!/bin/sh
 case "$1" in
   info) exit 0 ;;
-  container|inspect) exit 1 ;;
+  container|inspect)
+    # CDPX_STUB_RUNNING simulates a live runtime container so the
+    # docker exec compile path is selected instead of docker run.
+    if [ "${CDPX_STUB_RUNNING:-no}" = "yes" ]; then
+      [ "$1" = "inspect" ] && printf 'true\n'
+      exit 0
+    fi
+    exit 1
+    ;;
 esac
 compile=no
 for argument in "$@"; do
@@ -76,5 +84,22 @@ compile_log="$temporary/compile-args"
     CDPX_TEST_NET=stacknet \
     "$root/cdpx" runtime plan >/dev/null
 )
+grep -x 'run' "$compile_log" >/dev/null
 grep -A1 -x -e '--env' "$compile_log" | grep -x 'CDPX_TEST_NET=stacknet' >/dev/null
-! grep 'CDPX_TEST_UNSET' "$compile_log" >/dev/null
+grep 'CDPX_TEST_UNSET' "$compile_log" >/dev/null && exit 1
+
+# The same forwarding reaches the in-image compiler on the docker exec
+# compile path when the runtime container is already running.
+exec_log="$temporary/compile-args-exec"
+(
+    cd "$temporary/workspace"
+    PATH="$temporary/bin:$PATH" \
+    CDPX_IMAGE_REF=example.invalid/cdpx@sha256:test \
+    CDPX_TEST_LOG="$exec_log" \
+    CDPX_STUB_RUNNING=yes \
+    CDPX_TEST_NET=stacknet \
+    "$root/cdpx" runtime plan >/dev/null
+)
+grep -x 'exec' "$exec_log" >/dev/null
+grep -A1 -x -e '--env' "$exec_log" | grep -x 'CDPX_TEST_NET=stacknet' >/dev/null
+! grep 'CDPX_TEST_UNSET' "$exec_log" >/dev/null

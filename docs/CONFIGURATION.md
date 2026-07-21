@@ -67,7 +67,8 @@ string, an unset one fails compilation), `${NAME:-default}` substitutes
 the default when the variable is unset or empty, and `$$` writes a
 literal `$`. Any other `$` is rejected. Only values are interpolated,
 never keys, and every resolved value passes the same strict validation
-as a literal one.
+as a literal one. Files written before interpolation existed keep their
+meaning except for a literal `$`, which must now be escaped as `$$`.
 
 Resolution happens once, when the execution plan is compiled. Resolved
 values enter the plan fingerprint — changing a referenced variable

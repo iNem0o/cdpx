@@ -870,7 +870,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
             "e2e": 2,
             "symfony": 0,
             "screenshots": 2,
-            "missing_e2e_screenshots": [],
+            "missing_e2e_captures": [],
         },
         "scenario_evidence": {
             "suites": {"unit": [], "integration": [], "e2e": [run_pass, run_fail], "symfony": []},
@@ -882,7 +882,7 @@ def _cockpit_summary(screenshot_path: Path) -> dict:
                 "e2e": 2,
                 "symfony": 0,
                 "screenshots": 2,
-                "missing_e2e_screenshots": [],
+                "missing_e2e_captures": [],
             },
         },
         "feature_inventory": {
