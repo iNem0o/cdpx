@@ -19,12 +19,12 @@ atomically installs `cdpx` under `$HOME/.local/bin`. Add that directory to
 
 ```bash
 curl -fsSL https://inem0o.github.io/cdpx/install -o /tmp/cdpx-install
-sh /tmp/cdpx-install --version v0.1.1 --install-dir "$HOME/bin"
+sh /tmp/cdpx-install --version v0.1.2 --install-dir "$HOME/bin"
 ```
 
 The launcher contains the exact GHCR digest selected by the release. It does
 not follow a mutable Docker tag. `cdpx update` replays the stable installer;
-`cdpx update --version v0.1.1` selects a specific release.
+`cdpx update --version v0.1.2` selects a specific release.
 
 ## Development checkout
 
@@ -46,7 +46,7 @@ Linux/glibc integrators can copy the exact self-contained bundle from the
 production image:
 
 ```dockerfile
-FROM ghcr.io/inem0o/cdpx:0.1.1 AS cdpx
+FROM ghcr.io/inem0o/cdpx:0.1.2 AS cdpx
 FROM debian:bookworm-slim
 COPY --from=cdpx /opt/cdpx /opt/cdpx
 RUN /opt/cdpx/install --link /usr/local/bin/cdpx
