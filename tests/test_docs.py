@@ -10,6 +10,7 @@ import urllib.parse
 from pathlib import Path
 
 import pytest
+import yaml
 
 from cdpx.cli import build_parser
 from cdpx.proof import parse_help_commands
@@ -18,6 +19,18 @@ from cdpx.proofing.features import load_feature_specs
 README = Path("README.md").read_text(encoding="utf-8")
 PRIMITIVES = Path("docs/PRIMITIVES.md").read_text(encoding="utf-8")
 SESSION_LIFECYCLE = Path("docs/SESSION-LIFECYCLE.md").read_text(encoding="utf-8")
+AGENT_GUIDE = Path("docs/AGENT-GUIDE.md").read_text(encoding="utf-8")
+CDPX_SKILL = Path("skills/cdpx/SKILL.md").read_text(encoding="utf-8")
+SKILL_INTERFACE = Path("skills/cdpx/agents/openai.yaml").read_text(encoding="utf-8")
+SITE = Path("site/index.html").read_text(encoding="utf-8")
+PAGES_WORKFLOW = Path(".github/workflows/pages.yml").read_text(encoding="utf-8")
+
+AGENT_GUIDE_URL = "https://inem0o.github.io/cdpx/agent-guide.md"
+AGENT_ONBOARDING_PROMPT = (
+    "Help me understand and set up cdpx for this project. Read "
+    f"{AGENT_GUIDE_URL} first, then walk me through installation, project "
+    "configuration, and a safe local smoke test step by step."
+)
 
 GLOBAL_CONTRACT_TOKENS = [
     "--pretty",
@@ -89,6 +102,57 @@ def test_session_lifecycle_reference_is_routed_and_diagrammed():
     assert SESSION_LIFECYCLE.count("accDescr:") == 4
 
 
+def test_agent_onboarding_is_routed_and_published():
+    """The exact handoff prompt reaches humans from both entry points, while
+    Pages publishes the canonical guide at the URL embedded in that prompt."""
+    assert AGENT_ONBOARDING_PROMPT in README
+    assert AGENT_ONBOARDING_PROMPT in SITE
+    assert "docs/AGENT-GUIDE.md" in README
+    assert AGENT_GUIDE_URL in AGENT_GUIDE
+
+    cockpit = Path("docs/cockpit.toml").read_text(encoding="utf-8")
+    assert '"docs/AGENT-GUIDE.md"' in cockpit
+    assert '"docs/AGENT-GUIDE.md"' in Path("docs/features/harness-proof-cockpit.md").read_text(
+        encoding="utf-8"
+    )
+    assert '- "docs/AGENT-GUIDE.md"' in PAGES_WORKFLOW
+    assert "cp docs/AGENT-GUIDE.md site/agent-guide.md" in PAGES_WORKFLOW
+
+
+def test_cdpx_skill_metadata_and_safety_contract():
+    """The distributable skill has valid trigger metadata, stable UI copy and
+    the session/security rules needed to operate cdpx without improvisation."""
+    frontmatter = re.match(r"\A---\n(.*?)\n---\n", CDPX_SKILL, re.S)
+    assert frontmatter is not None
+    metadata = yaml.safe_load(frontmatter.group(1))
+    assert set(metadata) == {"name", "description"}
+    assert metadata["name"] == "cdpx"
+    assert "explicitly mentions cdpx" in metadata["description"]
+    assert "Do not trigger merely" in metadata["description"]
+
+    interface = yaml.safe_load(SKILL_INTERFACE)
+    assert interface == {
+        "interface": {
+            "display_name": "cdpx",
+            "short_description": "Operate supervised local Chrome with cdpx",
+            "default_prompt": (
+                "Use $cdpx to inspect and verify this local application in a "
+                "supervised browser session."
+            ),
+        },
+        "policy": {"allow_implicit_invocation": True},
+    }
+    for guardrail in (
+        "personal Chrome profile",
+        "untrusted data",
+        "minimum required authority",
+        "--secret-env",
+        "Never stop a session supplied by the user",
+        "Stop only a session created for the current task",
+    ):
+        assert guardrail in CDPX_SKILL
+
+
 def test_readme_documents_cli_contract():
     """The README documents the entire global CLI contract: cross-cutting
     options, session environment variables, and the three exit codes of
@@ -141,7 +205,13 @@ def test_active_user_docs_only_describe_the_supervised_session_contract():
 
 def _markdown_documents() -> list[Path]:
     paths = set(Path(".").glob("*.md"))
-    for root in (Path("docs"), Path(".github"), Path("site"), Path("tests/fixtures")):
+    for root in (
+        Path("docs"),
+        Path(".github"),
+        Path("site"),
+        Path("skills"),
+        Path("tests/fixtures"),
+    ):
         paths.update(root.rglob("*.md"))
     return sorted(path for path in paths if path.is_file())
 
@@ -196,6 +266,8 @@ def _fenced_cdpx_lines(text: str) -> list[str]:
 def _all_documented_examples() -> list[tuple[str, str]]:
     examples = [("README.md", line) for line in _fenced_cdpx_lines(README)]
     examples += [("docs/PRIMITIVES.md", line) for line in _fenced_cdpx_lines(PRIMITIVES)]
+    examples += [("docs/AGENT-GUIDE.md", line) for line in _fenced_cdpx_lines(AGENT_GUIDE)]
+    examples += [("skills/cdpx/SKILL.md", line) for line in _fenced_cdpx_lines(CDPX_SKILL)]
     specs, _ = load_feature_specs()
     for spec in specs:
         examples += [(spec.source, line) for line in _fenced_cdpx_lines(spec.body)]
@@ -218,6 +290,11 @@ def test_documented_cdpx_examples_parse(source, line):
     accepted by the real parser: a copy-pasted example can never fail with
     a usage error."""
     argv = shlex.split(line)[1:]
+    if argv in (["init"], ["runtime", "plan"]):
+        # These two project-management commands belong to the POSIX launcher,
+        # not the in-container argparse surface. Keeping this allowlist closed
+        # makes any new launcher-only example an explicit contract decision.
+        return
     try:
         build_parser().parse_args(argv)
     except SystemExit as exc:

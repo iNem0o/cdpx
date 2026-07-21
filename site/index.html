@@ -327,6 +327,7 @@
   .install-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
   @media (max-width: 940px) { .install-cols { grid-template-columns: 1fr; } }
   .install-cols .term { margin: 0; }
+  .agent-onboarding { margin-top: 48px; }
   .note {
     border: 1px solid rgba(224, 185, 90, 0.35);
     background: rgba(224, 185, 90, 0.06);
@@ -1084,6 +1085,29 @@
         </div>
         <pre><code><span class="p">$</span> <span class="cmd">curl -fsSL https://inem0o.github.io/cdpx/install | sh</span>
 <span class="p">$</span> <span class="cmd">cdpx --version</span></code></pre>
+      </div>
+    </div>
+    <div class="wrap install-cols agent-onboarding">
+      <div>
+        <span class="kicker">Agent-assisted onboarding</span>
+        <h2>Or let your agent introduce you</h2>
+        <p class="sub">
+          Already running an AI coding agent? Give it the canonical guide so it
+          can explain cdpx, inspect your project and walk you through a bounded
+          local setup instead of improvising commands.
+        </p>
+        <p class="aside">
+          The guide covers installation, <code>cdpx.yaml</code>, the first
+          supervised session, authority choices, cleanup and common fixes.
+          <a href="agent-guide.md">Read the agent guide →</a>
+        </p>
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="title">paste into your coding agent</span>
+        </div>
+        <pre><code>Help me understand and set up cdpx for this project. Read https://inem0o.github.io/cdpx/agent-guide.md first, then walk me through installation, project configuration, and a safe local smoke test step by step.</code></pre>
       </div>
     </div>
   </section>

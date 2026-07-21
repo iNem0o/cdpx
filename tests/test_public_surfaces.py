@@ -42,6 +42,7 @@ def public_surfaces() -> list[Path]:
     paths.update(Path(".github").rglob("*.yml"))
     paths.update(Path("src/cdpx/proofing/cockpit").rglob("*"))
     paths.update(Path("scripts/site_casts").rglob("*.py"))
+    paths.update(Path("skills").rglob("*"))
     paths.update(Path("site/assets/casts").glob("*.md"))
     paths.update(Path("site/assets/casts").glob("*.cast"))
     return sorted(path for path in paths if path.is_file())

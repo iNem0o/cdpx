@@ -3,6 +3,13 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- A public agent-assisted onboarding guide and reusable `cdpx` skill for safe
+  project setup, supervised browser use and troubleshooting.
+
 ## [0.1.1] — 2026-07-19
 
 ### Fixed

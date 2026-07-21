@@ -1,0 +1,7 @@
+interface:
+  display_name: "cdpx"
+  short_description: "Operate supervised local Chrome with cdpx"
+  default_prompt: "Use $cdpx to inspect and verify this local application in a supervised browser session."
+
+policy:
+  allow_implicit_invocation: true

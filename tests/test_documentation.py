@@ -28,6 +28,7 @@ def test_real_documentation_catalog_publishes_references_and_all_features():
     assert {
         "README.md",
         "HARNESS.md",
+        "docs/AGENT-GUIDE.md",
         "docs/CONTEXT.md",
         "docs/GITHUB.md",
         "docs/RELEASING.md",

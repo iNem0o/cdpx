@@ -1,5 +1,9 @@
 schema: cdpx.documentation/v1
 surfaces:
+  - id: agent-onboarding
+    implementation: skills/cdpx/SKILL.md
+    user: docs/AGENT-GUIDE.md
+    integrator: docs/PRIMITIVES.md
   - id: docker-launcher
     implementation: cdpx
     user: docs/INSTALLATION.md
