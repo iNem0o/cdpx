@@ -16,10 +16,34 @@
       "additionalProperties": false,
       "properties": {
         "network": {
-          "type": "string",
-          "pattern": "^(host|bridge|network:[A-Za-z0-9_.-]+|container:[A-Za-z0-9_.-]+)$",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(host|bridge|network:[A-Za-z0-9_.-]+|container:[A-Za-z0-9_.-]+)$"
+            },
+            {
+              "$ref": "#/$defs/placeholderString"
+            }
+          ],
           "default": "host",
           "description": "Docker network mode for the persistent runtime."
+        },
+        "extra_hosts": {
+          "type": "array",
+          "uniqueItems": true,
+          "default": [],
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?:(host-gateway|[0-9a-fA-F:.]+)$"
+              },
+              {
+                "$ref": "#/$defs/placeholderString"
+              }
+            ]
+          },
+          "description": "hostname:target entries emitted as --add-host; target is an IP address or host-gateway."
         },
         "idle_timeout": {
           "oneOf": [
@@ -31,6 +55,9 @@
             {
               "type": "string",
               "pattern": "^[1-9][0-9]*[smhd]$"
+            },
+            {
+              "$ref": "#/$defs/placeholderString"
             }
           ],
           "default": "24h",
@@ -46,6 +73,9 @@
             {
               "type": "string",
               "pattern": "^[1-9][0-9]*[kKmMgG]([iI]?[bB])?$"
+            },
+            {
+              "$ref": "#/$defs/placeholderString"
             }
           ],
           "default": "1g",
@@ -61,7 +91,14 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/environmentName"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/environmentName"
+              },
+              {
+                "$ref": "#/$defs/placeholderString"
+              }
+            ]
           },
           "default": [],
           "description": "Host variables that must be non-empty and are forwarded per invocation."
@@ -70,7 +107,14 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/environmentName"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/environmentName"
+              },
+              {
+                "$ref": "#/$defs/placeholderString"
+              }
+            ]
           },
           "default": [],
           "description": "Host variables forwarded only when present."
@@ -128,6 +172,9 @@
             {
               "type": "string",
               "pattern": "^[1-9][0-9]*[smhd]$"
+            },
+            {
+              "$ref": "#/$defs/placeholderString"
             }
           ],
           "default": "1h",
@@ -149,6 +196,11 @@
     "environmentName": {
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "placeholderString": {
+      "type": "string",
+      "pattern": "\\$\\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\\}",
+      "description": "Value interpolated from the calling environment at plan compilation."
     }
   }
 }

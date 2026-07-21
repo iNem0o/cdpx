@@ -31,6 +31,7 @@ def test_config_schema_names_every_supported_key():
     assert schema["$id"].endswith("/schema/cdpx-v1.json")
     for key in (
         "network",
+        "extra_hosts",
         "idle_timeout",
         "shm_size",
         "required",

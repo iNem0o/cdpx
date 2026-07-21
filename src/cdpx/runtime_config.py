@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,11 @@ MIN_SHM_SIZE = 268_435_456
 MAX_SHM_SIZE = 4_294_967_296
 ENVIRONMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 NETWORK = re.compile(r"(?:host|bridge|network:[A-Za-z0-9_.-]+|container:[A-Za-z0-9_.-]+)\Z")
+HOSTNAME = re.compile(
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z"
+)
+PLACEHOLDER = re.compile(r"\$(?:\$|\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?\})")
 CORE_ENVIRONMENT = {
     "CDPX_ORIGINS",
     "CDPX_RUN_ID",
@@ -150,6 +157,48 @@ def _literal_environment(value: Any) -> dict[str, str]:
     return result
 
 
+def _interpolate_text(text: str, label: str, environ: Mapping[str, str]) -> str:
+    pieces: list[str] = []
+    position = 0
+    while (index := text.find("$", position)) != -1:
+        pieces.append(text[position:index])
+        match = PLACEHOLDER.match(text, index)
+        if not match:
+            raise ConfigurationError(
+                f"{label}: malformed placeholder near {text[index : index + 16]!r}; "
+                "use ${NAME}, ${NAME:-default} or $$ for a literal $"
+            )
+        if match.group(0) == "$$":
+            pieces.append("$")
+        else:
+            name = match.group("name")
+            default = match.group("default")
+            value = environ.get(name)
+            if value:
+                pieces.append(value)
+            elif default is not None:
+                pieces.append(default)
+            elif name in environ:
+                pieces.append("")
+            else:
+                raise ConfigurationError(f"{label}: undefined environment variable: {name}")
+        position = match.end()
+    pieces.append(text[position:])
+    return "".join(pieces)
+
+
+def _interpolate(value: Any, label: str, environ: Mapping[str, str]) -> Any:
+    if isinstance(value, str):
+        return _interpolate_text(value, label, environ)
+    if isinstance(value, list):
+        return [
+            _interpolate(item, f"{label}[{index}]", environ) for index, item in enumerate(value)
+        ]
+    if isinstance(value, dict):
+        return {key: _interpolate(item, f"{label}.{key}", environ) for key, item in value.items()}
+    return value
+
+
 def _inside(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -198,16 +247,58 @@ def _mounts(value: Any, root: Path) -> list[dict[str, Any]]:
     return mounts
 
 
-def load_configuration(root: Path, config_path: Path | None = None) -> dict[str, Any]:
+def _extra_hosts(value: Any, network: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigurationError("runtime.extra_hosts: list required")
+    entries: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        label = f"runtime.extra_hosts[{index}]"
+        if not isinstance(item, str):
+            raise ConfigurationError(f"{label}: hostname:target string required")
+        if "\n" in item or "\x00" in item:
+            raise ConfigurationError(f"{label}: newline/NUL forbidden")
+        hostname, separator, target = item.partition(":")
+        if not separator or len(hostname) > 253 or not HOSTNAME.fullmatch(hostname):
+            raise ConfigurationError(f"{label}: invalid hostname in {item!r}")
+        if target != "host-gateway":
+            try:
+                ipaddress.ip_address(target)
+            except ValueError:
+                raise ConfigurationError(
+                    f"{label}: target must be an IPv4/IPv6 address or host-gateway"
+                ) from None
+        lowered = hostname.lower()
+        if lowered in seen:
+            raise ConfigurationError(f"{label}: duplicate hostname: {hostname}")
+        seen.add(lowered)
+        entries.append(item)
+    if entries and network.startswith("container:"):
+        raise ConfigurationError(
+            "runtime.extra_hosts: not allowed with runtime.network container:<name>"
+        )
+    return entries
+
+
+def load_configuration(
+    root: Path,
+    config_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Return a strict, normalized configuration with all defaults applied."""
 
     root = root.resolve()
+    if environ is None:
+        environ = os.environ
     path = config_path or root / CONFIG_NAME
     if path.exists():
         try:
             loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as error:
             raise ConfigurationError(f"{path}: invalid YAML: {error}") from error
+        loaded = _interpolate(loaded, str(path), environ)
         document = _strict_mapping(
             loaded,
             str(path),
@@ -222,13 +313,14 @@ def load_configuration(root: Path, config_path: Path | None = None) -> dict[str,
     runtime = _strict_mapping(
         document.get("runtime"),
         "runtime",
-        {"network", "idle_timeout", "shm_size"},
+        {"network", "idle_timeout", "shm_size", "extra_hosts"},
     )
     network = runtime.get("network", "host")
     if not isinstance(network, str) or not NETWORK.fullmatch(network):
         raise ConfigurationError(
             "runtime.network: expected host, bridge, network:<name> or container:<name>"
         )
+    extra_hosts = _extra_hosts(runtime.get("extra_hosts"), network)
     idle_timeout = _duration(
         runtime.get("idle_timeout", DEFAULT_IDLE_TIMEOUT),
         "runtime.idle_timeout",
@@ -269,6 +361,7 @@ def load_configuration(root: Path, config_path: Path | None = None) -> dict[str,
             "network": network,
             "idle_timeout": idle_timeout,
             "shm_size": shm_size,
+            "extra_hosts": extra_hosts,
         },
         "environment": {
             "required": required,
@@ -295,9 +388,14 @@ def _atomic_text(path: Path, content: str, mode: int = 0o600) -> None:
         raise
 
 
-def compile_plan(root: Path, output: Path, config_path: Path | None = None) -> dict[str, Any]:
+def compile_plan(
+    root: Path,
+    output: Path,
+    config_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     root = root.resolve()
-    configuration = load_configuration(root, config_path)
+    configuration = load_configuration(root, config_path, environ)
     canonical = json.dumps(configuration, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
     config = config_path or root / CONFIG_NAME
@@ -322,6 +420,8 @@ def compile_plan(root: Path, output: Path, config_path: Path | None = None) -> d
         "--shm-size",
         str(configuration["runtime"]["shm_size"]),
     ]
+    for entry in configuration["runtime"]["extra_hosts"]:
+        docker_arguments.extend(("--add-host", entry))
     for mount in configuration["mounts"]:
         spec = f"type=bind,source={mount['source']},target={mount['target']}"
         if mount["read_only"]:
@@ -353,6 +453,7 @@ schema: cdpx/v1
 
 runtime:
   network: host
+  extra_hosts: []
   idle_timeout: 24h
   shm_size: 1g
 

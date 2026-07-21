@@ -3,6 +3,19 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- `runtime.extra_hosts` in `cdpx.yaml` maps hostnames to an IP address or
+  to `host-gateway` (`--add-host`), so a runtime joined to a development
+  stack network resolves names the stack only registers in the host's
+  `/etc/hosts`.
+- Environment interpolation in `cdpx.yaml` values: `${NAME}`,
+  `${NAME:-default}` and `$$` resolve against the calling environment at
+  plan compilation, letting stack tooling drive the network name and
+  extra hosts through exported variables.
+
 ## [0.1.2] — 2026-07-21
 
 ### Added

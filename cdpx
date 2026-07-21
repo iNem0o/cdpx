@@ -71,14 +71,32 @@ container_running() {
 compile_plan() {
     mkdir -p "$PLAN_DIR" "$STATE_DIR/home"
     chmod 700 "$STATE_DIR" "$PLAN_DIR" "$STATE_DIR/home"
+    # The compiler runs inside the image without the host environment, so
+    # every ${NAME} the configuration references is forwarded explicitly.
+    # If a config-override flag is ever added, config_file must follow it.
+    config_file="$WORKSPACE/cdpx.yaml"
+    set --
+    if [ -f "$config_file" ]; then
+        names=$(sed 's/\$\$//g' "$config_file" \
+            | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*' \
+            | cut -c 3- | sort -u) || names=""
+        while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            if value=$(printenv "$name"); then
+                set -- "$@" --env "$name=$value"
+            fi
+        done <<EOF
+$names
+EOF
+    fi
     if container_running; then
-        docker exec \
+        docker exec "$@" \
             --workdir "$WORKSPACE" \
             "$CONTAINER_NAME" \
             python -m cdpx.runtime_config compile \
             --root "$WORKSPACE" --output "$PLAN_DIR" >/dev/null
     else
-        docker run --rm \
+        docker run --rm "$@" \
             --user "$USER_ID:$GROUP_ID" \
             --mount "type=bind,source=$WORKSPACE,target=$WORKSPACE" \
             --workdir "$WORKSPACE" \
