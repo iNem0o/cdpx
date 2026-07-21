@@ -55,6 +55,18 @@ Linux/glibc container integrators. See
 [Installation](docs/INSTALLATION.md), [workspace configuration](docs/CONFIGURATION.md)
 and the [integration guide](docs/INTEGRATION.md).
 
+### Let your agent set up cdpx
+
+Already running an AI coding agent? Paste this prompt:
+
+```text
+Help me understand and set up cdpx for this project. Read https://inem0o.github.io/cdpx/agent-guide.md first, then walk me through installation, project configuration, and a safe local smoke test step by step.
+```
+
+The [agent guide](docs/AGENT-GUIDE.md) teaches the concepts, installation,
+project initialization, first supervised session and common fixes. It also
+offers the separate `cdpx` skill for agents that support reusable skills.
+
 Install a development checkout without creating a host Python environment:
 
 ```bash

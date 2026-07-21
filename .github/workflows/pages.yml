@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "site/**"
+      - "docs/AGENT-GUIDE.md"
       - "packaging/install"
       - "schemas/cdpx.schema.json"
       - ".github/workflows/pages.yml"
@@ -39,6 +40,7 @@ jobs:
       - name: Publish the stable installer endpoint
         run: |
           cp packaging/install site/install
+          cp docs/AGENT-GUIDE.md site/agent-guide.md
           mkdir -p site/schema
           cp schemas/cdpx.schema.json site/schema/cdpx-v1.json
       - name: Configure GitHub Pages
