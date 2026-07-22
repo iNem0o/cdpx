@@ -316,7 +316,11 @@ runtime_command() {
                 usage_error "usage: cdpx runtime reset --force"
             fi
             remove_runtime_container
+            # Removing the state directory forfeits our launcher lock: the
+            # next waiter recreates the same path, so the exit trap must not
+            # tear down a lock this process no longer owns.
             rm -rf "$STATE_DIR"
+            LOCK_HELD=no
             printf '{"reset":true,"container":"%s"}\n' "$CONTAINER_NAME"
             ;;
         *)

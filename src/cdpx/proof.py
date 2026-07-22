@@ -36,6 +36,7 @@ import json
 import mimetypes
 import os
 import shutil
+import stat
 import sys
 from collections.abc import Sequence
 from contextlib import contextmanager
@@ -353,7 +354,16 @@ def _exclusive_proof_lock():
     """Refuse overlapping proof writers in the same worktree."""
 
     lock_path = PROOF_DIR.with_name(f"{PROOF_DIR.name}.lock")
-    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as error:
+        raise ArtifactError(f"proof lock not openable: {lock_path}") from error
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise ArtifactError(f"regular proof lock required: {lock_path}")
     stream = os.fdopen(fd, "w")
     try:
         try:

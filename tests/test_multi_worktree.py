@@ -5,6 +5,7 @@ import os
 import shutil
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,14 @@ def _run_dev(
     # The assertions target the worktree-scoped defaults, not a CI alias.
     env.pop("CDPX_DEV_IMAGE", None)
     env.pop("CDPX_RUNTIME_IMAGE", None)
-    subprocess.run([str(root / "dev"), *arguments], cwd=root, env=env, check=True)
+    # A lock-handling regression must fail the suite, never hang it.
+    subprocess.run(
+        [str(root / "dev"), *arguments],
+        cwd=root,
+        env=env,
+        check=True,
+        timeout=60,
+    )
 
 
 def _make_worktree_id(root: Path) -> str:
@@ -89,10 +97,20 @@ def test_two_worktrees_emit_disjoint_docker_and_artifact_namespaces(tmp_path):
     listener.bind(str(docker_socket))
     try:
         logs = [tmp_path / "alpha.log", tmp_path / "beta.log"]
-        for root, log in zip(roots, logs, strict=True):
+
+        def exercise(root: Path, log: Path) -> None:
             _run_dev(root, fake_bin, docker_socket, log, "setup")
             _run_dev(root, fake_bin, docker_socket, log, "check-local")
             _run_dev(root, fake_bin, docker_socket, log, "site-record", "record")
+
+        #: the sequences run concurrently: a regression that serializes
+        #: distinct worktrees behind a shared lock trips the _run_dev timeout
+        with ThreadPoolExecutor(max_workers=len(roots)) as pool:
+            futures = [
+                pool.submit(exercise, root, log) for root, log in zip(roots, logs, strict=True)
+            ]
+            for future in futures:
+                future.result()
     finally:
         listener.close()
 
@@ -139,3 +157,40 @@ def test_proof_lock_refuses_two_writers_in_one_worktree(tmp_path, monkeypatch):
         with pytest.raises(ArtifactError, match="proof already running"):
             with proof._exclusive_proof_lock():
                 pass
+
+
+@pytest.mark.scenario(
+    feature="harness-proof-cockpit",
+    journey="run-quality-gate",
+    scenario_id="harness-proof-cockpit.isolate-parallel-worktrees",
+    proves=["Distinct worktrees emit disjoint Docker and artifact namespaces."],
+)
+def test_proof_locks_of_distinct_worktrees_coexist(tmp_path, monkeypatch):
+    """The proof lock is scoped by PROOF_DIR: two worktrees hold theirs
+    simultaneously while a second writer in either one is still refused."""
+
+    alpha = tmp_path / "alpha"
+    beta = tmp_path / "beta"
+    alpha.mkdir()
+    beta.mkdir()
+
+    monkeypatch.setattr(proof, "PROOF_DIR", alpha / ".proof")
+    with proof._exclusive_proof_lock():
+        monkeypatch.setattr(proof, "PROOF_DIR", beta / ".proof")
+        with proof._exclusive_proof_lock():
+            with pytest.raises(ArtifactError, match="proof already running"):
+                with proof._exclusive_proof_lock():
+                    pass
+
+
+def test_proof_lock_rejects_symlinked_lock_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(proof, "PROOF_DIR", tmp_path / ".proof")
+
+    victim = tmp_path / "victim"
+    victim.write_text("precious\n", encoding="utf-8")
+    (tmp_path / ".proof.lock").symlink_to(victim)
+
+    with pytest.raises(ArtifactError, match="not openable|regular proof lock"):
+        with proof._exclusive_proof_lock():
+            pass
+    assert victim.read_text(encoding="utf-8") == "precious\n"
