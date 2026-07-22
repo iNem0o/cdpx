@@ -44,7 +44,7 @@ ui_text = "Independent agents can build and validate from separate worktrees wit
 report_text = "This scenario proves that canonical worktree identities scope development images, Compose projects, mounts, caches and proof writers."
 given = "Two worktrees have different canonical paths, even when their directory basenames match."
 when = "The host portal prepares a gate and site recording in each worktree."
-then = "Image tags, Compose namespaces, bind mounts, caches and published ports are disjoint, while a duplicate proof writer in one worktree is refused."
+then = "Image tags, Compose namespaces, bind mounts and caches are disjoint and the site recorder reaches Symfony over the stack network without publishing a host port, while a duplicate proof writer in one worktree is refused."
 tests = ["tests/test_multi_worktree.py::*"]
 expected_proofs = ["junit"]
 
@@ -220,9 +220,10 @@ artifacts.
 
 (Re-)records the homepage tutorial casts (`site/assets/casts/*.cast`) via
 `scripts/site_casts/generate.py`, then validates them (`check`). Requires a
-real Chrome and Docker: the target starts the Symfony reference app via the
-`docker-compose.site-casts.yml` overlay (worktree-scoped Compose project,
-dynamically assigned loopback port, volumes purged at teardown) to record the profiler demo, and each
+real Chrome and Docker: the target starts the Symfony reference app from
+`docker-compose.symfony-e2e.yml` under a worktree-scoped Compose project
+(the recorder joins the stack network, no host port is published, volumes
+are purged at teardown) to record the profiler demo, and each
 scenario opens a disposable supervised session plus the static reference
 site on :8899. The cdpx commands are actually executed and the cast is
 written only if every expectation passes (genuine outputs and durations,

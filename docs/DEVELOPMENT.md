@@ -54,8 +54,9 @@ tearing down each other's Docker resources. `CDPX_DEV_IMAGE` and
 they are development controls, not runtime image selection for end users.
 
 The full gate also assigns a worktree-specific Compose project. Site cast
-recording uses its own worktree-specific project and asks Docker for a free
-loopback port instead of reserving a fixed host port. Proof generation refuses
+recording uses its own worktree-specific project and joins the recorder to
+that project's network instead of publishing a host port, so recordings work
+on every platform and never contend for host ports. Proof generation refuses
 a second writer in the same worktree, while separate worktrees remain
 independent. The launcher similarly serializes only plan compilation and cold
 runtime creation; commands against already-started independent sessions still

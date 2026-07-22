@@ -82,13 +82,19 @@ cleanup_launcher() {
 }
 
 acquire_launcher_lock() {
-    attempts=0
+    stalled=0
     empty_attempts=0
+    notified=no
     while ! mkdir "$LAUNCHER_LOCK" 2>/dev/null; do
+        # `runtime reset` removes the state directory while waiters loop;
+        # recreate it so their mkdir converges instead of failing on ENOENT.
+        mkdir -p "$STATE_DIR"
+        chmod 700 "$STATE_DIR"
         owner=$(sed -n '1p' "$LAUNCHER_LOCK/owner" 2>/dev/null || true)
         case "$owner" in
             '' )
                 empty_attempts=$((empty_attempts + 1))
+                stalled=$((stalled + 1))
                 # Give a concurrent mkdir winner time to publish its PID.
                 if [ "$empty_attempts" -ge 50 ]; then
                     rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
@@ -96,18 +102,28 @@ acquire_launcher_lock() {
                 fi
                 ;;
             *[!0-9]* )
+                stalled=$((stalled + 1))
                 rm -f "$LAUNCHER_LOCK/owner"
                 rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
                 ;;
             * )
-                if ! kill -0 "$owner" 2>/dev/null; then
+                if kill -0 "$owner" 2>/dev/null; then
+                    # A live holder may legitimately be slow (first run pulls
+                    # the runtime image); wait for it instead of aging toward
+                    # the stale-lock timeout.
+                    stalled=0
+                    empty_attempts=0
+                    if [ "$notified" = no ]; then
+                        printf 'cdpx: waiting for the launcher lock held by pid %s\n' "$owner" >&2
+                        notified=yes
+                    fi
+                else
                     rm -f "$LAUNCHER_LOCK/owner"
                     rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
                 fi
                 ;;
         esac
-        attempts=$((attempts + 1))
-        [ "$attempts" -lt 300 ] || usage_error "runtime launcher busy for this worktree"
+        [ "$stalled" -lt 300 ] || usage_error "launcher lock is unrecoverable for this worktree: $LAUNCHER_LOCK"
         sleep 0.1
     done
     printf '%s\n' "$$" > "$LAUNCHER_LOCK/owner"

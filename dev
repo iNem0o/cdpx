@@ -65,6 +65,10 @@ run_dev() {
     group=$(socket_group "$socket")
     command=$1
     shift
+    set -- "$DEV_IMAGE" "$command" "$@"
+    if [ -n "${DEV_NETWORK:-}" ]; then
+        set -- --network "$DEV_NETWORK" "$@"
+    fi
     docker run --rm -i --init \
         --user "$(id -u):$(id -g)" \
         --group-add "$group" \
@@ -80,7 +84,7 @@ run_dev() {
         --env CDPX_SITE_SYMFONY_BASE \
         --env "HOME=$ROOT/.cache/home" \
         --env "PYTHONPATH=$ROOT/src:$ROOT" \
-        "$DEV_IMAGE" "$command" "$@"
+        "$@"
 }
 
 require_docker
@@ -127,8 +131,7 @@ case "$command" in
             record)
                 compose() {
                     docker compose -p "$SITE_COMPOSE_PROJECT" \
-                        -f "$ROOT/docker-compose.symfony-e2e.yml" \
-                        -f "$ROOT/docker-compose.site-casts.yml" "$@"
+                        -f "$ROOT/docker-compose.symfony-e2e.yml" "$@"
                 }
                 cleanup_site_record() {
                     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -136,15 +139,16 @@ case "$command" in
                 trap cleanup_site_record EXIT INT TERM
                 cleanup_site_record
                 compose up -d --wait symfony
-                site_endpoint=$(compose port symfony 8000)
-                site_port=${site_endpoint##*:}
-                case "$site_port" in
-                    ''|*[!0-9]*) die "invalid Symfony published port: $site_endpoint" ;;
-                esac
-                CDPX_SITE_SYMFONY_BASE=http://host.docker.internal:$site_port
+                # The recorder joins the stack's network: no host port is
+                # published, and the base URL works on every platform,
+                # including Linux hosts where host.docker.internal cannot
+                # reach loopback-bound ports.
+                DEV_NETWORK="${SITE_COMPOSE_PROJECT}_default"
+                CDPX_SITE_SYMFONY_BASE=http://symfony:8000
                 export CDPX_SITE_SYMFONY_BASE
                 run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py "$@"
                 run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py check
+                DEV_NETWORK=
                 cleanup_site_record
                 trap - EXIT INT TERM
                 ;;

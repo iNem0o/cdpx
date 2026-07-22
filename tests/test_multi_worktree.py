@@ -13,18 +13,13 @@ from cdpx import proof
 from cdpx.artifacts import ArtifactError
 from cdpx.proofing.suites import compose_project_name
 
-FAKE_DOCKER = """#!/bin/sh
+FAKE_DOCKER = r"""#!/bin/sh
 set -eu
 printf '%s|%s|%s\n' "$PWD" "${CDPX_SITE_SYMFONY_BASE:-}" "$*" >> "$CDPX_TEST_DOCKER_LOG"
 case "${1:-}" in
     info) exit 0 ;;
     context)
         printf 'unix://%s\n' "$CDPX_TEST_DOCKER_SOCKET"
-        ;;
-    compose)
-        case " $* " in
-            *" port symfony 8000 "*) printf '127.0.0.1:%s\n' "$CDPX_TEST_SITE_PORT" ;;
-        esac
         ;;
 esac
 """
@@ -40,16 +35,28 @@ def _run_dev(
     docker_socket: Path,
     log: Path,
     *arguments: str,
-    site_port: int = 18000,
 ) -> None:
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "CDPX_TEST_DOCKER_LOG": str(log),
         "CDPX_TEST_DOCKER_SOCKET": str(docker_socket),
-        "CDPX_TEST_SITE_PORT": str(site_port),
     }
+    # The assertions target the worktree-scoped defaults, not a CI alias.
+    env.pop("CDPX_DEV_IMAGE", None)
+    env.pop("CDPX_RUNTIME_IMAGE", None)
     subprocess.run([str(root / "dev"), *arguments], cwd=root, env=env, check=True)
+
+
+def _make_worktree_id(root: Path) -> str:
+    completed = subprocess.run(
+        ["make", "-s", "worktree-id"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return completed.stdout.strip()
 
 
 @pytest.mark.scenario(
@@ -60,12 +67,14 @@ def _run_dev(
 )
 def test_two_worktrees_emit_disjoint_docker_and_artifact_namespaces(tmp_path):
     """The host portal scopes images, Compose resources, mounts and caches
-    by canonical worktree, while site recording accepts a dynamic host port."""
+    by canonical worktree, and the site recorder joins the stack's network
+    instead of publishing a host port."""
 
     roots = [tmp_path / "alpha" / "cdpx", tmp_path / "beta" / "cdpx"]
     for root in roots:
         root.mkdir(parents=True)
         shutil.copy2("dev", root / "dev")
+        shutil.copy2("Makefile", root / "Makefile")
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -80,43 +89,37 @@ def test_two_worktrees_emit_disjoint_docker_and_artifact_namespaces(tmp_path):
         for root, log in zip(roots, logs, strict=True):
             _run_dev(root, fake_bin, docker_socket, log, "setup")
             _run_dev(root, fake_bin, docker_socket, log, "check-local")
-        for index, (root, log) in enumerate(zip(roots, logs, strict=True), start=1):
-            _run_dev(
-                root,
-                fake_bin,
-                docker_socket,
-                log,
-                "site-record",
-                "record",
-                site_port=18000 + index,
-            )
+            _run_dev(root, fake_bin, docker_socket, log, "site-record", "record")
     finally:
         listener.close()
 
     identities = [_identity(root) for root in roots]
     assert identities[0] != identities[1]
-    assert compose_project_name(roots[0]) != compose_project_name(roots[1])
+
+    #: one identity oracle: the Makefile facade, the ./dev portal (asserted on
+    #: the transcripts below) and the Python proof suites must all agree.
+    for root, identity in zip(roots, identities, strict=True):
+        assert _make_worktree_id(root) == identity
+        assert compose_project_name(root) == f"cdpx-gate-{identity}"
 
     transcripts = [log.read_text(encoding="utf-8") for log in logs]
-    for index, (root, identity, transcript) in enumerate(
-        zip(roots, identities, transcripts, strict=True), start=1
-    ):
-        dev_image = f"cdpx-dev:wt-{identity}"
-        runtime_image = f"cdpx-runtime:wt-{identity}"
-        assert f"--set dev.tags={dev_image}" in transcript
-        assert f"--set runtime.tags={runtime_image}" in transcript
-        assert dev_image in transcript
+    for root, identity, transcript in zip(roots, identities, transcripts, strict=True):
+        assert f"--set dev.tags=cdpx-dev:wt-{identity}" in transcript
+        assert f"--set runtime.tags=cdpx-runtime:wt-{identity}" in transcript
         assert f"source={root.resolve()},target={root.resolve()}" in transcript
         assert f"HOME={root.resolve()}/.cache/home" in transcript
         assert f"-p cdpx-site-casts-{identity}" in transcript
-        assert f"http://host.docker.internal:{18000 + index}" in transcript
+        #: the recorder reaches Symfony over the stack network, never a
+        #: published host port
+        assert f"--network cdpx-site-casts-{identity}_default" in transcript
+        assert "|http://symfony:8000|" in transcript
 
-    for identity in identities:
-        assert f"cdpx-dev:wt-{identity}" not in transcripts[1 - identities.index(identity)]
-        assert f"cdpx-runtime:wt-{identity}" not in transcripts[1 - identities.index(identity)]
-        assert f"cdpx-site-casts-{identity}" not in transcripts[1 - identities.index(identity)]
-    assert str(roots[0] / ".cache") not in transcripts[1]
-    assert str(roots[1] / ".cache") not in transcripts[0]
+    for mine, other in ((0, 1), (1, 0)):
+        identity = identities[mine]
+        assert f"cdpx-dev:wt-{identity}" not in transcripts[other]
+        assert f"cdpx-runtime:wt-{identity}" not in transcripts[other]
+        assert f"cdpx-site-casts-{identity}" not in transcripts[other]
+        assert str(roots[mine] / ".cache") not in transcripts[other]
 
 
 @pytest.mark.scenario(
