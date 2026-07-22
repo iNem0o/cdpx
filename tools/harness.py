@@ -76,6 +76,7 @@ def clean() -> None:
         ".proof.old",
         "dist",
         "build",
+        "src/cdpx.egg-info",
     ):
         candidate = Path(path)
         if candidate.is_dir():
@@ -91,6 +92,10 @@ def clean() -> None:
 def build_internal() -> None:
     Path("dist").mkdir(exist_ok=True)
     run(("uv", "build", "--wheel", "--out-dir", "dist"))
+    #: the setuptools backend drops src/cdpx.egg-info in the worktree; left
+    #: behind, it precedes the venv metadata on PYTHONPATH=src and pins
+    #: importlib.metadata to the version of the last wheel build
+    shutil.rmtree("src/cdpx.egg-info", ignore_errors=True)
 
 
 def parser() -> argparse.ArgumentParser:
