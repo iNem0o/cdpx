@@ -86,8 +86,9 @@ Project configuration cannot replace the runtime image or forward
 arbitrary host environment at execution time. Interpolation resolves
 only the variables the file explicitly references, at compilation;
 per-invocation forwarding remains limited to the declared `environment`
-names. Image selection is release-controlled. The `CDPX_IMAGE_REF`
-override exists only for development and controlled integration tests.
+names. Image selection is release-controlled; a development-only image
+override exists for contributors — see
+[DEVELOPMENT.md](DEVELOPMENT.md#development-image-override).
 
 Changing configuration replaces an idle runtime. If sessions are active the
 launcher refuses replacement; stop them first or use

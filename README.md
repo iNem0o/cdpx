@@ -39,6 +39,21 @@ clicking, no attachment to a personal Chrome profile and no automation of
 third-party production sites. It drives disposable loopback development
 browsers through DOM selectors, explicit policy and supervised sessions.
 
+## How cdpx runs
+
+Three different things answer to the name `cdpx`. Knowing which one you are
+invoking removes most of the confusion between using cdpx and developing it:
+
+| You invoke | What it is | Who uses it |
+| --- | --- | --- |
+| `cdpx` (installed launcher) | A small POSIX launcher at `~/.local/bin/cdpx`. It pins an exact GHCR image digest, keeps one hardened runtime container per workspace and forwards every command into it with `docker exec`. | Anyone using cdpx on a project — **installed mode**. |
+| `cdpx` (in-image CLI) | The browser-automation CLI inside the pinned image — the commands documented below. The launcher makes it feel native; sidecar and embedded integrations call it directly. | The same users, transparently through the launcher or an integration. |
+| `./dev` | The contributor harness in a git checkout: local image builds, lint, tests and release gates. | Only people changing cdpx itself — **dev mode**. |
+
+Installed mode is documented in [Installation](docs/INSTALLATION.md); dev
+mode in the [development portal](docs/DEVELOPMENT.md) and the
+[contribution guide](CONTRIBUTING.md).
+
 ## Installation
 
 Docker is the only runtime dependency. The portable launcher selects an
@@ -67,18 +82,14 @@ The [agent guide](docs/AGENT-GUIDE.md) teaches the concepts, installation,
 project initialization, first supervised session and common fixes. It also
 offers the separate `cdpx` skill for agents that support reusable skills.
 
-Install a development checkout without creating a host Python environment:
+To contribute to cdpx itself, use a development checkout instead — see the
+[development portal](docs/DEVELOPMENT.md).
 
-```bash
-git clone https://github.com/inem0o/cdpx.git
-cd cdpx
-./dev setup
-./dev check-local
-```
+## Quickstart
 
-## Quickstart from a checkout
-
-The bundled reference site keeps this walkthrough on loopback. Start it in
+The bundled reference site keeps this walkthrough on loopback; with an
+installed launcher the same commands work against any loopback URL of your
+own application. Contributors start the reference site from a checkout in
 one terminal:
 
 ```bash
@@ -111,9 +122,9 @@ cdpx screenshot -o state.jpg --format jpeg
 cdpx session stop
 ```
 
-`./dev mock` provides the same supervised contract without Chrome. It prints
-the exports, stays in the foreground and performs a complete teardown on
-Ctrl-C.
+From a checkout, `./dev mock` provides the same supervised contract without
+Chrome: it prints the exports, stays in the foreground and performs a
+complete teardown on Ctrl-C.
 
 ## Command surface
 
@@ -182,23 +193,18 @@ storage values are redacted by default.
 Read [HARNESS.md](HARNESS.md) for the normative rules and
 [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
-## Development and validation
+## Contributing to cdpx
 
-```bash
-./dev setup                 # build pinned development and runtime images
-./dev check-local           # Ruff, formatting, mypy, unit and coverage
-./dev check                 # blocking Docker, Chrome and Symfony gate
-./dev test-e2e              # real Chrome
-./dev proof                 # private report under .proof/
-./dev release               # full gate plus internal wheel verification
-```
-
-Unit tests validate both returned JSON and emitted protocol against the CDP
-mock. Real Chrome and Symfony are mandatory for the release verdict. CI may
-publish only the manifested `.proof/shareable/` subset; local opaque
-artifacts remain private.
+Clone the repository and use `./dev`, the contributor harness: it builds the
+pinned images and runs every gate, and `./dev check` must be green before
+review. Unit tests validate both returned JSON and emitted protocol against
+the CDP mock; real Chrome and Symfony are mandatory for the release verdict.
+See the [development portal](docs/DEVELOPMENT.md) and the
+[contribution guide](CONTRIBUTING.md).
 
 ## Reference documentation
+
+Using cdpx (installed mode):
 
 - [Product rationale and design](docs/CONTEXT.md)
 - [Primitive catalog](docs/PRIMITIVES.md)
@@ -206,15 +212,18 @@ artifacts remain private.
 - [Installation and updates](docs/INSTALLATION.md)
 - [Workspace configuration](docs/CONFIGURATION.md)
 - [Application and sidecar integration](docs/INTEGRATION.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Support policy](SUPPORT.md)
+
+Developing cdpx:
+
 - [Development portal](docs/DEVELOPMENT.md)
 - [Validation and proof](docs/VALIDATION.md)
 - [GitHub governance](docs/GITHUB.md)
 - [Release procedure](docs/RELEASING.md)
 - [Release architecture](docs/RELEASE-ARCHITECTURE.md)
 - [OCI runtime architecture decision](docs/architecture/decisions/0001-oci-runtime-and-digest-promotion.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Contribution guide](CONTRIBUTING.md)
-- [Support policy](SUPPORT.md)
 
 The proof cockpit renders this curated documentation offline. Usage questions
 and reproducible defects belong in

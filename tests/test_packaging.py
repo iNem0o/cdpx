@@ -51,6 +51,7 @@ def test_release_version_pins_move_together():
         "packaging/compose.sidecar.yml": [f"image: ghcr.io/inem0o/cdpx:{v}"],
         "tests/test_launcher.sh": [f'"launcher_version":"{v}"'],
         "docs/INSTALLATION.md": [f"--version v{v}", f"FROM ghcr.io/inem0o/cdpx:{v}"],
+        "site/index.html": [f"{v} · pre-1.0 beta", f"Version {v} ·"],
         "uv.lock": [f'name = "cdpx"\nversion = "{v}"'],
     }
     for source, tokens in pins.items():

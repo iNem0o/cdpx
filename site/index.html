@@ -392,7 +392,7 @@
           <span class="badge">31 commands</span>
           <span class="badge">stdout = JSON · exit 0/1/2</span>
           <span class="badge live">12 tutorials recorded on real Chrome</span>
-          <span class="badge beta">0.1.0 · pre-1.0 beta</span>
+          <span class="badge beta">0.1.2 · pre-1.0 beta</span>
         </div>
         <div class="cta">
           <a class="btn primary" href="https://github.com/inem0o/cdpx">View on GitHub</a>
@@ -1067,16 +1067,24 @@
         <span class="kicker">Get started</span>
         <h2>Installation</h2>
         <p class="sub">
-          Docker is the only runtime dependency. The digest-pinned image supplies
-          Python 3.14, Chromium and cdpx; <code>./dev mock</code> explores the CLI
-          without a browser session.
+          Docker is the only runtime dependency. One command installs the
+          digest-pinned launcher; the image supplies Python 3.14, Chromium
+          and cdpx.
         </p>
         <div class="note">
-          <strong>Version 0.1.0 · pre-1.0 beta.</strong> The surface is tested
+          <strong>Version 0.1.2 · pre-1.0 beta.</strong> The surface is tested
           against a mock CDP, a real Chrome and a Dockerized Symfony application.
           Contract changes remain possible before 1.0 and are announced in the
           <a href="https://github.com/inem0o/cdpx/blob/master/CHANGELOG.md">changelog</a>.
         </div>
+        <p class="aside">
+          This installs cdpx for use in your projects. Contributing to cdpx
+          itself is a separate path: clone the repository and use
+          <code>./dev</code> — see the
+          <a href="https://github.com/inem0o/cdpx/blob/master/docs/DEVELOPMENT.md">development portal</a>
+          and the
+          <a href="https://github.com/inem0o/cdpx/blob/master/CONTRIBUTING.md">contribution guide</a>.
+        </p>
       </div>
       <div class="term">
         <div class="term-bar">
@@ -1139,6 +1147,7 @@
         <h4>Documentation</h4>
         <ul>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/README.md">README</a></li>
+          <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/INSTALLATION.md">Installation &amp; updates</a></li>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md">Primitives catalog</a></li>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/docs/CONTEXT.md">Product rationale and design</a></li>
           <li><a href="https://github.com/inem0o/cdpx/blob/master/HARNESS.md">Harness and security</a></li>
