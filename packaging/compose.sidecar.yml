@@ -3,7 +3,7 @@ services:
     image: your-application
     network_mode: service:cdpx
   cdpx:
-    image: ghcr.io/inem0o/cdpx:0.1.2
+    image: ghcr.io/inem0o/cdpx:0.1.3
     init: true
     read_only: true
     cap_drop: [ALL]

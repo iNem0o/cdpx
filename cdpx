@@ -2,7 +2,7 @@
 # cdpx host launcher. Release automation replaces the digest placeholder.
 set -eu
 
-LAUNCHER_VERSION="0.1.2"
+LAUNCHER_VERSION="0.1.3"
 DEFAULT_IMAGE="ghcr.io/inem0o/cdpx@sha256:__CDPX_IMAGE_DIGEST__"
 INSTALL_URL="https://inem0o.github.io/cdpx/install"
 

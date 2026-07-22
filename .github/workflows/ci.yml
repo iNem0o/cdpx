@@ -134,7 +134,7 @@ jobs:
         run: |
           docker buildx build --push --provenance=true --sbom=true \
             --target runtime \
-            --build-arg "VERSION=0.1.2" \
+            --build-arg "VERSION=0.1.3" \
             --build-arg "REVISION=$GITHUB_SHA" \
             --tag "$REGISTRY_IMAGE:sha-$GITHUB_SHA-${{ matrix.arch }}" .
       - name: Export embedded bundle from the same source
