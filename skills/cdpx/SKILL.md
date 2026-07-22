@@ -33,7 +33,7 @@ cdpx text --help
 ```
 
 Read the canonical catalog at
-https://github.com/inem0o/cdpx/blob/master/docs/PRIMITIVES.md when the help is
+https://github.com/inem0o/cdpx/blob/main/docs/PRIMITIVES.md when the help is
 not sufficient. Do not guess flags or configuration keys.
 
 Before browser work:

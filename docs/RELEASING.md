@@ -9,7 +9,7 @@ tag and does not publish to PyPI.
 The tag is the trigger, not the release: prepare, prove, tag, approve.
 The sections below detail each step; this is the complete order.
 
-1. Start from the merged, green tip: `git checkout master && git pull`.
+1. Start from the merged, green tip: `git checkout main && git pull`.
 2. Bump every version pin to `X.Y.Z` in one commit named
    `Prepare cdpx X.Y.Z`.
    `tests/test_packaging.py::test_release_version_pins_move_together`
@@ -17,7 +17,7 @@ The sections below detail each step; this is the complete order.
    `[Unreleased]` changelog section to `[X.Y.Z] — DATE`.
 3. Prove the prep commit locally: `./dev check-local`, `./dev check`,
    then `./dev release` and the pinned-image smoke test below.
-4. Push `master` and wait for the master CI run to be green through
+4. Push `main` and wait for the main CI run to be green through
    `Candidate / manifest`: promotion needs the immutable `sha-COMMIT`
    candidate that this run publishes.
 5. Tag that exact commit: `git tag -a vX.Y.Z -m "cdpx X.Y.Z"`, then push
@@ -28,9 +28,9 @@ The sections below detail each step; this is the complete order.
 
 ## Preconditions
 
-- `master` contains the intended clean release commit.
+- `main` contains the intended clean release commit.
 - `pyproject.toml` and `CHANGELOG.md` contain the same `X.Y.Z` version.
-- `PR Gate / Required` and the master candidate workflow are green for that
+- `PR Gate / Required` and the main candidate workflow are green for that
   exact commit.
 - The protected `release` environment has a required reviewer.
 - GHCR packages and GitHub Pages are public, and the `v*` namespace is
@@ -48,7 +48,7 @@ Inspect `.proof/shareable/` and the locally built runtime. The wheel under
 
 ## Tag and promotion
 
-1. Create a signed or annotated `vX.Y.Z` tag on the verified master commit.
+1. Create a signed or annotated `vX.Y.Z` tag on the verified main commit.
 2. Push only that tag.
 3. Confirm the workflow finds the successful `sha-COMMIT` candidate.
 4. Review and approve the protected `release` environment.

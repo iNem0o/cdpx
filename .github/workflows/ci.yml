@@ -3,7 +3,9 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master]
+    # Keep both names during the one-merge default-branch transition. The
+    # post-rename cleanup removes master.
+    branches: [master, main]
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -100,7 +102,7 @@ jobs:
 
   candidate:
     name: Candidate / ${{ matrix.arch }}
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
     needs: [core, full, launcher-macos]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -151,7 +153,7 @@ jobs:
 
   candidate-manifest:
     name: Candidate / manifest
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
     needs: [candidate]
     runs-on: ubuntu-24.04
     timeout-minutes: 15

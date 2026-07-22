@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - main
     paths:
       - "site/**"
       - "docs/AGENT-GUIDE.md"

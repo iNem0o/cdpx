@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security fixes target the current 0.x release and the `master` branch.
+Security fixes target the current 0.x release and the `main` branch.
 Backports to other pre-1.0 versions are not guaranteed.
 
 ## Reporting a Vulnerability

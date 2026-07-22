@@ -251,7 +251,8 @@ def test_ci_and_release_workflows_keep_permissions_narrow():
     assert "gh release create" in release_text
     assert "GH_REPO: ${{ github.repository }}" in release_text
     assert "SHA256SUMS" in release_text
-    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/master' in release_text
+    assert "DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}" in release_text
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"' in release_text
     assert "docker buildx build" not in release_text
 
     release = yaml.load(release_text, Loader=yaml.BaseLoader)
