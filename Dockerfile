@@ -90,7 +90,7 @@ COPY .github ./.github
 COPY AGENTS.md CLAUDE.md HARNESS.md CHANGELOG.md CONTRIBUTING.md CODE_OF_CONDUCT.md ./
 COPY SECURITY.md SUPPORT.md THIRD_PARTY_NOTICES.md MANIFEST.in ./
 COPY Dockerfile docker-bake.hcl Makefile dev cdpx ./
-COPY docker-compose.symfony-e2e.yml docker-compose.site-casts.yml ./
+COPY docker-compose.symfony-e2e.yml ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     PYTHONPATH="/workspace/src:/workspace" \

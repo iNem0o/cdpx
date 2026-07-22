@@ -17,6 +17,10 @@ concurrency:
 
 env:
   REGISTRY_IMAGE: ghcr.io/inem0o/cdpx
+  # Every job has its own daemon, so stable aliases are safe and keep later
+  # workflow steps simple. Local ./dev defaults remain worktree-scoped.
+  CDPX_DEV_IMAGE: cdpx-dev:local
+  CDPX_RUNTIME_IMAGE: cdpx-runtime:dev
   # Hosted runners use the plain docker buildx driver, which cannot export a
   # local cache directory.
   DEV_CACHE: "0"

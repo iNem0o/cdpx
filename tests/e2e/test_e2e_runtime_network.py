@@ -20,10 +20,12 @@ import yaml
 from cdpx.runtime_config import compile_plan
 
 DOCKER = shutil.which("docker")
-IMAGE = os.environ.get("CDPX_E2E_IMAGE", "cdpx-dev:local")
+IMAGE = os.environ.get("CDPX_E2E_IMAGE")
 
 if DOCKER is None:
     pytest.fail("Docker required for cdpx runtime-network e2e", pytrace=False)
+if not IMAGE:
+    pytest.fail("CDPX_E2E_IMAGE required (run through ./dev)", pytrace=False)
 
 
 def docker(*arguments: str, timeout: float = 60.0) -> subprocess.CompletedProcess:

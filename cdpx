@@ -68,6 +68,73 @@ container_running() {
     [ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null || true)" = "true" ]
 }
 
+release_launcher_lock() {
+    if [ "${LOCK_HELD:-no}" = yes ]; then
+        rm -f "$LAUNCHER_LOCK/owner"
+        rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+        LOCK_HELD=no
+    fi
+}
+
+cleanup_launcher() {
+    [ -z "${EXEC_ENV:-}" ] || rm -f "$EXEC_ENV"
+    release_launcher_lock
+}
+
+acquire_launcher_lock() {
+    stalled=0
+    waited=0
+    empty_attempts=0
+    notified=no
+    while ! mkdir "$LAUNCHER_LOCK" 2>/dev/null; do
+        # `runtime reset` removes the state directory while waiters loop;
+        # recreate it so their mkdir converges instead of failing on ENOENT.
+        mkdir -p "$STATE_DIR"
+        chmod 700 "$STATE_DIR"
+        owner=$(sed -n '1p' "$LAUNCHER_LOCK/owner" 2>/dev/null || true)
+        case "$owner" in
+            '' )
+                empty_attempts=$((empty_attempts + 1))
+                stalled=$((stalled + 1))
+                # Give a concurrent mkdir winner time to publish its PID.
+                if [ "$empty_attempts" -ge 50 ]; then
+                    rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+                    empty_attempts=0
+                fi
+                ;;
+            *[!0-9]* )
+                stalled=$((stalled + 1))
+                rm -f "$LAUNCHER_LOCK/owner"
+                rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+                ;;
+            * )
+                if kill -0 "$owner" 2>/dev/null; then
+                    # A live holder may legitimately be slow (first run pulls
+                    # the runtime image); wait for it instead of aging toward
+                    # the stale-lock timeout.
+                    stalled=0
+                    empty_attempts=0
+                    if [ "$notified" = no ]; then
+                        printf 'cdpx: waiting for the launcher lock held by pid %s\n' "$owner" >&2
+                        notified=yes
+                    fi
+                else
+                    rm -f "$LAUNCHER_LOCK/owner"
+                    rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+                fi
+                ;;
+        esac
+        [ "$stalled" -lt 300 ] || usage_error "launcher lock is unrecoverable for this worktree: $LAUNCHER_LOCK"
+        # A live holder is granted patience, not eternity: a wedged holder or
+        # a recycled PID must not block the worktree without a deadline.
+        waited=$((waited + 1))
+        [ "$waited" -lt 9000 ] || usage_error "launcher lock held for over 15 minutes${owner:+ by pid $owner}; if stale, remove $LAUNCHER_LOCK"
+        sleep 0.1
+    done
+    printf '%s\n' "$$" > "$LAUNCHER_LOCK/owner"
+    LOCK_HELD=yes
+}
+
 compile_plan() {
     mkdir -p "$PLAN_DIR" "$STATE_DIR/home"
     chmod 700 "$STATE_DIR" "$PLAN_DIR" "$STATE_DIR/home"
@@ -249,7 +316,11 @@ runtime_command() {
                 usage_error "usage: cdpx runtime reset --force"
             fi
             remove_runtime_container
+            # Removing the state directory forfeits our launcher lock: the
+            # next waiter recreates the same path, so the exit trap must not
+            # tear down a lock this process no longer owns.
             rm -rf "$STATE_DIR"
+            LOCK_HELD=no
             printf '{"reset":true,"container":"%s"}\n' "$CONTAINER_NAME"
             ;;
         *)
@@ -287,6 +358,9 @@ workspace_hash=$(sha256_text "$WORKSPACE")
 CONTAINER_NAME="cdpx-$USER_ID-$(printf '%.16s' "$workspace_hash")"
 STATE_DIR="$WORKSPACE/.cdpx/runtime"
 PLAN_DIR="$STATE_DIR/plan"
+LAUNCHER_LOCK="$STATE_DIR/launcher.lock"
+LOCK_HELD=no
+EXEC_ENV=""
 IMAGE_REF=$(image_ref)
 mkdir -p "$STATE_DIR"
 chmod 700 "$WORKSPACE/.cdpx" "$STATE_DIR"
@@ -310,6 +384,8 @@ case "${1:-}" in
         ;;
 esac
 
+trap cleanup_launcher EXIT HUP INT TERM
+acquire_launcher_lock
 compile_plan
 
 case "${1:-}" in
@@ -332,7 +408,7 @@ esac
 
 ensure_runtime
 build_exec_environment
-trap 'rm -f "$EXEC_ENV"' EXIT HUP INT TERM
+release_launcher_lock
 docker exec \
     --workdir "$CURRENT_DIRECTORY" \
     --env-file "$EXEC_ENV" \

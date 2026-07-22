@@ -1,9 +1,10 @@
 """Symfony profiler: the real reference app's WebProfiler becomes data.
 
-Requires the tests/symfony-app app reachable from the host —
-`./dev site-record` starts it via the docker-compose.site-casts.yml overlay
-(loopback :8025) and passes `--symfony-base` to the generator. Without a
-base provided, the scenario is skipped cleanly.
+Requires the tests/symfony-app app reachable from the recorder —
+`./dev site-record` starts it from docker-compose.symfony-e2e.yml under a
+worktree-scoped Compose project, joins the recorder to that stack's network
+and passes `--symfony-base` to the generator. Without a base provided, the
+scenario is skipped cleanly.
 """
 
 from __future__ import annotations

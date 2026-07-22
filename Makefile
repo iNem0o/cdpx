@@ -3,8 +3,13 @@
 
 PY ?= python
 HARNESS = $(PY) -m tools.harness
+WORKTREE_ROOT := $(realpath $(CURDIR))
+WORKTREE_ID := $(shell printf '%s' "$(WORKTREE_ROOT)" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-12)
+DEV_IMAGE ?= $(or $(CDPX_DEV_IMAGE),cdpx-dev:wt-$(WORKTREE_ID))
+RUNTIME_IMAGE ?= $(or $(CDPX_RUNTIME_IMAGE),cdpx-runtime:wt-$(WORKTREE_ID))
+COMPOSE_PROJECT ?= cdpx-gate-$(WORKTREE_ID)
 
-.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock site-casts docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist smoke-dist
+.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock site-casts worktree-id docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist smoke-dist
 
 help:
 	@./dev help
@@ -47,19 +52,24 @@ site-casts:
 	@echo "Run ./dev site-record from the host Docker portal." >&2
 	@exit 2
 
+# Single identity oracle shared with ./dev and cdpx.proofing.suites; the
+# multi-worktree contract test asserts the three stay aligned.
+worktree-id:
+	@printf '%s\n' "$(WORKTREE_ID)"
+
 docker-build:
-	docker buildx bake --load dev runtime
+	docker buildx bake --load --set dev.tags=$(DEV_IMAGE) --set runtime.tags=$(RUNTIME_IMAGE) dev runtime
 
 docker-check:
-	docker run --rm cdpx-dev:local $(HARNESS) check-local
+	docker run --rm $(DEV_IMAGE) $(HARNESS) check-local
 
 docker-e2e:
-	docker run --rm cdpx-dev:local $(HARNESS) test-e2e
+	docker run --rm --env CDPX_E2E_IMAGE=$(DEV_IMAGE) $(DEV_IMAGE) $(HARNESS) test-e2e
 
 docker-symfony-e2e:
-	docker compose -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; \
+	docker compose -p $(COMPOSE_PROJECT) -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; \
 	status=$$?; \
-	docker compose -f docker-compose.symfony-e2e.yml down --volumes --remove-orphans; \
+	docker compose -p $(COMPOSE_PROJECT) -f docker-compose.symfony-e2e.yml down --volumes --remove-orphans; \
 	exit $$status
 
 proof:

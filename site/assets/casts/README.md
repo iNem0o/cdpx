@@ -20,7 +20,8 @@ The full protocol lives in `scripts/site_casts/`:
 ```
 
 `record` starts, for each scenario, the fixtures server and a disposable
-supervised session (`authority privileged`, loopback origins), runs the
+supervised session (`authority privileged`, loopback origins plus the
+reference app's origin when a Symfony base is supplied), runs the
 scenario's commands, checks their expectations (`expect`, exit code) and
 writes the cast only if everything is green. `--only id,id` and `--port N`
 let you record a subset or avoid a busy port.
@@ -48,8 +49,9 @@ it, then wiring it into `site/index.html`.
 | `profiler.cast` | Symfony Profiler | profiler --panels db,cache (healthy and N+1 variants, jq -e gate) |
 
 The `profiler` scenario is recorded against the real reference Symfony app
-(`tests/symfony-app`): `./dev site-record` starts it via the
-`docker-compose.site-casts.yml` overlay (loopback :8025) and passes
+(`tests/symfony-app`): `./dev site-record` starts it from
+`docker-compose.symfony-e2e.yml` under a worktree-scoped Compose project,
+joins the recorder to that stack's network and passes
 `--symfony-base` to the generator. Without a base supplied, it is skipped
 cleanly (`skipped`), and `check` only treats it as an error if its cast is
 present but invalid.

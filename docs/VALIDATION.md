@@ -49,6 +49,12 @@ bounded proof command. Invalid values fail before the current proof tree is
 replaced. `CDPX_PROOF_DIR` selects the internal Compose mount and defaults to
 `./.proof`.
 
+Local image tags and the Symfony Compose project are scoped by the canonical
+worktree path. The Compose proof mount resolves to that worktree's
+transactional staging directory, and an advisory lock refuses overlapping
+proof writers inside one worktree. Gates from distinct worktrees may run in
+parallel, subject to host CPU and memory capacity.
+
 ## GitHub Actions
 
 Pull requests run the containerized short gate natively on amd64 and arm64,
