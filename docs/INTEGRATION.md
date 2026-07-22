@@ -32,6 +32,21 @@ in `cdpx.yaml` are forwarded. The environment file is deleted after the
 command. Mount sources must remain within the worktree, so the configuration
 is portable and cannot silently expose `$HOME` or `/`.
 
+A development stack running on the same host is reached by joining its
+network (`runtime.network: network:<stack>`) and, when the stack registers
+hostnames in the host's `/etc/hosts`, by declaring them as
+`runtime.extra_hosts` — the runtime container never reads the host file.
+Stack tooling that exports its network name and addresses as environment
+variables can drive both values through `${VAR}` interpolation; see
+[CONFIGURATION.md](CONFIGURATION.md).
+
+```yaml
+runtime:
+  network: "network:${STACK_NET}"
+  extra_hosts:
+    - "${STACK_APP_HOST:-app.local}:host-gateway"
+```
+
 The session manifest carries a runtime attestation. A manifest created in one
 runtime is rejected in another. Public callers select Chrome and supervisor
 ownership through the runtime; there are no public `--chrome` or

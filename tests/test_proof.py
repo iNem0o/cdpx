@@ -2392,14 +2392,48 @@ def test_build_summary_fails_when_e2e_screenshot_missing():
     #: the faulty scenario is named in the missing-capture failure
     assert summary["ok"] is False
     assert (
-        "missing e2e screenshot: tests/e2e/test_demo.py::test_without_shot"
-        in summary["proof_failures"]
+        "missing e2e capture (screenshot or command transcript): "
+        "tests/e2e/test_demo.py::test_without_shot" in summary["proof_failures"]
     )
     #: the same nodeid is also traced as unmapped in the feature inventory
     assert (
         "feature inventory: scenario unmapped: tests/e2e/test_demo.py::test_without_shot"
         in summary["proof_failures"]
     )
+
+
+def test_scenario_totals_accept_command_transcript_as_e2e_capture():
+    """A browserless e2e scenario proves itself with a command transcript:
+    either capture type satisfies the e2e capture rule, anything else
+    (a plain log attachment) does not."""
+    suites = {
+        "unit": [],
+        "integration": [],
+        "e2e": [
+            {
+                "nodeid": "tests/e2e/test_demo.py::test_with_shot",
+                "status": "passed",
+                "artifacts": [{"type": "screenshot", "path": "shot.png"}],
+            },
+            {
+                "nodeid": "tests/e2e/test_demo.py::test_with_transcript",
+                "status": "passed",
+                "artifacts": [{"type": "command", "path": "docker-run.txt"}],
+            },
+            {
+                "nodeid": "tests/e2e/test_demo.py::test_with_plain_log",
+                "status": "passed",
+                "artifacts": [{"type": "logs", "path": "notes.txt"}],
+            },
+        ],
+    }
+
+    totals = proof.scenario_totals(suites)
+
+    #: both capture types clear the rule; a plain log attachment does not
+    assert totals["missing_e2e_captures"] == ["tests/e2e/test_demo.py::test_with_plain_log"]
+    #: the screenshot counter only counts real screenshots
+    assert totals["screenshots"] == 1
 
 
 def test_classify_change_categorizes_repository_paths():

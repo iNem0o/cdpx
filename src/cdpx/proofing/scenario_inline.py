@@ -41,6 +41,10 @@ INLINE_TOTAL_BUDGET = 2 * 1024 * 1024
 INLINE_CAST_BUDGET = 1 * 1024 * 1024
 EXCERPT_HEAD_LINES = 10
 EXCERPT_TAIL_LINES = 30
+# An e2e scenario proves itself with a capture of what actually ran: pixels
+# for browser scenarios, a full command transcript for browserless ones
+# (real Docker, launcher). Both carry the observed output, not a claim.
+E2E_CAPTURE_TYPES = frozenset({"screenshot", "command"})
 
 
 def load_scenario_evidence(root: Path) -> ScenarioEvidence:
@@ -79,7 +83,7 @@ def scenario_totals(suites: dict[str, list[Scenario]]) -> ScenarioTotals:
         for scenario in e2e
         if scenario.get("status") != "skipped"
         and not any(
-            artifact.get("type") == "screenshot" for artifact in scenario.get("artifacts", [])
+            artifact.get("type") in E2E_CAPTURE_TYPES for artifact in scenario.get("artifacts", [])
         )
     ]
     return {
@@ -89,14 +93,14 @@ def scenario_totals(suites: dict[str, list[Scenario]]) -> ScenarioTotals:
         "e2e": len(e2e),
         "symfony": len(symfony),
         "screenshots": screenshots,
-        "missing_e2e_screenshots": missing_e2e,
+        "missing_e2e_captures": missing_e2e,
     }
 
 
 def proof_failures_from_scenarios(scenario_evidence: ScenarioEvidence) -> list[str]:
     failures = []
-    for nodeid in scenario_evidence["totals"]["missing_e2e_screenshots"]:
-        failures.append(f"missing e2e screenshot: {nodeid}")
+    for nodeid in scenario_evidence["totals"]["missing_e2e_captures"]:
+        failures.append(f"missing e2e capture (screenshot or command transcript): {nodeid}")
     return failures
 
 

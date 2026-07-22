@@ -927,6 +927,7 @@ def _generate() -> dict:
                 "pytest",
                 "tests/e2e/test_e2e_chrome.py",
                 "tests/e2e/test_e2e_sessions.py",
+                "tests/e2e/test_e2e_runtime_network.py",
                 "-v",
                 f"--cdpx-evidence-dir={evidence_dir}",
                 f"--junitxml={e2e_xml}",
