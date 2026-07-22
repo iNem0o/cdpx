@@ -30,6 +30,7 @@ import re
 import threading
 import time
 import urllib.parse
+from typing import cast
 
 DEFAULT_FIXTURES = pathlib.Path(__file__).resolve().parents[3] / "tests" / "fixtures"
 
@@ -91,10 +92,15 @@ def _make_handler(root: pathlib.Path):
                 )
                 return True
             if path == "/api/profiler-sim":
-                host = self.headers.get("Host", "127.0.0.1")
+                # The server is deliberately bound to loopback. Never reflect
+                # the request's Host header into a response header: besides
+                # making the fixture nondeterministic, that permits response
+                # splitting when a raw client supplies control characters.
+                server = cast(http.server.ThreadingHTTPServer, self.server)
+                port = server.server_port
                 self._send(
                     json.dumps({"ok": True, "profiler": "sim"}).encode(),
-                    extra={"X-Debug-Token-Link": f"http://{host}/_profiler/fixed-token"},
+                    extra={"X-Debug-Token-Link": f"http://127.0.0.1:{port}/_profiler/fixed-token"},
                 )
                 return True
             return False

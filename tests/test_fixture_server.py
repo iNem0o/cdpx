@@ -142,6 +142,18 @@ def test_api_profiler_sim(fixtures_http):
     assert headers["X-Debug-Token-Link"].endswith("/_profiler/fixed-token")
 
 
+def test_api_profiler_sim_never_reflects_the_request_host(fixtures_http):
+    """The simulated profiler link is derived from the loopback server,
+    never from an untrusted Host header that could split the response."""
+    req = urllib.request.Request(fixtures_http.base_url + "/api/profiler-sim")
+    req.add_header("Host", "attacker.example")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        token_link = response.headers["X-Debug-Token-Link"]
+
+    assert token_link == f"{fixtures_http.base_url}/_profiler/fixed-token"
+    assert "attacker.example" not in token_link
+
+
 PROFILER_PANEL_MARKERS = {
     "db": ["Database Queries", "Different statements"],
     "twig": ["Template Calls", "Rendered Templates"],
