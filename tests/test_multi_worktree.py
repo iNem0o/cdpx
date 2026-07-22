@@ -41,6 +41,9 @@ def _run_dev(
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "CDPX_TEST_DOCKER_LOG": str(log),
         "CDPX_TEST_DOCKER_SOCKET": str(docker_socket),
+        #: internal recorder variable: a poisoned ambient value must never
+        #: attach any command to a foreign network
+        "DEV_NETWORK": "wt-poison",
     }
     # The assertions target the worktree-scoped defaults, not a CI alias.
     env.pop("CDPX_DEV_IMAGE", None)
@@ -113,6 +116,7 @@ def test_two_worktrees_emit_disjoint_docker_and_artifact_namespaces(tmp_path):
         #: published host port
         assert f"--network cdpx-site-casts-{identity}_default" in transcript
         assert "|http://symfony:8000|" in transcript
+        assert "wt-poison" not in transcript
 
     for mine, other in ((0, 1), (1, 0)):
         identity = identities[mine]

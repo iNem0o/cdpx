@@ -83,6 +83,7 @@ cleanup_launcher() {
 
 acquire_launcher_lock() {
     stalled=0
+    waited=0
     empty_attempts=0
     notified=no
     while ! mkdir "$LAUNCHER_LOCK" 2>/dev/null; do
@@ -124,6 +125,10 @@ acquire_launcher_lock() {
                 ;;
         esac
         [ "$stalled" -lt 300 ] || usage_error "launcher lock is unrecoverable for this worktree: $LAUNCHER_LOCK"
+        # A live holder is granted patience, not eternity: a wedged holder or
+        # a recycled PID must not block the worktree without a deadline.
+        waited=$((waited + 1))
+        [ "$waited" -lt 9000 ] || usage_error "launcher lock held for over 15 minutes${owner:+ by pid $owner}; if stale, remove $LAUNCHER_LOCK"
         sleep 0.1
     done
     printf '%s\n' "$$" > "$LAUNCHER_LOCK/owner"

@@ -23,6 +23,9 @@ WORKTREE_ID=$(sha256_text "$ROOT" | cut -c 1-12)
 DEV_IMAGE=${CDPX_DEV_IMAGE:-cdpx-dev:wt-$WORKTREE_ID}
 RUNTIME_IMAGE=${CDPX_RUNTIME_IMAGE:-cdpx-runtime:wt-$WORKTREE_ID}
 SITE_COMPOSE_PROJECT=cdpx-site-casts-$WORKTREE_ID
+# Internal to the site-record flow: a value inherited from the caller's
+# environment must never attach other commands to a foreign network.
+DEV_NETWORK=
 
 require_docker() {
     command -v docker >/dev/null 2>&1 || die "Docker is required"

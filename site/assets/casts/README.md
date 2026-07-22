@@ -20,7 +20,8 @@ The full protocol lives in `scripts/site_casts/`:
 ```
 
 `record` starts, for each scenario, the fixtures server and a disposable
-supervised session (`authority privileged`, loopback origins), runs the
+supervised session (`authority privileged`, loopback origins plus the
+reference app's origin when a Symfony base is supplied), runs the
 scenario's commands, checks their expectations (`expect`, exit code) and
 writes the cast only if everything is green. `--only id,id` and `--port N`
 let you record a subset or avoid a busy port.

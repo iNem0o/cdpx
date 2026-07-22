@@ -27,6 +27,7 @@ SRC_ROOT = REPO_ROOT / "src"
 FIXTURES_ROOT = REPO_ROOT / "tests" / "fixtures"
 sys.path.insert(0, str(SRC_ROOT))
 
+from cdpx.policy import origin_from_url  # noqa: E402
 from cdpx.session import start_session, stop_session  # noqa: E402
 from cdpx.testing.fixture_server import FixtureServer  # noqa: E402
 
@@ -251,10 +252,16 @@ def record_scenario(
     exports_seen = False
     try:
         if scenario.manage_session:
+            # Loopback covers the fixtures server; the reference Symfony
+            # app, reached over the recording stack's network, must be
+            # granted explicitly or the origin policy rejects it.
+            origins = "http://127.0.0.1:*"
+            if sub:
+                origins = f"{origins},{origin_from_url(sub)}"
             manifest, manifest_path = start_session(
                 run_id=f"site-{scenario.id}",
                 authority=scenario.authority,
-                origins="http://127.0.0.1:*",
+                origins=origins,
                 ttl=900.0,
                 owner_pid=os.getpid(),
                 browser_kind="chrome",
