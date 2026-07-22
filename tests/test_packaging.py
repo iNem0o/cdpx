@@ -208,6 +208,14 @@ def test_release_portal_and_ci_require_all_runtime_proofs():
     assert 'CDPX_PROOF_RETENTION_DAYS: "14"' in ci
     assert "path: .proof/shareable/" in ci
     assert "paths:" not in ci and "paths-ignore:" not in ci
+    assert "branches: [main]" in ci
+    assert "refs/heads/master" not in ci
+    assert "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294" in ci
+    assert "fail-on-severity: moderate" in ci
+
+    pages = Path(".github/workflows/pages.yml").read_text(encoding="utf-8")
+    assert "      - main" in pages
+    assert "master" not in pages
 
     compose = Path("docker-compose.symfony-e2e.yml").read_text(encoding="utf-8")
     assert "CDPX_PROOF_RETENTION_DAYS" in compose
@@ -244,6 +252,10 @@ def test_ci_and_release_workflows_keep_permissions_narrow():
     assert "id-token: write" not in ci_text
     assert "pull_request_target" not in ci_text
 
+    ci = yaml.load(ci_text, Loader=yaml.BaseLoader)
+    assert ci["jobs"]["dependency-review"]["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert "dependency-review" in ci["jobs"]["required"]["needs"]
+
     release_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "tags:" in release_text and 'tags: ["v*"]' in release_text
     assert "environment:" in release_text and "name: release" in release_text
@@ -279,8 +291,26 @@ def test_public_community_files_and_generated_artifact_policy():
         ".github/ISSUE_TEMPLATE/config.yml",
         ".github/PULL_REQUEST_TEMPLATE.md",
         ".github/dependabot.yml",
+        ".coderabbit.yaml",
     ):
         assert Path(name).is_file(), f"missing GitHub configuration: {name}"
+
+    dependabot = yaml.safe_load(Path(".github/dependabot.yml").read_text(encoding="utf-8"))
+    updates = dependabot["updates"]
+    assert {update["package-ecosystem"] for update in updates} == {
+        "uv",
+        "github-actions",
+        "docker",
+        "composer",
+    }
+    for update in updates:
+        assert update["groups"]["compatible"]["update-types"] == ["minor", "patch"]
+    docker = next(update for update in updates if update["package-ecosystem"] == "docker")
+    assert docker["directories"] == ["/", "/packaging", "/tests/symfony-app"]
+
+    coderabbit = yaml.safe_load(Path(".coderabbit.yaml").read_text(encoding="utf-8"))
+    assert coderabbit["reviews"]["request_changes_workflow"] is False
+    assert coderabbit["reviews"]["auto_review"] == {"enabled": True, "drafts": False}
 
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
     dockerignore = Path(".dockerignore").read_text(encoding="utf-8")

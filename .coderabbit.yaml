@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  path_filters:
+    - "!uv.lock"
+    - "!tests/symfony-app/composer.lock"
+    - "!src/cdpx/proofing/vendor/**"
+  path_instructions:
+    - path: "src/**/*.py"
+      instructions: >-
+        Prioritize CLI contract regressions, default redaction, safe subprocess
+        handling, and parity between the real CDP protocol and the shipped mock.
+    - path: "tests/**/*.py"
+      instructions: >-
+        Unit tests must stay deterministic, loopback-only, and browser-free;
+        real Chrome coverage belongs in tests/e2e and must fail when unavailable.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Enforce least-privilege permissions, immutable action SHAs, fork-safe
+        events, and preservation of the PR Gate / Required aggregation contract.
+  auto_review:
+    enabled: true
+    drafts: false
+
+chat:
+  auto_reply: true

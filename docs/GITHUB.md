@@ -9,10 +9,11 @@ publication.
 
 1. Create a focused branch from `main`.
 2. Open a draft pull request and let `CI` produce the proof.
-3. Inspect the **Full release gate** summary and proof artifact.
-4. Fix the branch until **`PR Gate / Required`** is green.
-5. Resolve review conversations and merge with squash.
-6. Delete the merged branch.
+3. Mark it ready to trigger the advisory CodeRabbit review.
+4. Inspect the **Full release gate** summary and proof artifact.
+5. Fix the branch until **`PR Gate / Required`** is green.
+6. Resolve actionable review conversations and merge with squash.
+7. Delete the merged branch.
 
 `./dev check` is the normative quality gate. `./dev release` adds the
 internal package validation but publishes nothing.
@@ -22,7 +23,7 @@ internal package validation but publishes nothing.
 | Setting | Required value |
 | --- | --- |
 | Default branch | `main` |
-| Required check | `PR Gate / Required` |
+| Required check | `PR Gate / Required`, including Dependency Review |
 | Conversations | resolution required |
 | Force-push and deletion | forbidden on `main` |
 | Merge methods | squash only |
@@ -31,7 +32,9 @@ internal package validation but publishes nothing.
 | Third-party actions | explicitly authorized and pinned by SHA |
 | Pull-request proof | `.proof/shareable/` only, retained 14 days |
 | Release environment | `release`, with required approval |
-| Security | Dependabot alerts and private vulnerability reporting enabled where available |
+| Dependency updates | Dependabot groups patch/minor updates; majors remain isolated; no automerge |
+| Automated review | CodeRabbit reviews ready PRs in advisory mode |
+| Security | CodeQL default setup, Dependabot alerts, secret scanning with push protection, and private vulnerability reporting |
 
 If the GitHub plan does not provide rulesets, branch protection, secret
 scanning or private vulnerability reporting, record the unavailable setting
@@ -49,6 +52,8 @@ gh api repos/inem0o/cdpx/actions/permissions/workflow
 gh api repos/inem0o/cdpx/rulesets
 gh ruleset check --default --repo inem0o/cdpx
 gh api repos/inem0o/cdpx/private-vulnerability-reporting
+gh api repos/inem0o/cdpx/code-scanning/default-setup
+gh api repos/inem0o/cdpx/vulnerability-alerts
 gh pr checks <PR_NUMBER> --repo inem0o/cdpx
 ```
 

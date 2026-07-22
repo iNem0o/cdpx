@@ -3,9 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    # Keep both names during the one-merge default-branch transition. The
-    # post-rename cleanup removes master.
-    branches: [master, main]
+    branches: [main]
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -102,7 +100,7 @@ jobs:
 
   candidate:
     name: Candidate / ${{ matrix.arch }}
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [core, full, launcher-macos]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -153,7 +151,7 @@ jobs:
 
   candidate-manifest:
     name: Candidate / manifest
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [candidate]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -181,10 +179,21 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  dependency-review:
+    name: Security / dependency review
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Reject vulnerable dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+
   required:
     name: PR Gate / Required
     if: ${{ always() }}
-    needs: [core, full, launcher-macos]
+    needs: [core, full, launcher-macos, dependency-review]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -193,4 +202,9 @@ jobs:
           CORE: ${{ needs.core.result }}
           FULL: ${{ needs.full.result }}
           MACOS: ${{ needs.launcher-macos.result }}
-        run: test "$CORE" = success && test "$FULL" = success && test "$MACOS" = success
+          DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
+        run: |
+          test "$CORE" = success
+          test "$FULL" = success
+          test "$MACOS" = success
+          test "$DEPENDENCY_REVIEW" = success || test "$DEPENDENCY_REVIEW" = skipped
