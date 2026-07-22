@@ -68,6 +68,52 @@ container_running() {
     [ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null || true)" = "true" ]
 }
 
+release_launcher_lock() {
+    if [ "${LOCK_HELD:-no}" = yes ]; then
+        rm -f "$LAUNCHER_LOCK/owner"
+        rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+        LOCK_HELD=no
+    fi
+}
+
+cleanup_launcher() {
+    [ -z "${EXEC_ENV:-}" ] || rm -f "$EXEC_ENV"
+    release_launcher_lock
+}
+
+acquire_launcher_lock() {
+    attempts=0
+    empty_attempts=0
+    while ! mkdir "$LAUNCHER_LOCK" 2>/dev/null; do
+        owner=$(sed -n '1p' "$LAUNCHER_LOCK/owner" 2>/dev/null || true)
+        case "$owner" in
+            '' )
+                empty_attempts=$((empty_attempts + 1))
+                # Give a concurrent mkdir winner time to publish its PID.
+                if [ "$empty_attempts" -ge 50 ]; then
+                    rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+                    empty_attempts=0
+                fi
+                ;;
+            *[!0-9]* )
+                rm -f "$LAUNCHER_LOCK/owner"
+                rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+                ;;
+            * )
+                if ! kill -0 "$owner" 2>/dev/null; then
+                    rm -f "$LAUNCHER_LOCK/owner"
+                    rmdir "$LAUNCHER_LOCK" 2>/dev/null || true
+                fi
+                ;;
+        esac
+        attempts=$((attempts + 1))
+        [ "$attempts" -lt 300 ] || usage_error "runtime launcher busy for this worktree"
+        sleep 0.1
+    done
+    printf '%s\n' "$$" > "$LAUNCHER_LOCK/owner"
+    LOCK_HELD=yes
+}
+
 compile_plan() {
     mkdir -p "$PLAN_DIR" "$STATE_DIR/home"
     chmod 700 "$STATE_DIR" "$PLAN_DIR" "$STATE_DIR/home"
@@ -287,6 +333,9 @@ workspace_hash=$(sha256_text "$WORKSPACE")
 CONTAINER_NAME="cdpx-$USER_ID-$(printf '%.16s' "$workspace_hash")"
 STATE_DIR="$WORKSPACE/.cdpx/runtime"
 PLAN_DIR="$STATE_DIR/plan"
+LAUNCHER_LOCK="$STATE_DIR/launcher.lock"
+LOCK_HELD=no
+EXEC_ENV=""
 IMAGE_REF=$(image_ref)
 mkdir -p "$STATE_DIR"
 chmod 700 "$WORKSPACE/.cdpx" "$STATE_DIR"
@@ -310,6 +359,8 @@ case "${1:-}" in
         ;;
 esac
 
+trap cleanup_launcher EXIT HUP INT TERM
+acquire_launcher_lock
 compile_plan
 
 case "${1:-}" in
@@ -332,7 +383,7 @@ esac
 
 ensure_runtime
 build_exec_environment
-trap 'rm -f "$EXEC_ENV"' EXIT HUP INT TERM
+release_launcher_lock
 docker exec \
     --workdir "$CURRENT_DIRECTORY" \
     --env-file "$EXEC_ENV" \

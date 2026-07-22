@@ -9,6 +9,7 @@ call time. No symbol in this module reads `cdpx.proof` at runtime.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -35,6 +36,14 @@ SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfon
 
 StreamAndCollect = Callable[..., tuple[int, bool, str]]
 RunText = Callable[..., tuple[int, str]]
+
+
+def compose_project_name(root: Path | None = None) -> str:
+    """Return the stable, daemon-wide Compose namespace for this worktree."""
+
+    workspace = (root or Path.cwd()).resolve()
+    identity = hashlib.sha256(str(workspace).encode()).hexdigest()[:12]
+    return f"cdpx-gate-{identity}"
 
 
 def run_evidence(
@@ -199,9 +208,12 @@ def run_symfony_evidence(
     # the staging.
     log_path = symfony_log if proof_dir is None else proof_dir / symfony_log.name
     evidence_root = evidence_dir if proof_dir is None else proof_dir / evidence_dir.name
+    project_name = compose_project_name()
     argv = [
         "docker",
         "compose",
+        "--project-name",
+        project_name,
         "-f",
         "docker-compose.symfony-e2e.yml",
         "up",
@@ -286,6 +298,8 @@ def run_symfony_evidence(
     down_argv = [
         "docker",
         "compose",
+        "--project-name",
+        project_name,
         "-f",
         "docker-compose.symfony-e2e.yml",
         "down",

@@ -82,6 +82,12 @@ joins the stack, and `extra_hosts` re-creates hostnames the tooling
 would otherwise only register in the host's `/etc/hosts`, either with a
 stack IP or with the special `host-gateway` target.
 
+For parallel Git worktrees, resolve `STACK_NET` to a different application
+network per worktree and isolate writable services such as databases, queues
+and caches. cdpx isolates its runtime, Chrome profile and artifacts; joining
+two runtimes to the same application network intentionally does not isolate
+the application's state.
+
 Project configuration cannot replace the runtime image or forward
 arbitrary host environment at execution time. Interpolation resolves
 only the variables the file explicitly references, at compilation;

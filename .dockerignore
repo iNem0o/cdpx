@@ -17,6 +17,7 @@ src/*.egg-info
 .proof
 .proof.new
 .proof.old
+.proof.lock
 .ci-artifacts
 .cdpx
 .cache

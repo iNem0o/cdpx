@@ -29,6 +29,7 @@ entrypoint is part of the contract.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import html
 import json
@@ -37,6 +38,7 @@ import os
 import shutil
 import sys
 from collections.abc import Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from importlib import resources
@@ -344,6 +346,27 @@ def _staging_dir() -> Path:
 
 def _previous_dir() -> Path:
     return PROOF_DIR.with_name(PROOF_DIR.name + PROOF_PREVIOUS_SUFFIX)
+
+
+@contextmanager
+def _exclusive_proof_lock():
+    """Refuse overlapping proof writers in the same worktree."""
+
+    lock_path = PROOF_DIR.with_name(f"{PROOF_DIR.name}.lock")
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    stream = os.fdopen(fd, "w")
+    try:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ArtifactError(f"proof already running for this worktree: {lock_path}") from error
+        stream.seek(0)
+        stream.truncate()
+        stream.write(f"pid={os.getpid()}\n")
+        stream.flush()
+        yield
+    finally:
+        stream.close()
 
 
 def _stream_and_collect(
@@ -1071,12 +1094,16 @@ def _generate() -> dict:
 
 
 def generate() -> dict:
-    with _private_umask():
+    with _private_umask(), _exclusive_proof_lock():
         return _generate()
 
 
 def main() -> int:
-    summary = generate()
+    try:
+        summary = generate()
+    except ArtifactError as error:
+        print(f"cdpx proof: {error}", file=sys.stderr)
+        return 1
     print(
         json.dumps(
             {k: summary[k] for k in ("ok", "artifact_dir", "report_html")}, separators=(",", ":")

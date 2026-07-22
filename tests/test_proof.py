@@ -14,6 +14,7 @@ from cdpx import proof
 from cdpx.artifacts import ArtifactClassification, ArtifactError
 from cdpx.cli import build_parser
 from cdpx.proofing import cast as proof_cast
+from cdpx.proofing.suites import compose_project_name
 from cdpx.security.redaction import RedactionContext
 
 
@@ -2613,6 +2614,7 @@ def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_
         raise AssertionError(f"unexpected docker command: {argv}")
 
     def fake_stream(argv, sink, *, env, timeout):
+        calls["argv"].append(list(argv))
         sink.parent.mkdir(parents=True, exist_ok=True)
         sink.write_text("compose up transcript\n", encoding="utf-8")
         return up
@@ -2636,6 +2638,10 @@ def test_run_symfony_evidence_composes_and_tears_down(tmp_path, monkeypatch):
     assert command.status == "ok"
     #: teardown is systematic: down before AND after the up
     assert calls["down"] == 2
+    expected_project = compose_project_name()
+    for argv in calls["argv"]:
+        if "up" in argv or "down" in argv:
+            assert argv[argv.index("--project-name") + 1] == expected_project
     #: every down purges orphans AND volumes: the loop cannot accumulate
     #: anonymous volumes even if an image ever declares one
     for argv in calls["argv"]:

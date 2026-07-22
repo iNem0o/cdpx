@@ -44,6 +44,27 @@ semantics and artifact paths. `.cache/` contains BuildKit and tool caches.
 The source tree is mounted over the image snapshot so a short-loop invocation
 does not need to rebuild for every edit.
 
+Every worktree derives a stable 12-character identity from its canonical
+path. Local development images (`cdpx-dev:wt-<id>` and
+`cdpx-runtime:wt-<id>`), Compose projects, caches, proof artifacts and the
+persistent runtime all use that identity or remain below that worktree. Two
+worktrees can therefore build and validate concurrently without retagging or
+tearing down each other's Docker resources. `CDPX_DEV_IMAGE` and
+`CDPX_RUNTIME_IMAGE` may override the local tags for an isolated CI daemon;
+they are development controls, not runtime image selection for end users.
+
+The full gate also assigns a worktree-specific Compose project. Site cast
+recording uses its own worktree-specific project and asks Docker for a free
+loopback port instead of reserving a fixed host port. Proof generation refuses
+a second writer in the same worktree, while separate worktrees remain
+independent. The launcher similarly serializes only plan compilation and cold
+runtime creation; commands against already-started independent sessions still
+run concurrently.
+
+This isolates cdpx resources, not the application under test. Parallel
+worktrees must still use distinct application Compose projects, networks,
+databases or test-data namespaces when their browser actions mutate state.
+
 `Makefile` remains a thin internal compatibility facade for Compose and
 proof scripts. Public instructions and CI must call `./dev`; new behavior is
 registered once in `tools/harness.py`, not independently in Make and YAML.
@@ -63,6 +84,14 @@ arbitrary image instead of the released digest. It exists only for
 development and controlled integration tests — end-user image selection is
 release-controlled. See [RELEASING.md](RELEASING.md) for how releases pin
 the digest.
+
+To exercise the source launcher against a locally built worktree image with a
+memorable name:
+
+```bash
+CDPX_RUNTIME_IMAGE=cdpx-runtime:review ./dev image
+CDPX_IMAGE_REF=cdpx-runtime:review ./cdpx --version
+```
 
 ## Documentation gate
 

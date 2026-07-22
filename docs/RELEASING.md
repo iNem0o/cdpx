@@ -40,7 +40,8 @@ The sections below detail each step; this is the complete order.
 
 ```bash
 ./dev release
-CDPX_IMAGE_REF=cdpx-runtime:dev ./cdpx --version
+CDPX_RUNTIME_IMAGE=cdpx-runtime:release-check ./dev image
+CDPX_IMAGE_REF=cdpx-runtime:release-check ./cdpx --version
 ```
 
 Inspect `.proof/shareable/` and the locally built runtime. The wheel under

@@ -1,8 +1,12 @@
 # Overlay for homepage cast recording (`./dev site-record`):
 # publishes the reference Symfony app on the host loopback so the generator
 # (scripts/site_casts) records the profiler demo against the real app.
-# Port 8025 so it never collides with a local dev server.
+# Docker assigns a free loopback port so independent worktrees can record in
+# parallel. `./dev site-record` discovers it with `docker compose port`.
 services:
   symfony:
     ports:
-      - "127.0.0.1:8025:8000"
+      - host_ip: 127.0.0.1
+        target: 8000
+        published: "0"
+        protocol: tcp

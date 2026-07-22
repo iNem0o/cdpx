@@ -3,12 +3,26 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")" && pwd -P)
-DEV_IMAGE=cdpx-dev:local
 
 die() {
     printf 'dev: %s\n' "$*" >&2
     exit 1
 }
+
+sha256_text() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$1" | sha256sum | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+    else
+        die "sha256sum or shasum is required"
+    fi
+}
+
+WORKTREE_ID=$(sha256_text "$ROOT" | cut -c 1-12)
+DEV_IMAGE=${CDPX_DEV_IMAGE:-cdpx-dev:wt-$WORKTREE_ID}
+RUNTIME_IMAGE=${CDPX_RUNTIME_IMAGE:-cdpx-runtime:wt-$WORKTREE_ID}
+SITE_COMPOSE_PROJECT=cdpx-site-casts-$WORKTREE_ID
 
 require_docker() {
     command -v docker >/dev/null 2>&1 || die "Docker is required"
@@ -17,9 +31,14 @@ require_docker() {
 
 build() {
     target=$1
+    case "$target" in
+        dev) image=$DEV_IMAGE ;;
+        runtime) image=$RUNTIME_IMAGE ;;
+        *) die "unsupported build target: $target" ;;
+    esac
     REVISION=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf uncommitted)
     export REVISION
-    (cd "$ROOT" && docker buildx bake --load "$target")
+    (cd "$ROOT" && docker buildx bake --load --set "$target.tags=$image" "$target")
 }
 
 socket_path() {
@@ -56,6 +75,8 @@ run_dev() {
         --env DOCKER_HOST=unix:///var/run/docker.sock \
         --env CDPX_IN_DEV=1 \
         --env CDPX_CONTAINERIZED=1 \
+        --env "CDPX_E2E_IMAGE=$DEV_IMAGE" \
+        --env "CDPX_WORKTREE_ID=$WORKTREE_ID" \
         --env CDPX_SITE_SYMFONY_BASE \
         --env "HOME=$ROOT/.cache/home" \
         --env "PYTHONPATH=$ROOT/src:$ROOT" \
@@ -105,7 +126,7 @@ case "$command" in
                 ;;
             record)
                 compose() {
-                    docker compose -p cdpx-site-casts \
+                    docker compose -p "$SITE_COMPOSE_PROJECT" \
                         -f "$ROOT/docker-compose.symfony-e2e.yml" \
                         -f "$ROOT/docker-compose.site-casts.yml" "$@"
                 }
@@ -115,7 +136,12 @@ case "$command" in
                 trap cleanup_site_record EXIT INT TERM
                 cleanup_site_record
                 compose up -d --wait symfony
-                CDPX_SITE_SYMFONY_BASE=http://host.docker.internal:8025
+                site_endpoint=$(compose port symfony 8000)
+                site_port=${site_endpoint##*:}
+                case "$site_port" in
+                    ''|*[!0-9]*) die "invalid Symfony published port: $site_endpoint" ;;
+                esac
+                CDPX_SITE_SYMFONY_BASE=http://host.docker.internal:$site_port
                 export CDPX_SITE_SYMFONY_BASE
                 run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py "$@"
                 run_dev /workspace/.venv/bin/python scripts/site_casts/generate.py check
