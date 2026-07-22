@@ -7,7 +7,7 @@ publication.
 
 ## Contribution cycle
 
-1. Create a focused branch from `master`.
+1. Create a focused branch from `main`.
 2. Open a draft pull request and let `CI` produce the proof.
 3. Inspect the **Full release gate** summary and proof artifact.
 4. Fix the branch until **`PR Gate / Required`** is green.
@@ -21,10 +21,10 @@ internal package validation but publishes nothing.
 
 | Setting | Required value |
 | --- | --- |
-| Default branch | `master` |
+| Default branch | `main` |
 | Required check | `PR Gate / Required` |
 | Conversations | resolution required |
-| Force-push and deletion | forbidden on `master` |
+| Force-push and deletion | forbidden on `main` |
 | Merge methods | squash only |
 | Merged branches | automatically deleted |
 | Workflow permissions | `contents: read` by default; no PR approval |
@@ -47,7 +47,7 @@ gh repo view inem0o/cdpx \
 gh api repos/inem0o/cdpx/actions/permissions
 gh api repos/inem0o/cdpx/actions/permissions/workflow
 gh api repos/inem0o/cdpx/rulesets
-gh api repos/inem0o/cdpx/branches/master/protection
+gh ruleset check --default --repo inem0o/cdpx
 gh api repos/inem0o/cdpx/private-vulnerability-reporting
 gh pr checks <PR_NUMBER> --repo inem0o/cdpx
 ```

@@ -1,13 +1,13 @@
 # Release architecture
 
-Every push to `master` that passes the amd64, arm64, macOS-launcher and full
+Every push to `main` that passes the amd64, arm64, macOS-launcher and full
 browser/Symfony gates produces an immutable GHCR candidate:
 `sha-COMMIT`, assembled from architecture-specific images. The workflow also
 exports embedded archives from those same candidate images.
 
 A `vX.Y.Z` tag does not build source. The protected `release` environment
 requires approval, verifies that the tag version matches `pyproject.toml`,
-that the commit belongs to `master`, and that a successful candidate workflow
+that the commit belongs to `main`, and that a successful candidate workflow
 exists for the exact commit. It then resolves the candidate digest and
 promotes that digest to `X.Y.Z`, `X.Y`, `X` and `latest`.
 
