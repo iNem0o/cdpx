@@ -20,13 +20,8 @@ Small documentation fixes or obvious corrections can be proposed directly.
 
 Prerequisite: Docker Engine or Docker Desktop with Compose. Python,
 Chromium and the quality toolchain are supplied by the development image.
-
-```bash
-git clone https://github.com/inem0o/cdpx.git
-cd cdpx
-./dev setup
-./dev check-local
-```
+Clone the repository and bootstrap it as described in
+[Get a development checkout](docs/DEVELOPMENT.md#get-a-development-checkout).
 
 `./dev check-local` is the short loop. The full gate `./dev check` also
 runs real Chrome as well as the Symfony

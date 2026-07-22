@@ -23,6 +23,15 @@ cdpx uses semantic versioning.
   any other bare `$` fails compilation with a `malformed placeholder`
   error.
 
+### Documentation
+
+- The README, homepage and installation guide now separate installed mode
+  (launcher deployment, updates, constraints, uninstall) from dev mode
+  (contributing through `./dev`), and a "How cdpx runs" section
+  disambiguates the installed launcher, the in-image CLI and the
+  contributor harness. The homepage version badge is corrected and now
+  covered by the release version-pin test.
+
 ## [0.1.2] — 2026-07-21
 
 ### Added

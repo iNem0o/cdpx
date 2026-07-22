@@ -66,11 +66,3 @@ network namespace when loopback is required, and execute CLI commands with
 link to the native entry point. Debian 12/13 and Ubuntu 24.04/26.04 on amd64
 or arm64 are the intended validation matrix. The bundle is not a stable ABI;
 pin the source image digest and update it as a unit.
-
-## CI
-
-CI invokes `./dev`, exactly like a contributor. Development and CI mount the
-host Docker socket only to run nested integration scenarios; this is
-container-outside-of-container, not a privileged production runtime. Run
-such jobs only on trusted runners and never expose the socket to untrusted
-services.
