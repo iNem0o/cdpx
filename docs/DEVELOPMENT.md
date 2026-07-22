@@ -30,6 +30,7 @@ No host Python environment is read or modified.
 | `./dev check` | blocking real Chrome, Symfony and proof gate |
 | `./dev proof` | regenerate the private proof cockpit |
 | `./dev release` | full gate plus internal wheel build |
+| `./dev bump X.Y.Z` | move every release version pin and stamp the changelog |
 | `./dev test-e2e` | real Chrome tests |
 | `./dev image` | production runtime image |
 | `./dev shell` | shell in the development image |

@@ -11,6 +11,7 @@ import tomllib
 from pathlib import Path
 
 import yaml
+from tools.release_pins import version_pins
 
 from cdpx import __version__
 
@@ -38,23 +39,11 @@ def test_release_version_pins_move_together():
     """Every surface that pins the release version carries the same X.Y.Z:
     the CI build argument, the launcher, the bake default, the installer
     default, the packaging examples, the launcher test and the installation
-    documentation. A bump that misses one file fails here and names it, so a
+    documentation. The pin registry is shared with ``./dev bump``
+    (``tools.release_pins``), so the rewriter and this guard cannot
+    diverge; a bump that misses one file fails here and names it, and a
     release preparation cannot ship a stale pin."""
-    v = __version__
-    pins = {
-        ".github/workflows/ci.yml": [f'--build-arg "VERSION={v}"'],
-        "README.md": [f"**Version {v} "],
-        "cdpx": [f'LAUNCHER_VERSION="{v}"'],
-        "docker-bake.hcl": [f'default = "{v}"'],
-        "packaging/install": [f"VERSION=${{CDPX_VERSION:-v{v}}}"],
-        "packaging/Dockerfile.embedded": [f"FROM ghcr.io/inem0o/cdpx:{v} AS cdpx"],
-        "packaging/compose.sidecar.yml": [f"image: ghcr.io/inem0o/cdpx:{v}"],
-        "tests/test_launcher.sh": [f'"launcher_version":"{v}"'],
-        "docs/INSTALLATION.md": [f"--version v{v}", f"FROM ghcr.io/inem0o/cdpx:{v}"],
-        "site/index.html": [f"{v} · pre-1.0 beta", f"Version {v} ·"],
-        "uv.lock": [f'name = "cdpx"\nversion = "{v}"'],
-    }
-    for source, tokens in pins.items():
+    for source, tokens in version_pins(__version__).items():
         text = Path(source).read_text(encoding="utf-8")
         for token in tokens:
             assert token in text, f"{source}: stale version pin, expected {token!r}"

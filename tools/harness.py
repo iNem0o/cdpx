@@ -10,6 +10,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.bump import bump
+
 
 @dataclass(frozen=True)
 class Gate:
@@ -95,13 +97,16 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="python -m tools.harness")
     root.add_argument(
         "command",
-        choices=("check-local", "check", "proof", "release", "fmt", "clean", "test-e2e"),
+        choices=("check-local", "check", "proof", "release", "fmt", "clean", "test-e2e", "bump"),
     )
+    root.add_argument("version", nargs="?", help="target X.Y.Z, required by bump")
     return root
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.version is not None and args.command != "bump":
+        parser().error(f"{args.command} takes no version argument")
     try:
         if args.command == "check-local":
             check_local()
@@ -114,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
             format_sources()
         elif args.command == "clean":
             clean()
+        elif args.command == "bump":
+            if args.version is None:
+                parser().error("bump requires a target version: bump X.Y.Z")
+            bump(args.version)
         else:
             run(("pytest", "tests/e2e", "-v"))
     except subprocess.CalledProcessError as error:

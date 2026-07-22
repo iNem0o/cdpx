@@ -10,11 +10,13 @@ The tag is the trigger, not the release: prepare, prove, tag, approve.
 The sections below detail each step; this is the complete order.
 
 1. Start from the merged, green tip: `git checkout main && git pull`.
-2. Bump every version pin to `X.Y.Z` in one commit named
-   `Prepare cdpx X.Y.Z`.
+2. Run `./dev bump X.Y.Z`: it moves every version pin from the shared
+   registry (`tools/release_pins.py`) and renames the `[Unreleased]`
+   changelog section to `[X.Y.Z] — DATE`, refusing to run while that
+   section is empty. Review the diff and commit it as `Prepare cdpx
+   X.Y.Z`.
    `tests/test_packaging.py::test_release_version_pins_move_together`
-   enumerates every pinned file and fails on any laggard; also move the
-   `[Unreleased]` changelog section to `[X.Y.Z] — DATE`.
+   reads the same registry and fails on any laggard.
 3. Prove the prep commit locally: `./dev check-local`, `./dev check`,
    then `./dev release` and the pinned-image smoke test below.
 4. Push `main` and wait for the main CI run to be green through

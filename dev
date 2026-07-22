@@ -105,6 +105,11 @@ case "$command" in
         build dev
         run_dev /workspace/.venv/bin/python -m tools.harness "$command"
         ;;
+    bump)
+        [ "$#" -eq 1 ] || die "usage: ./dev bump X.Y.Z"
+        build dev
+        run_dev /workspace/.venv/bin/python -m tools.harness bump "$1"
+        ;;
     image)
         [ "$#" -eq 0 ] || die "usage: ./dev image"
         build runtime
@@ -169,6 +174,7 @@ case "$command" in
             '  check        full proof-backed Chrome/Symfony gate' \
             '  proof        rebuild the full private proof' \
             '  release      full gate plus internal wheel' \
+            '  bump         move every release version pin to X.Y.Z' \
             '  fmt          apply Ruff formatting and safe fixes' \
             '  test-e2e     run real Chrome tests' \
             '  image        build the production runtime target' \

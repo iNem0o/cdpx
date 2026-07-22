@@ -9,7 +9,7 @@ DEV_IMAGE ?= $(or $(CDPX_DEV_IMAGE),cdpx-dev:wt-$(WORKTREE_ID))
 RUNTIME_IMAGE ?= $(or $(CDPX_RUNTIME_IMAGE),cdpx-runtime:wt-$(WORKTREE_ID))
 COMPOSE_PROJECT ?= cdpx-gate-$(WORKTREE_ID)
 
-.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock site-casts worktree-id docker-build docker-check docker-e2e docker-symfony-e2e proof release clean dist smoke-dist
+.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock site-casts worktree-id docker-build docker-check docker-e2e docker-symfony-e2e proof release bump clean dist smoke-dist
 
 help:
 	@./dev help
@@ -77,6 +77,9 @@ proof:
 
 release:
 	$(HARNESS) release
+
+bump:
+	$(HARNESS) bump $(VERSION)
 
 dist:
 	uv build --wheel --out-dir dist
