@@ -241,6 +241,22 @@ def test_trust_ca_rejects_a_private_key(tmp_path: Path):
         load_configuration(tmp_path)
 
 
+def test_trust_ca_rejects_a_private_key_hidden_past_64kib(tmp_path: Path):
+    """The key scan reads the whole file: a private key appended after a large
+    certificate chain must not slip through a truncated security check."""
+    padding = _FAKE_CERTIFICATE * (70_000 // len(_FAKE_CERTIFICATE) + 1)
+    _write_certificate(
+        tmp_path / "certs" / "big-bundle.pem",
+        padding + _FAKE_PRIVATE_KEY,
+    )
+    (tmp_path / "cdpx.yaml").write_text(
+        yaml.safe_dump({"runtime": {"trust_ca": ["certs/big-bundle.pem"]}}), encoding="utf-8"
+    )
+
+    with pytest.raises(ConfigurationError, match="never its private key"):
+        load_configuration(tmp_path)
+
+
 def test_trust_ca_rejects_a_file_without_a_certificate_block(tmp_path: Path):
     _write_certificate(tmp_path / "certs" / "notes.txt", "just some notes\n")
     (tmp_path / "cdpx.yaml").write_text(

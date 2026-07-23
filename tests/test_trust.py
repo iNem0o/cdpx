@@ -119,6 +119,64 @@ def test_seed_trust_store_fails_closed_when_certutil_errors(tmp_path):
         seed_trust_store(trust_dir, tmp_path / "home", certutil=certutil)
 
 
+def test_seed_trust_store_keeps_nicknames_unique_across_matching_stems(tmp_path):
+    """root.pem and root.crt share a stem; the global import counter keeps the
+    NSS nicknames distinct so the second import cannot collide and abort."""
+    log = tmp_path / "calls.log"
+    certutil = _fake_certutil(tmp_path, log)
+    trust_dir = _trust_dir(tmp_path, {"root.pem": PEM_ONE, "root.crt": PEM_TWO})
+
+    assert seed_trust_store(trust_dir, tmp_path / "home", certutil=certutil) == 2
+
+    lines = log.read_text(encoding="utf-8").splitlines()
+    nicknames = [line.split("-n ")[1].split(" ")[0] for line in lines if "-A" in line]
+    #: every import carries its own nickname despite the identical stems
+    assert len(nicknames) == 2
+    assert len(set(nicknames)) == 2
+
+
+def test_seed_trust_store_bounds_certutil_by_the_startup_deadline(tmp_path):
+    """A certutil that hangs is killed at the startup deadline and seeding
+    fails closed: it runs before Chrome spawns and must not outlive the
+    session startup budget."""
+    import time as time_mod
+
+    script = tmp_path / "hanging-certutil"
+    script.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    script.chmod(0o755)
+    trust_dir = _trust_dir(tmp_path, {"root.pem": PEM_ONE})
+
+    started = time_mod.monotonic()
+    with pytest.raises(PolicyError, match="startup budget"):
+        seed_trust_store(
+            trust_dir,
+            tmp_path / "home",
+            certutil=str(script),
+            deadline=time_mod.monotonic() + 0.3,
+        )
+    #: the hang was cut at the deadline, not after the full sleep
+    assert time_mod.monotonic() - started < 5
+
+
+def test_seed_trust_store_fails_closed_on_an_already_expired_deadline(tmp_path):
+    """An exhausted startup budget refuses to launch certutil at all."""
+    log = tmp_path / "calls.log"
+    certutil = _fake_certutil(tmp_path, log)
+    trust_dir = _trust_dir(tmp_path, {"root.pem": PEM_ONE})
+
+    import time as time_mod
+
+    with pytest.raises(PolicyError, match="startup budget"):
+        seed_trust_store(
+            trust_dir,
+            tmp_path / "home",
+            certutil=certutil,
+            deadline=time_mod.monotonic() - 1,
+        )
+    #: certutil never ran
+    assert not log.exists()
+
+
 def test_seed_trust_store_rejects_a_bundle_without_certificates(tmp_path):
     """A file that carries no PEM block imports nothing; seeding fails closed
     rather than returning a success that trusted zero certificates."""

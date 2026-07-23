@@ -279,8 +279,9 @@ def _trust_ca(value: Any, root: Path) -> list[str]:
                 f"{label}: duplicate certificate file name {basename!r}; "
                 "trusted CAs share one target directory"
             )
-        with source.open("rb") as stream:
-            content = stream.read(65_536).decode("utf-8", errors="replace")
+        # The whole file is scanned: truncating a security check would let a
+        # PRIVATE KEY block hide behind a large certificate chain.
+        content = source.read_bytes().decode("utf-8", errors="replace")
         if "-----BEGIN CERTIFICATE-----" not in content:
             raise ConfigurationError(f"{label}: no PEM CERTIFICATE block in {source}")
         if "PRIVATE KEY" in content:

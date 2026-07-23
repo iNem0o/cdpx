@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from cdpx.policy import PolicyError
@@ -49,31 +50,58 @@ def _resolve_certutil(certutil: str | None) -> str:
     return candidate
 
 
+def _remaining(deadline: float | None) -> float | None:
+    """Seconds left before ``deadline`` (monotonic), or ``None`` when unbounded."""
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise PolicyError("trust store seeding exceeded the session startup budget")
+    return remaining
+
+
+def _run_certutil(argv: list[str], deadline: float | None, action: str) -> None:
+    """Run one certutil command bounded by the startup deadline, fail closed."""
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            timeout=_remaining(deadline),
+        )
+    except subprocess.TimeoutExpired as error:
+        raise PolicyError(
+            f"certutil timed out while {action} within the session startup budget"
+        ) from error
+    if completed.returncode != 0:
+        raise PolicyError(f"certutil failed while {action} (exit {completed.returncode})")
+
+
 def seed_trust_store(
     trust_dir: Path,
     home_dir: Path,
     certutil: str | None = None,
+    *,
+    deadline: float | None = None,
 ) -> int:
     """Seed a private NSS database under ``home_dir`` from ``trust_dir``.
 
     Every ``*.pem``/``*.crt`` file in ``trust_dir`` is split into individual
     certificate blocks and imported as a trusted CA. Any certutil failure or a
     total of zero imported certificates raises :class:`PolicyError` (fail
-    closed). Returns the number of certificates imported.
+    closed). ``deadline`` is a monotonic instant bounding every certutil call:
+    seeding runs before Chrome spawns, so a hung certutil must not escape the
+    session startup budget. Returns the number of certificates imported.
     """
     tool = _resolve_certutil(certutil)
     nssdb = home_dir / ".pki" / "nssdb"
     _secure_mkdir(nssdb)
     db_arg = f"sql:{nssdb}"
 
-    created = subprocess.run(
+    _run_certutil(
         [tool, "-d", db_arg, "-N", "--empty-password"],
-        capture_output=True,
+        deadline,
+        "creating the trust database",
     )
-    if created.returncode != 0:
-        raise PolicyError(
-            f"certutil failed to create the trust database (exit {created.returncode})"
-        )
 
     imported = 0
     for cert_file in sorted(trust_dir.iterdir()):
@@ -88,8 +116,10 @@ def seed_trust_store(
                 os.write(fd, block + b"\n")
                 os.close(fd)
                 fd = -1
-                nickname = f"cdpx-{cert_file.stem}-{index}"
-                added = subprocess.run(
+                # The global import counter keeps nicknames unique even when
+                # distinct files share a stem (root.pem next to root.crt).
+                nickname = f"cdpx-{cert_file.stem}-{imported}"
+                _run_certutil(
                     [
                         tool,
                         "-d",
@@ -102,13 +132,9 @@ def seed_trust_store(
                         "-i",
                         str(tmp_path),
                     ],
-                    capture_output=True,
+                    deadline,
+                    f"importing {cert_file.name} block {index}",
                 )
-                if added.returncode != 0:
-                    raise PolicyError(
-                        f"certutil failed to import {cert_file.name} "
-                        f"block {index} (exit {added.returncode})"
-                    )
                 imported += 1
             finally:
                 if fd >= 0:
