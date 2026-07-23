@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+BUNDLE=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+case "$(uname -m)" in
+    x86_64|amd64|aarch64|arm64) ;;
+    *)
+        printf 'cdpx: unsupported embedded architecture: %s\n' "$(uname -m)" >&2
+        exit 2
+        ;;
+esac
+
+export LD_LIBRARY_PATH="$BUNDLE/chromium-libs"
+exec "$BUNDLE/bin/certutil.bin" "$@"

@@ -23,6 +23,7 @@ runtime:
     - "api.stack.local:172.20.0.10"
   idle_timeout: 24h
   shm_size: 1g
+  trust_ca: []
 environment:
   required: [APP_URL]
   optional: [HTTP_PROXY]
@@ -36,6 +37,7 @@ session:
   ttl: 1h
   origins:
     - http://127.0.0.1:*
+  ignore_tls_errors: false
 ```
 
 The machine-readable contract is
@@ -50,6 +52,7 @@ The machine-readable contract is
 | `runtime.extra_hosts` | `[]` | `hostname:target` entries; target is an IP or `host-gateway`; rejected with `container:` mode |
 | `runtime.idle_timeout` | `24h` | 5 minutes through 7 days |
 | `runtime.shm_size` | `1g` | 256 MiB through 4 GiB |
+| `runtime.trust_ca` | `[]` | workspace PEM CA files bind-mounted read-only at `/etc/cdpx/trust/<basename>` and imported into a per-session trust store; a file containing a private key fails compilation |
 | `environment.required` | `[]` | names copied from the invocation; missing/empty fails |
 | `environment.optional` | `[]` | names copied only when present and non-empty |
 | `environment.set` | `{}` | non-secret strings, resolved at plan compilation |
@@ -58,6 +61,37 @@ The machine-readable contract is
 | `mounts[].read_only` | `true` | explicit `false` enables writes |
 | `session.ttl` | `1h` | 60 seconds through 24 hours |
 | `session.origins` | `[]` | default allowlist supplied to session startup |
+| `session.ignore_tls_errors` | `false` | dev-only fallback; launches Chrome with `--ignore-certificate-errors` |
+
+## Local HTTPS (mkcert, traefik)
+
+Development stacks that terminate TLS with a local authority (`mkcert`,
+traefik's internal CA) make Chrome raise `ERR_CERT_AUTHORITY_INVALID`.
+The supported fix is to teach the session to trust that CA. Copy the
+public root certificate into the workspace and list it under
+`runtime.trust_ca`:
+
+```bash
+mkdir -p certs
+cp "$(mkcert -CAROOT)/rootCA.pem" certs/
+```
+
+```yaml
+runtime:
+  trust_ca:
+    - certs/rootCA.pem
+```
+
+Copy only `rootCA.pem`. Never copy or mount `rootCA-key.pem` (the private
+key that lives beside it in `mkcert -CAROOT`); configuration compilation
+rejects any file containing a `PRIVATE KEY` block. Each listed file is
+bind-mounted read-only and imported into a per-session trust store at
+`session start`. `trust_ca` enters the plan fingerprint, so changing it
+replaces an idle runtime on the next invocation.
+
+For a throwaway diagnostic where trusting the CA is not warranted,
+`session.ignore_tls_errors: true` disables certificate validation for the
+whole session instead. It is a dev-only fallback; prefer `runtime.trust_ca`.
 
 ## Environment interpolation
 

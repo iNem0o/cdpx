@@ -54,6 +54,7 @@ def test_portable_scripts_are_posix_and_shellcheck_clean():
         Path("packaging/install"),
         Path("packaging/native-python"),
         Path("packaging/native-chromium"),
+        Path("packaging/native-certutil"),
         Path("packaging/native-cdpx"),
         Path("packaging/embedded-install"),
         Path("tests/test_launcher.sh"),

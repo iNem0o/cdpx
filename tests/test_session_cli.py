@@ -208,6 +208,121 @@ def test_session_start_uses_run_id_environment_and_emits_metadata(
     assert calls[0]["timeout"] == 75.0
 
 
+def test_session_start_forwards_tls_options_from_flags(
+    mock,
+    capsys,
+    tmp_path,
+    monkeypatch,
+):
+    """`session start --ignore-tls-errors --trust-ca-dir /x` forwards the two
+    local-HTTPS options intact to the supervisor."""
+    manifest, path = session_manifest(mock, tmp_path)
+    monkeypatch.setenv("CDPX_RUN_ID", manifest.run_id)
+    calls = []
+
+    def fake_start_session(**kwargs):
+        calls.append(kwargs)
+        return manifest, path
+
+    monkeypatch.setattr(session_mod, "start_session", fake_start_session)
+
+    code = main(
+        [
+            "session",
+            "start",
+            "--authority",
+            "observation",
+            "--ignore-tls-errors",
+            "--trust-ca-dir",
+            "/x",
+        ]
+    )
+
+    assert code == 0
+    assert calls[0]["ignore_tls_errors"] is True
+    assert calls[0]["trust_ca_dir"] == "/x"
+
+
+def test_session_start_tls_options_default_from_environment(
+    mock,
+    capsys,
+    tmp_path,
+    monkeypatch,
+):
+    """With CDPX_IGNORE_TLS_ERRORS and CDPX_TRUST_CA_DIR set, a bare
+    `session start` inherits both as defaults, mirroring --ttl/--origins."""
+    manifest, path = session_manifest(mock, tmp_path)
+    monkeypatch.setenv("CDPX_RUN_ID", manifest.run_id)
+    monkeypatch.setenv("CDPX_IGNORE_TLS_ERRORS", "1")
+    monkeypatch.setenv("CDPX_TRUST_CA_DIR", "/etc/cdpx/trust")
+    calls = []
+
+    def fake_start_session(**kwargs):
+        calls.append(kwargs)
+        return manifest, path
+
+    monkeypatch.setattr(session_mod, "start_session", fake_start_session)
+
+    code = main(["session", "start", "--authority", "observation"])
+
+    assert code == 0
+    assert calls[0]["ignore_tls_errors"] is True
+    assert calls[0]["trust_ca_dir"] == "/etc/cdpx/trust"
+
+
+def test_session_start_tls_options_absent_default_to_off(
+    mock,
+    capsys,
+    tmp_path,
+    monkeypatch,
+):
+    """Absent env and no flags: TLS handling stays strict (False) and no CA
+    directory is imported (None)."""
+    manifest, path = session_manifest(mock, tmp_path)
+    monkeypatch.setenv("CDPX_RUN_ID", manifest.run_id)
+    monkeypatch.delenv("CDPX_IGNORE_TLS_ERRORS", raising=False)
+    monkeypatch.delenv("CDPX_TRUST_CA_DIR", raising=False)
+    calls = []
+
+    def fake_start_session(**kwargs):
+        calls.append(kwargs)
+        return manifest, path
+
+    monkeypatch.setattr(session_mod, "start_session", fake_start_session)
+
+    code = main(["session", "start", "--authority", "observation"])
+
+    assert code == 0
+    assert calls[0]["ignore_tls_errors"] is False
+    assert calls[0]["trust_ca_dir"] is None
+
+
+@pytest.mark.parametrize("falsy", ["0", "false", ""])
+def test_session_start_ignore_tls_falsy_env_is_off(
+    mock,
+    capsys,
+    tmp_path,
+    monkeypatch,
+    falsy,
+):
+    """Falsy CDPX_IGNORE_TLS_ERRORS values do not enable the flag."""
+    manifest, path = session_manifest(mock, tmp_path)
+    monkeypatch.setenv("CDPX_RUN_ID", manifest.run_id)
+    monkeypatch.setenv("CDPX_IGNORE_TLS_ERRORS", falsy)
+    calls = []
+
+    def fake_start_session(**kwargs):
+        calls.append(kwargs)
+        return manifest, path
+
+    monkeypatch.setattr(session_mod, "start_session", fake_start_session)
+
+    code = main(["session", "start", "--authority", "observation"])
+
+    assert code == 0
+    assert calls[0]["ignore_tls_errors"] is False
+
+
 def test_session_start_export_prints_evalable_identity_lines(
     mock,
     capsys,

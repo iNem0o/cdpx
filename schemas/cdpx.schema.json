@@ -80,6 +80,22 @@
           ],
           "default": "1g",
           "description": "Shared memory available to embedded Chromium."
+        },
+        "trust_ca": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "#/$defs/placeholderString"
+              }
+            ]
+          },
+          "description": "CA certificate files (PEM, inside the workspace) mounted read-only at /etc/cdpx/trust and imported into each session's NSS trust store."
         }
       }
     },
@@ -188,6 +204,11 @@
           },
           "default": [],
           "description": "Default HTTP(S) origin grants."
+        },
+        "ignore_tls_errors": {
+          "type": "boolean",
+          "default": false,
+          "description": "dev only: Chromium ignores TLS certificate errors (--ignore-certificate-errors)."
         }
       }
     }

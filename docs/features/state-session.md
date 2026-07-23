@@ -4,8 +4,8 @@ title = "Session state and controls"
 status = "validated"
 summary = "Assign a supervised browser session and inspect cookies/localStorage/sessionStorage without leaking secrets by default."
 entrypoints = ["cdpx cookies", "cdpx storage", "cdpx session"]
-path_globs = ["src/cdpx/session.py", "src/cdpx/policy.py", "src/cdpx/artifacts.py", "src/cdpx/security/*.py", "src/cdpx/primitives/state.py", "src/cdpx/testing/mock_session.py", "tests/test_session.py", "tests/test_policy.py", "tests/test_session_cli.py", "tests/test_artifacts.py", "tests/test_redaction.py", "tests/test_security_integration.py", "tests/e2e/test_e2e_sessions.py", "tests/fixtures/storage.html", "src/cdpx/sessions/*.py", "src/cdpx/private_files.py", "tests/test_private_files.py"]
-test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*", "tests/e2e/test_e2e_sessions.py::*", "tests/test_private_files.py::*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
+path_globs = ["src/cdpx/session.py", "src/cdpx/policy.py", "src/cdpx/artifacts.py", "src/cdpx/security/*.py", "src/cdpx/primitives/state.py", "src/cdpx/testing/mock_session.py", "tests/test_session.py", "tests/test_policy.py", "tests/test_session_cli.py", "tests/test_artifacts.py", "tests/test_redaction.py", "tests/test_security_integration.py", "tests/test_trust.py", "tests/e2e/test_e2e_sessions.py", "tests/e2e/test_e2e_tls.py", "tests/fixtures/storage.html", "tests/fixtures/tls/*", "src/cdpx/sessions/*.py", "src/cdpx/private_files.py", "tests/test_private_files.py"]
+test_globs = ["tests/test_cli.py::test_cookies*", "tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_trust.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/e2e/test_e2e_chrome.py::test_cli_cookie_masking*", "tests/e2e/test_e2e_sessions.py::*", "tests/e2e/test_e2e_tls.py::*", "tests/test_private_files.py::*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
 docs = ["docs/PRIMITIVES.md", "docs/SESSION-LIFECYCLE.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -32,6 +32,11 @@ entrypoint = "cdpx session"
 [[journeys]]
 id = "teardown-supervisor-signal"
 title = "Destroy the browser and profile when the supervisor stops"
+entrypoint = "cdpx session"
+
+[[journeys]]
+id = "secure-local-tls"
+title = "Reach a local self-signed HTTPS service under a chosen trust policy"
 entrypoint = "cdpx session"
 
 [[scenarios]]
@@ -131,6 +136,18 @@ tests = ["tests/test_session.py::test_supervisor_builds_manifest_closes_extra_ta
 expected_proofs = ["junit"]
 
 [[scenarios]]
+id = "record-tls-bypass-option"
+journey = "exercise-session-without-chrome"
+title = "Record the TLS-bypass option without leaking the trust store path"
+ui_text = "A session started with the TLS-bypass option shows that choice in its public view, while the trust store stays a simple boolean marker."
+report_text = "This scenario proves, without real Chrome, that ignore_tls_errors is persisted in the attested manifest and surfaced in the public view, and that the trust store is only ever exposed as a boolean trust_ca marker — the raw directory path never reaches the default output."
+given = "A mock-backend session is started with ignore_tls_errors and no trust store."
+when = "The caller reads the manifest and its public view."
+then = "The manifest records the option, the public view exposes ignore_tls_errors and a boolean trust_ca, and the raw trust_ca_dir path is absent."
+tests = ["tests/test_session.py::test_mock_session_records_ignore_tls_errors_and_public_view"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
 id = "report-redacted-startup-diagnostics"
 journey = "exercise-session-without-chrome"
 title = "Report redacted startup diagnostics before cleanup"
@@ -153,6 +170,42 @@ when = "The caller reads the public view of the manifest."
 then = "The logical identity is present and no browser or profile attack capability leaks into the default output."
 tests = ["tests/test_session.py::test_public_manifest_omits_capabilities_and_physical_profile"]
 expected_proofs = ["junit", "json"]
+
+[[scenarios]]
+id = "reject-untrusted-local-tls"
+journey = "secure-local-tls"
+title = "Refuse a loopback HTTPS server with an untrusted certificate"
+ui_text = "By default, a supervised session refuses a local HTTPS service whose certificate is not trusted, and the refusal is explainable."
+report_text = "This scenario proves on real Chrome that navigating a default session to a loopback HTTPS server signed by an untrusted CA fails closed: the CLI exits 1 with a net::ERR_CERT diagnostic on stderr and never a false success."
+given = "A loopback HTTPS server serves a page with a self-signed certificate whose issuing CA is not trusted."
+when = "A default supervised session navigates to that HTTPS origin."
+then = "The navigation fails with exit 1 and a certificate error on stderr, leaving stdout empty."
+tests = ["tests/e2e/test_e2e_tls.py::test_default_session_rejects_untrusted_local_https"]
+expected_proofs = ["junit", "command"]
+
+[[scenarios]]
+id = "ignore-local-tls-errors"
+journey = "secure-local-tls"
+title = "Bypass local certificate errors on demand"
+ui_text = "The developer can opt a disposable session into ignoring TLS certificate errors for local self-signed HTTPS."
+report_text = "This scenario proves that --ignore-tls-errors launches Chrome with --ignore-certificate-errors so the same loopback HTTPS navigation that failed by default now succeeds, without any bypass leaking into the JSON contract."
+given = "A loopback HTTPS server serves a page with an untrusted self-signed certificate."
+when = "A supervised session started with --ignore-tls-errors navigates to that HTTPS origin."
+then = "The navigation succeeds and the JSON reports the loaded HTTPS page."
+tests = ["tests/e2e/test_e2e_tls.py::test_ignore_tls_errors_allows_untrusted_local_https"]
+expected_proofs = ["junit", "command"]
+
+[[scenarios]]
+id = "trust-local-ca-store"
+journey = "secure-local-tls"
+title = "Trust a local CA through a private per-session store"
+ui_text = "The developer can point a session at a directory of PEM CAs, which Chrome trusts for local HTTPS without any global certificate bypass."
+report_text = "This scenario proves that --trust-ca-dir seeds a private per-session NSS trust store from a directory of PEM CAs (imported via certutil under a disposable HOME) so Chrome trusts a loopback leaf signed by that CA, while the unit suite covers the seeding contract and its fail-closed behavior when certutil is missing."
+given = "A directory holds the PEM CA that issued the loopback HTTPS server's leaf certificate."
+when = "A supervised session started with --trust-ca-dir navigates to that HTTPS origin, and certutil is available."
+then = "The certificate validates against the imported CA and the navigation succeeds; the seeding logic is asserted by the unit suite, which skips cleanly when certutil is unavailable."
+tests = ["tests/e2e/test_e2e_tls.py::test_trust_ca_dir_allows_local_https_signed_by_that_ca", "tests/test_trust.py::*"]
+expected_proofs = ["junit", "command"]
 +++
 
 ## Intent

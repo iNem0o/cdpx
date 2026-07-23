@@ -113,8 +113,10 @@ CHROME
 
 `--no-sandbox` is added when cdpx runs as root or under `CI`.
 `--disable-dev-shm-usage` is added under `CI` so that containers with
-a small `/dev/shm` use the private on-disk profile. These options
-must not be interpreted as permission to attach cdpx to a real
+a small `/dev/shm` use the private on-disk profile.
+`--ignore-certificate-errors` is added only when
+`session.ignore_tls_errors` (or `--ignore-tls-errors`) is set. These
+options must not be interpreted as permission to attach cdpx to a real
 profile.
 
 ## Process tree
@@ -169,7 +171,9 @@ RUNTIME_ROOT/
     ├── stop                    mode 0600, transient
     ├── profile/                mode 0700, --user-data-dir
     │   └── DevToolsActivePort  written by Chrome
-    └── artifacts/              mode 0700
+    ├── artifacts/              mode 0700
+    └── home/                   mode 0700, only when trust is configured
+        └── .pki/nssdb/         per-session NSS trust store
 ```
 
 Before readiness, `bootstrap.json` exists as `0600`. It is deleted
@@ -182,12 +186,21 @@ this single Chrome. It is neither encrypted nor wiped bit by bit: its
 confidentiality depends on Unix modes and its retention on the
 deletion of the session tree.
 
+When `runtime.trust_ca` lists workspace CA certificates, `session start`
+imports each one into the per-session `home/.pki/nssdb` trust store and
+runs Chrome with `HOME` pointed at that `home/` directory, so the trust
+never escapes the disposable session. `HOME` is overridden only when
+trust is configured; sessions without `trust_ca` leave it untouched.
+Manifests emitted with these fields use the `cdpx.session/v3` schema.
+The bump is breaking: an active session written by an older version
+fails closed and must be cleared with `cdpx runtime reset --force`.
+
 ## What is exposed
 
 | Surface | Exposed data |
 | --- | --- |
 | `start` stdout | schema, session/run, ephemeral profile identifier, backend, authority, origins, host/port, target, timestamps and manifest path |
-| `status` stdout | same public data, plus `browser_running` and `supervisor_running` |
+| `status` stdout | same public data, plus `browser_running`, `supervisor_running`, `ignore_tls_errors` and `trust_ca` |
 | `stop` stdout | session, run and `stopped` confirmation |
 | private manifest | WebSocket URL, PID and process startup identity, owner, session/profile/artifact paths |
 | network endpoint | discovery and WebSocket only on `127.0.0.1:PORT` |

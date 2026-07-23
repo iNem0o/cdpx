@@ -17,6 +17,7 @@ from typing import Any, TextIO
 
 from cdpx import discovery, session
 from cdpx.policy import PolicyError, assert_loopback_endpoint
+from cdpx.sessions import trust
 
 
 @dataclass
@@ -64,6 +65,24 @@ def supervise(bootstrap_path: Path, attestation: str) -> int:
         _teardown_runtime(runtime)
 
 
+def _chrome_environment(
+    data: session.SupervisorBootstrap,
+    session_dir: Path,
+) -> dict[str, str] | None:
+    """Environment override for the browser, or ``None`` to inherit as-is.
+
+    When a trust store is requested for a real Chrome, seed a private per-session
+    NSS database under ``<session>/home/.pki/nssdb`` and point ``HOME`` there so
+    Chrome trusts the mounted CA. The mock backend never needs a trust store.
+    """
+    if data.trust_ca_dir and data.browser_kind == "chrome":
+        home_dir = session_dir / "home"
+        count = trust.seed_trust_store(Path(data.trust_ca_dir), home_dir)
+        print(f"startup_stage=seed_trust count={count}", flush=True)
+        return {**os.environ, "HOME": str(home_dir)}
+    return None
+
+
 def _start_runtime(
     runtime: SupervisorRuntime,
     data: session.SupervisorBootstrap,
@@ -76,8 +95,13 @@ def _start_runtime(
     log_path = runtime.session_dir / "chrome-stderr.log"
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     runtime.chrome_log = os.fdopen(log_fd, "w", encoding="utf-8")
+    chrome_env = _chrome_environment(data, runtime.session_dir)
     browser_command = (
-        session.build_chrome_command(data.chrome_bin, profile_dir)
+        session.build_chrome_command(
+            data.chrome_bin,
+            profile_dir,
+            ignore_tls_errors=data.ignore_tls_errors,
+        )
         if data.browser_kind == "chrome"
         else session.build_mock_command(profile_dir)
     )
@@ -87,6 +111,7 @@ def _start_runtime(
         stdout=subprocess.DEVNULL,
         stderr=runtime.chrome_log,
         close_fds=True,
+        env=chrome_env,
     )
     chrome = runtime.chrome
     print("startup_stage=wait_devtools_port", flush=True)
@@ -145,6 +170,8 @@ def _start_runtime(
         created_at=data.created_at,
         expires_at=data.expires_at,
         runtime_id=data.runtime_id,
+        ignore_tls_errors=data.ignore_tls_errors,
+        trust_ca_dir=data.trust_ca_dir,
     )
     manifest = runtime.manifest
     session._validate_manifest_fields(manifest)

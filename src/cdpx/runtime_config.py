@@ -40,12 +40,15 @@ HOSTNAME = re.compile(
 )
 PLACEHOLDER = re.compile(r"\$(?:\$|\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?\})")
 CORE_ENVIRONMENT = {
+    "CDPX_IGNORE_TLS_ERRORS",
     "CDPX_ORIGINS",
     "CDPX_RUN_ID",
     "CDPX_SESSION",
     "CDPX_SESSION_TTL",
     "CDPX_TARGET",
+    "CDPX_TRUST_CA_DIR",
 }
+TRUST_CA_TARGET = "/etc/cdpx/trust"
 RESERVED_TARGETS = (
     "/bin",
     "/dev",
@@ -247,6 +250,49 @@ def _mounts(value: Any, root: Path) -> list[dict[str, Any]]:
     return mounts
 
 
+def _trust_ca(value: Any, root: Path) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigurationError("runtime.trust_ca: list required")
+    sources: list[str] = []
+    basenames: set[str] = set()
+    for index, raw in enumerate(value):
+        label = f"runtime.trust_ca[{index}]"
+        if not isinstance(raw, str) or not raw:
+            raise ConfigurationError(f"{label}: non-empty path required")
+        if any(character in raw for character in ("\n", "\x00", ",")):
+            raise ConfigurationError(f"{label}: newline, NUL and comma are forbidden")
+        source = Path(raw)
+        if not source.is_absolute():
+            source = root / source
+        source = source.resolve()
+        if not _inside(source, root):
+            raise ConfigurationError(f"{label}: must stay inside the workspace")
+        if not source.exists():
+            raise ConfigurationError(f"{label}: path does not exist: {source}")
+        if not source.is_file():
+            raise ConfigurationError(f"{label}: must be a regular file: {source}")
+        basename = source.name
+        if basename in basenames:
+            raise ConfigurationError(
+                f"{label}: duplicate certificate file name {basename!r}; "
+                "trusted CAs share one target directory"
+            )
+        with source.open("rb") as stream:
+            content = stream.read(65_536).decode("utf-8", errors="replace")
+        if "-----BEGIN CERTIFICATE-----" not in content:
+            raise ConfigurationError(f"{label}: no PEM CERTIFICATE block in {source}")
+        if "PRIVATE KEY" in content:
+            raise ConfigurationError(
+                f"{label}: {source} contains a PRIVATE KEY; copy only the CA "
+                "certificate, never its private key"
+            )
+        basenames.add(basename)
+        sources.append(str(source))
+    return sources
+
+
 def _extra_hosts(value: Any, network: str) -> list[str]:
     if value is None:
         return []
@@ -313,7 +359,7 @@ def load_configuration(
     runtime = _strict_mapping(
         document.get("runtime"),
         "runtime",
-        {"network", "idle_timeout", "shm_size", "extra_hosts"},
+        {"network", "idle_timeout", "shm_size", "extra_hosts", "trust_ca"},
     )
     network = runtime.get("network", "host")
     if not isinstance(network, str) or not NETWORK.fullmatch(network):
@@ -328,6 +374,7 @@ def load_configuration(
         MAX_IDLE_TIMEOUT,
     )
     shm_size = _size(runtime.get("shm_size", DEFAULT_SHM_SIZE), "runtime.shm_size")
+    trust_ca = _trust_ca(runtime.get("trust_ca"), root)
 
     environment = _strict_mapping(
         document.get("environment"),
@@ -342,7 +389,12 @@ def load_configuration(
         names = ", ".join(overlap)
         raise ConfigurationError(f"environment: names declared more than once: {names}")
 
-    session = _strict_mapping(document.get("session"), "session", {"ttl", "origins"})
+    session = _strict_mapping(
+        document.get("session"), "session", {"ttl", "origins", "ignore_tls_errors"}
+    )
+    ignore_tls_errors = session.get("ignore_tls_errors", False)
+    if not isinstance(ignore_tls_errors, bool):
+        raise ConfigurationError("session.ignore_tls_errors: boolean required")
     ttl = _duration(
         session.get("ttl", DEFAULT_SESSION_TTL),
         "session.ttl",
@@ -362,6 +414,7 @@ def load_configuration(
             "idle_timeout": idle_timeout,
             "shm_size": shm_size,
             "extra_hosts": extra_hosts,
+            "trust_ca": trust_ca,
         },
         "environment": {
             "required": required,
@@ -369,7 +422,11 @@ def load_configuration(
             "set": literals,
         },
         "mounts": _mounts(document.get("mounts"), root),
-        "session": {"ttl": ttl, "origins": origins},
+        "session": {
+            "ttl": ttl,
+            "origins": origins,
+            "ignore_tls_errors": ignore_tls_errors,
+        },
     }
 
 
@@ -427,6 +484,14 @@ def compile_plan(
         if mount["read_only"]:
             spec += ",readonly"
         docker_arguments.extend(("--mount", spec))
+    for source in configuration["runtime"]["trust_ca"]:
+        basename = Path(source).name
+        docker_arguments.extend(
+            (
+                "--mount",
+                f"type=bind,source={source},target={TRUST_CA_TARGET}/{basename},readonly",
+            )
+        )
     _atomic_text(output / "docker.args", "".join(f"{argument}\n" for argument in docker_arguments))
     _atomic_text(
         output / "environment.required",
@@ -440,6 +505,10 @@ def compile_plan(
     fixed["CDPX_SESSION_TTL"] = str(configuration["session"]["ttl"])
     if configuration["session"]["origins"]:
         fixed["CDPX_ORIGINS"] = ",".join(configuration["session"]["origins"])
+    if configuration["runtime"]["trust_ca"]:
+        fixed["CDPX_TRUST_CA_DIR"] = TRUST_CA_TARGET
+    if configuration["session"]["ignore_tls_errors"]:
+        fixed["CDPX_IGNORE_TLS_ERRORS"] = "1"
     _atomic_text(
         output / "environment.set",
         "".join(f"{name}={value}\n" for name, value in sorted(fixed.items())),
@@ -456,6 +525,7 @@ runtime:
   extra_hosts: []
   idle_timeout: 24h
   shm_size: 1g
+  trust_ca: []
 
 environment:
   required: []
@@ -467,6 +537,7 @@ mounts: []
 session:
   ttl: 1h
   origins: []
+  ignore_tls_errors: false
 """
 
 

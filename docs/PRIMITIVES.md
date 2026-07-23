@@ -85,6 +85,7 @@ detailed in the [supervised sessions reference](SESSION-LIFECYCLE.md).
 |---|---|---|
 | `cdpx session start\|status\|stop` | assign a disposable, exclusive browser session to a run | lifecycle outside the CDP authority matrix: `start` creates the grant; `status`/`stop` require the private manifest and its exact run/target identity |
 | `cdpx session start ... --export` | install the identity triple in one command via `eval "$(...)"` | `export` lines quoted `ssh-agent`-style; documented exception to the stdout-JSON contract |
+| `cdpx session start ... --ignore-tls-errors` / `--trust-ca-dir PATH` | reach local HTTPS behind a dev CA: skip certificate validation, or import CA PEMs from a trust directory (default `CDPX_TRUST_CA_DIR`) | development against `mkcert`/traefik authorities; see [configuration](CONFIGURATION.md#local-https-mkcert-traefik) |
 | `cdpx cookies get [--show-values]` | inspect the session (redacted by default) | security: see HARNESS.md §2 |
 | `cdpx cookies set --name n --value-env NAME --url u` / `clear` | prepare a scenario without exposing the value in argv | reproducibility; `clear` = Storage.clearCookies with a fallback |
 | `cdpx storage [--kind local\|session] [--show-values]` | localStorage/sessionStorage, values redacted by default | guest cart, consent, front-end caches |

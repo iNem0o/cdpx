@@ -3,6 +3,28 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- `runtime.trust_ca` in `cdpx.yaml` lists workspace CA certificates (PEM),
+  bind-mounted read-only and imported into a per-session trust store at
+  `session start`, so a supervised Chrome trusts a local development
+  authority (`mkcert`, traefik) instead of failing with
+  `ERR_CERT_AUTHORITY_INVALID`. Copy only `rootCA.pem`; a file containing a
+  `PRIVATE KEY` block is rejected at compilation. The runtime image now
+  bundles `certutil` (via `libnss3-tools`) to perform the import.
+- `session.ignore_tls_errors` in `cdpx.yaml` and the matching
+  `cdpx session start --ignore-tls-errors` flag launch Chrome with
+  `--ignore-certificate-errors`, a dev-only fallback for local HTTPS behind
+  an untrusted development CA.
+
+### Changed
+
+- **Breaking**: session manifests move from `cdpx.session/v2` to
+  `cdpx.session/v3`. An active session created by an older version fails
+  closed; clear it with `cdpx runtime reset --force`.
+
 ## [0.1.3] — 2026-07-22
 
 ### Added
