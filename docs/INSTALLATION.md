@@ -21,7 +21,7 @@ atomically installs `cdpx` under `$HOME/.local/bin`. Add that directory to
 
 ```bash
 curl -fsSL https://inem0o.github.io/cdpx/install -o /tmp/cdpx-install
-sh /tmp/cdpx-install --version v0.1.3 --install-dir "$HOME/bin"
+sh /tmp/cdpx-install --version v0.1.4 --install-dir "$HOME/bin"
 ```
 
 ## What gets installed
@@ -70,7 +70,7 @@ Linux/glibc integrators can copy the exact self-contained bundle from the
 production image:
 
 ```dockerfile
-FROM ghcr.io/inem0o/cdpx:0.1.3 AS cdpx
+FROM ghcr.io/inem0o/cdpx:0.1.4 AS cdpx
 FROM debian:bookworm-slim
 COPY --from=cdpx /opt/cdpx /opt/cdpx
 RUN /opt/cdpx/install --link /usr/local/bin/cdpx
