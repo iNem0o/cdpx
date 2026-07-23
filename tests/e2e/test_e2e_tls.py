@@ -72,6 +72,9 @@ class LocalHttps:
 
     def __init__(self) -> None:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # A bare SSLContext still admits TLS 1.0/1.1; even a loopback test
+        # server only speaks the versions Chrome actually negotiates.
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(certfile=str(LEAF_CERT), keyfile=str(LEAF_KEY))
         self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SilentHandler)
         self._server.socket = context.wrap_socket(self._server.socket, server_side=True)
