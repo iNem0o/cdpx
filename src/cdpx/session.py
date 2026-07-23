@@ -52,7 +52,7 @@ from cdpx.sessions.process import argv_has_markers as _argv_has_markers
 from cdpx.sessions.process import process_identity as _process_identity
 from cdpx.sessions.process import remove_tree as _remove_tree
 
-SCHEMA = "cdpx.session/v2"
+SCHEMA = "cdpx.session/v3"
 MANIFEST_NAME = "manifest.json"
 LOCK_NAME = "command.lock"
 STOP_NAME = "stop"
@@ -91,6 +91,8 @@ _BOOTSTRAP_FIELDS = {
     "created_at",
     "expires_at",
     "runtime_id",
+    "ignore_tls_errors",
+    "trust_ca_dir",
 }
 _ATTESTED_POLICY_FIELDS = (
     "session_id",
@@ -107,6 +109,8 @@ _ATTESTED_POLICY_FIELDS = (
     "created_at",
     "expires_at",
     "runtime_id",
+    "ignore_tls_errors",
+    "trust_ca_dir",
 )
 
 
@@ -157,6 +161,8 @@ class SessionManifest:
     artifacts_dir: str
     created_at: str
     expires_at: str
+    ignore_tls_errors: bool = False
+    trust_ca_dir: str | None = None
     runtime_id: str = "standalone"
     schema: str = SCHEMA
 
@@ -188,6 +194,8 @@ class SessionManifest:
             "runtime_id": self.runtime_id,
             "created_at": self.created_at,
             "expires_at": self.expires_at,
+            "ignore_tls_errors": self.ignore_tls_errors,
+            "trust_ca": self.trust_ca_dir is not None,
         }
 
 
@@ -225,6 +233,8 @@ class SupervisorBootstrap:
     created_at: str
     expires_at: str
     runtime_id: str
+    ignore_tls_errors: bool = False
+    trust_ca_dir: str | None = None
 
 
 def _policy_attestation(
@@ -349,6 +359,27 @@ def _aware_timestamp(value: Any, label: str) -> datetime:
     return parsed
 
 
+def _validate_trust_ca_dir(value: Any, label: str, *, require_dir: bool = False) -> None:
+    """Shared strict validation for a trust_ca_dir field.
+
+    ``None`` means the option is unused. Any other value must be a non-empty
+    absolute path string free of NUL and newline; when ``require_dir`` it must
+    additionally resolve to an existing directory (fail closed).
+    """
+    if value is None:
+        return
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\x00" in value
+        or "\n" in value
+        or not Path(value).is_absolute()
+    ):
+        raise PolicyError(f"{label}: invalid trust_ca_dir")
+    if require_dir and not Path(value).is_dir():
+        raise PolicyError(f"{label}: trust_ca_dir is not an existing directory")
+
+
 def _validate_manifest_fields(manifest: SessionManifest) -> None:
     _validate_manifest_identity(manifest)
     if manifest.schema != SCHEMA:
@@ -401,6 +432,9 @@ def _validate_manifest_fields(manifest: SessionManifest) -> None:
     expires = _aware_timestamp(manifest.expires_at, "expires_at")
     if expires <= created:
         raise PolicyError("session manifest: expires_at must follow created_at")
+    if type(manifest.ignore_tls_errors) is not bool:
+        raise PolicyError("session manifest: ignore_tls_errors must be a boolean")
+    _validate_trust_ca_dir(manifest.trust_ca_dir, "session manifest")
     _validate_websocket_binding(manifest.websocket_url, manifest.port, manifest.target_id)
 
 
@@ -570,7 +604,12 @@ def _sandbox_must_be_disabled() -> bool:
     )
 
 
-def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
+def build_chrome_command(
+    chrome_bin: str,
+    profile_dir: Path,
+    *,
+    ignore_tls_errors: bool = False,
+) -> list[str]:
     command = [
         chrome_bin,
         "--headless=new",
@@ -596,6 +635,11 @@ def build_chrome_command(chrome_bin: str, profile_dir: Path) -> list[str]:
         # Using the private on-disk profile avoids a Chrome cold start
         # staying alive without ever publishing DevToolsActivePort.
         command.insert(-2, "--disable-dev-shm-usage")
+    if ignore_tls_errors:
+        # A disposable development Chrome trusting a mounted CA still needs an
+        # explicit bypass for local self-signed HTTPS not covered by that CA.
+        # Inserted like --no-sandbox so about:blank stays the final argument.
+        command.insert(-2, "--ignore-certificate-errors")
     return command
 
 
@@ -636,9 +680,30 @@ def start_session(
     browser_kind: str = "chrome",
     root: str | Path | None = None,
     timeout: float = DEFAULT_STARTUP_TIMEOUT,
+    ignore_tls_errors: bool = False,
+    trust_ca_dir: str | Path | None = None,
 ) -> tuple[SessionManifest, Path]:
     if browser_kind not in BROWSER_KINDS:
         raise PolicyError(f"unknown browser backend: {browser_kind}")
+    if type(ignore_tls_errors) is not bool:
+        raise PolicyError("ignore_tls_errors must be a boolean")
+    # Resolve and vet the trust store before any file/process is created so a
+    # misconfigured CDPX_TRUST_CA_DIR fails closed without leaving residue.
+    resolved_trust_ca: str | None = None
+    if trust_ca_dir is not None:
+        raw_trust = str(trust_ca_dir)
+        if not raw_trust or "\x00" in raw_trust or "\n" in raw_trust:
+            raise PolicyError("CDPX_TRUST_CA_DIR must be a clean, non-empty path")
+        resolved = Path(trust_ca_dir).resolve()
+        if not resolved.is_dir():
+            raise PolicyError(f"CDPX_TRUST_CA_DIR is not an existing directory: {resolved}")
+        if not any(
+            child.suffix in {".pem", ".crt"} and child.is_file() for child in resolved.iterdir()
+        ):
+            raise PolicyError(
+                f"CDPX_TRUST_CA_DIR contains no *.pem or *.crt certificate: {resolved}"
+            )
+        resolved_trust_ca = str(resolved)
     # Validate grants before creating any file/process.
     preliminary = ExecutionContext.create(
         run_id=run_id,
@@ -696,6 +761,8 @@ def start_session(
             "created_at": _iso(created),
             "expires_at": _iso(expires),
             "runtime_id": os.environ.get("CDPX_RUNTIME_ID", "standalone"),
+            "ignore_tls_errors": ignore_tls_errors,
+            "trust_ca_dir": resolved_trust_ca,
         }
         bootstrap_path = session_dir / "bootstrap.json"
         _write_private(bootstrap_path, json.dumps(bootstrap, ensure_ascii=False) + "\n")
@@ -1186,6 +1253,11 @@ def _validate_bootstrap_payload(
         if not isinstance(owner_start_time, str) or not owner_start_time:
             raise PolicyError("session bootstrap: invalid owner_start_time")
         _assert_process_identity(owner_pid, owner_start_time, None, "owner")
+    ignore_tls_errors = payload["ignore_tls_errors"]
+    if type(ignore_tls_errors) is not bool:
+        raise PolicyError("session bootstrap: ignore_tls_errors must be a boolean")
+    trust_ca_dir = payload["trust_ca_dir"]
+    _validate_trust_ca_dir(trust_ca_dir, "session bootstrap", require_dir=True)
     return SupervisorBootstrap(
         session_id=session_id,
         run_id=payload["run_id"],
@@ -1203,6 +1275,8 @@ def _validate_bootstrap_payload(
         created_at=payload["created_at"],
         expires_at=payload["expires_at"],
         runtime_id=payload["runtime_id"],
+        ignore_tls_errors=ignore_tls_errors,
+        trust_ca_dir=trust_ca_dir,
     )
 
 

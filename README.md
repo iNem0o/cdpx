@@ -167,6 +167,10 @@ workflows:
 - `--timeout` bounds browser and lifecycle waits.
 - `--session`, `--run-id` and `--target`, or their matching environment
   variables, must identify the complete supervised assignment.
+- `CDPX_TRUST_CA_DIR` and `CDPX_IGNORE_TLS_ERRORS` bridge the
+  `runtime.trust_ca` and `session.ignore_tls_errors` configuration into the
+  container, so a session can reach local HTTPS served behind a development
+  CA (`mkcert`, traefik) — see [configuration](docs/CONFIGURATION.md#local-https-mkcert-traefik).
 
 Authorities are cumulative: `observation` permits bounded reads,
 `interaction` adds trusted input, and `privileged` covers JavaScript,

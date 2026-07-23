@@ -492,6 +492,8 @@ def test_start_session_bootstraps_and_returns_supervised_manifest(tmp_path, monk
             artifacts_dir=data["artifacts_dir"],
             created_at=data["created_at"],
             expires_at=data["expires_at"],
+            ignore_tls_errors=data["ignore_tls_errors"],
+            trust_ca_dir=data["trust_ca_dir"],
         )
         write_manifest(manifest)
         return FakeSupervisor()
@@ -808,6 +810,8 @@ def test_supervisor_builds_manifest_closes_extra_target_and_cleans_up(tmp_path, 
                 "created_at": now.isoformat(),
                 "expires_at": (now + timedelta(minutes=5)).isoformat(),
                 "runtime_id": "standalone",
+                "ignore_tls_errors": False,
+                "trust_ca_dir": None,
             }
         ),
         encoding="utf-8",
@@ -1021,6 +1025,8 @@ def test_supervisor_error_preserves_redacted_readiness_tails(tmp_path, monkeypat
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(minutes=5)).isoformat(),
         "runtime_id": "standalone",
+        "ignore_tls_errors": False,
+        "trust_ca_dir": None,
     }
     bootstrap.write_text(json.dumps(payload), encoding="utf-8")
     bootstrap.chmod(0o600)
@@ -1294,6 +1300,179 @@ def test_session_status_activity_runtime_root_and_chrome_discovery(tmp_path, mon
     assert find_chrome(str(executable)) == str(executable)
     with pytest.raises(PolicyError, match="not found"):
         find_chrome(str(tmp_path / "missing"))
+
+
+def test_chrome_command_ignore_tls_errors_is_opt_in_and_keeps_about_blank_last(tmp_path):
+    """The certificate-error bypass is off by default and, when enabled, adds
+    exactly the documented flag while keeping about:blank as the final
+    argument so the launch target is never displaced."""
+    profile = tmp_path / "profile"
+    #: without the option the disposable Chrome keeps validating certificates
+    default = build_chrome_command("/usr/bin/chromium", profile)
+    assert "--ignore-certificate-errors" not in default
+    assert default[-1] == "about:blank"
+    #: opting in adds the bypass but about:blank stays the last argument
+    with_bypass = build_chrome_command("/usr/bin/chromium", profile, ignore_tls_errors=True)
+    assert "--ignore-certificate-errors" in with_bypass
+    assert with_bypass[-1] == "about:blank"
+
+
+def test_ignore_tls_errors_changes_the_policy_attestation(tmp_path):
+    """The TLS-bypass flag is an attested policy field: two otherwise identical
+    manifests attest differently, so the option cannot be flipped after
+    startup without breaking the attestation."""
+    base = manifest_for(tmp_path)
+    flipped = replace(base, ignore_tls_errors=True)
+    #: the attested digest depends on the option, closing a downgrade path
+    assert session_mod._policy_attestation(base) != session_mod._policy_attestation(flipped)
+
+
+@pytest.mark.scenario(
+    feature="state-session",
+    journey="exercise-session-without-chrome",
+    scenario_id="state-session.record-tls-bypass-option",
+    proves=[
+        "The TLS-bypass option is recorded in the manifest and its public view.",
+        "The public view never leaks the raw trust store path.",
+    ],
+)
+def test_mock_session_records_ignore_tls_errors_and_public_view(tmp_path):
+    """The mock backend accepts the TLS options as recorded no-ops: the
+    manifest carries ignore_tls_errors, the public view exposes it together
+    with a boolean trust_ca marker, never the raw path."""
+    manifest, path = start_session(
+        run_id="mock-tls",
+        authority="observation",
+        origins="http://*.test",
+        browser_kind="mock",
+        owner_pid=os.getpid(),
+        root=tmp_path,
+        timeout=10,
+        ignore_tls_errors=True,
+    )
+    try:
+        #: the option is persisted in the attested manifest
+        assert manifest.ignore_tls_errors is True
+        assert manifest.trust_ca_dir is None
+        public = manifest.public_dict()
+        #: the public view surfaces the boolean options only
+        assert public["ignore_tls_errors"] is True
+        assert public["trust_ca"] is False
+        assert "trust_ca_dir" not in public
+    finally:
+        stop_session(path, run_id=manifest.run_id, target_id=manifest.target_id)
+
+
+def _valid_bootstrap_payload(session_dir: Path, **overrides: object) -> dict:
+    now = datetime.now(UTC)
+    payload = {
+        "session_id": session_dir.name,
+        "run_id": "run-bootstrap",
+        "profile_id": PROFILE_ID,
+        "browser_kind": "chrome",
+        "authority": "observation",
+        "origins": ["http://demo.test"],
+        "owner_pid": None,
+        "owner_start_time": None,
+        "chrome_bin": "/fake/chrome",
+        "startup_timeout": 60.0,
+        "session_dir": str(session_dir),
+        "profile_dir": str(session_dir / "profile"),
+        "artifacts_dir": str(session_dir / "artifacts"),
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=5)).isoformat(),
+        "runtime_id": "standalone",
+        "ignore_tls_errors": False,
+        "trust_ca_dir": None,
+    }
+    drop = overrides.pop("_drop", None)
+    payload.update(overrides)
+    if drop is not None:
+        payload.pop(drop)
+    return payload
+
+
+def _write_bootstrap(tmp_path: Path, **overrides: object) -> Path:
+    session_dir = tmp_path / SESSION_ID
+    for sub in (session_dir, session_dir / "profile", session_dir / "artifacts"):
+        sub.mkdir(parents=True, exist_ok=True)
+        sub.chmod(0o700)
+    bootstrap = session_dir / "bootstrap.json"
+    bootstrap.write_text(
+        json.dumps(_valid_bootstrap_payload(session_dir, **overrides)),
+        encoding="utf-8",
+    )
+    bootstrap.chmod(0o600)
+    return bootstrap
+
+
+def test_bootstrap_accepts_valid_tls_options(tmp_path):
+    """A well-formed bootstrap carrying the two TLS fields is accepted and its
+    values reach the validated SupervisorBootstrap."""
+    ca_dir = tmp_path / "ca"
+    ca_dir.mkdir()
+    (ca_dir / "root.pem").write_text("cert", encoding="utf-8")
+    bootstrap = _write_bootstrap(
+        tmp_path,
+        ignore_tls_errors=True,
+        trust_ca_dir=str(ca_dir),
+    )
+    data = session_mod._read_bootstrap(bootstrap)
+    #: the validated bootstrap threads both options through unchanged
+    assert data.ignore_tls_errors is True
+    assert data.trust_ca_dir == str(ca_dir)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"ignore_tls_errors": "yes"}, "ignore_tls_errors"),
+        ({"_drop": "ignore_tls_errors"}, "strict fields"),
+        ({"_drop": "trust_ca_dir"}, "strict fields"),
+        ({"trust_ca_dir": "relative/ca"}, "trust_ca_dir"),
+    ],
+)
+def test_bootstrap_fails_closed_on_malformed_tls_fields(tmp_path, overrides, message):
+    """The supervisor bootstrap rejects a non-boolean flag, a missing new key
+    (strict field set) or a non-absolute trust path before any launch."""
+    bootstrap = _write_bootstrap(tmp_path, **overrides)
+    with pytest.raises(PolicyError, match=message):
+        session_mod._read_bootstrap(bootstrap)
+
+
+def test_bootstrap_rejects_trust_ca_dir_that_is_not_a_directory(tmp_path):
+    """An absolute but non-existent trust path fails closed: the supervisor
+    never trusts a directory it cannot see."""
+    bootstrap = _write_bootstrap(tmp_path, trust_ca_dir=str(tmp_path / "absent-ca"))
+    with pytest.raises(PolicyError, match="trust_ca_dir"):
+        session_mod._read_bootstrap(bootstrap)
+
+
+@pytest.mark.parametrize("missing", ["empty", "absent"])
+def test_start_session_rejects_unusable_trust_dir_before_any_file(tmp_path, missing):
+    """start_session vets the trust directory before creating a session: an
+    empty directory or a missing path is a policy refusal naming the
+    environment variable, and nothing is written under the runtime root."""
+    root = tmp_path / "root"
+    root.mkdir()
+    if missing == "empty":
+        trust_dir = tmp_path / "empty-ca"
+        trust_dir.mkdir()
+    else:
+        trust_dir = tmp_path / "absent-ca"
+    #: the misconfigured trust store is refused, naming CDPX_TRUST_CA_DIR
+    with pytest.raises(PolicyError, match="CDPX_TRUST_CA_DIR"):
+        start_session(
+            run_id="run-trust",
+            authority="observation",
+            origins="http://demo.test",
+            browser_kind="mock",
+            root=root,
+            timeout=10,
+            trust_ca_dir=str(trust_dir),
+        )
+    #: the refusal precedes any session file creation
+    assert list(root.iterdir()) == []
 
 
 def test_devtools_port_and_discovery_readiness_are_bounded(tmp_path, monkeypatch):

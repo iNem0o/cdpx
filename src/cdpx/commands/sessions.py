@@ -11,6 +11,10 @@ from cdpx.commands.shared import emit_json
 from cdpx.security import redact_text
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def register_commands(
     sub: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -29,6 +33,17 @@ def register_commands(
         type=float,
         default=float(os.environ.get("CDPX_SESSION_TTL", "3600")),
         help="session lifetime in seconds (60..86400; default: 3600)",
+    )
+    start.add_argument(
+        "--ignore-tls-errors",
+        action="store_true",
+        default=_env_flag("CDPX_IGNORE_TLS_ERRORS"),
+        help="dev only: Chromium ignores TLS certificate errors",
+    )
+    start.add_argument(
+        "--trust-ca-dir",
+        default=os.environ.get("CDPX_TRUST_CA_DIR") or None,
+        help="directory of PEM CA certificates imported into the session trust store",
     )
     start.add_argument(
         "--export",
@@ -66,6 +81,8 @@ def cmd_session(args: CommandInvocation) -> None:
             origins=args.options.origins,
             ttl=args.options.ttl,
             timeout=args.options.startup_timeout,
+            ignore_tls_errors=args.options.ignore_tls_errors,
+            trust_ca_dir=args.options.trust_ca_dir,
         )
         started = args.with_session(manifest)
         if args.options.export:

@@ -84,6 +84,9 @@ def test_command_options_convert_cli_domain_values():
                 "privileged",
                 "--origins",
                 "http://demo.test",
+                "--ignore-tls-errors",
+                "--trust-ca-dir",
+                "/etc/cdpx/trust",
             ]
         )
     )
@@ -91,6 +94,8 @@ def test_command_options_convert_cli_domain_values():
     assert goto.wait == "none"
     assert storage.kind == "session"
     assert lifecycle.authority is Authority.PRIVILEGED
+    assert lifecycle.ignore_tls_errors is True
+    assert lifecycle.trust_ca_dir == "/etc/cdpx/trust"
 
 
 @pytest.mark.parametrize(("field", "value"), [("wait", "later"), ("kind", "memory")])

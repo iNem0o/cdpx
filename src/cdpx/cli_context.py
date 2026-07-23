@@ -66,6 +66,8 @@ class CommandOptions:
     origins: str = ""
     ttl: float = 3600.0
     export: bool = False
+    ignore_tls_errors: bool = False
+    trust_ca_dir: str | None = None
     startup_timeout: float = session_api.DEFAULT_STARTUP_TIMEOUT
     session_path: str | None = None
     session_target: str | None = None
@@ -123,6 +125,8 @@ class CommandOptions:
             origins=cast(str, values.get("origins", "")),
             ttl=float(values.get("ttl", 3600.0)),
             export=bool(values.get("export", False)),
+            ignore_tls_errors=bool(values.get("ignore_tls_errors", False)),
+            trust_ca_dir=cast(str | None, values.get("trust_ca_dir")),
             startup_timeout=float(
                 values.get("startup_timeout", session_api.DEFAULT_STARTUP_TIMEOUT)
             ),

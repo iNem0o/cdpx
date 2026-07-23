@@ -8,7 +8,7 @@ FROM ${UV_IMAGE} AS uv
 FROM ${DOCKER_CLI_IMAGE} AS docker-cli
 
 FROM ${PYTHON_IMAGE} AS browser-base
-ARG CHROMIUM_VERSION=150.0.7871.124-1~deb12u1
+ARG CHROMIUM_VERSION=150.0.7871.181-1~deb12u1
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     CHROME_BIN=/usr/bin/chromium
@@ -16,6 +16,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         "chromium=${CHROMIUM_VERSION}" \
         ca-certificates \
+        libnss3-tools \
     && rm -rf /var/lib/apt/lists/*
 
 FROM browser-base AS toolchain
@@ -32,8 +33,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv build --wheel --out-dir /dist \
     && mkdir -p /opt/cdpx/site-packages \
     && uv pip install --system --target /opt/cdpx/site-packages /dist/*.whl
-COPY packaging/native-python packaging/native-chromium packaging/native-cdpx \
-    packaging/embedded-install /opt/cdpx/bin/
+COPY packaging/native-python packaging/native-chromium packaging/native-certutil \
+    packaging/native-cdpx packaging/embedded-install /opt/cdpx/bin/
 RUN chmod 0755 /opt/cdpx/bin/* \
     && mkdir -p /opt/cdpx/root/usr/lib /opt/cdpx/root/etc /opt/cdpx/chromium-libs \
     && cp -a /usr/lib/chromium /opt/cdpx/root/usr/lib/ \
@@ -41,11 +42,13 @@ RUN chmod 0755 /opt/cdpx/bin/* \
     && cp -a /usr/share /opt/cdpx/root/usr/ \
     && cp -a /etc/ssl /opt/cdpx/root/etc/ \
     && cp -a /etc/fonts /opt/cdpx/root/etc/ \
+    && cp -L /usr/bin/certutil /opt/cdpx/bin/certutil.bin \
     && { \
         ldd /usr/lib/chromium/chromium; \
         ldd /usr/lib/chromium/chrome_crashpad_handler; \
         ldd /usr/lib/*-linux-gnu/libsoftokn3.so; \
         ldd /usr/lib/*-linux-gnu/libfreeblpriv3.so; \
+        ldd /usr/bin/certutil; \
     } \
         | awk '$2 == "=>" && $3 ~ /^\// {print $3} $1 ~ /^\// {print $1}' \
         | sort -u \
@@ -110,6 +113,7 @@ LABEL org.opencontainers.image.title="cdpx" \
 COPY --from=build /opt/cdpx /opt/cdpx
 RUN ln -s /opt/cdpx/bin/native-cdpx /usr/local/bin/cdpx
 ENV CDPX_BUNDLED_CHROME=/opt/cdpx/bin/native-chromium \
+    CDPX_CERTUTIL=/opt/cdpx/bin/native-certutil \
     CDPX_CONTAINERIZED=1 \
     PYTHONPATH=/opt/cdpx/site-packages
 WORKDIR /workspace

@@ -10,4 +10,10 @@ services:
     security_opt: [no-new-privileges:true]
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=256m
+    # Sidecar users bypass the launcher, so trust for local HTTPS CAs is set
+    # manually here: mount each PEM read-only and point cdpx at the directory.
+    # volumes:
+    #   - ./certs/rootCA.pem:/etc/cdpx/trust/rootCA.pem:ro
+    # environment:
+    #   CDPX_TRUST_CA_DIR: /etc/cdpx/trust
     command: ["python", "-m", "cdpx.runtime", "guardian", "--idle-timeout", "86400"]
