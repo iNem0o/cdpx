@@ -45,7 +45,7 @@ Changelog = "https://github.com/inem0o/cdpx/blob/HEAD/CHANGELOG.md"
 dev = [
     "build",
     "mypy",
-    "packaging>=24.2",
+    "packaging>=26.3",
     "pytest",
     "pytest-cov",
     "ruff",
