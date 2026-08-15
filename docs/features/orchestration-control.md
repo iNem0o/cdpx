@@ -110,10 +110,16 @@ Command-specific options:
 - `--settle`: quiet period in seconds (default 0.5). For `goto`, it starts
   after the `load` event; for `click`, it starts after the click primitive
   completes. Each observed CDP event restarts the quiet period, while the
-  global `--timeout` bounds the complete action and observation window.
+  global `--timeout` bounds the complete action and observation window. A
+  zero period still resolves events already buffered by the completed action,
+  then returns without waiting for new traffic.
 - `action`: `goto <url>` or `click <selector>`. `click` uses the same fixed
   actionability probe and trusted Input-domain mouse sequence as standalone
-  `cdpx click`; no caller-provided JavaScript or `eval` action is accepted.
+  `cdpx click`; no caller-provided JavaScript or `eval` action is accepted. If
+  that click starts a top-level navigation, its destination is checked before
+  any interception rule is applied. A forbidden document is continued
+  untouched, the command fails with the origin-policy diagnostic, and cleanup
+  still disables interception.
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/

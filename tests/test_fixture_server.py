@@ -30,6 +30,7 @@ PAGES_MARKERS = {
     "/intercept.html": [
         'id="intercept-result"',
         'id="request-button"',
+        'id="forbidden-navigation"',
         'id="click-result"',
         "/api/status/500",
         "/api/echo",

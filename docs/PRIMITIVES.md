@@ -148,11 +148,16 @@ cdpx scenario run checkout_guest_add_to_cart.yml
 An interception rule accepts only `continue`, `block`, or a `200..599`
 status; any typo is rejected at parse time. `intercept` composes only with
 `goto` and `click`, always requires `privileged`, resolves every paused
-request, and disables Fetch in cleanup even when the action fails. In a scenario, `wait_visible`
-genuinely checks attachment, display/visibility, and a non-zero box, and a
-`type` step requires `secret_ref` (the plain `[selector, text]` form is
-rejected at validation). The final console/network drain precedes the
-assertions.
+request, and disables Fetch in cleanup even when the action fails. With
+`--settle 0`, events already buffered by the completed action are resolved,
+but CDPX does not wait for new traffic. A click-triggered top-level navigation
+is checked against the session origin allowlist before a rule can affect its
+document; a forbidden document continues untouched and the command fails.
+Subrequests remain eligible for interception independently of their origin.
+In a scenario, `wait_visible` genuinely checks attachment,
+display/visibility, and a non-zero box, and a `type` step requires `secret_ref`
+(the plain `[selector, text]` form is rejected at validation). The final
+console/network drain precedes the assertions.
 
 Limits: `network` is not a HAR (no body or complete timeline), and `replay`
 only compares recorded non-volatile fields. A green replay only proves a

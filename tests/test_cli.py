@@ -801,6 +801,113 @@ def test_intercept_click_cli_json_and_protocol(mock, capsys):
     assert mock.commands_for("Fetch.disable") == [{}]
 
 
+def test_intercept_click_rejects_forbidden_top_level_navigation_before_rule(mock, capsys):
+    """A click cannot apply a Fetch rule to a forbidden main document."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "FORBIDDEN-DOCUMENT",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "https://prod.example/landing", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#external-link",
+    )
+
+    assert code == 1 and not out and "origin rejected" in err
+    assert mock.commands_for("Fetch.fulfillRequest") == []
+    assert mock.commands_for("Fetch.failRequest") == []
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "FORBIDDEN-DOCUMENT"}]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+@pytest.mark.parametrize("resource_type", ["XHR", "Fetch"])
+def test_intercept_click_does_not_apply_page_allowlist_to_subrequests(mock, capsys, resource_type):
+    """The origin boundary guards top-level navigation, not page subrequests."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": f"CROSS-ORIGIN-{resource_type}",
+                    "frameId": "FRAME1",
+                    "resourceType": resource_type,
+                    "request": {"url": "https://api.example/request", "method": "POST"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*api.example* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#request-button",
+    )
+
+    result = json.loads(out)
+    assert code == 0 and not err and result["effective_count"] == 1
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == (
+        f"CROSS-ORIGIN-{resource_type}"
+    )
+
+
+def test_intercept_click_can_apply_rule_to_allowed_top_level_navigation(mock, capsys):
+    """An allowlisted main document remains eligible for interception."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "ALLOWED-DOCUMENT",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "http://next.test/page", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*next.test* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#allowed-link",
+    )
+
+    result = json.loads(out)
+    assert code == 0 and not err and result["effective_count"] == 1
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == "ALLOWED-DOCUMENT"
+
+
 def test_intercept_help_names_supported_actions(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["intercept", "--help"])

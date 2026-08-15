@@ -4,6 +4,8 @@
 import json
 import pathlib
 import stat
+import time
+from typing import cast
 
 import pytest
 
@@ -1323,6 +1325,7 @@ def test_intercept_click_fulfills_request_and_cleans_up(mock, client):
         client,
         "#request-button",
         rules=["*api/echo* => 503"],
+        allowed_origins=("http://s.test",),
         settle=0.01,
     )
 
@@ -1344,6 +1347,109 @@ def test_intercept_click_fulfills_request_and_cleans_up(mock, client):
     assert methods[-1] == "Fetch.disable"
 
 
+def test_intercept_click_zero_settle_drains_events_buffered_by_click(mock, client):
+    """settle=0 still resolves Fetch events buffered by mouseReleased."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "CLICK-ZERO",
+                    "request": {"url": "http://s.test/api/echo", "method": "DELETE"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api/echo* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+
+    assert result["effective_count"] == 1
+    assert result["hits"] == [{"url": "http://s.test/api/echo", "action": "503"}]
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == "CLICK-ZERO"
+
+
+def test_intercept_click_zero_settle_does_not_redrain_during_snapshot_resolution(mock, client):
+    """settle=0 freezes one snapshot even when resolving it buffers more traffic."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "SNAPSHOT",
+                    "request": {"url": "http://s.test/api/snapshot", "method": "POST"},
+                },
+            }
+        ]
+    )
+    mock.script_fetch_resolution(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "AFTER-SNAPSHOT",
+                    "request": {"url": "http://s.test/api/later", "method": "POST"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+
+    assert result["hits"] == [{"url": "http://s.test/api/snapshot", "action": "503"}]
+    assert result["matched_count"] == 1 and result["effective_count"] == 1
+    assert [call["requestId"] for call in mock.commands_for("Fetch.fulfillRequest")] == ["SNAPSHOT"]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_click_poll_is_capped_by_remaining_quiet_period():
+    """A short settle never inherits the collector's 250 ms polling cap."""
+
+    class QuietClient:
+        def __init__(self):
+            self.timeouts: list[float] = []
+
+        def drain_events(self):
+            return []
+
+        def next_event(self, timeout):
+            self.timeouts.append(timeout)
+            time.sleep(timeout)
+            raise CDPTimeout("quiet")
+
+    quiet_client = QuietClient()
+    interception._collect_until_quiet(
+        cast(CDPClient, quiet_client),
+        [],
+        [],
+        settle=0.01,
+        remaining=lambda: 1.0,
+        wait_for_load=False,
+    )
+
+    assert quiet_client.timeouts
+    assert max(quiet_client.timeouts) <= 0.01
+
+
 def test_intercept_click_no_matching_rule_is_explicit_success(mock, client):
     """Unmatched traffic continues while the result records a zero match count."""
     mock.on_eval("__cdpx_actionability", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
@@ -1363,6 +1469,7 @@ def test_intercept_click_no_matching_rule_is_explicit_success(mock, client):
         client,
         "#request-button",
         rules=["*api/echo* => 503"],
+        allowed_origins=("http://s.test",),
         settle=0.01,
     )
 
@@ -1387,6 +1494,7 @@ def test_intercept_click_action_errors_still_disable_fetch(mock, client, state, 
             client,
             "#missing",
             rules=["* => block"],
+            allowed_origins=("http://s.test",),
             settle=0.01,
         )
 
@@ -1409,6 +1517,7 @@ def test_intercept_click_timeout_after_action_still_disables_fetch(mock, client,
             client,
             "#slow",
             rules=["* => block"],
+            allowed_origins=("http://s.test",),
             timeout=0.01,
             settle=0.01,
         )
@@ -1425,6 +1534,7 @@ def test_intercept_click_cleanup_failure_is_an_execution_error(mock, client):
             client,
             "#request-button",
             rules=["*api/echo* => 503"],
+            allowed_origins=("http://s.test",),
             settle=0.01,
         )
 

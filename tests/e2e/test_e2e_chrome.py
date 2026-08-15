@@ -2079,6 +2079,46 @@ def test_intercept_click_real_cli_and_cleanup_isolation(cli_page, evidence_case)
     attach_cli_screenshot(evidence_case, session, "intercept-click-cleanup")
 
 
+def test_intercept_click_real_leaves_forbidden_document_untouched(cli_page, evidence_case):
+    """A forbidden top-level document passes unchanged before origin denial."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    proc = run_cli(
+        manifest,
+        path,
+        "intercept",
+        "--rule",
+        "* => 503",
+        "--settle",
+        "0.5",
+        "click",
+        "#forbidden-navigation",
+    )
+    attach_cli_run(evidence_case, "intercept-click-forbidden-origin", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                if current_url.startswith("http://localhost:"):
+                    break
+                time.sleep(0.05)
+            assert current_url.startswith("http://localhost:")
+            assert js.get_text(client, "#main-title")["text"] == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "intercept-forbidden-document-continued")
+    finally:
+        # Navigation itself is the page's natural click effect. Restore the
+        # shared supervised target to its allowed origin for following tests.
+        cli_json(session, "goto", f"{base}/intercept.html")
+
+
 def test_vitals_real_with_interaction(page):
     """The Web Vitals (LCP, CLS, INP) are measured on a real page, the INP
     being triggered by a synthetic click whose trace the page keeps."""

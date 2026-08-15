@@ -5,8 +5,15 @@
   <h1>Interception Fetch</h1>
   <pre id="intercept-result">pending</pre>
   <button id="request-button" type="button">Send request</button>
+  <a id="forbidden-navigation" href="#">Leave supervised origin</a>
   <pre id="click-result">idle</pre>
   <script>
+    const forbiddenUrl = new URL('/index.html', window.location.href);
+    forbiddenUrl.hostname = window.location.hostname === '127.0.0.1'
+      ? 'localhost'
+      : '127.0.0.1';
+    document.getElementById('forbidden-navigation').href = forbiddenUrl.href;
+
     async function statusOf(path) {
       try {
         const response = await fetch(path, {method: path.includes('echo') ? 'POST' : 'GET'});

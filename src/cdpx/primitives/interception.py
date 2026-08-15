@@ -11,6 +11,7 @@ from typing import Any
 
 from cdpx.cdp_types import CDPEvent
 from cdpx.client import CDPClient, CDPTimeout, validate_time_budget
+from cdpx.policy import PolicyError, assert_url_allowed
 from cdpx.primitives import inputs, nav
 
 
@@ -70,6 +71,7 @@ def intercept_click(
     selector: str,
     *,
     rules: list[str],
+    allowed_origins: tuple[str, ...],
     timeout: float = 30.0,
     settle: float = 0.5,
 ) -> dict[str, Any]:
@@ -91,6 +93,7 @@ def intercept_click(
     enabled = False
     primary_error: Exception | None = None
     try:
+        main_frame_id = _main_frame_id(client, timeout=remaining())
         _enable_fetch(client, timeout=remaining())
         enabled = True
         action_result = inputs.click(client, selector)
@@ -101,6 +104,8 @@ def intercept_click(
             settle=settle,
             remaining=remaining,
             wait_for_load=False,
+            main_frame_id=main_frame_id,
+            allowed_origins=allowed_origins,
         )
         return {
             "action": {
@@ -130,6 +135,14 @@ def _enable_fetch(client: CDPClient, *, timeout: float) -> None:
     )
 
 
+def _main_frame_id(client: CDPClient, *, timeout: float) -> str:
+    result = client.send("Page.getFrameTree", timeout=timeout)
+    frame_id = result.get("frameTree", {}).get("frame", {}).get("id")
+    if not isinstance(frame_id, str) or not frame_id:
+        raise ValueError("unable to determine the main frame")
+    return frame_id
+
+
 def _disable_fetch(client: CDPClient, primary_error: Exception | None) -> None:
     try:
         # Cleanup gets its own bounded attempt even when the action exhausted
@@ -149,29 +162,87 @@ def _collect_until_quiet(
     settle: float,
     remaining: Callable[[], float],
     wait_for_load: bool,
+    main_frame_id: str | None = None,
+    allowed_origins: tuple[str, ...] | None = None,
 ) -> tuple[int, int]:
     last_event = time.monotonic()
     load_seen = not wait_for_load
     matched_count = 0
     effective_count = 0
-    while True:
-        remaining_budget = remaining()
-        if load_seen and time.monotonic() - last_event >= settle:
-            break
-        try:
-            event = client.next_event(timeout=min(0.25, remaining_budget))
-        except CDPTimeout:
-            continue
+
+    def process(event: CDPEvent) -> None:
+        nonlocal effective_count, last_event, load_seen, matched_count
         last_event = time.monotonic()
         if event["method"] == "Page.loadEventFired":
             load_seen = True
-            continue
+            return
         if event["method"] != "Fetch.requestPaused":
-            continue
+            return
+        _guard_main_document_origin(
+            client,
+            event,
+            main_frame_id=main_frame_id,
+            allowed_origins=allowed_origins,
+        )
         matched, effective = _resolve_paused_request(client, rules, event, hits)
         matched_count += int(matched)
         effective_count += int(effective)
+
+    if load_seen and settle == 0:
+        # Freeze exactly the events buffered by the completed click. Resolving
+        # this snapshot uses synchronous CDP commands that may buffer newer
+        # traffic; Fetch.disable releases that traffic without applying rules.
+        remaining()
+        snapshot = client.drain_events()
+        for event in snapshot:
+            process(event)
+        return matched_count, effective_count
+
+    while True:
+        remaining_budget = remaining()
+        buffered = client.drain_events()
+        if buffered:
+            for event in buffered:
+                process(event)
+            continue
+
+        poll_timeout = min(0.25, remaining_budget)
+        if load_seen:
+            quiet_remaining = settle - (time.monotonic() - last_event)
+            if quiet_remaining <= 0:
+                break
+            poll_timeout = min(poll_timeout, quiet_remaining)
+        try:
+            event = client.next_event(timeout=poll_timeout)
+        except CDPTimeout:
+            continue
+        process(event)
     return matched_count, effective_count
+
+
+def _guard_main_document_origin(
+    client: CDPClient,
+    event: CDPEvent,
+    *,
+    main_frame_id: str | None,
+    allowed_origins: tuple[str, ...] | None,
+) -> None:
+    if main_frame_id is None or allowed_origins is None:
+        return
+    params = event.get("params", {})
+    if params.get("frameId") != main_frame_id or params.get("resourceType") != "Document":
+        return
+    request_url = params.get("request", {}).get("url", "")
+    try:
+        assert_url_allowed(request_url, allowed_origins)
+    except PolicyError as policy_error:
+        try:
+            # Let the browser's navigation proceed untouched. The command
+            # fails, but interception never mutates the forbidden document.
+            client.send("Fetch.continueRequest", {"requestId": params["requestId"]})
+        except Exception as release_error:
+            policy_error.add_note(f"forbidden document release failed: {release_error}")
+        raise
 
 
 def _resolve_paused_request(
