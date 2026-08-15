@@ -2044,6 +2044,41 @@ def test_intercept_real_fulfill_block_continue(page):
     assert "/api/slow?ms=120:ERR" in text
 
 
+def test_intercept_click_real_cli_and_cleanup_isolation(cli_page, evidence_case):
+    """A trusted click receives the forced response, then Fetch is gone."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    intercepted = cli_json(
+        session,
+        "intercept",
+        "--rule",
+        "*api/echo* => 503",
+        "--settle",
+        "0.5",
+        "click",
+        "#request-button",
+    )
+
+    assert intercepted["action"]["argv"] == ["click", "#request-button"]
+    assert intercepted["matched_count"] >= 1 and intercepted["effective_count"] >= 1
+    assert any(hit["action"] == "503" and "/api/echo" in hit["url"] for hit in intercepted["hits"])
+    assert cli_json(session, "text", "#click-result")["text"] == "DELETE /api/echo:503"
+
+    cli_json(session, "click", "#request-button")
+    deadline = time.monotonic() + 3
+    normal_text = ""
+    while time.monotonic() < deadline:
+        normal_text = cli_json(session, "text", "#click-result")["text"] or ""
+        if normal_text.endswith(":200"):
+            break
+        time.sleep(0.05)
+
+    assert normal_text == "DELETE /api/echo:200"
+    attach_cli_screenshot(evidence_case, session, "intercept-click-cleanup")
+
+
 def test_vitals_real_with_interaction(page):
     """The Web Vitals (LCP, CLS, INP) are measured on a real page, the INP
     being triggered by a synthetic click whose trace the page keeps."""

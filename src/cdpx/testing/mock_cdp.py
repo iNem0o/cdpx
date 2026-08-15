@@ -73,6 +73,7 @@ class MockCDP:
         self.eval_rules: list[tuple[str, deque]] = []  # (substring, successive values)
         self.console_script: list[dict] = []  # events emitted after Runtime.enable
         self.network_script: list[dict] = []  # events emitted after Page.navigate
+        self.click_network_script: list[dict] = []  # events emitted after mouseReleased
         self.error_methods: set[str] = set()  # methods that respond with a CDP error
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._server: Server | None = None
@@ -93,6 +94,9 @@ class MockCDP:
 
     def script_network(self, events: list[dict]) -> None:
         self.network_script = events
+
+    def script_click_network(self, events: list[dict]) -> None:
+        self.click_network_script = events
 
     def commands_for(self, method: str) -> list[dict]:
         return [p for (_t, m, p) in self.commands if m == method]
@@ -235,6 +239,9 @@ class MockCDP:
             events.append({"method": "Page.loadEventFired", "params": {"timestamp": 1.2}})
             return {"frameId": "FRAME1", "loaderId": "LOADER1"}, None, events
 
+        if method == "Input.dispatchMouseEvent" and params.get("type") == "mouseReleased":
+            events.extend(self.click_network_script)
+
         if method == "Page.captureScreenshot":
             return {"data": base64.b64encode(TINY_PNG).decode()}, None, events
         if method == "Page.printToPDF":
@@ -287,6 +294,7 @@ class MockCDP:
             "Input.dispatchKeyEvent",
             "Input.insertText",
             "Fetch.enable",
+            "Fetch.disable",
             "Fetch.continueRequest",
             "Fetch.failRequest",
             "Fetch.fulfillRequest",
