@@ -9,6 +9,7 @@ closer to what a real user would see.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from cdpx.client import CDPClient
@@ -171,12 +172,18 @@ class ElementNotInteractable(ElementNotFound):
     """Element present but unfit for reliable user interaction."""
 
 
-def _probe_actionability(client: CDPClient, selector: str) -> dict[str, Any]:
+def _probe_actionability(
+    client: CDPClient,
+    selector: str,
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> dict[str, Any]:
     expr = _ACTIONABILITY_EXPR.replace("__CDPX_SELECTOR__", json.dumps(selector))
-    res = client.send(
-        "Runtime.evaluate",
-        {"expression": expr, "returnByValue": True, "awaitPromise": True},
-    )
+    params = {"expression": expr, "returnByValue": True, "awaitPromise": True}
+    if remaining is None:
+        res = client.send("Runtime.evaluate", params)
+    else:
+        res = client.send("Runtime.evaluate", params, timeout=remaining())
     raw = res.get("result", {}).get("value")
     if raw is True:
         return dict(_ACTIONABLE_DEFAULTS)
@@ -213,8 +220,14 @@ def _prepare_text_input(client: CDPClient, selector: str, clear: bool) -> None:
         raise ElementNotFound(f"selector not found or selection not possible: {selector}")
 
 
-def click(client: CDPClient, selector: str, button: str = "left") -> dict:
-    state = _probe_actionability(client, selector)
+def click(
+    client: CDPClient,
+    selector: str,
+    button: str = "left",
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> dict:
+    state = _probe_actionability(client, selector, remaining=remaining)
     _require_actionable(state, selector)
     rect = state["rect"]
     if not isinstance(rect, dict):
@@ -222,9 +235,12 @@ def click(client: CDPClient, selector: str, button: str = "left") -> dict:
     x = rect["x"] + rect["width"] / 2
     y = rect["y"] + rect["height"] / 2
     base = {"x": x, "y": y, "button": button, "clickCount": 1}
-    client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", **base})
-    client.send("Input.dispatchMouseEvent", {"type": "mousePressed", **base})
-    client.send("Input.dispatchMouseEvent", {"type": "mouseReleased", **base})
+    for event_type in ("mouseMoved", "mousePressed", "mouseReleased"):
+        params = {"type": event_type, **base}
+        if remaining is None:
+            client.send("Input.dispatchMouseEvent", params)
+        else:
+            client.send("Input.dispatchMouseEvent", params, timeout=remaining())
     return {"clicked": selector, "x": round(x, 1), "y": round(y, 1)}
 
 

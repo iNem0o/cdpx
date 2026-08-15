@@ -255,6 +255,42 @@ def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
         )
 
 
+def test_click_applies_remaining_budget_to_probe_and_mouse_sequence(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    original_send = client.send
+    observed_timeouts: list[float | None] = []
+    budgets = iter((4.0, 3.0, 2.0, 1.0))
+
+    def send(method, params=None, timeout=None):
+        observed_timeouts.append(timeout)
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    inputs.click(client, "#submit-btn", remaining=lambda: next(budgets))
+
+    assert observed_timeouts == [4.0, 3.0, 2.0, 1.0]
+
+
+def test_click_stops_before_command_when_remaining_budget_is_exhausted(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    calls = 0
+
+    def remaining() -> float:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise CDPTimeout("interception timeout")
+        return 1.0
+
+    with pytest.raises(CDPTimeout, match="interception timeout"):
+        inputs.click(client, "#submit-btn", remaining=remaining)
+
+    assert [call["type"] for call in mock.commands_for("Input.dispatchMouseEvent")] == [
+        "mouseMoved"
+    ]
+
+
 def test_click_element_not_found(mock, client):
     """A selector detached from the DOM fails the click with ElementNotFound
     without any mouse event reaching the page."""
@@ -1303,6 +1339,78 @@ def test_intercept_accepts_explicit_continue(mock, client):
     assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "I1"}]
 
 
+@pytest.mark.parametrize(
+    ("rule", "method"),
+    [
+        (None, "Fetch.continueRequest"),
+        ("* => block", "Fetch.failRequest"),
+        ("* => 503", "Fetch.fulfillRequest"),
+    ],
+)
+def test_intercept_fetch_decisions_use_remaining_budget(mock, client, monkeypatch, rule, method):
+    original_send = client.send
+    observed_timeout = None
+
+    def send(cdp_method, params=None, timeout=None):
+        nonlocal observed_timeout
+        if cdp_method == method:
+            observed_timeout = timeout
+        return original_send(cdp_method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    rules = [] if rule is None else [interception.parse_intercept_rule(rule)]
+    event = {
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": "DECISION",
+            "request": {"url": "http://s.test/api/decision"},
+        },
+    }
+
+    interception._resolve_paused_request(
+        client,
+        rules,
+        event,
+        [],
+        remaining=lambda: 0.75,
+    )
+
+    assert observed_timeout == 0.75
+
+
+def test_intercept_forbidden_document_release_uses_remaining_budget(mock, client, monkeypatch):
+    original_send = client.send
+    observed_timeout = None
+
+    def send(method, params=None, timeout=None):
+        nonlocal observed_timeout
+        if method == "Fetch.continueRequest":
+            observed_timeout = timeout
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    event = {
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": "FORBIDDEN-DOCUMENT",
+            "frameId": "MAIN",
+            "resourceType": "Document",
+            "request": {"url": "https://forbidden.example/redirected"},
+        },
+    }
+
+    with pytest.raises(ValueError, match="origin rejected"):
+        interception._guard_main_document_origin(
+            client,
+            event,
+            main_frame_id="MAIN",
+            allowed_origins=("http://s.test",),
+            remaining=lambda: 0.5,
+        )
+
+    assert observed_timeout == 0.5
+
+
 def test_intercept_click_fulfills_request_and_cleans_up(mock, client):
     """The trusted click runs between Fetch.enable and an explicit disable."""
     mock.on_eval(
@@ -1376,6 +1484,35 @@ def test_intercept_click_zero_settle_drains_events_buffered_by_click(mock, clien
     assert result["effective_count"] == 1
     assert result["hits"] == [{"url": "http://s.test/api/echo", "action": "503"}]
     assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == "CLICK-ZERO"
+
+
+def test_intercept_click_cleanup_stops_mock_fetch_events(mock, client):
+    """The protocol-faithful mock stops pausing requests after Fetch.disable."""
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    paused_event = {
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": "CLEANUP",
+            "request": {"url": "http://s.test/api/cleanup", "method": "POST"},
+        },
+    }
+    network_event = {
+        "method": "Network.requestWillBeSent",
+        "params": {"requestId": "VISIBLE-AFTER-CLEANUP"},
+    }
+    mock.script_click_network([paused_event, network_event])
+
+    interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+    inputs.click(client, "#request-button")
+
+    assert client.drain_events() == [network_event]
+    assert [call["requestId"] for call in mock.commands_for("Fetch.fulfillRequest")] == ["CLEANUP"]
 
 
 def test_intercept_click_zero_settle_does_not_redrain_during_snapshot_resolution(mock, client):
@@ -1502,15 +1639,13 @@ def test_intercept_click_action_errors_still_disable_fetch(mock, client, state, 
     assert mock.commands_for("Fetch.disable") == [{}]
 
 
-def test_intercept_click_timeout_after_action_still_disables_fetch(mock, client, monkeypatch):
-    def delayed_click(_client, selector, button="left"):
+def test_intercept_click_action_timeout_still_disables_fetch(mock, client, monkeypatch):
+    def exhausted_click(_client, selector, button="left", *, remaining=None):
         del selector, button
-        import time
+        assert remaining is not None
+        raise CDPTimeout("interception timeout after 0.01s")
 
-        time.sleep(0.02)
-        return {"clicked": "#slow", "x": 1.0, "y": 1.0}
-
-    monkeypatch.setattr(inputs, "click", delayed_click)
+    monkeypatch.setattr(inputs, "click", exhausted_click)
 
     with pytest.raises(CDPTimeout, match="interception timeout"):
         interception.intercept_click(
@@ -1525,11 +1660,55 @@ def test_intercept_click_timeout_after_action_still_disables_fetch(mock, client,
     assert mock.commands_for("Fetch.disable") == [{}]
 
 
+def test_intercept_fetch_decision_timeout_still_uses_separate_cleanup_budget(
+    mock, client, monkeypatch
+):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "SLOW-DECISION",
+                    "request": {"url": "http://s.test/api/slow"},
+                },
+            }
+        ]
+    )
+    original_send = client.send
+    observed_timeouts: dict[str, float | None] = {}
+
+    def send(method, params=None, timeout=None):
+        if method == "Fetch.failRequest":
+            observed_timeouts[method] = timeout
+            raise CDPTimeout("response to Fetch.failRequest")
+        if method == "Fetch.disable":
+            observed_timeouts[method] = timeout
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    with pytest.raises(CDPTimeout, match="Fetch.failRequest"):
+        interception.intercept_click(
+            client,
+            "#request-button",
+            rules=["*slow* => block"],
+            allowed_origins=("http://s.test",),
+            timeout=1.0,
+            settle=0,
+        )
+
+    assert observed_timeouts["Fetch.failRequest"] is not None
+    assert 0 < cast(float, observed_timeouts["Fetch.failRequest"]) <= 1.0
+    assert observed_timeouts["Fetch.disable"] == client.timeout
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
 def test_intercept_click_cleanup_failure_is_an_execution_error(mock, client):
     mock.on_eval("__cdpx_actionability", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     mock.fail_on("Fetch.disable")
 
-    with pytest.raises(CDPError, match="Fetch.disable"):
+    with pytest.raises(CDPError, match=r"Fetch\.disable"):
         interception.intercept_click(
             client,
             "#request-button",

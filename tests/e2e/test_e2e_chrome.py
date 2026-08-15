@@ -2105,13 +2105,15 @@ def test_intercept_click_real_leaves_forbidden_document_untouched(cli_page, evid
         with CDPClient(manifest.websocket_url, timeout=10) as client:
             deadline = time.monotonic() + 3
             current_url = ""
+            main_title = ""
             while time.monotonic() < deadline:
                 current_url = js.evaluate(client, "window.location.href") or ""
-                if current_url.startswith("http://localhost:"):
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
                     break
                 time.sleep(0.05)
             assert current_url.startswith("http://localhost:")
-            assert js.get_text(client, "#main-title")["text"] == "cdpx fixtures"
+            assert main_title == "cdpx fixtures"
             attach_screenshot(evidence_case, client, "intercept-forbidden-document-continued")
     finally:
         # Navigation itself is the page's natural click effect. Restore the

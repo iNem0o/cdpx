@@ -96,7 +96,7 @@ def intercept_click(
         main_frame_id = _main_frame_id(client, timeout=remaining())
         _enable_fetch(client, timeout=remaining())
         enabled = True
-        action_result = inputs.click(client, selector)
+        action_result = inputs.click(client, selector, remaining=remaining)
         matched_count, effective_count = _collect_until_quiet(
             client,
             parsed_rules,
@@ -183,8 +183,15 @@ def _collect_until_quiet(
             event,
             main_frame_id=main_frame_id,
             allowed_origins=allowed_origins,
+            remaining=remaining,
         )
-        matched, effective = _resolve_paused_request(client, rules, event, hits)
+        matched, effective = _resolve_paused_request(
+            client,
+            rules,
+            event,
+            hits,
+            remaining=remaining,
+        )
         matched_count += int(matched)
         effective_count += int(effective)
 
@@ -226,6 +233,7 @@ def _guard_main_document_origin(
     *,
     main_frame_id: str | None,
     allowed_origins: tuple[str, ...] | None,
+    remaining: Callable[[], float],
 ) -> None:
     if main_frame_id is None or allowed_origins is None:
         return
@@ -239,7 +247,11 @@ def _guard_main_document_origin(
         try:
             # Let the browser's navigation proceed untouched. The command
             # fails, but interception never mutates the forbidden document.
-            client.send("Fetch.continueRequest", {"requestId": params["requestId"]})
+            client.send(
+                "Fetch.continueRequest",
+                {"requestId": params["requestId"]},
+                timeout=remaining(),
+            )
         except Exception as release_error:
             policy_error.add_note(f"forbidden document release failed: {release_error}")
         raise
@@ -250,6 +262,8 @@ def _resolve_paused_request(
     rules: list[dict[str, str]],
     event: CDPEvent,
     hits: list[dict[str, str]],
+    *,
+    remaining: Callable[[], float],
 ) -> tuple[bool, bool]:
     params = event.get("params", {})
     request = params.get("request", {})
@@ -257,11 +271,16 @@ def _resolve_paused_request(
     rule = _match_rule(rules, request_url)
     action = rule["action"] if rule else "continue"
     if action == "continue":
-        client.send("Fetch.continueRequest", {"requestId": params["requestId"]})
+        client.send(
+            "Fetch.continueRequest",
+            {"requestId": params["requestId"]},
+            timeout=remaining(),
+        )
     elif action == "block":
         client.send(
             "Fetch.failRequest",
             {"requestId": params["requestId"], "errorReason": "BlockedByClient"},
+            timeout=remaining(),
         )
     elif action.isascii() and len(action) == 3 and action.isdigit() and 200 <= int(action) <= 599:
         status = int(action)
@@ -274,6 +293,7 @@ def _resolve_paused_request(
                 "responseHeaders": [{"name": "Content-Type", "value": "application/json"}],
                 "body": base64.b64encode(body).decode(),
             },
+            timeout=remaining(),
         )
     else:  # pragma: no cover - parse_intercept_rule validates the domain.
         raise AssertionError(f"unvalidated interception action: {action}")
