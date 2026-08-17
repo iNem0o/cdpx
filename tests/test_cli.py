@@ -424,6 +424,26 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
     assert mock.commands == []
 
 
+def test_intercept_click_checks_current_origin_before_fetch(mock, capsys):
+    """A click wrapper cannot arm Fetch on a page outside the allowlist."""
+    target = next(iter(mock.targets))
+    mock.targets[target]["url"] = "https://prod.example/"
+
+    code, _, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "* => block",
+        "click",
+        "#request-button",
+    )
+
+    assert code == 1 and "origin rejected" in err
+    assert mock.commands_for("Fetch.enable") == []
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
@@ -706,9 +726,7 @@ def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
 
 
 def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
-    """intercept applies several simultaneous rules (the matching rule
-    responds) and refuses any composed action other than goto before
-    arming the slightest interception."""
+    """intercept applies simultaneous rules and rejects unsupported actions."""
     mock.script_network(
         [
             {
@@ -739,11 +757,180 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
     #: received the promised 503 via the Fetch protocol
     assert code == 0 and len(data["rules"]) == 2
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
-    # non-goto action: usage error BEFORE any Fetch command
+    assert set(data) == {"url", "rules", "hits", "count", "settle", "_cdpx"}
+    # unsupported action: execution error BEFORE any Fetch command
     mock.commands.clear()
-    code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "click", "#x")
+    code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "key", "Enter")
     #: the unsupported action is refused without emitting a command
     assert code == 1 and "intercept supports" in err and mock.commands == []
+
+
+def test_intercept_click_cli_json_and_protocol(mock, capsys):
+    """CLI composition exposes the click result and effective request hit."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "C1",
+                    "request": {"url": "http://s.test/api/echo", "method": "DELETE"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*api/echo* => 503",
+        "--settle",
+        "0.01",
+        "click",
+        "#request-button",
+    )
+    data = json.loads(out)
+
+    assert code == 0 and not err
+    assert data["action"]["argv"] == ["click", "#request-button"]
+    assert data["action"]["result"]["clicked"] == "#request-button"
+    assert data["matched_count"] == 1 and data["effective_count"] == 1
+    assert data["hits"] == [{"url": "http://s.test/api/echo", "action": "503"}]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_click_rejects_forbidden_top_level_navigation_before_rule(mock, capsys):
+    """A click cannot apply a Fetch rule to a forbidden main document."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "FORBIDDEN-DOCUMENT",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "https://prod.example/landing", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#external-link",
+    )
+
+    assert code == 1 and not out and "origin rejected" in err
+    assert mock.commands_for("Fetch.fulfillRequest") == []
+    assert mock.commands_for("Fetch.failRequest") == []
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "FORBIDDEN-DOCUMENT"}]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+@pytest.mark.parametrize("resource_type", ["XHR", "Fetch"])
+def test_intercept_click_does_not_apply_page_allowlist_to_subrequests(mock, capsys, resource_type):
+    """The origin boundary guards top-level navigation, not page subrequests."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": f"CROSS-ORIGIN-{resource_type}",
+                    "frameId": "FRAME1",
+                    "resourceType": resource_type,
+                    "request": {"url": "https://api.example/request", "method": "POST"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*api.example* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#request-button",
+    )
+
+    result = json.loads(out)
+    assert code == 0 and not err and result["effective_count"] == 1
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == (
+        f"CROSS-ORIGIN-{resource_type}"
+    )
+
+
+def test_intercept_click_can_apply_rule_to_allowed_top_level_navigation(mock, capsys):
+    """An allowlisted main document remains eligible for interception."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "ALLOWED-DOCUMENT",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "http://next.test/page", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*next.test* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#allowed-link",
+    )
+
+    result = json.loads(out)
+    assert code == 0 and not err and result["effective_count"] == 1
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == "ALLOWED-DOCUMENT"
+
+
+def test_intercept_help_names_supported_actions(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["intercept", "--help"])
+
+    help_text = capsys.readouterr().out
+    assert exc.value.code == 0
+    assert "goto <url> | click <selector>" in help_text
+
+
+def test_intercept_invalid_rule_is_usage_error_before_cdp(mock, capsys):
+    with pytest.raises(SystemExit) as exc:
+        run(
+            mock,
+            capsys,
+            "intercept",
+            "--rule",
+            "*api/echo* => typo",
+            "click",
+            "#request-button",
+        )
+
+    assert exc.value.code == 2
+    assert mock.commands == []
 
 
 def test_emulate_requires_preset_or_reset(mock, capsys):

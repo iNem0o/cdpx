@@ -451,6 +451,27 @@ def test_session_authority_refuses_eval_before_any_cdp_command(mock, capsys, tmp
     assert mock.commands == []
 
 
+@pytest.mark.parametrize("authority", ["observation", "interaction"])
+def test_session_intercept_click_requires_privileged_before_any_cdp_command(
+    mock, capsys, tmp_path, authority
+):
+    manifest, _ = session_manifest(mock, tmp_path, authority=authority)
+
+    code, _, err = run_session(
+        mock,
+        capsys,
+        manifest,
+        "intercept",
+        "--rule",
+        "*api/echo* => 503",
+        "click",
+        "#request-button",
+    )
+
+    assert code == 1 and "requires privileged" in err
+    assert mock.commands == []
+
+
 def test_session_vitals_click_escalates_to_interaction(mock, capsys, tmp_path):
     """vitals is observable, but --click carries an interaction: under
     observation authority, the escalation is refused before any CDP traffic."""

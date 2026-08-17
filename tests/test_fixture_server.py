@@ -27,7 +27,15 @@ PAGES_MARKERS = {
     "/iframe.html": ['src="/child.html"'],
     "/child.html": ['id="child-marker"'],
     "/long.html": ['id="long-title"', 'id="long-bottom"', "Bottom-of-page marker"],
-    "/intercept.html": ['id="intercept-result"', "/api/status/500", "/api/echo"],
+    "/intercept.html": [
+        'id="intercept-result"',
+        'id="request-button"',
+        'id="forbidden-navigation"',
+        'id="click-result"',
+        "/api/status/500",
+        "/api/echo",
+        "DELETE",
+    ],
     "/interactions-rich.html": [
         'id="hidden-button"',
         'id="disabled-button"',
@@ -122,6 +130,15 @@ def test_api_echo_post(fixtures_http):
     #: the echo reflects the emitted request in full, body included, which
     #: allows verifying intercepted or replayed sends
     assert data == {"method": "POST", "path": "/api/echo", "body": "payload"}
+
+
+def test_api_echo_delete(fixtures_http):
+    """The click-interception fixture can prove its normal post-cleanup path."""
+    req = urllib.request.Request(fixtures_http.base_url + "/api/echo", method="DELETE")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        data = json.loads(response.read())
+
+    assert data == {"method": "DELETE", "path": "/api/echo", "body": ""}
 
 
 def test_api_set_cookie(fixtures_http):

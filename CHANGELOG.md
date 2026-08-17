@@ -3,6 +3,23 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- `cdpx intercept` can compose a trusted `click <selector>` as well as
+  `goto <url>`, report matched and effective request counts, and explicitly
+  disable Fetch after success or failure so interception cannot leak into the
+  next action.
+
+### Changed
+
+- Click interception now validates top-level document destinations before a
+  rule can affect them, and short or zero `--settle` periods drain buffered
+  requests without overrunning their quiet deadline.
+- Runtime and development images now pin Chromium 151.0.7922.137 from Debian
+  Bookworm security after the previous pinned package left the repository.
+
 ## [0.1.4] — 2026-07-23
 
 ### Added

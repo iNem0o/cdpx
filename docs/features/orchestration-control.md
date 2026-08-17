@@ -2,7 +2,7 @@
 id = "orchestration-control"
 title = "Interception, emulation and orchestration"
 status = "validated"
-summary = "Control network behavior, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
+summary = "Control network behavior around navigation or trusted clicks, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
 path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
 test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
@@ -31,7 +31,7 @@ title = "Intercept a network request deterministically"
 ui_text = "The browser run can force, block or let through network outcomes."
 report_text = "This scenario proves that network behavior can be controlled during browser validation and linked to a human-readable proof."
 given = "A fixture page issues requests that the interception rules can match."
-when = "cdpx intercept applies a fulfill, block or continue behavior during the composed navigation."
+when = "cdpx intercept applies a fulfill, block or continue behavior during the composed navigation or trusted click."
 then = "The browser result and the screenshot prove the requested network path."
 tests = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_intercept*"]
 expected_proofs = ["junit", "screenshot"]
@@ -79,24 +79,25 @@ shell escape hatch.
 Global options and exit codes: see the CLI Contract section of the README.
 
 The session's allowlist is mandatory and every action is preflighted
-against the manifest's authority. For composed commands, the level follows
-the verb (`goto`/`wait`: observation; `click`/`type`/`key`: interaction;
-`eval`: privileged). `replay` and `scenario` take the maximum level of the
-whole file before any CDP effect. Destinations and the real origin are
-checked; page content remains an untrusted input. `frame` is an observation.
+against the manifest's authority. `intercept` always requires `privileged`
+because it changes network behavior, including when its enclosed action is a
+`goto` or `click`. Other composed commands follow their documented action
+authority, and `replay` and `scenario` take the maximum level of the whole
+file before any CDP effect. Destinations and the real origin are checked;
+page content remains an untrusted input. `frame` is an observation.
 
 ### `cdpx intercept`
 
-Synopsis: `cdpx intercept --rule "PATTERN => ACTION" [--rule ...] [--settle S] -- goto <url>`
+Synopsis: `cdpx intercept --rule "PATTERN => ACTION" [--rule ...] [--settle S] [--] goto <url>|click <selector>`
 
-Intercepts network requests during a navigation and applies a deterministic
-behavior to them: answering in place of the server with an HTTP code (e.g.
-`503`), blocking (`block`, `BlockedByClient` failure), or letting through
-(`continue`). Use case: prove that a page degrades cleanly when its API
-returns 503, without touching the backend. The command is composed because
-`Fetch.enable` dies with the CDP connection: interception can only exist for
-the duration of one invocation, so the action to intercept must be executed
-within the same command (`-- goto <url>`).
+Intercepts network requests during a navigation or trusted click and applies
+a deterministic behavior to them: answering in place of the server with an
+HTTP code (e.g. `503`), blocking (`block`, `BlockedByClient` failure), or
+letting through (`continue`). Use case: prove that a page degrades cleanly
+when an API request triggered by loading or user input fails, without touching
+the backend. Interception is enabled before the enclosed action, remains
+active through its stabilization period, and is explicitly disabled before
+the command returns. The optional `--` separator has no effect on behavior.
 
 Command-specific options:
 
@@ -106,26 +107,55 @@ Command-specific options:
   `{"cdpx":"intercept","status":N}`),
   `block` or `continue`. The first matching rule wins; a request with no
   matching rule continues normally.
-- `--settle`: quiet period (seconds, default 0.5) after the `load` event
-  before concluding the network is stable.
-- `action` (after `--`): only `goto <url>`.
+- `--settle`: quiet period in seconds (default 0.5). For `goto`, it starts
+  after the `load` event; for `click`, it starts after the click primitive
+  completes. Each observed CDP event restarts the quiet period, while the
+  global `--timeout` bounds the complete action and observation window. A
+  zero period still resolves events already buffered by the completed action,
+  then returns without waiting for new traffic.
+- `action`: `goto <url>` or `click <selector>`. `click` uses the same fixed
+  actionability probe and trusted Input-domain mouse sequence as standalone
+  `cdpx click`; no caller-provided JavaScript or `eval` action is accepted. If
+  that click starts a top-level navigation, its destination is checked before
+  any interception rule is applied. A forbidden document is continued
+  untouched, the command fails with the origin-policy diagnostic, and cleanup
+  still disables interception.
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
 cdpx intercept --rule "*tracker* => block" --rule "*api* => continue" -- goto http://demo.test/product-42
+cdpx intercept --rule "*api/echo* => 503" --settle 1 click "#request-button"
 ```
 
 ```json
 {"url":"http://demo.test/","rules":["*api* => 503"],"hits":[{"url":"http://demo.test/","action":"continue"},{"url":"http://demo.test/api/health","action":"503"}],"count":2,"settle":1.0}
 ```
 
-Errors and pitfalls: any action other than `goto <url>` after `--` is
-rejected. A rule without `=>`, a typo (`typo`), or a status outside
-`200..599` fails at parsing **before** `Fetch.enable`/navigation; no default
-branch silently continues. If `load` never fires, the command times out.
-`intercept` requires `privileged` and an allowed destination. The main
-document is intercepted too: an overly broad rule (`* => 503`) breaks the
-hosting page.
+Click result:
+
+```json
+{"action":{"argv":["click","#request-button"],"result":{"clicked":"#request-button","x":412.5,"y":318.0}},"rules":["*api/echo* => 503"],"hits":[{"url":"http://demo.test/api/echo","action":"503"}],"count":1,"matched_count":1,"effective_count":1,"settle":1.0}
+```
+
+For click composition, `count` is the number of requests paused by Fetch,
+`matched_count` is the number matched by an explicit rule (including an
+explicit `continue`), and `effective_count` counts status fulfillments and
+blocks. A valid rule with no match is a successful command with
+`matched_count:0` and `effective_count:0`; callers can make that an assertion
+failure without conflating it with an action or transport error.
+
+Errors and pitfalls: any action other than `goto` or `click` is rejected
+before `Fetch.enable`. A rule without `=>`, a typo (`typo`), or a status
+outside `200..599` fails at parsing before any interception; no default branch
+silently changes traffic. A missing, invalid, hidden, disabled, unstable, or
+covered click target follows the normal click error contract. If `load`, the
+click, or stabilization exceeds `--timeout`, the command exits 1. Every
+observed paused request receives a decision, and `Fetch.disable` runs in a
+`finally` path on success or failure; a cleanup failure is itself an execution
+error, with connection closure as the transport fallback. `intercept` requires
+`privileged`; a `click` also requires the current page origin to be allowed.
+The main document is intercepted during `goto`, so an overly broad rule
+(`* => 503`) can replace the hosting page.
 
 ### `cdpx emulate`
 
@@ -396,8 +426,8 @@ remaining time; the teardown removes everything.
 
 ## User journeys
 
-- Intercept a navigation and force deterministic network outcomes
-  (fulfill, block, continue).
+- Intercept a navigation or trusted click and force deterministic network
+  outcomes (fulfill, block, continue).
 - Emulate mobile, slow network or CPU throttling and act within the same
   connection.
 - Run a YAML business scenario and get back a verdict, findings and proofs
@@ -408,11 +438,14 @@ remaining time; the teardown removes everything.
 
 ## Validation
 
-The unit tests on mock CDP validate the interception rules, the emulation
+The unit tests on mock CDP validate the interception rules, trusted click
+protocol ordering, explicit Fetch cleanup, the emulation
 presets and reset, the execution and logging of `record`, the upfront
 validation and actual replay of `replay` (including divergence and the
 budget), the YAML business scenarios, the shared action interpreter and the
-origin guard. The e2e tests validate real Fetch interception, the
+origin guard. The e2e tests validate real Fetch interception during both
+navigation and click, including a second non-intercepted click that proves
+cleanup isolation, the
 non-persistence of emulation overrides across connections, the full
 record/replay cycle on real Chrome, and declarative pass/fail scenarios with
 proofs. The Symfony e2e tests also run YAML scenarios against the
@@ -431,8 +464,8 @@ runs, console, network and profiler collected by `cdpx scenario run`.
   connection (Chrome behavior, verified e2e on Chrome 150). `cdpx emulate
   mobile` alone therefore has no lasting effect — always use the composed
   form `cdpx emulate mobile -- goto http://demo.test/`.
-- `intercept` only composes with `goto <url>`; interception cannot yet wrap
-  a `click` or a full journey.
+- `intercept` composes with one `goto <url>` or `click <selector>` action; it
+  does not wrap `type`, `key`, `eval`, or a full journey.
 - `frame` only reads same-origin iframes (a cross-origin iframe's
   `contentDocument` is inaccessible) and returns the first match.
 - Record/replay executes real actions but the action language remains
