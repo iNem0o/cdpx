@@ -78,6 +78,9 @@ def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
     src = SCENARIO_FIXTURES / template
     dest = tmp_path / template
     dest.write_text(src.read_text(encoding="utf-8").replace("__BASE_URL__", base_url), "utf-8")
+    fragment_source = SCENARIO_FIXTURES / "fragments"
+    if fragment_source.is_dir():
+        shutil.copytree(fragment_source, tmp_path / "fragments", dirs_exist_ok=True)
     return dest
 
 

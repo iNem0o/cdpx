@@ -134,22 +134,36 @@ cdpx dom-diff -- click "#submit-btn"
 | `cdpx frame <selector>` | read inside a same-origin iframe — the selector targets an element **inside** the iframe's document, not the `<iframe>` tag | embedded content (payment, consent) |
 | `cdpx record [-o j.ndjson] -- <action>` | run ONE action and write a redacted `cdpx.record/v2` log | `type` replayable via `@env:NAME`; eval/sensitive literals not replayable |
 | `cdpx replay <j.ndjson>` | pre-validate then replay, stop at first divergence | rereads the actual URL after navigation and before mutation; `--max-actions` budget |
-| `cdpx scenario run <file.yml>` | run a declarative business journey | single pass/fail verdict, findings, and proof bundle |
+| `cdpx scenario validate <file.yml>` | compile a versioned scenario and its local fragments without Chrome | ordered plan, sources, authority, secret references, dependency hashes and digest |
+| `cdpx scenario run <file.yml>` | run a declarative business journey after expanding local step fragments | single pass/fail verdict, findings, provenance, composition digest and proof bundle |
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
 cdpx emulate mobile -- goto http://shop.localhost/
 cdpx record -o journey.ndjson -- click "#add-to-cart"
 cdpx --max-actions 20 replay journey.ndjson
+cdpx --max-actions 20 scenario validate checkout_guest_add_to_cart.yml
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
 An interception rule accepts only `continue`, `block`, or a `200..599`
-status; any typo is rejected at parse time. In a scenario, `wait_visible`
-genuinely checks attachment, display/visibility, and a non-zero box, and a
-`type` step requires `secret_ref` (the plain `[selector, text]` form is
-rejected at validation). The final console/network drain precedes the
-assertions.
+status; any typo is rejected at parse time. `intercept` composes only with
+`goto` and `click`, always requires `privileged`, resolves every paused
+request, and disables Fetch in cleanup even when the action fails. With
+`--settle 0`, events already buffered by the completed action are resolved,
+but CDPX does not wait for new traffic. A click-triggered top-level navigation
+is checked against the session origin allowlist before a rule can affect its
+document; a forbidden document continues untouched and the command fails.
+Subrequests remain eligible for interception independently of their origin.
+In a scenario, `wait_visible` genuinely checks attachment,
+display/visibility, and a non-zero box, and a `type` step requires `secret_ref`
+(the plain `[selector, text]` form is rejected at validation). The final
+console/network drain precedes the assertions. `cdpx.scenario/v1` files can
+place `{include: {path, as?}}` in `steps`; the referenced
+`cdpx.scenario-fragment/v1` file contributes steps at that exact position and
+inherits the root context. Paths are static, relative to the including file,
+workspace-confined and browser-free validation rejects cycles, duplicate
+aliases and expanded action budgets before opening CDP.
 
 Limits: `network` is not a HAR (no body or complete timeline), and `replay`
 only compares recorded non-volatile fields. A green replay only proves a

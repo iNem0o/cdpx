@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inem0o.github.io/cdpx/schema/scenario-fragment-v1.json",
+  "title": "cdpx scenario fragment",
+  "description": "Reusable ordered browser steps included by a cdpx scenario.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "steps"],
+  "properties": {
+    "schema": {
+      "const": "cdpx.scenario-fragment/v1"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "enum": ["screenshot", "console", "network", "profiler"]
+    },
+    "capture": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "includeStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include"],
+      "properties": {
+        "include": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*[?*\\[\\]{}]).+$",
+              "description": "Static path relative to the including file."
+            },
+            "as": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$",
+              "description": "Optional namespace; defaults to the fragment name."
+            }
+          }
+        }
+      }
+    },
+    "gotoStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goto"],
+      "properties": {
+        "goto": {"type": "string", "minLength": 1},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "waitVisibleStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wait_visible"],
+      "properties": {
+        "wait_visible": {"type": "string", "minLength": 1},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "clickStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["click"],
+      "properties": {
+        "click": {"type": "string", "minLength": 1},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "typeStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["selector", "secret_ref"],
+          "properties": {
+            "selector": {"type": "string"},
+            "secret_ref": {"type": "string", "minLength": 1},
+            "clear": {"type": "boolean", "default": false}
+          }
+        },
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "keyStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "evalStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eval"],
+      "properties": {
+        "eval": {"type": "string", "minLength": 1},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "stringPair": {
+      "type": "array",
+      "prefixItems": [{"type": "string"}, {"type": "string"}],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "waitTextStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wait_text"],
+      "properties": {
+        "wait_text": {"$ref": "#/$defs/stringPair"},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "step": {
+      "oneOf": [
+        {"$ref": "#/$defs/includeStep"},
+        {"$ref": "#/$defs/gotoStep"},
+        {"$ref": "#/$defs/waitVisibleStep"},
+        {"$ref": "#/$defs/clickStep"},
+        {"$ref": "#/$defs/typeStep"},
+        {"$ref": "#/$defs/keyStep"},
+        {"$ref": "#/$defs/evalStep"},
+        {"$ref": "#/$defs/waitTextStep"}
+      ]
+    }
+  }
+}

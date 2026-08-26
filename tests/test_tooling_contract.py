@@ -47,6 +47,22 @@ def test_config_schema_names_every_supported_key():
         assert key in json.dumps(schema)
 
 
+def test_scenario_and_fragment_schemas_publish_the_composition_contract():
+    scenario = json.loads(Path("schemas/scenario-v1.json").read_text(encoding="utf-8"))
+    fragment = json.loads(Path("schemas/scenario-fragment-v1.json").read_text(encoding="utf-8"))
+    assert scenario["$id"].endswith("/schema/scenario-v1.json")
+    assert fragment["$id"].endswith("/schema/scenario-fragment-v1.json")
+    assert scenario["properties"]["schema"]["const"] == "cdpx.scenario/v1"
+    assert fragment["properties"]["schema"]["const"] == "cdpx.scenario-fragment/v1"
+    assert scenario["properties"]["steps"]["items"]["$ref"].endswith(
+        "scenario-fragment-v1.json#/$defs/step"
+    )
+    include = fragment["$defs"]["includeStep"]["properties"]["include"]
+    assert include["additionalProperties"] is False
+    assert set(include["properties"]) == {"path", "as"}
+    assert "with" not in json.dumps(fragment)
+
+
 def test_portable_scripts_are_posix_and_shellcheck_clean():
     scripts = [
         Path("cdpx"),

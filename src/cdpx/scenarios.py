@@ -16,8 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
-
 from cdpx.action_model import (
     BrowserAction,
     ClickAction,
@@ -45,6 +43,9 @@ STEP_ACTIONS = {"goto", "wait_visible", "click", "type", "key", "eval", "wait_te
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
 ASSERTIONS = {"no_console_errors", "network_errors_max", "text_contains"}
 ARTIFACTS = {"screenshot", "console", "network", "profiler"}
+SCENARIO_SCHEMA = "cdpx.scenario/v1"
+FRAGMENT_SCHEMA = "cdpx.scenario-fragment/v1"
+VALIDATION_SCHEMA = "cdpx.scenario-validation/v1"
 ACTION_ERRORS = (
     ValueError,
     TimeoutError,
@@ -59,6 +60,53 @@ class ScenarioUsageError(ValueError):
     """Invalid scenario file or CLI-level scenario invocation."""
 
 
+@dataclass(frozen=True)
+class IncludeSite:
+    path: str
+    step: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"path": self.path, "step": self.step}
+
+
+@dataclass(frozen=True)
+class StepSource:
+    path: str
+    step: int
+    include_chain: tuple[IncludeSite, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "step": self.step,
+            "include_chain": [site.as_dict() for site in self.include_chain],
+        }
+
+
+@dataclass(frozen=True)
+class ScenarioDependency:
+    path: str
+    sha256: str
+    kind: Literal["scenario", "fragment"]
+
+    def as_dict(self) -> dict[str, str]:
+        return {"path": self.path, "sha256": self.sha256, "kind": self.kind}
+
+
+@dataclass(frozen=True)
+class ScenarioComposition:
+    entrypoint: str
+    sha256: str
+    dependencies: tuple[ScenarioDependency, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "entrypoint": self.entrypoint,
+            "sha256": self.sha256,
+            "dependencies": [dependency.as_dict() for dependency in self.dependencies],
+        }
+
+
 @dataclass
 class ScenarioStep:
     index: int
@@ -66,6 +114,7 @@ class ScenarioStep:
     value: Any
     label: str
     capture: list[str] = field(default_factory=list)
+    source: StepSource | None = None
 
 
 @dataclass
@@ -76,6 +125,7 @@ class Scenario:
     steps: list[ScenarioStep]
     assertions: list[dict[str, Any]]
     artifacts: list[str]
+    composition: ScenarioComposition | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +154,7 @@ class ScenarioRun:
     assertions: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     last_url: str | None = None
+    composition: ScenarioComposition | None = None
 
     def finding(
         self,
@@ -123,7 +174,7 @@ class ScenarioRun:
         return "fail" if any(f["severity"] == "error" for f in self.findings) else "pass"
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "name": self.name,
             "verdict": self.verdict,
             "findings": self.findings,
@@ -132,6 +183,9 @@ class ScenarioRun:
             "assertions": self.assertions,
             "artifacts": self.artifacts,
         }
+        if self.composition is not None:
+            result["composition"] = self.composition.as_dict()
+        return result
 
 
 class PassiveCollector:
@@ -243,22 +297,31 @@ _NET_EVENTS = (
 )
 
 
-def load(path: str | Path) -> Scenario:
-    source = Path(path)
-    try:
-        raw = yaml.safe_load(source.read_text(encoding="utf-8"))
-    except OSError as e:
-        raise ScenarioUsageError(f"unreadable scenario: {source}: {e}") from e
-    except yaml.YAMLError as e:
-        raise ScenarioUsageError(f"invalid YAML: {source}: {e}") from e
-    return parse(raw, source=source)
+def load(
+    path: str | Path,
+    *,
+    root: str | Path | None = None,
+    max_actions: int | None = None,
+) -> Scenario:
+    from cdpx.scenario_compiler import compile_scenario
+
+    return compile_scenario(path, root=root, max_actions=max_actions)
 
 
-def parse(raw: Any, *, source: Path | None = None) -> Scenario:
+def parse(
+    raw: Any,
+    *,
+    source: Path | None = None,
+    step_sources: list[StepSource] | None = None,
+    composition: ScenarioComposition | None = None,
+) -> Scenario:
     where = f"{source}: " if source else ""
     if not isinstance(raw, dict):
         raise ScenarioUsageError(f"{where}scenario must be a YAML object")
-    _unknown(raw, {"name", "context", "steps", "assertions", "artifacts"}, where)
+    _unknown(raw, {"schema", "name", "context", "steps", "assertions", "artifacts"}, where)
+    schema = raw.get("schema")
+    if schema is not None and schema != SCENARIO_SCHEMA:
+        raise ScenarioUsageError(f"{where}unexpected scenario schema: {schema}")
     name = _required_str(raw, "name", where)
     context = _required_dict(raw, "context", where)
     _unknown(context, {"base_url", "emulation"}, f"{where}context.")
@@ -266,7 +329,7 @@ def parse(raw: Any, *, source: Path | None = None) -> Scenario:
     emulation_preset = context.get("emulation")
     if emulation_preset is not None and emulation_preset not in emulation.PRESETS:
         raise ScenarioUsageError(f"{where}context.emulation unknown: {emulation_preset}")
-    steps = _parse_steps(raw.get("steps"), where)
+    steps = _parse_steps(raw.get("steps"), where, sources=step_sources)
     assertions = _parse_assertions(raw.get("assertions", []), where)
     artifacts = _parse_artifacts(raw.get("artifacts", []), where, "artifacts")
     return Scenario(
@@ -276,7 +339,62 @@ def parse(raw: Any, *, source: Path | None = None) -> Scenario:
         steps=steps,
         assertions=assertions,
         artifacts=artifacts,
+        composition=composition,
     )
+
+
+def validation_result(scenario: Scenario) -> dict[str, Any]:
+    """Return a secret-free, browser-free plan for a compiled scenario."""
+    rank = {"observation": 0, "interaction": 1, "privileged": 2}
+    authority = "observation"
+    secret_refs: set[str] = set()
+    steps = []
+    for step in scenario.steps:
+        candidate = "observation"
+        if step.verb in {"click", "type", "key"}:
+            candidate = "interaction"
+        elif step.verb == "eval":
+            candidate = "privileged"
+        if rank[candidate] > rank[authority]:
+            authority = candidate
+        if step.verb == "type" and isinstance(step.value, dict):
+            secret_ref = step.value.get("secret_ref")
+            if isinstance(secret_ref, str) and secret_ref:
+                secret_refs.add(secret_ref)
+        item: dict[str, Any] = {
+            "index": step.index,
+            "label": step.label,
+            "verb": step.verb,
+        }
+        if step.source is not None:
+            item["source"] = step.source.as_dict()
+        steps.append(item)
+    if (
+        scenario.emulation
+        or "profiler" in scenario.artifacts
+        or any("profiler" in step.capture for step in scenario.steps)
+    ):
+        authority = "privileged"
+    result: dict[str, Any] = {
+        "schema": VALIDATION_SCHEMA,
+        "ok": True,
+        "name": scenario.name,
+        "required_authority": authority,
+        "secret_refs": sorted(secret_refs),
+        "step_count": len(scenario.steps),
+        "steps": steps,
+    }
+    if scenario.composition is not None:
+        result.update(
+            {
+                "entrypoint": scenario.composition.entrypoint,
+                "sha256": scenario.composition.sha256,
+                "dependencies": [
+                    dependency.as_dict() for dependency in scenario.composition.dependencies
+                ],
+            }
+        )
+    return result
 
 
 def run(
@@ -308,7 +426,12 @@ def run(
         ttl=artifact_ttl,
         redaction_context=redaction,
     )
-    run_state = ScenarioRun(scenario_spec.name, writer.run_dir, writer)
+    run_state = ScenarioRun(
+        scenario_spec.name,
+        writer.run_dir,
+        writer,
+        composition=scenario_spec.composition,
+    )
     collector = PassiveCollector(context)
     collector.enable(client)
     if scenario_spec.emulation:
@@ -381,6 +504,8 @@ def _execute_scenario_operation(
         "verb": step.verb,
         "ok": True,
     }
+    if step.source is not None:
+        record["source"] = step.source.as_dict()
     started = time.monotonic()
     try:
         _assert_origin(client, scenario, step, allowed_origins)
@@ -451,12 +576,20 @@ def _record_current_origin(
     return True
 
 
-def _parse_steps(value: Any, where: str) -> list[ScenarioStep]:
+def _parse_steps(
+    value: Any,
+    where: str,
+    *,
+    sources: list[StepSource] | None = None,
+) -> list[ScenarioStep]:
     if not isinstance(value, list) or not value:
         raise ScenarioUsageError(f"{where}steps must be a non-empty list")
+    if sources is not None and len(sources) != len(value):
+        raise RuntimeError("compiled scenario step provenance mismatch")
     steps = []
     for index, item in enumerate(value):
-        prefix = f"{where}steps[{index}]."
+        source = sources[index] if sources is not None else None
+        prefix = _step_prefix(where, index, source)
         if not isinstance(item, dict):
             raise ScenarioUsageError(f"{prefix}must be an object")
         _unknown(item, STEP_KEYS, prefix)
@@ -476,9 +609,17 @@ def _parse_steps(value: Any, where: str) -> list[ScenarioStep]:
                 value=item[verb],
                 label=label,
                 capture=capture_items,
+                source=source,
             )
         )
     return steps
+
+
+def _step_prefix(where: str, index: int, source: StepSource | None) -> str:
+    if source is None:
+        return f"{where}steps[{index}]."
+    locations = [*source.include_chain, IncludeSite(source.path, source.step)]
+    return " -> ".join(f"{item.path}:steps[{item.step}]" for item in locations) + "."
 
 
 def _parse_assertions(value: Any, where: str) -> list[dict[str, Any]]:
@@ -497,7 +638,9 @@ def _parse_assertions(value: Any, where: str) -> list[dict[str, Any]]:
         name, assertion_value = next(iter(item.items()))
         if name == "no_console_errors" and not isinstance(assertion_value, bool):
             raise ScenarioUsageError(f"{prefix}{name} must be boolean")
-        if name == "network_errors_max" and not isinstance(assertion_value, int):
+        if name == "network_errors_max" and (
+            not isinstance(assertion_value, int) or isinstance(assertion_value, bool)
+        ):
             raise ScenarioUsageError(f"{prefix}{name} must be an integer")
         if name == "text_contains":
             _require_pair(assertion_value, f"{prefix}{name}")

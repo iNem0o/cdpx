@@ -7,6 +7,15 @@ cdpx uses semantic versioning.
 
 ### Added
 
+- Versioned `cdpx.scenario/v1` journeys can compose nested local
+  `cdpx.scenario-fragment/v1` step files through explicit `include` nodes.
+  Expansion is deterministic, workspace-confined and cycle/budget guarded;
+  run results carry qualified labels, source provenance, dependency hashes
+  and a composition digest.
+- `cdpx scenario validate <file.yml>` compiles and inspects a complete
+  scenario without a browser session or secret materialization, reporting
+  its ordered plan, required authority and referenced environment names.
+- Public JSON Schemas describe executable scenarios and reusable fragments.
 - `cdpx intercept` can compose a trusted `click <selector>` as well as
   `goto <url>`, report matched and effective request counts, and explicitly
   disable Fetch after success or failure so interception cannot leak into the

@@ -2241,6 +2241,9 @@ def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
     src = SCENARIO_FIXTURES / template
     dest = tmp_path / template
     dest.write_text(src.read_text(encoding="utf-8").replace("__BASE_URL__", base_url), "utf-8")
+    fragment_source = SCENARIO_FIXTURES / "fragments"
+    if fragment_source.is_dir():
+        shutil.copytree(fragment_source, tmp_path / "fragments", dirs_exist_ok=True)
     return dest
 
 
@@ -2304,6 +2307,13 @@ def test_declarative_scenario_static_form_real(
     #: the business scenario ends with the expected verdict, with diagnostics attached on failure
     assert code == 0, f"stderr={err}\nresult={json.dumps(result, ensure_ascii=False, indent=2)}"
     assert result["verdict"] == "pass"
+    #: the real-browser journey was compiled from the reusable interaction
+    #: fragment, and its qualified labels survive into the evidence result
+    assert any(step["label"] == "form.submit" for step in result["steps"])
+    assert any(
+        dependency["path"] == "fragments/static_form_interaction.yml"
+        for dependency in result["composition"]["dependencies"]
+    )
     #: the checkpoint and end-of-flow visual proofs are indeed collected
     assert any(artifact["label"] == "form_page" for artifact in result["artifacts"])
     assert any(artifact["label"] == "final" for artifact in result["artifacts"])

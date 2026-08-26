@@ -43,6 +43,9 @@ Navigation, synchronization and trusted input support every family.
 - **Private evidence:** screenshots, PDFs, logs and reports remain in managed
   artifact directories. Only a cleaned manifest allowlist can become
   shareable.
+- **Typed scenario composition:** executable scenarios can include local step
+  fragments, but one browser-free compiler expands and fingerprints the whole
+  graph before secret resolution, authority/origin preflight or any CDP effect.
 
 Chrome discovery uses `PUT /json/new`; an explicit method rejection permits a
 bounded `GET` fallback for compatible endpoints. Cookie clearing similarly

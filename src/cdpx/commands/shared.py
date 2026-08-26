@@ -166,9 +166,8 @@ def build_redaction_context(args: CommandOptions) -> RedactionContext:
 
 def safe_output(args: CommandInvocation, data: Any) -> Any:
     safe = redact_tree(data, context=args.redaction)
-    context = execution(args)
-    if isinstance(safe, dict):
-        safe = {**safe, "_cdpx": context.metadata()}
+    if isinstance(safe, dict) and args.execution is not None:
+        safe = {**safe, "_cdpx": args.execution.metadata()}
     return safe
 
 

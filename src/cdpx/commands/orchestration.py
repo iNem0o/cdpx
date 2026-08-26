@@ -39,6 +39,12 @@ def register_commands(
     run.add_argument("path")
     run.add_argument("--settle", type=float, default=0.5)
     run.set_defaults(func=cmd_scenario)
+    validate = scenario_sub.add_parser(
+        "validate",
+        help="compile and inspect a YAML scenario without a browser session",
+    )
+    validate.add_argument("path")
+    validate.set_defaults(func=cmd_scenario)
 
 
 def cmd_record(args: CommandInvocation) -> None:
@@ -77,12 +83,15 @@ def cmd_replay(args: CommandInvocation) -> int:
 
 
 def cmd_scenario(args: CommandInvocation) -> int:
-    if args.options.scenario_action != "run":
-        raise scenarios.ScenarioUsageError("scenario supports: run <path>")
     path = args.options.path
     if path is None:
-        raise RuntimeError("scenario to run not prepared")
-    scenario = scenarios.load(path)
+        raise RuntimeError("scenario path not prepared")
+    scenario = scenarios.load(path, max_actions=args.options.max_actions)
+    if args.options.scenario_action == "validate":
+        emit_json(args, scenarios.validation_result(scenario))
+        return 0
+    if args.options.scenario_action != "run":
+        raise scenarios.ScenarioUsageError("scenario supports: run|validate <path>")
     try:
         prepared = scenarios.prepare(scenario, orchestration(args))
     except scenarios.ScenarioUsageError as error:

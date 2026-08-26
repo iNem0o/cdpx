@@ -4,7 +4,7 @@ title = "Interception, emulation and orchestration"
 status = "validated"
 summary = "Control network behavior, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
-path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
+path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "src/cdpx/scenario_compiler.py", "schemas/scenario-*.json", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/fixtures/scenarios/fragments/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
 test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
@@ -52,11 +52,11 @@ expected_proofs = ["junit", "screenshot"]
 id = "run-declarative-business-scenario"
 journey = "scenario-run"
 title = "Run a YAML business scenario with proofs"
-ui_text = "A YAML file describes a business journey, its assertions and the proofs to collect during and after the run."
-report_text = "This scenario proves that cdpx primitives can be composed into declarative business journeys with a single verdict, findings and a proof dossier."
-given = "A disposable Chrome targets a local or Symfony application and a YAML file describes the steps, assertions and captures."
-when = "cdpx scenario run executes the steps, continuously collects console/network, captures proofs at checkpoints and evaluates the assertions."
-then = "The output contains a single pass/fail verdict, the findings, the executed steps and the produced artifacts."
+ui_text = "A versioned YAML scenario composes reusable step fragments, assertions and proofs into one validated journey."
+report_text = "This scenario proves that reusable fragments are expanded deterministically and preflighted as one declarative journey before Chrome receives an action."
+given = "A disposable Chrome targets a local or Symfony application and a YAML scenario includes local, versioned fragments."
+when = "cdpx compiles the complete include graph, validates its budget, authority, origins and secrets, then scenario run executes the flattened steps and collects proofs."
+then = "The output contains one verdict plus qualified labels, source provenance, a composition digest, findings and artifacts."
 tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 expected_proofs = ["junit", "json", "screenshot"]
 +++
@@ -308,16 +308,22 @@ or `eval` are rejected; non-sensitive v1 actions remain compatible.
 
 ### `cdpx scenario`
 
-Synopsis: `cdpx scenario run <file.yml> [--settle S]`
+Synopsis: `cdpx scenario run <file.yml> [--settle S]` or
+`cdpx scenario validate <file.yml>`
 
 Runs a declarative YAML business scenario against the targeted tab. The
 scenario describes a context (`base_url`, optional emulation), a suite of
 steps, assertions, final proofs and, if needed, proofs to collect at key
 moments of the run (`capture` on a step). The output is always a single
 JSON object with `verdict` (`pass` or `fail`), `findings`, `steps`,
-`assertions`, `artifacts` and `evidence_dir`.
+`assertions`, `artifacts`, `evidence_dir` and a composition digest.
 
-Supported scenario schema:
+`scenario validate` uses the exact same compiler without requiring a session
+or resolving secret values. It reports the expanded ordered steps, their
+sources, dependencies and hashes, required authority, referenced environment
+names and digest. Use it while authoring a scenario or in a static CI check.
+
+Supported executable schema (`cdpx.scenario/v1`):
 
 - `context.base_url`: origin or base URL for resolving relative `goto`
   calls.
@@ -334,8 +340,15 @@ Supported scenario schema:
 - Assertions: `no_console_errors`, `network_errors_max`, `text_contains`.
 - `artifacts`: same types as `capture`, collected at the end of the
   scenario.
+- An `include` step contains `{path, as?}`. `path` is resolved relative to
+  the including file; `as` defaults to the fragment name and qualifies every
+  included label. A fragment has schema `cdpx.scenario-fragment/v1`, a name
+  and steps only. It inherits the executable scenario's context.
+
+`checkout_guest_add_to_cart.yml`:
 
 ```yaml
+schema: cdpx.scenario/v1
 name: checkout_guest_add_to_cart
 context:
   base_url: http://shop.localhost
@@ -344,10 +357,9 @@ steps:
   - label: product_page
     goto: /product/42
     capture: [screenshot, console, network]
-  - label: add_to_cart
-    wait_visible: '[data-testid="add-to-cart"]'
-  - click: '[data-testid="add-to-cart"]'
-    capture: [screenshot, console]
+  - include:
+      path: fragments/add_to_cart.yml
+      as: cart
   - type:
       selector: '[name="password"]'
       secret_ref: CHECKOUT_PASSWORD
@@ -364,18 +376,41 @@ artifacts:
   - profiler
 ```
 
+`fragments/add_to_cart.yml`:
+
+```yaml
+schema: cdpx.scenario-fragment/v1
+name: add_to_cart
+steps:
+  - label: ready
+    wait_visible: '[data-testid="add-to-cart"]'
+  - label: submit
+    click: '[data-testid="add-to-cart"]'
+    capture: [screenshot, console]
+```
+
 ```bash
+cdpx --max-actions 20 scenario validate checkout_guest_add_to_cart.yml
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
 Successful output:
 
 ```json
-{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":"/runtime/session/artifacts/scenarios/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":"/runtime/session/artifacts/scenarios/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png","classification":"opaque-restricted","upload_allowed":false}],"_cdpx":{"content_trust":"untrusted"}}
+{"name":"checkout_guest_add_to_cart","verdict":"pass","findings":[],"evidence_dir":"/runtime/session/artifacts/scenarios/checkout_guest_add_to_cart-20260706T120000Z","steps":[{"index":0,"label":"product_page","verb":"goto","ok":true,"source":{"path":"checkout_guest_add_to_cart.yml","step":0,"include_chain":[]}}],"assertions":[{"name":"no_console_errors","expected":true,"ok":true,"actual":0}],"artifacts":[{"type":"screenshot","label":"product_page","path":"/runtime/session/artifacts/scenarios/.../000-product_page-screenshot.png","bytes":1234,"mime":"image/png","classification":"opaque-restricted","upload_allowed":false}],"composition":{"entrypoint":"checkout_guest_add_to_cart.yml","sha256":"...","dependencies":[{"path":"checkout_guest_add_to_cart.yml","sha256":"...","kind":"scenario"},{"path":"fragments/add_to_cart.yml","sha256":"...","kind":"fragment"}]},"_cdpx":{"content_trust":"untrusted"}}
 ```
 
 Errors and pitfalls: invalid YAML or an unknown field exits with code 2. A
-scenario that runs but does not conform exits with code 1 with
+missing fragment, path outside the scenario root, absolute/remote/glob path,
+duplicate alias, include cycle, excessive depth/file/step count or exceeded
+`--max-actions` budget also exits with code 2 before any CDP command. Includes
+may be nested, are read once and expanded depth-first at their exact position.
+Hard ceilings are 16 nested includes, 128 unique scenario files and 1,000
+expanded steps; `--max-actions` sets a lower per-invocation step budget.
+The two machine-readable contracts are
+[`scenario-v1.json`](../../schemas/scenario-v1.json) and
+[`scenario-fragment-v1.json`](../../schemas/scenario-fragment-v1.json).
+A scenario that runs but does not conform exits with code 1 with
 `verdict:"fail"` and structured `findings`. Assertions do not stop at the
 first failure: they accumulate findings and then the final proofs are
 collected. A `profiler` capture first uses the Symfony headers observed

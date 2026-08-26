@@ -1,0 +1,14 @@
+schema: cdpx.scenario-fragment/v1
+name: static_form_interaction
+steps:
+  - label: fill_name
+    type:
+      selector: "#name"
+      secret_ref: E2E_FORM_NAME
+      clear: true
+    capture: [console]
+  - label: submit
+    click: "#submit-btn"
+    capture: [screenshot, console]
+  - label: result
+    wait_text: ["#result", "OK:Leo"]

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inem0o.github.io/cdpx/schema/scenario-v1.json",
+  "title": "cdpx executable scenario",
+  "description": "A versioned cdpx browser journey with reusable step fragments.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "context", "steps"],
+  "properties": {
+    "schema": {
+      "const": "cdpx.scenario/v1"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url"],
+      "properties": {
+        "base_url": {"type": "string", "minLength": 1},
+        "emulation": {"enum": ["mobile", "slow-3g", "cpu-4x"]}
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "scenario-fragment-v1.json#/$defs/step"
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["no_console_errors"],
+            "properties": {
+              "no_console_errors": {"type": "boolean"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["network_errors_max"],
+            "properties": {
+              "network_errors_max": {"type": "integer"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text_contains"],
+            "properties": {
+              "text_contains": {
+                "$ref": "scenario-fragment-v1.json#/$defs/stringPair"
+              }
+            }
+          }
+        ]
+      },
+      "default": []
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "scenario-fragment-v1.json#/$defs/artifact"
+      },
+      "default": []
+    }
+  }
+}
