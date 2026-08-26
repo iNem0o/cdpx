@@ -66,6 +66,33 @@ def test_portable_scripts_are_posix_and_shellcheck_clean():
     subprocess.run(["shellcheck", *map(str, scripts)], check=True)
 
 
+def test_embedded_installer_resolves_the_public_bundle_symlink(tmp_path):
+    bundle = tmp_path / "opt" / "cdpx"
+    bundle_bin = bundle / "bin"
+    bundle_bin.mkdir(parents=True)
+
+    installer = bundle_bin / "embedded-install"
+    installer.write_bytes(Path("packaging/embedded-install").read_bytes())
+    installer.chmod(0o755)
+    (bundle_bin / "native-cdpx").touch(mode=0o755)
+    (bundle / "install").symlink_to("bin/embedded-install")
+
+    target = tmp_path / "usr" / "local" / "bin" / "cdpx"
+    completed = subprocess.run(
+        [str(bundle / "install"), "--link", str(target)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "installed": "embedded",
+        "path": str(target),
+    }
+    assert target.is_symlink()
+    assert os.readlink(target) == str(bundle_bin / "native-cdpx")
+
+
 def test_dockerfile_uses_one_pinned_multistage_toolchain():
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 

@@ -25,6 +25,14 @@ if [ ! -e /lib64/ld-linux-x86-64.so.2 ] && [ ! -e /lib/ld-linux-aarch64.so.1 ]; 
     exit 2
 fi
 mkdir -p "$(dirname "$target")"
-BUNDLE=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+SCRIPT=$0
+while [ -L "$SCRIPT" ]; do
+    link=$(readlink "$SCRIPT")
+    case "$link" in
+        /*) SCRIPT=$link ;;
+        *) SCRIPT=$(dirname "$SCRIPT")/$link ;;
+    esac
+done
+BUNDLE=$(CDPATH='' cd -- "$(dirname "$SCRIPT")/.." && pwd -P)
 ln -sfn "$BUNDLE/bin/native-cdpx" "$target"
 printf '{"installed":"embedded","path":"%s"}\n' "$target"
