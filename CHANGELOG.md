@@ -31,6 +31,10 @@ cdpx uses semantic versioning.
 
 ### Fixed
 
+- Declarative scenarios now expand `${NAME}`, `${NAME:-default}` and `$$` in
+  `context.base_url` before strict HTTP(S) origin preflight. Missing variables
+  fail as usage errors without exposing their values; scenario secrets remain
+  on the existing `secret_ref` path.
 - The embedded installer now resolves its public `/opt/cdpx/install` symlink
   before locating the bundle, so it links `cdpx` to the bundled native entry
   point instead of the nonexistent `/opt/bin/native-cdpx` path.

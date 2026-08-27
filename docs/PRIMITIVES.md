@@ -158,7 +158,12 @@ Subrequests remain eligible for interception independently of their origin.
 In a scenario, `wait_visible` genuinely checks attachment,
 display/visibility, and a non-zero box, and a `type` step requires `secret_ref`
 (the plain `[selector, text]` form is rejected at validation). The final
-console/network drain precedes the assertions. `cdpx.scenario/v1` files can
+console/network drain precedes the assertions. `context.base_url` accepts the
+same `${NAME}`, `${NAME:-default}` and `$$` interpolation grammar as
+`cdpx.yaml`; it is expanded during compilation and the result remains subject
+to the session's strict HTTP(S) origin allowlist. A missing variable fails as
+an exit-2 usage error naming only the variable; scenario secrets continue to
+use `secret_ref`. `cdpx.scenario/v1` files can
 place `{include: {path, as?}}` in `steps`; the referenced
 `cdpx.scenario-fragment/v1` file contributes steps at that exact position and
 inherits the root context. Paths are static, relative to the including file,

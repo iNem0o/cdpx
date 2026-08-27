@@ -169,6 +169,52 @@ steps:
     assert len(scenario.composition.sha256) == 64
 
 
+def test_load_interpolates_base_url_with_workspace_placeholder_rules(tmp_path):
+    entrypoint = tmp_path / "scenario.yml"
+    entrypoint.write_text(
+        """
+schema: cdpx.scenario/v1
+name: environment_base_url
+context:
+  base_url: "${APP_URL:-http://fallback.test}/$$health"
+steps:
+  - goto: /
+""",
+        encoding="utf-8",
+    )
+
+    resolved = scenarios.load(entrypoint, environ={"APP_URL": "http://shop.test"})
+    defaulted = scenarios.load(entrypoint, environ={})
+
+    assert resolved.base_url == "http://shop.test/$health"
+    assert defaulted.base_url == "http://fallback.test/$health"
+
+
+def test_load_rejects_undefined_base_url_variable_without_exposing_values(tmp_path):
+    entrypoint = tmp_path / "scenario.yml"
+    entrypoint.write_text(
+        """
+schema: cdpx.scenario/v1
+name: missing_environment_base_url
+context:
+  base_url: "${MISSING_APP_URL}"
+steps:
+  - goto: /
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(scenarios.ScenarioUsageError) as excinfo:
+        scenarios.load(
+            entrypoint,
+            environ={"UNRELATED_SECRET": "should-never-appear"},
+        )
+
+    message = str(excinfo.value)
+    assert "context.base_url: undefined environment variable: MISSING_APP_URL" in message
+    assert "should-never-appear" not in message
+
+
 def test_fragment_paths_are_relative_to_the_including_file_not_cwd(tmp_path, monkeypatch):
     """Changing cwd cannot change which fragment an include resolves."""
     bundle = tmp_path / "bundle"
@@ -1177,6 +1223,87 @@ artifacts:
             err,
             code,
         )
+
+
+def test_scenario_cli_expands_base_url_before_origin_preflight_and_navigation(
+    mock, cli_manifest, capsys, tmp_path, monkeypatch
+):
+    scenario = tmp_path / "scenario.yml"
+    scenario.write_text(
+        """
+name: environment_base_url
+context:
+  base_url: "${APP_URL}"
+steps:
+  - goto: child
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_URL", "http://shop.test/root")
+
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "scenario",
+        "run",
+        str(scenario),
+        "--settle",
+        "0",
+    )
+
+    assert code == 0, f"stderr={err}\nstdout={out}"
+    assert mock.commands_for("Page.navigate") == [{"url": "http://shop.test/root/child"}]
+
+
+def test_scenario_cli_missing_base_url_variable_is_usage_error_without_cdp_effect(
+    mock, cli_manifest, capsys, tmp_path, monkeypatch
+):
+    scenario = tmp_path / "scenario.yml"
+    scenario.write_text(
+        """
+name: missing_environment_base_url
+context:
+  base_url: "${MISSING_APP_URL}"
+steps:
+  - goto: /
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("MISSING_APP_URL", raising=False)
+    monkeypatch.setenv("UNRELATED_SECRET", "should-never-appear")
+
+    code, out, err = run_cli(mock, capsys, "scenario", "run", str(scenario))
+
+    assert code == 2
+    assert out == ""
+    assert "undefined environment variable: MISSING_APP_URL" in err
+    assert "should-never-appear" not in err
+    assert mock.commands == []
+
+
+@pytest.mark.parametrize("expanded_url", ["https://outside.example/", "ftp://shop.test/"])
+def test_scenario_cli_rejects_expanded_base_url_outside_http_allowlist_before_cdp(
+    mock, cli_manifest, capsys, tmp_path, monkeypatch, expanded_url
+):
+    scenario = tmp_path / "scenario.yml"
+    scenario.write_text(
+        """
+name: rejected_environment_base_url
+context:
+  base_url: "${APP_URL}"
+steps:
+  - goto: /
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_URL", expanded_url)
+
+    code, out, err = run_cli(mock, capsys, "scenario", "run", str(scenario))
+
+    assert code == 1
+    assert out == ""
+    assert "origin rejected" in err or "HTTP(S) origin" in err
+    assert mock.commands == []
 
 
 def test_scenario_cli_invalid_file_exits_2(mock, cli_manifest, capsys, tmp_path):

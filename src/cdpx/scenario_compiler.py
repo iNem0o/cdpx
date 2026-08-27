@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -53,12 +54,14 @@ class _Compiler:
         root: Path,
         *,
         max_actions: int | None,
+        environ: Mapping[str, str] | None,
     ) -> None:
         if max_actions is not None and max_actions < 0:
             raise ScenarioUsageError("--max-actions must be non-negative")
         self.entrypoint = entrypoint
         self.root = root
         self.max_actions = max_actions
+        self.environ = os.environ if environ is None else environ
         self._documents: dict[Path, _Document] = {}
         self._dependency_order: list[Path] = []
         self._expanded_steps: list[dict[str, Any]] = []
@@ -99,6 +102,7 @@ class _Compiler:
             source=Path(root.logical_path),
             step_sources=self._sources,
             composition=composition,
+            environ=self.environ,
         )
 
     def _expand_steps(
@@ -301,9 +305,15 @@ def compile_scenario(
     *,
     root: str | Path | None = None,
     max_actions: int | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Scenario:
     entrypoint = Path(path).resolve()
     compilation_root = Path(root).resolve() if root is not None else _default_root(entrypoint)
     if not entrypoint.is_relative_to(compilation_root):
         raise ScenarioUsageError(f"scenario entrypoint escapes scenario root: {path}")
-    return _Compiler(entrypoint, compilation_root, max_actions=max_actions).compile()
+    return _Compiler(
+        entrypoint,
+        compilation_root,
+        max_actions=max_actions,
+        environ=environ,
+    ).compile()

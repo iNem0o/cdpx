@@ -11,6 +11,7 @@ import os
 import re
 import time
 import urllib.parse
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,7 @@ from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.policy import assert_url_allowed
 from cdpx.primitives import actions, capture, dev, emulation, inputs, js, nav, profiler
+from cdpx.runtime_config import ConfigurationError, interpolate_environment_text
 from cdpx.security import (
     MASK,
     RedactionContext,
@@ -302,10 +304,11 @@ def load(
     *,
     root: str | Path | None = None,
     max_actions: int | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Scenario:
     from cdpx.scenario_compiler import compile_scenario
 
-    return compile_scenario(path, root=root, max_actions=max_actions)
+    return compile_scenario(path, root=root, max_actions=max_actions, environ=environ)
 
 
 def parse(
@@ -314,6 +317,7 @@ def parse(
     source: Path | None = None,
     step_sources: list[StepSource] | None = None,
     composition: ScenarioComposition | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Scenario:
     where = f"{source}: " if source else ""
     if not isinstance(raw, dict):
@@ -325,7 +329,19 @@ def parse(
     name = _required_str(raw, "name", where)
     context = _required_dict(raw, "context", where)
     _unknown(context, {"base_url", "emulation"}, f"{where}context.")
-    base_url = _required_str(context, "base_url", f"{where}context.")
+    raw_base_url = _required_str(context, "base_url", f"{where}context.")
+    if environ is None:
+        environ = os.environ
+    try:
+        base_url = interpolate_environment_text(
+            raw_base_url,
+            f"{where}context.base_url",
+            environ,
+        )
+    except ConfigurationError as error:
+        raise ScenarioUsageError(str(error)) from error
+    if not base_url:
+        raise ScenarioUsageError(f"{where}context.base_url must be a non-empty string")
     emulation_preset = context.get("emulation")
     if emulation_preset is not None and emulation_preset not in emulation.PRESETS:
         raise ScenarioUsageError(f"{where}context.emulation unknown: {emulation_preset}")

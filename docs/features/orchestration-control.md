@@ -326,7 +326,10 @@ names and digest. Use it while authoring a scenario or in a static CI check.
 Supported executable schema (`cdpx.scenario/v1`):
 
 - `context.base_url`: origin or base URL for resolving relative `goto`
-  calls.
+  calls. This field alone supports the workspace placeholder grammar:
+  `${NAME}`, `${NAME:-default}` and `$$`. Expansion happens during scenario
+  compilation, before the strict session origin preflight; an undefined
+  variable is an exit-2 usage error that names the variable.
 - `context.emulation`: optional, `mobile`, `slow-3g` or `cpu-4x`, applied
   within the same CDP connection as the steps.
 - Steps: `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
@@ -351,7 +354,7 @@ Supported executable schema (`cdpx.scenario/v1`):
 schema: cdpx.scenario/v1
 name: checkout_guest_add_to_cart
 context:
-  base_url: http://shop.localhost
+  base_url: "${APP_URL:-http://shop.localhost}"
   emulation: mobile
 steps:
   - label: product_page

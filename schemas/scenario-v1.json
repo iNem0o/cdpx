@@ -19,7 +19,11 @@
       "additionalProperties": false,
       "required": ["base_url"],
       "properties": {
-        "base_url": {"type": "string", "minLength": 1},
+        "base_url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HTTP(S) base URL. Supports ${NAME}, ${NAME:-default}, and $$ environment interpolation during scenario compilation."
+        },
         "emulation": {"enum": ["mobile", "slow-3g", "cpu-4x"]}
       }
     },

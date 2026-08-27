@@ -1,5 +1,16 @@
 # Leverage log
 
+- Session-Key: agent/intercept-click@934ee63
+  - Symptom: invoking host `pytest` failed while importing Python 3.14 syntax,
+    before collecting the targeted scenario regression tests.
+  - Root cause (missing capability): the host interpreter was used instead of
+    the repository's pinned Docker toolchain.
+  - Fix encoded (doc/script/lint): no new mechanism was needed;
+    `docs/DEVELOPMENT.md` and `CONTRIBUTING.md` already make Docker the only
+    host prerequisite and `./dev check-local` the canonical short loop.
+  - Verification (command/CI): `./dev check-local` and the mandatory
+    `./dev check` both completed successfully in the pinned Python 3.14 image.
+
 - Session-Key: master@944204e
   - Symptom: releasing 0.1.2 required rediscovering the whole procedure —
     the tag alone looked sufficient, while the version is actually pinned in
@@ -29,4 +40,3 @@
     tests to explicit scenarios.
   - Verification (command/CI): `./dev check` completed with 767 passing tests,
     real Chromium, real Symfony and a green proof inventory.
-
