@@ -355,7 +355,11 @@ Supported executable schema (`cdpx.scenario/v1`):
   a single-field cross-origin iframe: cdpx requires an actionable iframe,
   verifies that its resolved `src` matches the declared allowlisted origin,
   focuses it through a trusted click, then inserts the secret without reading
-  the child DOM. Clearing is deliberately unsupported.
+  the child DOM. When a controlled page may select one of several PSPs, replace
+  `selector` and `frame_origin` with
+  `candidates: [{selector, frame_origin}, ...]`; exactly one declared iframe
+  must exist and its runtime origin must match. Zero or multiple matches fail
+  closed. Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
   `profiler`. These proofs are collected immediately after the step, even
   if the step fails.

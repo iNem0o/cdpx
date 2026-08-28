@@ -160,7 +160,9 @@ In a scenario, `wait_visible` genuinely checks attachment,
 display/visibility, and a non-zero box, and a `type` step requires `secret_ref`
 (the plain `[selector, text]` form is rejected at validation). `frame_type`
 types a referenced secret into a single-field cross-origin iframe only after
-its runtime `src` matches the declared allowlisted origin. Screenshots at or
+its runtime `src` matches the declared allowlisted origin. A `candidates` list
+can declare several selector/origin pairs when the page chooses its PSP at
+runtime; exactly one must resolve. Screenshots at or
 after that sensitive step, including final screenshots, are refused. The final
 console/network drain precedes the assertions. `context.base_url` accepts the
 same `${NAME}`, `${NAME:-default}` and `$$` interpolation grammar as

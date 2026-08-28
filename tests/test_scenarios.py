@@ -1146,6 +1146,72 @@ def test_scenario_frame_type_checks_origin_and_keeps_secret_out_of_evidence(
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
 
 
+def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp_path, monkeypatch):
+    secret = "4242424242424242"
+    monkeypatch.setenv("CHECKOUT_CARD", secret)
+    actionable = json.dumps(
+        {
+            "attached": True,
+            "visible": True,
+            "enabled": True,
+            "stable": True,
+            "receives_events": True,
+            "editable": False,
+            "rect": {"x": 10, "y": 20, "width": 200, "height": 40},
+        }
+    )
+    mock.on_eval("__cdpx_actionability", actionable)
+    mock.on_eval("iframe.adyen", None)
+    mock.on_eval(
+        "iframe.checkout",
+        "https://js.checkout.test/card-number.html",
+        "https://js.checkout.test/card-number.html",
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "hosted_card_candidates",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "frame_type": {
+                        "candidates": [
+                            {
+                                "selector": "iframe.adyen",
+                                "frame_origin": "https://adyen.test",
+                            },
+                            {
+                                "selector": "iframe.checkout",
+                                "frame_origin": "https://js.checkout.test",
+                            },
+                        ],
+                        "secret_ref": "CHECKOUT_CARD",
+                    }
+                }
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            context=orchestration("http://*.test,https://*.test"),
+            settle=0,
+        )
+
+    assert result["verdict"] == "pass"
+    assert result["steps"][0]["result"] == {
+        "typed": True,
+        "value_masked": True,
+        "selector": "iframe.checkout",
+        "frame_origin": "https://js.checkout.test",
+        "cleared": False,
+    }
+    assert secret not in json.dumps(result)
+    assert mock.commands_for("Input.insertText")[-1]["text"] == secret
+
+
 def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, monkeypatch):
     monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
     mock.on_eval(

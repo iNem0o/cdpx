@@ -147,6 +147,7 @@ class ScenarioOperation:
     selector: str | None = None
     expected: str | None = None
     frame_origin: str | None = None
+    frame_candidates: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -699,8 +700,11 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                 fields.add("mode")
             if verb == "frame_type":
                 fields.add("frame_origin")
+                fields.add("candidates")
             _unknown(value, fields, f"{prefix}{verb}.")
-            if not isinstance(value.get("selector"), str):
+            candidates = value.get("candidates")
+            has_candidates = isinstance(candidates, list) and bool(candidates)
+            if verb == "type" and not isinstance(value.get("selector"), str):
                 raise ScenarioUsageError(f"{prefix}{verb}.selector must be a string")
             has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
             if not has_secret_ref:
@@ -713,10 +717,37 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             }:
                 raise ScenarioUsageError(f"{prefix}{verb}.mode must be insert_text or key_events")
             if verb == "frame_type":
-                if not isinstance(value.get("frame_origin"), str) or not value["frame_origin"]:
+                has_single = (
+                    isinstance(value.get("selector"), str)
+                    and bool(value["selector"])
+                    and isinstance(value.get("frame_origin"), str)
+                    and bool(value["frame_origin"])
+                )
+                if has_single == has_candidates:
                     raise ScenarioUsageError(
-                        f"{prefix}{verb}.frame_origin must be a non-empty string"
+                        f"{prefix}{verb} requires either selector/frame_origin or candidates"
                     )
+                if has_candidates:
+                    assert isinstance(candidates, list)
+                    for index, candidate in enumerate(candidates):
+                        candidate_prefix = f"{prefix}{verb}.candidates[{index}]."
+                        if not isinstance(candidate, dict):
+                            raise ScenarioUsageError(f"{candidate_prefix}must be an object")
+                        _unknown(candidate, {"selector", "frame_origin"}, candidate_prefix)
+                        if (
+                            not isinstance(candidate.get("selector"), str)
+                            or not candidate["selector"]
+                        ):
+                            raise ScenarioUsageError(
+                                f"{candidate_prefix}selector must be a non-empty string"
+                            )
+                        if (
+                            not isinstance(candidate.get("frame_origin"), str)
+                            or not candidate["frame_origin"]
+                        ):
+                            raise ScenarioUsageError(
+                                f"{candidate_prefix}frame_origin must be a non-empty string"
+                            )
                 if value.get("clear"):
                     raise ScenarioUsageError(f"{prefix}{verb}.clear is not supported")
         else:
@@ -755,12 +786,24 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 action=_type_action(step.value, context=context.redaction),
             )
         elif step.verb == "frame_type":
-            frame_origin = step.value["frame_origin"]
-            assert_url_allowed(frame_origin, context.origins)
+            candidates = step.value.get("candidates")
+            frame_candidates = (
+                tuple(
+                    (candidate["selector"], candidate["frame_origin"]) for candidate in candidates
+                )
+                if isinstance(candidates, list)
+                else ()
+            )
+            frame_origin = step.value.get("frame_origin")
+            if isinstance(frame_origin, str):
+                assert_url_allowed(frame_origin, context.origins)
+            for _, candidate_origin in frame_candidates:
+                assert_url_allowed(candidate_origin, context.origins)
             operation = ScenarioOperation(
                 step,
                 action=_type_action(step.value, context=context.redaction),
                 frame_origin=frame_origin,
+                frame_candidates=frame_candidates,
             )
         else:  # pragma: no cover - the parser validates STEP_ACTIONS
             raise ScenarioUsageError(f"unknown action: {step.verb}")
@@ -773,11 +816,14 @@ def _run_operation(
     operation: ScenarioOperation,
     timeout: float,
 ) -> dict:
-    if (
-        operation.step.verb == "frame_type"
-        and isinstance(operation.action, TypeAction)
-        and operation.frame_origin is not None
-    ):
+    if operation.step.verb == "frame_type" and isinstance(operation.action, TypeAction):
+        if operation.frame_candidates:
+            return inputs.type_text_in_candidate_frame(
+                client,
+                operation.frame_candidates,
+                operation.action.text,
+            )
+        assert operation.frame_origin is not None
         return inputs.type_text_in_frame(
             client,
             operation.action.selector,
@@ -804,8 +850,13 @@ def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
             raise ScenarioUsageError(f"secret_ref not found: {secret_ref}")
         text = os.environ[secret_ref]
         context.register_secret(text)
+        candidates = value.get("candidates")
+        selector = value.get("selector")
+        if not isinstance(selector, str) and isinstance(candidates, list):
+            selector = ", ".join(candidate["selector"] for candidate in candidates)
+        assert isinstance(selector, str)
         return TypeAction(
-            value["selector"],
+            selector,
             text,
             clear=bool(value.get("clear")),
             mode=value.get("mode", "insert_text"),
