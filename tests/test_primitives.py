@@ -788,7 +788,7 @@ def test_profiler_reads_debug_token_link_and_parses_panels(
     ]
     #: the panel fetch is an awaited promise, targeting the token URL + panel
     assert call["awaitPromise"] is True
-    assert f'"{link}?panel=db"' in call["expression"]
+    assert f'"{link}?panel=db&group=true"' in call["expression"]
 
     # Secondary evidence: the profiler output (masked token, parsed SQL metrics).
     if evidence_case is not None:

@@ -46,12 +46,28 @@ def test_parse_db_counts_duplicates_and_queries():
     assert res["queries"] == 6
     assert res["statements"] == 2
     assert res["duplicates"] == 4
+    # The ungrouped fixture only contains one row per statement; aggregate
+    # counters cannot safely reveal each statement's repetition frequency.
+    assert res["max_repetitions"] == 1
+    assert res["repeated"] == []
     #: durations vary from one capture to another: only their type is a contract
     assert isinstance(res["time_ms"], float)
     #: the extracted SQL is the queries' actual text, not a truncated summary
     assert [q["sql"].startswith("SELECT") for q in res["list"]] == [True, True]
     assert "FROM book" in res["list"][0]["sql"]
     assert isinstance(res["list"][0]["duration_ms"], float)
+
+
+def test_parse_grouped_db_exposes_statement_repetition_bursts():
+    res = profiler.parse_panel("db", 200, read("db-grouped.html"))
+
+    assert res["queries"] == 6
+    assert res["statements"] == 2
+    assert res["duplicates"] == 4
+    assert res["max_repetitions"] == 5
+    assert len(res["repeated"]) == 1
+    assert res["repeated"][0]["count"] == 5
+    assert "FROM author" in res["repeated"][0]["sql"]
 
 
 def test_parse_twig_counts_and_templates():
@@ -345,9 +361,9 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
     #: URL rebuilt without the input querystring, and timeout translated to
     #: milliseconds in AbortSignal — the fetch cannot hang
     assert call["awaitPromise"] is True
-    assert '"http://app.test/_profiler/fixed-token?panel=db"' in call["expression"]
+    assert '"http://app.test/_profiler/fixed-token?panel=db&group=true"' in call["expression"]
     assert (
-        '"http://app.test/_profiler/fixed-token?panel=app.connection_collector"'
+        '"http://app.test/_profiler/fixed-token?panel=app.connection_collector&group=true"'
         in call["expression"]
     )
     #: Shopware replaces Symfony's standard Doctrine collector name. The
@@ -459,7 +475,10 @@ def test_collect_resolves_relative_link_before_same_origin_fetch(mock, client):
     #: the single fetch targets the absolute URL resolved against the
     #: page's origin: resolution happened before sending it to the browser
     assert len(panel_calls) == 1
-    assert '"http://app.test/_profiler/relative-token?panel=db"' in panel_calls[0]["expression"]
+    assert (
+        '"http://app.test/_profiler/relative-token?panel=db&group=true"'
+        in panel_calls[0]["expression"]
+    )
 
 
 def test_collect_rejects_cross_origin_link_before_fetch(mock, client):

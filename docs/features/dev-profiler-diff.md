@@ -143,6 +143,8 @@ Output (realistic excerpt, truncated to the requested panels):
       "queries": 6,
       "statements": 2,
       "duplicates": 4,
+      "max_repetitions": 5,
+      "repeated": [{"sql": "SELECT ... FROM author a0_ WHERE ...", "count": 5}],
       "time_ms": 1.76,
       "list": [{"sql": "SELECT ... FROM book b0_", "duration_ms": 0.42}]
     },

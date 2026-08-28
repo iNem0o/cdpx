@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import Any
 
 from cdpx.security import redact_text, redact_url
@@ -58,6 +59,8 @@ def _parse_db(html: str) -> dict[str, Any]:
         "queries": queries,
         "statements": statements,
         "duplicates": max(0, queries - statements),
+        "max_repetitions": 0,
+        "repeated": [],
         "time_ms": _ms(_metric(metrics, "query time")),
         "list": [],
     }
@@ -65,15 +68,31 @@ def _parse_db(html: str) -> dict[str, Any]:
     if table:
         sql_col = _column(table, "info")
         time_col = _column(table, "time")
-        for row in table["rows"][:LIST_LIMIT]:
+        count_col = _column(table, "count")
+        parsed_rows: list[dict[str, Any]] = []
+        frequencies: Counter[str] = Counter()
+        for row in table["rows"]:
             if sql_col is None or sql_col >= len(row):
                 continue
             # The Info cell contains the SQL followed by the parameter dump.
             sql = re.split(r"\s+Parameters\b", row[sql_col])[0].strip()
             entry: dict[str, Any] = {"sql": redact_text(sql)}
+            count = 1
+            if count_col is not None and count_col < len(row):
+                count = _int(row[count_col]) or 1
+            if count > 1:
+                entry["count"] = count
             if time_col is not None and time_col < len(row):
                 entry["duration_ms"] = _float(row[time_col])
-            out["list"].append(entry)
+            parsed_rows.append(entry)
+            frequencies[entry["sql"]] += count
+        out["list"] = parsed_rows[:LIST_LIMIT]
+        repeated = sorted(
+            ((count, sql) for sql, count in frequencies.items() if count > 1),
+            key=lambda item: (-item[0], item[1]),
+        )
+        out["repeated"] = [{"sql": sql, "count": count} for count, sql in repeated[:LIST_LIMIT]]
+        out["max_repetitions"] = max(frequencies.values(), default=0)
     return out
 
 

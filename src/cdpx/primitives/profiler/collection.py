@@ -60,7 +60,13 @@ def fetch_panels(
     """Fetches the HTML of the requested panels via fetch() in the page."""
     base = profiler_url.split("?", 1)[0].split("#", 1)[0]
     targets = [
-        [key, [f"{base}?panel={source}" for source in PANEL_SOURCE_CANDIDATES[key]]]
+        [
+            key,
+            [
+                f"{base}?panel={source}{'&group=true' if key == 'db' else ''}"
+                for source in PANEL_SOURCE_CANDIDATES[key]
+            ],
+        ]
         for key in panels
     ]
     expr = PANEL_FETCH_JS % (json.dumps(targets), int(timeout * 1000))
