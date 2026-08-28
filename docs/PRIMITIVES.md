@@ -166,7 +166,8 @@ its runtime `src` matches the declared allowlisted origin. A `candidates` list
 can declare several selector/origin/secret-reference triples when the page
 chooses its PSP at runtime; exactly one must resolve and only its secret is
 typed. `mode: key_events` is available for PSP validation that requires trusted
-printable-ASCII keyboard events. Screenshots at or
+printable-ASCII keyboard events; `key_delay_ms` can pace those events from 0 to
+250 ms when a supervised widget needs human-like processing time. Screenshots at or
 after that sensitive step, including final screenshots, are refused. The final
 console/network drain precedes the assertions. `context.base_url` accepts the
 same `${NAME}`, `${NAME:-default}` and `$$` interpolation grammar as

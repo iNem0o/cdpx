@@ -1181,6 +1181,8 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
     checkout_secret = "checkout-card-secret"
     monkeypatch.setenv("ADYEN_CARD", adyen_secret)
     monkeypatch.setenv("CHECKOUT_CARD", checkout_secret)
+    delays = []
+    monkeypatch.setattr(scenarios.inputs.time, "sleep", delays.append)
     actionable = json.dumps(
         {
             "attached": True,
@@ -1219,6 +1221,7 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
                             },
                         ],
                         "mode": "key_events",
+                        "key_delay_ms": 30,
                     }
                 }
             ],
@@ -1256,6 +1259,51 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
     ]
     assert "".join(typed_chars) == checkout_secret
     assert mock.commands_for("Input.insertText") == []
+    assert delays == [0.03] * len(checkout_secret)
+
+
+@pytest.mark.parametrize("key_delay_ms", [-1, 251, True])
+def test_scenario_frame_type_rejects_unbounded_key_delays(monkeypatch, key_delay_ms):
+    monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
+    with pytest.raises(scenarios.ScenarioUsageError, match="key_delay_ms"):
+        scenarios.parse(
+            {
+                "name": "invalid_key_delay",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [
+                    {
+                        "frame_type": {
+                            "selector": "iframe.card-number",
+                            "frame_origin": "https://frames.checkout.test",
+                            "secret_ref": "CHECKOUT_CARD",
+                            "mode": "key_events",
+                            "key_delay_ms": key_delay_ms,
+                        }
+                    }
+                ],
+            }
+        )
+
+
+def test_scenario_frame_type_rejects_key_delay_without_key_events(monkeypatch):
+    monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
+    with pytest.raises(scenarios.ScenarioUsageError, match="requires key_events"):
+        scenarios.parse(
+            {
+                "name": "invalid_key_delay_mode",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [
+                    {
+                        "frame_type": {
+                            "selector": "iframe.card-number",
+                            "frame_origin": "https://frames.checkout.test",
+                            "secret_ref": "CHECKOUT_CARD",
+                            "key_delay_ms": 30,
+                        }
+                    }
+                ],
+            }
+        )
 
 
 def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, monkeypatch):

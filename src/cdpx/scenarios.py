@@ -149,6 +149,7 @@ class ScenarioOperation:
     frame_origin: str | None = None
     frame_candidates: tuple[tuple[str, str, str], ...] = ()
     frame_mode: str = "insert_text"
+    frame_key_delay_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -709,6 +710,7 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                 fields.add("frame_origin")
                 fields.add("candidates")
                 fields.add("mode")
+                fields.add("key_delay_ms")
             _unknown(value, fields, f"{prefix}{verb}.")
             candidates = value.get("candidates")
             has_candidates = isinstance(candidates, list) and bool(candidates)
@@ -725,6 +727,19 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             }:
                 raise ScenarioUsageError(f"{prefix}{verb}.mode must be insert_text or key_events")
             if verb == "frame_type":
+                key_delay_ms = value.get("key_delay_ms", 0)
+                if (
+                    not isinstance(key_delay_ms, int)
+                    or isinstance(key_delay_ms, bool)
+                    or not 0 <= key_delay_ms <= 250
+                ):
+                    raise ScenarioUsageError(
+                        f"{prefix}{verb}.key_delay_ms must stay between 0 and 250"
+                    )
+                if key_delay_ms and value.get("mode", "insert_text") != "key_events":
+                    raise ScenarioUsageError(
+                        f"{prefix}{verb}.key_delay_ms requires key_events mode"
+                    )
                 has_single = (
                     isinstance(value.get("selector"), str)
                     and bool(value["selector"])
@@ -839,6 +854,7 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 frame_origin=frame_origin,
                 frame_candidates=frame_candidates,
                 frame_mode=step.value.get("mode", "insert_text"),
+                frame_key_delay_ms=step.value.get("key_delay_ms", 0),
             )
         else:  # pragma: no cover - the parser validates STEP_ACTIONS
             raise ScenarioUsageError(f"unknown action: {step.verb}")
@@ -857,6 +873,7 @@ def _run_operation(
                 client,
                 operation.frame_candidates,
                 mode=operation.frame_mode,
+                key_delay_ms=operation.frame_key_delay_ms,
             )
         assert isinstance(operation.action, TypeAction)
         assert operation.frame_origin is not None
@@ -866,6 +883,7 @@ def _run_operation(
             operation.action.text,
             frame_origin=operation.frame_origin,
             mode=operation.frame_mode,
+            key_delay_ms=operation.frame_key_delay_ms,
         )
     if operation.action is not None:
         return actions.run_action(client, operation.action, timeout)

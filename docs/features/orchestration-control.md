@@ -362,7 +362,8 @@ Supported executable schema (`cdpx.scenario/v1`):
   declared iframe must exist, its runtime origin must match, and only that
   candidate's referenced secret is typed. Zero or multiple matches fail closed.
   `mode: key_events` emits trusted printable-ASCII keyboard events for PSPs
-  whose validation does not react to IME insertion. Clearing is deliberately
+  whose validation does not react to IME insertion. `key_delay_ms` optionally
+  spaces those events by 0 to 250 ms and is rejected for other modes. Clearing is deliberately
   unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
   `profiler`. These proofs are collected immediately after the step, even

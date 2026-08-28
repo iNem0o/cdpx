@@ -9,6 +9,7 @@ closer to what a real user would see.
 from __future__ import annotations
 
 import json
+import time
 import urllib.parse
 from typing import Any
 
@@ -283,16 +284,26 @@ def _type_printable_key(client: CDPClient, char: str) -> None:
     client.send("Input.dispatchKeyEvent", {"type": "keyUp", **key})
 
 
-def _insert_text(client: CDPClient, text: str, *, mode: str) -> None:
+def _insert_text(client: CDPClient, text: str, *, mode: str, key_delay_ms: int = 0) -> None:
     if mode not in {"insert_text", "key_events"}:
         raise ValueError(f"unsupported typing mode: {mode}")
     if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
         raise ValueError("key_events typing supports printable ASCII only")
+    if (
+        not isinstance(key_delay_ms, int)
+        or isinstance(key_delay_ms, bool)
+        or not 0 <= key_delay_ms <= 250
+    ):
+        raise ValueError("key_delay_ms must stay between 0 and 250")
+    if mode != "key_events" and key_delay_ms:
+        raise ValueError("key_delay_ms requires key_events mode")
     if mode == "insert_text":
         client.send("Input.insertText", {"text": text})
         return
     for char in text:
         _type_printable_key(client, char)
+        if key_delay_ms:
+            time.sleep(key_delay_ms / 1000)
 
 
 def type_text_in_frame(
@@ -302,6 +313,7 @@ def type_text_in_frame(
     *,
     frame_origin: str,
     mode: str = "insert_text",
+    key_delay_ms: int = 0,
 ) -> dict:
     """Type into a single-field cross-origin iframe without reading its DOM."""
     state = _probe_actionability(client, selector)
@@ -309,7 +321,7 @@ def type_text_in_frame(
     frame_url = _frame_url(client, selector)
     assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
     click(client, selector)
-    _insert_text(client, text, mode=mode)
+    _insert_text(client, text, mode=mode, key_delay_ms=key_delay_ms)
     result = {
         "typed": True,
         "value_masked": True,
@@ -327,6 +339,7 @@ def type_text_in_candidate_frame(
     candidates: tuple[tuple[str, str, str], ...],
     *,
     mode: str = "insert_text",
+    key_delay_ms: int = 0,
 ) -> dict:
     """Type into exactly one declared cross-origin iframe candidate."""
     matches: list[tuple[str, str, str]] = []
@@ -356,6 +369,7 @@ def type_text_in_candidate_frame(
         text,
         frame_origin=frame_origin,
         mode=mode,
+        key_delay_ms=key_delay_ms,
     )
 
 
