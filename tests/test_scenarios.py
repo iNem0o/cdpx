@@ -698,6 +698,37 @@ def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock,
     assert len(visibility_checks) == 2
 
 
+def test_scenario_wait_visible_uses_the_declared_run_timeout(mock, tmp_path, monkeypatch):
+    observed = []
+
+    def wait_for_visible(client, selector, timeout=10.0, poll=0.05):
+        observed.append((selector, timeout))
+        return {"visible": True, "selector": selector, "elapsed_ms": 0.0}
+
+    monkeypatch.setattr(scenarios.nav, "wait_for_visible", wait_for_visible)
+    mock.on_eval("querySelector", True)
+    scenario = scenarios.parse(
+        {
+            "name": "bounded-provider-wait",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"wait_visible": "iframe.payment-field"}],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=30.0,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    assert observed == [("iframe.payment-field", 30.0)]
+
+
 def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
     """The profiler artifact follows the network's X-Debug-Token link,
     reads the real Symfony panels (HTML fixtures) and persists only

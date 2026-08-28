@@ -870,7 +870,7 @@ def _run_operation(
     if operation.action is not None:
         return actions.run_action(client, operation.action, timeout)
     if operation.wait_kind == "visible" and operation.selector is not None:
-        return nav.wait_for_visible(client, operation.selector, timeout=min(timeout, 10.0))
+        return nav.wait_for_visible(client, operation.selector, timeout=timeout)
     if (
         operation.wait_kind == "text"
         and operation.selector is not None

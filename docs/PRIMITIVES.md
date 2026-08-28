@@ -157,7 +157,9 @@ is checked against the session origin allowlist before a rule can affect its
 document; a forbidden document continues untouched and the command fails.
 Subrequests remain eligible for interception independently of their origin.
 In a scenario, `wait_visible` genuinely checks attachment,
-display/visibility, and a non-zero box, and a `type` step requires `secret_ref`
+display/visibility, and a non-zero box. Its deadline follows the bounded
+scenario `--timeout`, allowing supervised third-party widgets to opt into a
+longer wait. A `type` step requires `secret_ref`
 (the plain `[selector, text]` form is rejected at validation). `frame_type`
 types a referenced secret into a single-field cross-origin iframe only after
 its runtime `src` matches the declared allowlisted origin. A `candidates` list

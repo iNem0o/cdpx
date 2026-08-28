@@ -346,7 +346,8 @@ Supported executable schema (`cdpx.scenario/v1`):
   within the same CDP connection as the steps.
 - Steps: `goto`, `wait_visible`, `click`, `type`, `frame_type`, `key`, `eval`,
   `wait_text`. `wait_visible` requires an element that is attached,
-  rendered, visible and has a non-zero box. `type` accepts only
+  rendered, visible and has a non-zero box; its deadline is the bounded
+  scenario `--timeout`. `type` accepts only
   `{selector, secret_ref, clear, mode}` and prevalidates the environment
   reference. `mode` defaults to `insert_text`; `key_events` emits a trusted
   key sequence for each printable ASCII character so segmented controls can
