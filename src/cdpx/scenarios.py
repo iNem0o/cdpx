@@ -148,6 +148,7 @@ class ScenarioOperation:
     expected: str | None = None
     frame_origin: str | None = None
     frame_candidates: tuple[tuple[str, str, str], ...] = ()
+    frame_mode: str = "insert_text"
 
 
 @dataclass(frozen=True)
@@ -707,6 +708,7 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             if verb == "frame_type":
                 fields.add("frame_origin")
                 fields.add("candidates")
+                fields.add("mode")
             _unknown(value, fields, f"{prefix}{verb}.")
             candidates = value.get("candidates")
             has_candidates = isinstance(candidates, list) and bool(candidates)
@@ -717,7 +719,7 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                 raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear must be boolean")
-            if verb == "type" and value.get("mode", "insert_text") not in {
+            if value.get("mode", "insert_text") not in {
                 "insert_text",
                 "key_events",
             }:
@@ -836,6 +838,7 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 ),
                 frame_origin=frame_origin,
                 frame_candidates=frame_candidates,
+                frame_mode=step.value.get("mode", "insert_text"),
             )
         else:  # pragma: no cover - the parser validates STEP_ACTIONS
             raise ScenarioUsageError(f"unknown action: {step.verb}")
@@ -853,6 +856,7 @@ def _run_operation(
             return inputs.type_text_in_candidate_frame(
                 client,
                 operation.frame_candidates,
+                mode=operation.frame_mode,
             )
         assert isinstance(operation.action, TypeAction)
         assert operation.frame_origin is not None
@@ -861,6 +865,7 @@ def _run_operation(
             operation.action.selector,
             operation.action.text,
             frame_origin=operation.frame_origin,
+            mode=operation.frame_mode,
         )
     if operation.action is not None:
         return actions.run_action(client, operation.action, timeout)

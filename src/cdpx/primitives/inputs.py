@@ -253,11 +253,7 @@ def type_text(
     _prepare_text_input(client, selector, clear)
     if clear:
         press_key(client, "Backspace")
-    if mode == "insert_text":
-        client.send("Input.insertText", {"text": text})
-    else:
-        for char in text:
-            _type_printable_key(client, char)
+    _insert_text(client, text, mode=mode)
     result = {
         "typed": True,
         "value_masked": True,
@@ -287,12 +283,25 @@ def _type_printable_key(client: CDPClient, char: str) -> None:
     client.send("Input.dispatchKeyEvent", {"type": "keyUp", **key})
 
 
+def _insert_text(client: CDPClient, text: str, *, mode: str) -> None:
+    if mode not in {"insert_text", "key_events"}:
+        raise ValueError(f"unsupported typing mode: {mode}")
+    if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
+        raise ValueError("key_events typing supports printable ASCII only")
+    if mode == "insert_text":
+        client.send("Input.insertText", {"text": text})
+        return
+    for char in text:
+        _type_printable_key(client, char)
+
+
 def type_text_in_frame(
     client: CDPClient,
     selector: str,
     text: str,
     *,
     frame_origin: str,
+    mode: str = "insert_text",
 ) -> dict:
     """Type into a single-field cross-origin iframe without reading its DOM."""
     state = _probe_actionability(client, selector)
@@ -300,19 +309,24 @@ def type_text_in_frame(
     frame_url = _frame_url(client, selector)
     assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
     click(client, selector)
-    client.send("Input.insertText", {"text": text})
-    return {
+    _insert_text(client, text, mode=mode)
+    result = {
         "typed": True,
         "value_masked": True,
         "selector": selector,
         "frame_origin": origin_from_url(frame_url),
         "cleared": False,
     }
+    if mode != "insert_text":
+        result["mode"] = mode
+    return result
 
 
 def type_text_in_candidate_frame(
     client: CDPClient,
     candidates: tuple[tuple[str, str, str], ...],
+    *,
+    mode: str = "insert_text",
 ) -> dict:
     """Type into exactly one declared cross-origin iframe candidate."""
     matches: list[tuple[str, str, str]] = []
@@ -336,7 +350,13 @@ def type_text_in_candidate_frame(
         )
 
     selector, frame_origin, text = matches[0]
-    return type_text_in_frame(client, selector, text, frame_origin=frame_origin)
+    return type_text_in_frame(
+        client,
+        selector,
+        text,
+        frame_origin=frame_origin,
+        mode=mode,
+    )
 
 
 def _frame_url(client: CDPClient, selector: str) -> str:

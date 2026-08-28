@@ -1187,6 +1187,7 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
                                 "secret_ref": "CHECKOUT_CARD",
                             },
                         ],
+                        "mode": "key_events",
                     }
                 }
             ],
@@ -1213,10 +1214,17 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
         "selector": "iframe.checkout",
         "frame_origin": "https://js.checkout.test",
         "cleared": False,
+        "mode": "key_events",
     }
     assert adyen_secret not in json.dumps(result)
     assert checkout_secret not in json.dumps(result)
-    assert mock.commands_for("Input.insertText")[-1]["text"] == checkout_secret
+    typed_chars = [
+        command["text"]
+        for command in mock.commands_for("Input.dispatchKeyEvent")
+        if command["type"] == "char"
+    ]
+    assert "".join(typed_chars) == checkout_secret
+    assert mock.commands_for("Input.insertText") == []
 
 
 def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, monkeypatch):
