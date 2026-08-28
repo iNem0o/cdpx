@@ -103,6 +103,11 @@ duplicates, SQL list), `twig` (template calls, blocks, macros), `cache`
 `router` (route, controller, status, redirect), `time` (total/init time,
 best-effort timeline) and `logger` (errors, warnings, deprecations).
 
+Logical panel names stay stable across supported applications. For `db`,
+cdpx first requests Symfony's standard `db` collector and then falls back to
+Shopware's compatible `app.connection_collector`; the first successful panel
+is parsed into the same query/statement/duplicate contract.
+
 Command-specific options:
 
 - `url` (positional, required) — the Symfony app route to profile.
@@ -164,7 +169,8 @@ Gotchas and error cases:
 - If no response carries `X-Debug-Token-Link` or `X-Debug-Token`
   (profiler disabled, `prod` environment), the command fails with
   `header X-Debug-Token-Link/X-Debug-Token not found` (exit 1).
-- A panel whose collector isn't installed (no doctrine-bundle, no
+- A panel whose collector isn't installed (no doctrine-bundle or compatible
+  application collector, no
   messenger...) outputs `{"available": false}` — this is not an error. A
   panel that is present but has unexpected markup outputs
   `{"available": true, "parse_error": ...}`: parsing never raises.

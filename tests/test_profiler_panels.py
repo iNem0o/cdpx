@@ -346,6 +346,15 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
     #: milliseconds in AbortSignal — the fetch cannot hang
     assert call["awaitPromise"] is True
     assert '"http://app.test/_profiler/fixed-token?panel=db"' in call["expression"]
+    assert (
+        '"http://app.test/_profiler/fixed-token?panel=app.connection_collector"'
+        in call["expression"]
+    )
+    #: Shopware replaces Symfony's standard Doctrine collector name. The
+    #: browser tries the standard source first, then the compatible alias,
+    #: and stops as soon as one panel is available.
+    assert "for (const url of urls)" in call["expression"]
+    assert "if (res.status === 200) return result" in call["expression"]
     assert "AbortSignal.timeout(7000)" in call["expression"]
 
 

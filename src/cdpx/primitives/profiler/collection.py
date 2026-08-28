@@ -13,25 +13,29 @@ from cdpx.policy import assert_url_allowed, origin_from_url
 from cdpx.primitives import js
 from cdpx.security import redact_headers, redact_text, redact_url
 
-from .catalog import ALL_PANELS, PANEL_SOURCES
+from .catalog import ALL_PANELS, PANEL_SOURCE_CANDIDATES, PANEL_SOURCES
 from .parsers import parse_panel
 
 # The __cdpx_profiler_panels marker is used for scripting the mock CDP (on_eval).
 PANEL_FETCH_JS = """
 (async () => { const __cdpx_profiler_panels = 1;
   const targets = %s;
-  const one = async ([panel, url]) => {
-    try {
-      const res = await fetch(url, {
-        headers: {Accept: 'text/html'},
-        credentials: 'same-origin',
-        signal: AbortSignal.timeout(%d),
-      });
-      const html = await res.text();
-      return {panel, status: res.status, html};
-    } catch (e) {
-      return {panel, status: 0, html: '', error: String(e)};
+  const one = async ([panel, urls]) => {
+    let result = {panel, status: 0, html: ''};
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          headers: {Accept: 'text/html'},
+          credentials: 'same-origin',
+          signal: AbortSignal.timeout(%d),
+        });
+        result = {panel, status: res.status, html: await res.text()};
+        if (res.status === 200) return result;
+      } catch (e) {
+        result = {panel, status: 0, html: '', error: String(e)};
+      }
     }
+    return result;
   };
   return JSON.stringify(await Promise.all(targets.map(one)));
 })()
@@ -55,7 +59,10 @@ def fetch_panels(
 ) -> list[dict[str, Any]]:
     """Fetches the HTML of the requested panels via fetch() in the page."""
     base = profiler_url.split("?", 1)[0].split("#", 1)[0]
-    targets = [[key, f"{base}?panel={PANEL_SOURCES[key]}"] for key in panels]
+    targets = [
+        [key, [f"{base}?panel={source}" for source in PANEL_SOURCE_CANDIDATES[key]]]
+        for key in panels
+    ]
     expr = PANEL_FETCH_JS % (json.dumps(targets), int(timeout * 1000))
     raw = js.evaluate(client, expr, await_promise=True)
     if not isinstance(raw, str):
