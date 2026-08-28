@@ -41,7 +41,16 @@ from cdpx.security import (
     redact_url,
 )
 
-STEP_ACTIONS = {"goto", "wait_visible", "click", "type", "key", "eval", "wait_text"}
+STEP_ACTIONS = {
+    "goto",
+    "wait_visible",
+    "click",
+    "type",
+    "frame_type",
+    "key",
+    "eval",
+    "wait_text",
+}
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
 ASSERTIONS = {"no_console_errors", "network_errors_max", "text_contains"}
 ARTIFACTS = {"screenshot", "console", "network", "profiler"}
@@ -137,6 +146,7 @@ class ScenarioOperation:
     wait_kind: Literal["visible", "text"] | None = None
     selector: str | None = None
     expected: str | None = None
+    frame_origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -348,6 +358,7 @@ def parse(
     steps = _parse_steps(raw.get("steps"), where, sources=step_sources)
     assertions = _parse_assertions(raw.get("assertions", []), where)
     artifacts = _parse_artifacts(raw.get("artifacts", []), where, "artifacts")
+    _validate_sensitive_captures(steps, artifacts, where)
     return Scenario(
         name=name,
         base_url=base_url,
@@ -367,13 +378,13 @@ def validation_result(scenario: Scenario) -> dict[str, Any]:
     steps = []
     for step in scenario.steps:
         candidate = "observation"
-        if step.verb in {"click", "type", "key"}:
+        if step.verb in {"click", "type", "frame_type", "key"}:
             candidate = "interaction"
         elif step.verb == "eval":
             candidate = "privileged"
         if rank[candidate] > rank[authority]:
             authority = candidate
-        if step.verb == "type" and isinstance(step.value, dict):
+        if step.verb in {"type", "frame_type"} and isinstance(step.value, dict):
             secret_ref = step.value.get("secret_ref")
             if isinstance(secret_ref, str) and secret_ref:
                 secret_refs.add(secret_ref)
@@ -681,9 +692,12 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             raise ScenarioUsageError(f"{prefix}{verb} must be a non-empty string")
     elif verb == "wait_text":
         _require_pair(value, f"{prefix}{verb}")
-    elif verb == "type":
+    elif verb in {"type", "frame_type"}:
         if isinstance(value, dict):
-            _unknown(value, {"selector", "secret_ref", "clear"}, f"{prefix}{verb}.")
+            fields = {"selector", "secret_ref", "clear"}
+            if verb == "frame_type":
+                fields.add("frame_origin")
+            _unknown(value, fields, f"{prefix}{verb}.")
             if not isinstance(value.get("selector"), str):
                 raise ScenarioUsageError(f"{prefix}{verb}.selector must be a string")
             has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
@@ -691,6 +705,13 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                 raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear must be boolean")
+            if verb == "frame_type":
+                if not isinstance(value.get("frame_origin"), str) or not value["frame_origin"]:
+                    raise ScenarioUsageError(
+                        f"{prefix}{verb}.frame_origin must be a non-empty string"
+                    )
+                if value.get("clear"):
+                    raise ScenarioUsageError(f"{prefix}{verb}.clear is not supported")
         else:
             # The [selector, text] form would put the secret in plaintext in
             # the YAML: refused at validation time, with the step's position.
@@ -726,6 +747,14 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 step,
                 action=_type_action(step.value, context=context.redaction),
             )
+        elif step.verb == "frame_type":
+            frame_origin = step.value["frame_origin"]
+            assert_url_allowed(frame_origin, context.origins)
+            operation = ScenarioOperation(
+                step,
+                action=_type_action(step.value, context=context.redaction),
+                frame_origin=frame_origin,
+            )
         else:  # pragma: no cover - the parser validates STEP_ACTIONS
             raise ScenarioUsageError(f"unknown action: {step.verb}")
         operations.append(operation)
@@ -737,6 +766,17 @@ def _run_operation(
     operation: ScenarioOperation,
     timeout: float,
 ) -> dict:
+    if (
+        operation.step.verb == "frame_type"
+        and isinstance(operation.action, TypeAction)
+        and operation.frame_origin is not None
+    ):
+        return inputs.type_text_in_frame(
+            client,
+            operation.action.selector,
+            operation.action.text,
+            frame_origin=operation.frame_origin,
+        )
     if operation.action is not None:
         return actions.run_action(client, operation.action, timeout)
     if operation.wait_kind == "visible" and operation.selector is not None:
@@ -759,6 +799,23 @@ def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
         context.register_secret(text)
         return TypeAction(value["selector"], text, clear=bool(value.get("clear")))
     raise ScenarioUsageError("scenario type requires secret_ref")
+
+
+def _validate_sensitive_captures(
+    steps: list[ScenarioStep], artifacts: list[str], where: str
+) -> None:
+    sensitive = False
+    for step in steps:
+        if step.verb == "frame_type":
+            sensitive = True
+        if sensitive and "screenshot" in step.capture:
+            raise ScenarioUsageError(
+                f"{where}steps[{step.index}].capture: screenshot forbidden after frame_type"
+            )
+    if sensitive and "screenshot" in artifacts:
+        raise ScenarioUsageError(
+            f"{where}artifacts: final screenshot forbidden when frame_type is used"
+        )
 
 
 def _persistable_step_result(

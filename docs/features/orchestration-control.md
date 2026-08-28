@@ -332,17 +332,25 @@ Supported executable schema (`cdpx.scenario/v1`):
   variable is an exit-2 usage error that names the variable.
 - `context.emulation`: optional, `mobile`, `slow-3g` or `cpu-4x`, applied
   within the same CDP connection as the steps.
-- Steps: `goto`, `wait_visible`, `click`, `type`, `key`, `eval`,
+- Steps: `goto`, `wait_visible`, `click`, `type`, `frame_type`, `key`, `eval`,
   `wait_text`. `wait_visible` requires an element that is attached,
   rendered, visible and has a non-zero box. `type` accepts only
   `{selector, secret_ref, clear}` and prevalidates the environment
-  reference.
+  reference. `frame_type` accepts `{selector, frame_origin, secret_ref}` for
+  a single-field cross-origin iframe: cdpx requires an actionable iframe,
+  verifies that its resolved `src` matches the declared allowlisted origin,
+  focuses it through a trusted click, then inserts the secret without reading
+  the child DOM. Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
   `profiler`. These proofs are collected immediately after the step, even
   if the step fails.
 - Assertions: `no_console_errors`, `network_errors_max`, `text_contains`.
 - `artifacts`: same types as `capture`, collected at the end of the
   scenario.
+- A scenario containing `frame_type` may capture screenshots only before its
+  first such step. A screenshot on that step, a later step, or in final
+  `artifacts` is rejected before Chrome is contacted, because cross-origin
+  payment fields cannot be inspected for redaction.
 - An `include` step contains `{path, as?}`. `path` is resolved relative to
   the including file; `as` defaults to the fragment name and qualifies every
   included label. A fragment has schema `cdpx.scenario-fragment/v1`, a name
@@ -472,7 +480,9 @@ runs, console, network and profiler collected by `cdpx scenario run`.
 - `intercept` only composes with `goto <url>`; interception cannot yet wrap
   a `click` or a full journey.
 - `frame` only reads same-origin iframes (a cross-origin iframe's
-  `contentDocument` is inaccessible) and returns the first match.
+  `contentDocument` is inaccessible) and returns the first match. Scenario
+  `frame_type` can focus and type into a single-field cross-origin iframe but
+  cannot read or clear its contents.
 - Record/replay executes real actions but the action language remains
   deliberately compact (goto, wait, click, type, key, eval) — it is not a
   full browser macro language.

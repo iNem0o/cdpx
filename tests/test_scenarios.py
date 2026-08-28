@@ -1060,6 +1060,143 @@ def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, m
     assert "".join(chars) == secret
 
 
+def test_scenario_frame_type_checks_origin_and_keeps_secret_out_of_evidence(
+    mock, tmp_path, monkeypatch
+):
+    secret = "4242424242424242"
+    monkeypatch.setenv("CHECKOUT_CARD", secret)
+    actionable = json.dumps(
+        {
+            "attached": True,
+            "visible": True,
+            "enabled": True,
+            "stable": True,
+            "receives_events": True,
+            "editable": False,
+            "rect": {"x": 10, "y": 20, "width": 200, "height": 40},
+        }
+    )
+    mock.on_eval("__cdpx_actionability", actionable)
+    mock.on_eval("__cdpx_frame_url", "https://frames.checkout.test/card-number.html")
+    scenario = scenarios.parse(
+        {
+            "name": "hosted_card",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {"goto": "/checkout", "capture": ["screenshot"]},
+                {
+                    "frame_type": {
+                        "selector": "iframe.card-number",
+                        "frame_origin": "https://frames.checkout.test",
+                        "secret_ref": "CHECKOUT_CARD",
+                    }
+                },
+            ],
+            "artifacts": ["network"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            context=orchestration("http://*.test,https://*.test"),
+            settle=0,
+        )
+
+    assert result["verdict"] == "pass"
+    assert result["steps"][1]["result"] == {
+        "typed": True,
+        "value_masked": True,
+        "selector": "iframe.card-number",
+        "frame_origin": "https://frames.checkout.test",
+        "cleared": False,
+    }
+    assert secret not in json.dumps(result)
+    assert scan_canaries(result["evidence_dir"], [secret]) == []
+    assert mock.commands_for("Input.insertText")[-1]["text"] == secret
+    assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
+
+
+def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, monkeypatch):
+    monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps(
+            {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "stable": True,
+                "receives_events": True,
+                "editable": False,
+                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+            }
+        ),
+    )
+    mock.on_eval("__cdpx_frame_url", "https://evil.test/field")
+    scenario = scenarios.parse(
+        {
+            "name": "origin_guard",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "frame_type": {
+                        "selector": "iframe.card-number",
+                        "frame_origin": "https://frames.checkout.test",
+                        "secret_ref": "CHECKOUT_CARD",
+                    }
+                }
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            context=orchestration("http://*.test,https://*.test"),
+            settle=0,
+        )
+
+    assert result["verdict"] == "fail"
+    assert "origin rejected" in result["steps"][0]["error"]
+    assert mock.commands_for("Input.insertText") == []
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+@pytest.mark.parametrize(
+    "scenario_tail,match",
+    [
+        ({"steps": [{"capture": ["screenshot"]}]}, "screenshot forbidden after frame_type"),
+        ({"artifacts": ["screenshot"]}, "final screenshot forbidden"),
+    ],
+)
+def test_scenario_frame_type_rejects_sensitive_screenshots(scenario_tail, match):
+    steps = [
+        {
+            "frame_type": {
+                "selector": "iframe.card-number",
+                "frame_origin": "https://frames.checkout.test",
+                "secret_ref": "CHECKOUT_CARD",
+            }
+        }
+    ]
+    if "steps" in scenario_tail:
+        steps.append({"wait_visible": "#done", **scenario_tail["steps"][0]})
+    raw = {
+        "name": "screenshot_guard",
+        "context": {"base_url": "http://shop.test"},
+        "steps": steps,
+        "artifacts": scenario_tail.get("artifacts", []),
+    }
+
+    with pytest.raises(scenarios.ScenarioUsageError, match=match):
+        scenarios.parse(raw)
+
+
 def test_scenario_literal_type_is_rejected_before_cdp(mock):
     """A literal text in a type step is forbidden right at parsing: only
     the secret_ref path exists, and the rejection emits nothing to Chrome."""

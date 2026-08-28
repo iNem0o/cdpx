@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from cdpx import discovery, proof
+from cdpx import discovery, proof, scenarios
 from cdpx.action_model import ClickAction, GotoAction, TypeAction
 from cdpx.client import CDPClient
 from cdpx.orchestration import OrchestrationContext
@@ -52,6 +52,7 @@ from cdpx.testing.e2e import (
     wait_for_chrome,
 )
 from cdpx.testing.evidence import ARTIFACT_TYPES
+from cdpx.testing.fixture_server import FixtureServer
 
 SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
 
@@ -209,6 +210,86 @@ def test_cli_dom_and_keyboard_black_box(cli_page, evidence_case, monkeypatch):
     assert 'data-state="submitted"' in html["html"]
     assert "OK:Keyboard E2E" in html["html"]
     attach_cli_screenshot(evidence_case, session)
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.type-secret-into-cross-origin-frame",
+    proves=["A real cross-origin field receives a referenced secret without a screenshot."],
+)
+def test_declarative_scenario_types_secret_into_cross_origin_frame(chrome, tmp_path, monkeypatch):
+    """The scenario runner focuses a real cross-origin iframe through the
+    browser input pipeline and inserts the secret into its sole card-like
+    field without producing a screenshot after the sensitive step."""
+    outer_root = tmp_path / "outer"
+    frame_root = tmp_path / "frame"
+    outer_root.mkdir()
+    frame_root.mkdir()
+    (frame_root / "field.html").write_text(
+        "<!doctype html><style>"
+        "html,body,input{box-sizing:border-box;width:100%;height:100%;margin:0}"
+        '</style><input id="card-number" autocomplete="cc-number" autofocus>',
+        encoding="utf-8",
+    )
+    with FixtureServer(frame_root) as frame_server:
+        (outer_root / "checkout.html").write_text(
+            f"""<!doctype html><iframe class="card-number"
+            src="{frame_server.base_url}/field.html"
+            style="width:320px;height:56px;border:0"></iframe>""",
+            encoding="utf-8",
+        )
+        with FixtureServer(outer_root) as outer_server:
+            secret = "4242424242424242"
+            monkeypatch.setenv("E2E_CARD_NUMBER", secret)
+            scenario = scenarios.parse(
+                {
+                    "name": "cross_origin_card",
+                    "context": {"base_url": outer_server.base_url},
+                    "steps": [
+                        {"goto": "/checkout.html"},
+                        {"wait_visible": "iframe.card-number"},
+                        {
+                            "frame_type": {
+                                "selector": "iframe.card-number",
+                                "frame_origin": frame_server.base_url,
+                                "secret_ref": "E2E_CARD_NUMBER",
+                            }
+                        },
+                    ],
+                    "artifacts": [],
+                }
+            )
+            target = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+            try:
+                with CDPClient(target["webSocketDebuggerUrl"], timeout=15) as client:
+                    result = scenarios.run(
+                        client,
+                        scenario,
+                        evidence_root=tmp_path / "evidence",
+                        context=OrchestrationContext.from_origins("http://127.0.0.1:*"),
+                        settle=0,
+                    )
+                    frame_tree = client.send("Page.getFrameTree")["frameTree"]
+                    child_frame = frame_tree["childFrames"][0]["frame"]["id"]
+                    world = client.send(
+                        "Page.createIsolatedWorld",
+                        {"frameId": child_frame, "worldName": "cdpx-e2e-verification"},
+                    )
+                    observed = client.send(
+                        "Runtime.evaluate",
+                        {
+                            "expression": "document.querySelector('#card-number').value",
+                            "contextId": world["executionContextId"],
+                            "returnByValue": True,
+                        },
+                    )["result"]["value"]
+            finally:
+                discovery.close_tab("127.0.0.1", chrome, target["id"])
+
+    assert result["verdict"] == "pass"
+    assert result["artifacts"] == []
+    assert observed == secret
 
 
 @pytest.mark.scenario(

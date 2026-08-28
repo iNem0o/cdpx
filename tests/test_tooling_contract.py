@@ -61,6 +61,9 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
     assert include["additionalProperties"] is False
     assert set(include["properties"]) == {"path", "as"}
     assert "with" not in json.dumps(fragment)
+    frame_type = fragment["$defs"]["frameTypeStep"]["properties"]["frame_type"]
+    assert frame_type["additionalProperties"] is False
+    assert set(frame_type["required"]) == {"selector", "frame_origin", "secret_ref"}
 
 
 def test_portable_scripts_are_posix_and_shellcheck_clean():

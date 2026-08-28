@@ -157,7 +157,10 @@ document; a forbidden document continues untouched and the command fails.
 Subrequests remain eligible for interception independently of their origin.
 In a scenario, `wait_visible` genuinely checks attachment,
 display/visibility, and a non-zero box, and a `type` step requires `secret_ref`
-(the plain `[selector, text]` form is rejected at validation). The final
+(the plain `[selector, text]` form is rejected at validation). `frame_type`
+types a referenced secret into a single-field cross-origin iframe only after
+its runtime `src` matches the declared allowlisted origin. Screenshots at or
+after that sensitive step, including final screenshots, are refused. The final
 console/network drain precedes the assertions. `context.base_url` accepts the
 same `${NAME}`, `${NAME:-default}` and `$$` interpolation grammar as
 `cdpx.yaml`; it is expanded during compilation and the result remains subject

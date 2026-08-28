@@ -110,6 +110,25 @@
         "capture": {"$ref": "#/$defs/capture"}
       }
     },
+    "frameTypeStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frame_type"],
+      "properties": {
+        "frame_type": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["selector", "frame_origin", "secret_ref"],
+          "properties": {
+            "selector": {"type": "string", "minLength": 1},
+            "frame_origin": {"type": "string", "format": "uri"},
+            "secret_ref": {"type": "string", "minLength": 1}
+          }
+        },
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
     "keyStep": {
       "type": "object",
       "additionalProperties": false,
@@ -153,6 +172,7 @@
         {"$ref": "#/$defs/waitVisibleStep"},
         {"$ref": "#/$defs/clickStep"},
         {"$ref": "#/$defs/typeStep"},
+        {"$ref": "#/$defs/frameTypeStep"},
         {"$ref": "#/$defs/keyStep"},
         {"$ref": "#/$defs/evalStep"},
         {"$ref": "#/$defs/waitTextStep"}

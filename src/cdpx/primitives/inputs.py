@@ -9,9 +9,11 @@ closer to what a real user would see.
 from __future__ import annotations
 
 import json
+import urllib.parse
 from typing import Any
 
 from cdpx.client import CDPClient
+from cdpx.policy import assert_url_allowed, origin_from_url
 
 _ACTIONABILITY_EXPR = r"""
 (() => {
@@ -247,6 +249,47 @@ def type_text(client: CDPClient, selector: str, text: str, clear: bool = False) 
         "selector": selector,
         "cleared": clear,
     }
+
+
+def type_text_in_frame(
+    client: CDPClient,
+    selector: str,
+    text: str,
+    *,
+    frame_origin: str,
+) -> dict:
+    """Type into a single-field cross-origin iframe without reading its DOM."""
+    state = _probe_actionability(client, selector)
+    _require_actionable(state, selector)
+    frame_url = _frame_url(client, selector)
+    assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
+    click(client, selector)
+    client.send("Input.insertText", {"text": text})
+    return {
+        "typed": True,
+        "value_masked": True,
+        "selector": selector,
+        "frame_origin": origin_from_url(frame_url),
+        "cleared": False,
+    }
+
+
+def _frame_url(client: CDPClient, selector: str) -> str:
+    expression = r"""
+(() => {
+  const element = document.querySelector(__CDPX_SELECTOR__);
+  if (!(element instanceof HTMLIFrameElement) || !element.isConnected) return null;
+  return element.src;
+})() /* __cdpx_frame_url */
+""".replace("__CDPX_SELECTOR__", json.dumps(selector))
+    response = client.send("Runtime.evaluate", {"expression": expression, "returnByValue": True})
+    value = response.get("result", {}).get("value")
+    if not isinstance(value, str) or not value:
+        raise ElementNotInteractable(f"iframe src unavailable: {selector}")
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ElementNotInteractable(f"iframe src is not HTTP(S): {selector}")
+    return value
 
 
 def press_key(client: CDPClient, key: str) -> dict:
