@@ -157,6 +157,7 @@ class _TablesParser(HTMLParser):
         self._head: list[str] = []
         self.heading = ""
         self._table_at: int | None = None
+        self._nested_table_at: int | None = None
         self._cell_at: int | None = None
         self._cell: list[str] = []
         self._row: list[str] = []
@@ -173,12 +174,18 @@ class _TablesParser(HTMLParser):
             return
         if self._skip_at is not None:
             return
+        if self._nested_table_at is not None:
+            return
         if tag in ("h2", "h3", "h4") and self._heading_at is None:
             self._heading_at = self._depth
             self._head = []
-        if tag == "table" and self._table_at is None:
-            self._table_at = self._depth
-            self._current = {"heading": self.heading, "headers": [], "rows": []}
+        if tag == "table":
+            if self._table_at is None:
+                self._table_at = self._depth
+                self._current = {"heading": self.heading, "headers": [], "rows": []}
+            else:
+                self._nested_table_at = self._depth
+                return
         if self._table_at is None:
             return
         if tag == "tr":
@@ -201,6 +208,11 @@ class _TablesParser(HTMLParser):
                 self._skip_at = None
                 self._depth = max(0, self._depth - 1)
             return
+        if self._nested_table_at is not None:
+            if self._nested_table_at == self._depth and tag == "table":
+                self._nested_table_at = None
+            self._depth = max(0, self._depth - 1)
+            return
         if self._heading_at == self._depth:
             self.heading = _norm("".join(self._head))
             self._heading_at = None
@@ -222,7 +234,7 @@ class _TablesParser(HTMLParser):
         self._depth = max(0, self._depth - 1)
 
     def handle_data(self, data: str) -> None:
-        if self._skip_at is not None:
+        if self._skip_at is not None or self._nested_table_at is not None:
             return
         if self._heading_at is not None:
             self._head.append(data)
