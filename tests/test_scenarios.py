@@ -629,7 +629,6 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path, evide
             "artifacts": ["screenshot", "console", "network"],
         }
     )
-
     with client_for(mock) as client:
         result = scenarios.run(
             client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
@@ -1147,8 +1146,10 @@ def test_scenario_frame_type_checks_origin_and_keeps_secret_out_of_evidence(
 
 
 def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp_path, monkeypatch):
-    secret = "4242424242424242"
-    monkeypatch.setenv("CHECKOUT_CARD", secret)
+    adyen_secret = "adyen-card-secret"
+    checkout_secret = "checkout-card-secret"
+    monkeypatch.setenv("ADYEN_CARD", adyen_secret)
+    monkeypatch.setenv("CHECKOUT_CARD", checkout_secret)
     actionable = json.dumps(
         {
             "attached": True,
@@ -1178,18 +1179,23 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
                             {
                                 "selector": "iframe.adyen",
                                 "frame_origin": "https://adyen.test",
+                                "secret_ref": "ADYEN_CARD",
                             },
                             {
                                 "selector": "iframe.checkout",
                                 "frame_origin": "https://js.checkout.test",
+                                "secret_ref": "CHECKOUT_CARD",
                             },
                         ],
-                        "secret_ref": "CHECKOUT_CARD",
                     }
                 }
             ],
         }
     )
+    assert scenarios.validation_result(scenario)["secret_refs"] == [
+        "ADYEN_CARD",
+        "CHECKOUT_CARD",
+    ]
 
     with client_for(mock) as client:
         result = scenarios.run(
@@ -1208,8 +1214,9 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
         "frame_origin": "https://js.checkout.test",
         "cleared": False,
     }
-    assert secret not in json.dumps(result)
-    assert mock.commands_for("Input.insertText")[-1]["text"] == secret
+    assert adyen_secret not in json.dumps(result)
+    assert checkout_secret not in json.dumps(result)
+    assert mock.commands_for("Input.insertText")[-1]["text"] == checkout_secret
 
 
 def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, monkeypatch):

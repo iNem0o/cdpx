@@ -147,7 +147,7 @@ class ScenarioOperation:
     selector: str | None = None
     expected: str | None = None
     frame_origin: str | None = None
-    frame_candidates: tuple[tuple[str, str], ...] = ()
+    frame_candidates: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -389,6 +389,12 @@ def validation_result(scenario: Scenario) -> dict[str, Any]:
             secret_ref = step.value.get("secret_ref")
             if isinstance(secret_ref, str) and secret_ref:
                 secret_refs.add(secret_ref)
+            candidates = step.value.get("candidates")
+            if isinstance(candidates, list):
+                for frame_candidate in candidates:
+                    candidate_secret_ref = frame_candidate.get("secret_ref")
+                    if isinstance(candidate_secret_ref, str) and candidate_secret_ref:
+                        secret_refs.add(candidate_secret_ref)
         item: dict[str, Any] = {
             "index": step.index,
             "label": step.label,
@@ -707,7 +713,7 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             if verb == "type" and not isinstance(value.get("selector"), str):
                 raise ScenarioUsageError(f"{prefix}{verb}.selector must be a string")
             has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
-            if not has_secret_ref:
+            if verb == "type" and not has_secret_ref:
                 raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear must be boolean")
@@ -728,12 +734,20 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                         f"{prefix}{verb} requires either selector/frame_origin or candidates"
                     )
                 if has_candidates:
+                    if has_secret_ref:
+                        raise ScenarioUsageError(
+                            f"{prefix}{verb}.secret_ref must be declared on each candidate"
+                        )
                     assert isinstance(candidates, list)
                     for index, candidate in enumerate(candidates):
                         candidate_prefix = f"{prefix}{verb}.candidates[{index}]."
                         if not isinstance(candidate, dict):
                             raise ScenarioUsageError(f"{candidate_prefix}must be an object")
-                        _unknown(candidate, {"selector", "frame_origin"}, candidate_prefix)
+                        _unknown(
+                            candidate,
+                            {"selector", "frame_origin", "secret_ref"},
+                            candidate_prefix,
+                        )
                         if (
                             not isinstance(candidate.get("selector"), str)
                             or not candidate["selector"]
@@ -748,6 +762,15 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                             raise ScenarioUsageError(
                                 f"{candidate_prefix}frame_origin must be a non-empty string"
                             )
+                        if (
+                            not isinstance(candidate.get("secret_ref"), str)
+                            or not candidate["secret_ref"]
+                        ):
+                            raise ScenarioUsageError(
+                                f"{candidate_prefix}secret_ref must be a non-empty string"
+                            )
+                elif not has_secret_ref:
+                    raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
                 if value.get("clear"):
                     raise ScenarioUsageError(f"{prefix}{verb}.clear is not supported")
         else:
@@ -789,7 +812,12 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
             candidates = step.value.get("candidates")
             frame_candidates = (
                 tuple(
-                    (candidate["selector"], candidate["frame_origin"]) for candidate in candidates
+                    (
+                        candidate["selector"],
+                        candidate["frame_origin"],
+                        _secret_text(candidate["secret_ref"], context=context.redaction),
+                    )
+                    for candidate in candidates
                 )
                 if isinstance(candidates, list)
                 else ()
@@ -797,11 +825,15 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
             frame_origin = step.value.get("frame_origin")
             if isinstance(frame_origin, str):
                 assert_url_allowed(frame_origin, context.origins)
-            for _, candidate_origin in frame_candidates:
+            for _, candidate_origin, _ in frame_candidates:
                 assert_url_allowed(candidate_origin, context.origins)
             operation = ScenarioOperation(
                 step,
-                action=_type_action(step.value, context=context.redaction),
+                action=(
+                    None
+                    if frame_candidates
+                    else _type_action(step.value, context=context.redaction)
+                ),
                 frame_origin=frame_origin,
                 frame_candidates=frame_candidates,
             )
@@ -816,13 +848,13 @@ def _run_operation(
     operation: ScenarioOperation,
     timeout: float,
 ) -> dict:
-    if operation.step.verb == "frame_type" and isinstance(operation.action, TypeAction):
+    if operation.step.verb == "frame_type":
         if operation.frame_candidates:
             return inputs.type_text_in_candidate_frame(
                 client,
                 operation.frame_candidates,
-                operation.action.text,
             )
+        assert isinstance(operation.action, TypeAction)
         assert operation.frame_origin is not None
         return inputs.type_text_in_frame(
             client,
@@ -846,14 +878,8 @@ def _run_operation(
 def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
     if isinstance(value, dict):
         secret_ref = value["secret_ref"]
-        if secret_ref not in os.environ:
-            raise ScenarioUsageError(f"secret_ref not found: {secret_ref}")
-        text = os.environ[secret_ref]
-        context.register_secret(text)
-        candidates = value.get("candidates")
+        text = _secret_text(secret_ref, context=context)
         selector = value.get("selector")
-        if not isinstance(selector, str) and isinstance(candidates, list):
-            selector = ", ".join(candidate["selector"] for candidate in candidates)
         assert isinstance(selector, str)
         return TypeAction(
             selector,
@@ -862,6 +888,14 @@ def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
             mode=value.get("mode", "insert_text"),
         )
     raise ScenarioUsageError("scenario type requires secret_ref")
+
+
+def _secret_text(secret_ref: str, *, context: RedactionContext) -> str:
+    if secret_ref not in os.environ:
+        raise ScenarioUsageError(f"secret_ref not found: {secret_ref}")
+    text = os.environ[secret_ref]
+    context.register_secret(text)
+    return text
 
 
 def _validate_sensitive_captures(

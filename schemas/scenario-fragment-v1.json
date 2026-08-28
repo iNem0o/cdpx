@@ -123,10 +123,9 @@
         "frame_type": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["secret_ref"],
           "oneOf": [
-            {"required": ["selector", "frame_origin"], "not": {"required": ["candidates"]}},
-            {"required": ["candidates"], "not": {"anyOf": [{"required": ["selector"]}, {"required": ["frame_origin"]}]}}
+            {"required": ["selector", "frame_origin", "secret_ref"], "not": {"required": ["candidates"]}},
+            {"required": ["candidates"], "not": {"anyOf": [{"required": ["selector"]}, {"required": ["frame_origin"]}, {"required": ["secret_ref"]}]}}
           ],
           "properties": {
             "selector": {"type": "string", "minLength": 1},
@@ -137,10 +136,11 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["selector", "frame_origin"],
+                "required": ["selector", "frame_origin", "secret_ref"],
                 "properties": {
                   "selector": {"type": "string", "minLength": 1},
-                  "frame_origin": {"type": "string", "format": "uri"}
+                  "frame_origin": {"type": "string", "format": "uri"},
+                  "secret_ref": {"type": "string", "minLength": 1}
                 }
               }
             },

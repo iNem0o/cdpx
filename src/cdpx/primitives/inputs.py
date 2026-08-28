@@ -312,31 +312,30 @@ def type_text_in_frame(
 
 def type_text_in_candidate_frame(
     client: CDPClient,
-    candidates: tuple[tuple[str, str], ...],
-    text: str,
+    candidates: tuple[tuple[str, str, str], ...],
 ) -> dict:
     """Type into exactly one declared cross-origin iframe candidate."""
-    matches: list[tuple[str, str]] = []
-    for selector, frame_origin in candidates:
+    matches: list[tuple[str, str, str]] = []
+    for selector, frame_origin, text in candidates:
         try:
             frame_url = _frame_url(client, selector)
         except ElementNotInteractable:
             continue
         assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
-        matches.append((selector, frame_origin))
+        matches.append((selector, frame_origin, text))
 
     if not matches:
         raise ElementNotInteractable(
             "none of the declared iframe candidates is available: "
-            + ", ".join(selector for selector, _ in candidates)
+            + ", ".join(selector for selector, _, _ in candidates)
         )
     if len(matches) > 1:
         raise ElementNotInteractable(
             "multiple declared iframe candidates are available: "
-            + ", ".join(selector for selector, _ in matches)
+            + ", ".join(selector for selector, _, _ in matches)
         )
 
-    selector, frame_origin = matches[0]
+    selector, frame_origin, text = matches[0]
     return type_text_in_frame(client, selector, text, frame_origin=frame_origin)
 
 

@@ -357,9 +357,10 @@ Supported executable schema (`cdpx.scenario/v1`):
   focuses it through a trusted click, then inserts the secret without reading
   the child DOM. When a controlled page may select one of several PSPs, replace
   `selector` and `frame_origin` with
-  `candidates: [{selector, frame_origin}, ...]`; exactly one declared iframe
-  must exist and its runtime origin must match. Zero or multiple matches fail
-  closed. Clearing is deliberately unsupported.
+  `candidates: [{selector, frame_origin, secret_ref}, ...]`; exactly one
+  declared iframe must exist, its runtime origin must match, and only that
+  candidate's referenced secret is typed. Zero or multiple matches fail closed.
+  Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
   `profiler`. These proofs are collected immediately after the step, even
   if the step fails.
