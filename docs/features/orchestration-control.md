@@ -59,6 +59,18 @@ when = "cdpx compiles the complete include graph, validates its budget, authorit
 then = "The output contains one verdict plus qualified labels, source provenance, a composition digest, findings and artifacts."
 tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 expected_proofs = ["junit", "json", "screenshot"]
+
+[[scenarios]]
+id = "type-secret-into-cross-origin-frame"
+journey = "scenario-run"
+title = "Type a referenced secret into a cross-origin field"
+ui_text = "A scenario can complete hosted payment fields without exposing their values."
+report_text = "A real Chromium run proves that a referenced secret reaches a single-field cross-origin iframe only after origin verification, while screenshots are forbidden from that step onward."
+given = "A top-level checkout embeds a card-like field from a distinct allowlisted origin."
+when = "frame_type verifies the iframe src, focuses it through the input pipeline and inserts the referenced secret."
+then = "The child renderer receives the value, the result stays masked and the evidence contains no sensitive screenshot."
+tests = ["tests/e2e/test_e2e_chrome.py::test_declarative_scenario_types_secret_into_cross_origin_frame"]
+expected_proofs = ["junit", "logs"]
 +++
 
 ## Intent
@@ -137,7 +149,7 @@ upstream and downstream) or `cpu-4x` (CPU throttled 4x) — then, in composed
 form, executes an action within the same CDP connection. Use case: check
 that a page stays usable on mobile or on a degraded network. The composed
 form is essential: emulation overrides DIE with the CDP connection (proven
-e2e on Chrome 150), so acting under emulation requires the action to be
+e2e on Chrome 151), so acting under emulation requires the action to be
 passed in the same invocation (`cdpx emulate mobile -- goto
 http://demo.test/`).
 
@@ -474,7 +486,7 @@ runs, console, network and profiler collected by `cdpx scenario run`.
 ## Known limitations
 
 - Emulation overrides do NOT survive the command: they die with the CDP
-  connection (Chrome behavior, verified e2e on Chrome 150). `cdpx emulate
+  connection (Chrome behavior, verified e2e on Chrome 151). `cdpx emulate
   mobile` alone therefore has no lasting effect — always use the composed
   form `cdpx emulate mobile -- goto http://demo.test/`.
 - `intercept` only composes with `goto <url>`; interception cannot yet wrap

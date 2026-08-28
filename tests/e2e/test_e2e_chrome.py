@@ -218,7 +218,9 @@ def test_cli_dom_and_keyboard_black_box(cli_page, evidence_case, monkeypatch):
     scenario_id="orchestration-control.type-secret-into-cross-origin-frame",
     proves=["A real cross-origin field receives a referenced secret without a screenshot."],
 )
-def test_declarative_scenario_types_secret_into_cross_origin_frame(chrome, tmp_path, monkeypatch):
+def test_declarative_scenario_types_secret_into_cross_origin_frame(
+    chrome, tmp_path, monkeypatch, evidence_case
+):
     """The scenario runner focuses a real cross-origin iframe through the
     browser input pipeline and inserts the secret into its sole card-like
     field without producing a screenshot after the sensitive step."""
@@ -290,6 +292,14 @@ def test_declarative_scenario_types_secret_into_cross_origin_frame(chrome, tmp_p
     assert result["verdict"] == "pass"
     assert result["artifacts"] == []
     assert observed == secret
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "frame-type-result",
+            ["cdpx", "scenario", "run", "cross-origin-card.yml"],
+            json.dumps(result, ensure_ascii=False),
+            "",
+            0,
+        )
 
 
 @pytest.mark.scenario(
