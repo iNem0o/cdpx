@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 USAGE = (
     "supported action: goto <url>, wait <selector>, click <selector>, "
-    "type <selector> <text> [--clear], key <key>, eval <js>"
+    "type <selector> <text> [--clear] [--key-events], key <key>, eval <js>"
 )
 
 
@@ -33,6 +33,7 @@ class TypeAction:
     selector: str
     text: str
     clear: bool = False
+    mode: str = "insert_text"
     verb: str = "type"
 
 
@@ -62,10 +63,16 @@ def parse_action(argv: list[str]) -> BrowserAction:
         return WaitAction(arguments[0])
     if verb == "click" and len(arguments) == 1:
         return ClickAction(arguments[0])
-    if verb == "type" and len(arguments) in {2, 3}:
-        if len(arguments) == 3 and arguments[2] != "--clear":
+    if verb == "type" and 2 <= len(arguments) <= 4:
+        flags = arguments[2:]
+        if len(flags) != len(set(flags)) or not set(flags) <= {"--clear", "--key-events"}:
             raise ValueError(USAGE)
-        return TypeAction(arguments[0], arguments[1], clear=len(arguments) == 3)
+        return TypeAction(
+            arguments[0],
+            arguments[1],
+            clear="--clear" in flags,
+            mode="key_events" if "--key-events" in flags else "insert_text",
+        )
     if verb == "key" and len(arguments) == 1:
         return KeyAction(arguments[0])
     if verb == "eval" and arguments:
@@ -80,7 +87,10 @@ def action_argv(action: BrowserAction) -> list[str]:
     if isinstance(action, WaitAction | ClickAction):
         return [action.verb, action.selector]
     if isinstance(action, TypeAction):
-        return [action.verb, action.selector, action.text] + (["--clear"] if action.clear else [])
+        flags = (["--clear"] if action.clear else []) + (
+            ["--key-events"] if action.mode == "key_events" else []
+        )
+        return [action.verb, action.selector, action.text, *flags]
     if isinstance(action, KeyAction):
         return [action.verb, action.key]
     return [action.verb, action.expression]

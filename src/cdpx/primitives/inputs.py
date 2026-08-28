@@ -230,8 +230,19 @@ def click(client: CDPClient, selector: str, button: str = "left") -> dict:
     return {"clicked": selector, "x": round(x, 1), "y": round(y, 1)}
 
 
-def type_text(client: CDPClient, selector: str, text: str, clear: bool = False) -> dict:
-    """Focuses the element then inserts the text via Input.insertText (IME-safe composition)."""
+def type_text(
+    client: CDPClient,
+    selector: str,
+    text: str,
+    clear: bool = False,
+    *,
+    mode: str = "insert_text",
+) -> dict:
+    """Focus an element and type with IME insertion or discrete trusted key events."""
+    if mode not in {"insert_text", "key_events"}:
+        raise ValueError(f"unsupported typing mode: {mode}")
+    if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
+        raise ValueError("key_events typing supports printable ASCII only")
     state = _probe_actionability(client, selector)
     _require_attached(state, selector)
     for field, message in _FAILURE_MESSAGES[:2]:
@@ -242,13 +253,38 @@ def type_text(client: CDPClient, selector: str, text: str, clear: bool = False) 
     _prepare_text_input(client, selector, clear)
     if clear:
         press_key(client, "Backspace")
-    client.send("Input.insertText", {"text": text})
-    return {
+    if mode == "insert_text":
+        client.send("Input.insertText", {"text": text})
+    else:
+        for char in text:
+            _type_printable_key(client, char)
+    result = {
         "typed": True,
         "value_masked": True,
         "selector": selector,
         "cleared": clear,
     }
+    if mode != "insert_text":
+        result["mode"] = mode
+    return result
+
+
+def _type_printable_key(client: CDPClient, char: str) -> None:
+    virtual_key = ord(char.upper()) if char.isalpha() else ord(char)
+    code = f"Digit{char}" if char.isdigit() else f"Key{char.upper()}" if char.isalpha() else ""
+    key = {
+        "key": char,
+        "windowsVirtualKeyCode": virtual_key,
+        "nativeVirtualKeyCode": virtual_key,
+    }
+    if code:
+        key["code"] = code
+    client.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **key})
+    client.send(
+        "Input.dispatchKeyEvent",
+        {"type": "char", "text": char, "unmodifiedText": char, **key},
+    )
+    client.send("Input.dispatchKeyEvent", {"type": "keyUp", **key})
 
 
 def type_text_in_frame(

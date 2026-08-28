@@ -343,6 +343,45 @@ def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client)
     ]
 
 
+def test_type_text_key_events_emits_each_character_without_leaking(mock, client):
+    """key_events reproduces a physical digit sequence for segmented OTP widgets."""
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+
+    result = inputs.type_text(client, "#otp", "07", mode="key_events")
+
+    assert result == {
+        "typed": True,
+        "value_masked": True,
+        "selector": "#otp",
+        "cleared": False,
+        "mode": "key_events",
+    }
+    assert "07" not in json.dumps(result)
+    assert mock.commands_for("Input.insertText") == []
+    events = mock.commands_for("Input.dispatchKeyEvent")
+    assert [event["type"] for event in events] == [
+        "rawKeyDown",
+        "char",
+        "keyUp",
+        "rawKeyDown",
+        "char",
+        "keyUp",
+    ]
+    assert [event.get("text") for event in events if event["type"] == "char"] == ["0", "7"]
+    assert [event["code"] for event in events if event["type"] == "rawKeyDown"] == [
+        "Digit0",
+        "Digit7",
+    ]
+
+
+def test_type_text_key_events_rejects_non_ascii_before_browser_effect(mock, client):
+    with pytest.raises(ValueError, match="printable ASCII"):
+        inputs.type_text(client, "#otp", "é", mode="key_events")
+
+    assert mock.commands == []
+
+
 @pytest.mark.parametrize(
     ("state", "message"),
     [

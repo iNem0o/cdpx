@@ -103,7 +103,12 @@
           "properties": {
             "selector": {"type": "string"},
             "secret_ref": {"type": "string", "minLength": 1},
-            "clear": {"type": "boolean", "default": false}
+            "clear": {"type": "boolean", "default": false},
+            "mode": {
+              "type": "string",
+              "enum": ["insert_text", "key_events"],
+              "default": "insert_text"
+            }
           }
         },
         "label": {"$ref": "#/$defs/label"},

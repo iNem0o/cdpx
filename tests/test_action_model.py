@@ -22,6 +22,10 @@ from cdpx.action_model import (
         (["click", "#submit"], ClickAction("#submit")),
         (["type", "#name", "Ada"], TypeAction("#name", "Ada")),
         (["type", "#name", "Ada", "--clear"], TypeAction("#name", "Ada", clear=True)),
+        (
+            ["type", "#code", "012345", "--key-events"],
+            TypeAction("#code", "012345", mode="key_events"),
+        ),
         (["key", "Enter"], KeyAction("Enter")),
         (
             ["eval", "document.title", "||", "'untitled'"],

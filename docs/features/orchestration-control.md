@@ -4,8 +4,8 @@ title = "Interception, emulation and orchestration"
 status = "validated"
 summary = "Control network behavior, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
-path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "src/cdpx/scenario_compiler.py", "schemas/scenario-*.json", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/fixtures/scenarios/fragments/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
-test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
+path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/inputs.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "src/cdpx/scenario_compiler.py", "schemas/scenario-*.json", "tests/fixtures/interactions-rich.html", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/fixtures/scenarios/fragments/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
+test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -57,7 +57,7 @@ report_text = "This scenario proves that reusable fragments are expanded determi
 given = "A disposable Chrome targets a local or Symfony application and a YAML scenario includes local, versioned fragments."
 when = "cdpx compiles the complete include graph, validates its budget, authority, origins and secrets, then scenario run executes the flattened steps and collects proofs."
 then = "The output contains one verdict plus qualified labels, source provenance, a composition digest, findings and artifacts."
-tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
+tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
@@ -347,8 +347,11 @@ Supported executable schema (`cdpx.scenario/v1`):
 - Steps: `goto`, `wait_visible`, `click`, `type`, `frame_type`, `key`, `eval`,
   `wait_text`. `wait_visible` requires an element that is attached,
   rendered, visible and has a non-zero box. `type` accepts only
-  `{selector, secret_ref, clear}` and prevalidates the environment
-  reference. `frame_type` accepts `{selector, frame_origin, secret_ref}` for
+  `{selector, secret_ref, clear, mode}` and prevalidates the environment
+  reference. `mode` defaults to `insert_text`; `key_events` emits a trusted
+  key sequence for each printable ASCII character so segmented controls can
+  advance focus exactly as they do for a user. `frame_type` accepts
+  `{selector, frame_origin, secret_ref}` for
   a single-field cross-origin iframe: cdpx requires an actionable iframe,
   verifies that its resolved `src` matches the declared allowlisted origin,
   focuses it through a trusted click, then inserts the secret without reading

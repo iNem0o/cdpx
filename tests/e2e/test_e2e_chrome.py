@@ -2020,6 +2020,19 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     assert snapshot["mirror"] == "resh "
 
 
+def test_key_events_complete_a_segmented_code_widget_in_real_chrome(page):
+    """Discrete trusted key events drive focus across a six-field OTP control."""
+    c, base = page
+    nav.navigate(c, f"{base}/interactions-rich.html")
+
+    result = inputs.type_text(c, ".code-digit", "012345", mode="key_events")
+
+    assert result["mode"] == "key_events"
+    snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
+    assert snapshot["segmentedCode"] == "012345"
+    assert snapshot["segmentedComplete"] == "complete"
+
+
 def test_console_capture_real(page):
     """The windowed console capture observes both the logs AND the
     exceptions emitted by a real page, with an aggregated error count."""

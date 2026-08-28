@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from cdpx import discovery, scenario_compiler, scenarios
+from cdpx.action_model import TypeAction
 from cdpx.artifacts import scan_canaries
 from cdpx.cli import main
 from cdpx.client import CDPClient
@@ -1058,6 +1059,32 @@ def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, m
     #: the secret value was nonetheless typed in full on the CDP side:
     #: masking did not amputate the input
     assert "".join(chars) == secret
+
+
+def test_scenario_type_accepts_key_events_without_exposing_secret(monkeypatch):
+    secret = "012345"
+    monkeypatch.setenv("CHECKOUT_OTP", secret)
+    scenario = scenarios.parse(
+        {
+            "name": "segmented-code",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "type": {
+                        "selector": ".code-digit",
+                        "secret_ref": "CHECKOUT_OTP",
+                        "mode": "key_events",
+                    }
+                }
+            ],
+        }
+    )
+
+    prepared = scenarios.prepare(scenario, orchestration())
+    action = prepared.operations[0].action
+    assert isinstance(action, TypeAction)
+    assert action.mode == "key_events"
+    assert secret not in json.dumps(scenario.steps[0].value)
 
 
 def test_scenario_frame_type_checks_origin_and_keeps_secret_out_of_evidence(

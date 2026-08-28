@@ -39,7 +39,13 @@ def run_action(client: CDPClient, action: BrowserAction, timeout: float = 30.0) 
     if isinstance(action, ClickAction):
         return inputs.click(client, action.selector)
     if isinstance(action, TypeAction):
-        return inputs.type_text(client, action.selector, action.text, clear=action.clear)
+        return inputs.type_text(
+            client,
+            action.selector,
+            action.text,
+            clear=action.clear,
+            mode=action.mode,
+        )
     if isinstance(action, KeyAction):
         return inputs.press_key(client, action.key)
     if isinstance(action, EvalAction):

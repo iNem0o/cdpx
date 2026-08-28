@@ -50,12 +50,15 @@ def serialize_action(
             ctx.mark("$.action.input")
             stored_input = {"redacted": True}
             replayable = False
-        return {
+        stored_action = {
             "verb": "type",
             "selector": selector,
             "input": stored_input,
             "clear": action.clear,
-        }, replayable
+        }
+        if action.mode != "insert_text":
+            stored_action["mode"] = action.mode
+        return stored_action, replayable
     if isinstance(action, EvalAction):
         ctx.register_secret(action.expression)
         ctx.mark("$.action.expression")
@@ -99,7 +102,10 @@ def materialize_action(
         value = source.get(secret_ref)
         if value is None:
             raise JournalError(f"secret_ref not found in environment: {secret_ref}")
-        return TypeAction(selector, value, clear=stored.get("clear") is True)
+        mode = stored.get("mode", "insert_text")
+        if mode not in {"insert_text", "key_events"}:
+            raise JournalError("invalid v2 type action mode")
+        return TypeAction(selector, value, clear=stored.get("clear") is True, mode=mode)
     if verb == "eval":
         raise JournalError("redacted eval action not replayable")
     raise JournalError(f"unknown v2 journal verb: {verb}")

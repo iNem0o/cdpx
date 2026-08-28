@@ -130,7 +130,13 @@ def cmd_type(args) -> None:
         label="type",
     )
     with _client(args) as c:
-        result = inputs.type_text(c, args.options.selector, text, clear=args.options.clear)
+        result = inputs.type_text(
+            c,
+            args.options.selector,
+            text,
+            clear=args.options.clear,
+            mode="key_events" if args.options.key_events else "insert_text",
+        )
         _assert_session_current(args, c)
         _out(args, result)
 
@@ -184,6 +190,11 @@ def register_commands(
     parser.add_argument("selector")
     parser.add_argument("--secret-env", required=True, help="read the text from this variable")
     parser.add_argument("--clear", action="store_true", help="clear the field first")
+    parser.add_argument(
+        "--key-events",
+        action="store_true",
+        help="emit one trusted keyboard event sequence per printable ASCII character",
+    )
     parser.set_defaults(func=cmd_type)
 
     parser = sub.add_parser(

@@ -695,6 +695,8 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
     elif verb in {"type", "frame_type"}:
         if isinstance(value, dict):
             fields = {"selector", "secret_ref", "clear"}
+            if verb == "type":
+                fields.add("mode")
             if verb == "frame_type":
                 fields.add("frame_origin")
             _unknown(value, fields, f"{prefix}{verb}.")
@@ -705,6 +707,11 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                 raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
             if "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear must be boolean")
+            if verb == "type" and value.get("mode", "insert_text") not in {
+                "insert_text",
+                "key_events",
+            }:
+                raise ScenarioUsageError(f"{prefix}{verb}.mode must be insert_text or key_events")
             if verb == "frame_type":
                 if not isinstance(value.get("frame_origin"), str) or not value["frame_origin"]:
                     raise ScenarioUsageError(
@@ -797,7 +804,12 @@ def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
             raise ScenarioUsageError(f"secret_ref not found: {secret_ref}")
         text = os.environ[secret_ref]
         context.register_secret(text)
-        return TypeAction(value["selector"], text, clear=bool(value.get("clear")))
+        return TypeAction(
+            value["selector"],
+            text,
+            clear=bool(value.get("clear")),
+            mode=value.get("mode", "insert_text"),
+        )
     raise ScenarioUsageError("scenario type requires secret_ref")
 
 

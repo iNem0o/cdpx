@@ -50,11 +50,12 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx count <selector>` | cheap assertion ("there really are 12 products") | quick check loop after an action |
 | `cdpx eval <js> [--await]` | root primitive: everything else | universal escape hatch; last resort (fragile, untyped) |
 | `cdpx click <selector>` | click via the Input domain (trusted) | requires attached, visible, enabled, stable, a non-zero box, and a center hit-test |
-| `cdpx type <selector> --secret-env NAME [--clear]` | fill a field from an environment reference | avoids the secret in argv; requires a visible/editable control, then IME-safe `Input.insertText` |
+| `cdpx type <selector> --secret-env NAME [--clear] [--key-events]` | fill a field from an environment reference | defaults to IME-safe `Input.insertText`; `--key-events` emits one trusted key sequence per printable ASCII character for segmented controls |
 | `cdpx key <key>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
 
 ```bash
 cdpx type "#name" --secret-env CUSTOMER_NAME --clear
+cdpx type ".code-digit" --secret-env CHECKOUT_OTP --key-events
 cdpx key Enter
 cdpx text "#result"
 ```
