@@ -157,7 +157,7 @@ COMMAND_SEMANTICS = {
     "intercept": _fixed(
         Authority.PRIVILEGED,
         destination_source="action-goto",
-        current_origin="never",
+        current_origin="action-non-navigation",
     ),
     "emulate": _fixed(
         Authority.PRIVILEGED,

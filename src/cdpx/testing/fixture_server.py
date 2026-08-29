@@ -133,6 +133,7 @@ def _make_handler(root: pathlib.Path):
 
         do_GET = _serve
         do_POST = _serve
+        do_DELETE = _serve
 
     return Handler
 

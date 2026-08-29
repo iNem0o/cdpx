@@ -26,7 +26,7 @@ cdpx uses semantic versioning.
 - Click interception now validates top-level document destinations before a
   rule can affect them, and short or zero `--settle` periods drain buffered
   requests without overrunning their quiet deadline.
-- Runtime and development images now pin Chromium 151.0.7922.137 from Debian
+- Runtime and development images now pin Chromium 151.0.7922.173 from Debian
   Bookworm security after the previous pinned package left the repository.
 
 ### Fixed

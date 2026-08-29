@@ -73,6 +73,11 @@ class MockCDP:
         self.eval_rules: list[tuple[str, deque]] = []  # (substring, successive values)
         self.console_script: list[dict] = []  # events emitted after Runtime.enable
         self.network_script: list[dict] = []  # events emitted after Page.navigate
+        self.click_network_script: list[dict] = []  # events emitted after mouseReleased
+        self.fetch_resolution_script: list[dict] = []  # events emitted during a Fetch verdict
+        # Direct target WebSockets are distinct CDP sessions; Fetch state does not
+        # leak from a disconnected client to the next client for the same target.
+        self._fetch_enabled_sessions: set[tuple[str, object]] = set()
         self.error_methods: set[str] = set()  # methods that respond with a CDP error
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._server: Server | None = None
@@ -93,6 +98,12 @@ class MockCDP:
 
     def script_network(self, events: list[dict]) -> None:
         self.network_script = events
+
+    def script_click_network(self, events: list[dict]) -> None:
+        self.click_network_script = events
+
+    def script_fetch_resolution(self, events: list[dict]) -> None:
+        self.fetch_resolution_script = events
 
     def commands_for(self, method: str) -> list[dict]:
         return [p for (_t, m, p) in self.commands if m == method]
@@ -172,6 +183,9 @@ class MockCDP:
             if path.startswith("/json/close/"):
                 tid = path.rsplit("/", 1)[1]
                 if mock.targets.pop(tid, None):
+                    mock._fetch_enabled_sessions = {
+                        session for session in mock._fetch_enabled_sessions if session[0] != tid
+                    }
                     return reply("Target is closing")
                 return reply("No such target id", HTTPStatus.NOT_FOUND)
             return reply({"error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -179,17 +193,36 @@ class MockCDP:
         def handler(ws):
             path = getattr(ws, "request", None)
             tid = (path.path if path else "").rsplit("/", 1)[-1]
-            for raw in ws:
-                msg = json.loads(raw)
-                method, params = msg["method"], msg.get("params", {})
-                mock.commands.append((tid, method, params))
-                result, error, events = mock._respond(tid, method, params)
-                if error:
-                    ws.send(json.dumps({"id": msg["id"], "error": error}))
-                else:
-                    ws.send(json.dumps({"id": msg["id"], "result": result}))
-                for ev in events:
-                    ws.send(json.dumps(ev))
+            session_key = (tid, object())
+            try:
+                for raw in ws:
+                    msg = json.loads(raw)
+                    method, params = msg["method"], msg.get("params", {})
+                    mock.commands.append((tid, method, params))
+                    result, error, events = mock._respond(session_key, tid, method, params)
+                    # A real click may enqueue Fetch.requestPaused before Chrome
+                    # acknowledges mouseReleased. Preserve that ordering so the
+                    # client has to drain events buffered by send().
+                    events_before_response = bool(events) and (
+                        (
+                            method == "Input.dispatchMouseEvent"
+                            and params.get("type") == "mouseReleased"
+                        )
+                        or method
+                        in {"Fetch.continueRequest", "Fetch.failRequest", "Fetch.fulfillRequest"}
+                    )
+                    if events_before_response:
+                        for ev in events:
+                            ws.send(json.dumps(ev))
+                    if error:
+                        ws.send(json.dumps({"id": msg["id"], "error": error}))
+                    else:
+                        ws.send(json.dumps({"id": msg["id"], "result": result}))
+                    if not events_before_response:
+                        for ev in events:
+                            ws.send(json.dumps(ev))
+            finally:
+                mock._fetch_enabled_sessions.discard(session_key)
 
         server = serve(
             handler,
@@ -204,7 +237,7 @@ class MockCDP:
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     # -- scripted protocol ----------------------------------------------------------
-    def _respond(self, tid: str, method: str, params: dict):
+    def _respond(self, session_key: tuple[str, object], tid: str, method: str, params: dict):
         events: list[dict] = []
         if method in self.error_methods:
             return None, {"code": -32000, "message": f"mock: '{method}' scripted failure"}, events
@@ -234,6 +267,35 @@ class MockCDP:
             events.append({"method": "Page.domContentEventFired", "params": {"timestamp": 1.0}})
             events.append({"method": "Page.loadEventFired", "params": {"timestamp": 1.2}})
             return {"frameId": "FRAME1", "loaderId": "LOADER1"}, None, events
+
+        if method == "Page.getFrameTree":
+            return (
+                {
+                    "frameTree": {
+                        "frame": {
+                            "id": "FRAME1",
+                            "url": self.targets.get(tid, {}).get("url", "about:blank"),
+                        }
+                    }
+                },
+                None,
+                events,
+            )
+
+        if method == "Input.dispatchMouseEvent" and params.get("type") == "mouseReleased":
+            fetch_enabled = session_key in self._fetch_enabled_sessions
+            events.extend(
+                event
+                for event in self.click_network_script
+                if fetch_enabled or event.get("method") != "Fetch.requestPaused"
+            )
+
+        if method == "Fetch.enable":
+            self._fetch_enabled_sessions.add(session_key)
+            return {}, None, events
+        if method == "Fetch.disable":
+            self._fetch_enabled_sessions.discard(session_key)
+            return {}, None, events
 
         if method == "Page.captureScreenshot":
             return {"data": base64.b64encode(TINY_PNG).decode()}, None, events
@@ -274,6 +336,10 @@ class MockCDP:
                 }
             )
             return {"success": True}, None, events
+        if method in {"Fetch.continueRequest", "Fetch.failRequest", "Fetch.fulfillRequest"}:
+            events.extend(self.fetch_resolution_script)
+            self.fetch_resolution_script = []
+            return {}, None, events
         if method in ("Network.clearBrowserCookies", "Storage.clearCookies"):
             self.cookies = []
             return {}, None, events
@@ -286,7 +352,6 @@ class MockCDP:
             "Input.dispatchMouseEvent",
             "Input.dispatchKeyEvent",
             "Input.insertText",
-            "Fetch.enable",
             "Fetch.continueRequest",
             "Fetch.failRequest",
             "Fetch.fulfillRequest",

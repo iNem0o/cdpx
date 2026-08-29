@@ -81,16 +81,26 @@ def cmd_dom_diff(args) -> None:
 
 def cmd_intercept(args) -> None:
     action = _require_action(args)
-    if not isinstance(action, GotoAction):
-        raise ValueError("intercept supports: -- goto <url>")
+    if not isinstance(action, GotoAction | ClickAction):
+        raise ValueError("intercept supports: goto <url> | click <selector>")
     with _client(args) as c:
-        result = interception.intercept_goto(
-            c,
-            action.url,
-            rules=args.options.rule,
-            timeout=args.options.timeout,
-            settle=args.options.settle,
-        )
+        if isinstance(action, GotoAction):
+            result = interception.intercept_goto(
+                c,
+                action.url,
+                rules=args.options.rule,
+                timeout=args.options.timeout,
+                settle=args.options.settle,
+            )
+        else:
+            result = interception.intercept_click(
+                c,
+                action.selector,
+                rules=args.options.rule,
+                allowed_origins=_orchestration(args).origins,
+                timeout=args.options.timeout,
+                settle=args.options.settle,
+            )
         _assert_session_current(args, c)
         _out(args, result)
 
@@ -191,7 +201,11 @@ def register_commands(
     parser.add_argument("action", nargs=argparse.REMAINDER)
     parser.set_defaults(func=cmd_dom_diff)
 
-    parser = sub.add_parser("intercept", help="intercept requests during a command")
+    parser = sub.add_parser(
+        "intercept",
+        help="intercept requests during a goto or trusted click",
+        description="Intercept requests while running goto <url> or click <selector>.",
+    )
     parser.add_argument(
         "--rule",
         action="append",
@@ -199,8 +213,17 @@ def register_commands(
         type=_intercept_rule_arg,
         help="PATTERN => 200..599|block|continue",
     )
-    parser.add_argument("--settle", type=float, default=0.5)
-    parser.add_argument("action", nargs=argparse.REMAINDER)
+    parser.add_argument(
+        "--settle",
+        type=float,
+        default=0.5,
+        help="quiet period after load (goto) or action completion (click)",
+    )
+    parser.add_argument(
+        "action",
+        nargs=argparse.REMAINDER,
+        help="goto <url> | click <selector> (optional leading --)",
+    )
     parser.set_defaults(func=cmd_intercept)
 
     parser = sub.add_parser("emulate", help="mobile/network/CPU emulation (+ composed action)")
