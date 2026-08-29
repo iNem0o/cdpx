@@ -21,13 +21,18 @@ PANEL_FETCH_JS = """
 (async () => { const __cdpx_profiler_panels = 1;
   const targets = %s;
   const one = async ([panel, urls]) => {
+    const deadline = performance.now() + %d;
     let result = {panel, status: 0, html: ''};
     for (const url of urls) {
+      const remaining = Math.ceil(deadline - performance.now());
+      if (remaining <= 0) {
+        return {panel, status: 0, html: '', error: 'panel fetch timeout'};
+      }
       try {
         const res = await fetch(url, {
           headers: {Accept: 'text/html'},
           credentials: 'same-origin',
-          signal: AbortSignal.timeout(%d),
+          signal: AbortSignal.timeout(remaining),
         });
         result = {panel, status: res.status, html: await res.text()};
         if (res.status === 200) return result;

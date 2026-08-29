@@ -418,7 +418,10 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
     #: and stops as soon as one panel is available.
     assert "for (const url of urls)" in call["expression"]
     assert "if (res.status === 200) return result" in call["expression"]
-    assert "AbortSignal.timeout(7000)" in call["expression"]
+    assert "const deadline = performance.now() + 7000" in call["expression"]
+    assert "AbortSignal.timeout(remaining)" in call["expression"]
+    assert "panel fetch timeout" in call["expression"]
+    assert "AbortSignal.timeout(7000)" not in call["expression"]
 
 
 def test_collect_assembles_contract(mock, client, evidence_case):

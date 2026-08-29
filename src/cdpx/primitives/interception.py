@@ -162,7 +162,7 @@ def _disable_fetch(client: CDPClient, primary_error: Exception | None) -> None:
             remaining()
             # Cleanup gets its own bounded attempt even when the action exhausted
             # its execution budget. Closing the client remains the transport fallback.
-            client.send("Fetch.disable", timeout=client.timeout)
+            client.send("Fetch.disable", timeout=remaining())
             late_pauses = client.collect_events(
                 min(_CLEANUP_POST_DISABLE_SECONDS, remaining()),
                 ("Fetch.requestPaused",),

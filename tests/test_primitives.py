@@ -1933,7 +1933,8 @@ def test_intercept_fetch_decision_timeout_still_uses_separate_cleanup_budget(
 
     assert observed_timeouts["Fetch.failRequest"] is not None
     assert 0 < cast(float, observed_timeouts["Fetch.failRequest"]) <= 1.0
-    assert observed_timeouts["Fetch.disable"] == client.timeout
+    assert observed_timeouts["Fetch.disable"] is not None
+    assert 0 < cast(float, observed_timeouts["Fetch.disable"]) <= 2.0
     assert mock.commands_for("Fetch.disable") == [{}]
 
 
