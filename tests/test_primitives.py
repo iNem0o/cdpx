@@ -421,6 +421,97 @@ def test_type_text_key_events_rejects_non_ascii_before_browser_effect(mock, clie
 
 
 @pytest.mark.parametrize(
+    ("mode", "key_delay_ms", "message"),
+    [
+        ("key_events", 0, "printable ASCII"),
+        ("insert_text", 10, "requires key_events"),
+    ],
+)
+def test_frame_type_validates_text_and_options_before_browser_effect(
+    mock, client, mode, key_delay_ms, message
+):
+    with pytest.raises(ValueError, match=message):
+        inputs.type_text_in_frame(
+            client,
+            "iframe.card",
+            "é" if mode == "key_events" else "secret",
+            frame_origin="https://frames.test",
+            mode=mode,
+            key_delay_ms=key_delay_ms,
+        )
+
+    assert mock.commands == []
+
+
+def test_frame_type_timeout_stops_paced_input_before_next_character(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.script_frame("iframe.card", "https://frames.test/card")
+    slept = False
+
+    def sleep(_delay):
+        nonlocal slept
+        slept = True
+
+    def remaining():
+        if slept:
+            raise CDPTimeout("scenario frame_type timeout")
+        return 1.0
+
+    monkeypatch.setattr(inputs.time, "sleep", sleep)
+
+    with pytest.raises(CDPTimeout, match="frame_type timeout"):
+        inputs.type_text_in_frame(
+            client,
+            "iframe.card",
+            "12",
+            frame_origin="https://frames.test",
+            mode="key_events",
+            key_delay_ms=250,
+            remaining=remaining,
+        )
+
+    typed = [
+        event["text"]
+        for event in mock.commands_for("Input.dispatchKeyEvent")
+        if event["type"] == "char"
+    ]
+    assert typed == ["1"]
+
+
+def test_frame_candidate_type_rejects_zero_matches_without_input(mock, client):
+    with pytest.raises(inputs.ElementNotInteractable, match="none of the declared"):
+        inputs.type_text_in_candidate_frame(
+            client,
+            (
+                ("iframe.adyen", "https://adyen.test", "one"),
+                ("iframe.checkout", "https://checkout.test", "two"),
+            ),
+        )
+
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert mock.commands_for("Input.insertText") == []
+
+
+def test_frame_candidate_type_rejects_multiple_matches_without_input(mock, client):
+    mock.script_frame("iframe.adyen", "https://adyen.test/card")
+    mock.script_frame("iframe.checkout", "https://checkout.test/card")
+
+    with pytest.raises(inputs.ElementNotInteractable, match="multiple declared"):
+        inputs.type_text_in_candidate_frame(
+            client,
+            (
+                ("iframe.adyen", "https://adyen.test", "one"),
+                ("iframe.checkout", "https://checkout.test", "two"),
+            ),
+        )
+
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert mock.commands_for("Input.insertText") == []
+
+
+@pytest.mark.parametrize(
     ("state", "message"),
     [
         ({"visible": False}, "not visible"),
@@ -1554,8 +1645,8 @@ def test_intercept_click_cleanup_stops_mock_fetch_events(mock, client):
     assert [call["requestId"] for call in mock.commands_for("Fetch.fulfillRequest")] == ["CLEANUP"]
 
 
-def test_intercept_click_zero_settle_does_not_redrain_during_snapshot_resolution(mock, client):
-    """settle=0 freezes one snapshot even when resolving it buffers more traffic."""
+def test_intercept_click_zero_settle_releases_traffic_after_snapshot(mock, client):
+    """settle=0 applies rules once, then continues newly buffered pauses untouched."""
     mock.on_eval(
         "__cdpx_actionability",
         json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
@@ -1594,6 +1685,9 @@ def test_intercept_click_zero_settle_does_not_redrain_during_snapshot_resolution
     assert result["hits"] == [{"url": "http://s.test/api/snapshot", "action": "503"}]
     assert result["matched_count"] == 1 and result["effective_count"] == 1
     assert [call["requestId"] for call in mock.commands_for("Fetch.fulfillRequest")] == ["SNAPSHOT"]
+    assert [call["requestId"] for call in mock.commands_for("Fetch.continueRequest")] == [
+        "AFTER-SNAPSHOT"
+    ]
     assert mock.commands_for("Fetch.disable") == [{}]
 
 
@@ -1727,7 +1821,7 @@ def test_intercept_fetch_decision_timeout_still_uses_separate_cleanup_budget(
 
     monkeypatch.setattr(client, "send", send)
 
-    with pytest.raises(CDPTimeout, match="Fetch.failRequest"):
+    with pytest.raises(CDPTimeout, match=r"Fetch\.failRequest"):
         interception.intercept_click(
             client,
             "#request-button",

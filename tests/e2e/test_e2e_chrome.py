@@ -2080,6 +2080,21 @@ def test_profiler_fixture_real(page):
     assert res["panels"]["logger"]["deprecations"] == 2
 
 
+def test_profiler_shopware_collector_fallback_real(page):
+    """Chrome observes a failed standard db collector before using Shopware's alias."""
+    client, base = page
+
+    result = dev.profiler(
+        client,
+        f"{base}/api/profiler-shopware-sim",
+        panels=["db"],
+    )
+
+    assert result["profiler_status"] == 200
+    assert result["panels"]["db"]["queries"] == 6
+    assert result["panels"]["db"]["max_repetitions"] == 5
+
+
 def test_dom_diff_real(page):
     """dom-diff executes the enclosed action and makes the DOM change it
     triggers readable."""
@@ -2181,6 +2196,39 @@ def test_intercept_click_real_cli_and_cleanup_isolation(cli_page, evidence_case)
 
     assert normal_text == "DELETE /api/echo:200"
     attach_cli_screenshot(evidence_case, session, "intercept-click-cleanup")
+
+
+def test_intercept_click_zero_settle_releases_redirect_pause_real(cli_page, evidence_case):
+    """A redirect paused while resolving the snapshot is continued during cleanup."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    intercepted = cli_json(
+        session,
+        "intercept",
+        "--rule",
+        "*redirect-echo* => continue",
+        "--settle",
+        "0",
+        "click",
+        "#chained-request-button",
+    )
+
+    # With a zero settle window the reporting snapshot is intentionally empty;
+    # the redirected request may pause only while cleanup is disabling Fetch.
+    assert intercepted["matched_count"] == 0
+    assert intercepted["effective_count"] == 0
+    deadline = time.monotonic() + 3
+    text = ""
+    while time.monotonic() < deadline:
+        text = cli_json(session, "text", "#chained-click-result")["text"] or ""
+        if text.endswith(":200"):
+            break
+        time.sleep(0.05)
+
+    assert text == "GET /api/redirect-echo:200"
+    attach_cli_screenshot(evidence_case, session, "intercept-zero-settle-cleanup")
 
 
 def test_intercept_click_real_leaves_forbidden_document_untouched(cli_page, evidence_case):

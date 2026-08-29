@@ -84,9 +84,10 @@ def _parse_db(html: str) -> dict[str, Any]:
                 entry["count"] = count
             if time_col is not None and time_col < len(row):
                 entry["duration_ms"] = _float(row[time_col])
-            parsed_rows.append(entry)
+            if len(parsed_rows) < LIST_LIMIT:
+                parsed_rows.append(entry)
             frequencies[entry["sql"]] += count
-        out["list"] = parsed_rows[:LIST_LIMIT]
+        out["list"] = parsed_rows
         repeated = sorted(
             ((count, sql) for sql, count in frequencies.items() if count > 1),
             key=lambda item: (-item[0], item[1]),

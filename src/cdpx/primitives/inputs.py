@@ -255,10 +255,7 @@ def type_text(
     mode: str = "insert_text",
 ) -> dict:
     """Focus an element and type with IME insertion or discrete trusted key events."""
-    if mode not in {"insert_text", "key_events"}:
-        raise ValueError(f"unsupported typing mode: {mode}")
-    if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
-        raise ValueError("key_events typing supports printable ASCII only")
+    _validate_typing(text, mode=mode, key_delay_ms=0)
     state = _probe_actionability(client, selector)
     _require_attached(state, selector)
     for field, message in _FAILURE_MESSAGES[:2]:
@@ -281,7 +278,12 @@ def type_text(
     return result
 
 
-def _type_printable_key(client: CDPClient, char: str) -> None:
+def _type_printable_key(
+    client: CDPClient,
+    char: str,
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> None:
     virtual_key = ord(char.upper()) if char.isalpha() else ord(char)
     code = f"Digit{char}" if char.isdigit() else f"Key{char.upper()}" if char.isalpha() else ""
     key = {
@@ -291,12 +293,45 @@ def _type_printable_key(client: CDPClient, char: str) -> None:
     }
     if code:
         key["code"] = code
-    client.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **key})
-    client.send(
+    _send(client, "Input.dispatchKeyEvent", {"type": "rawKeyDown", **key}, remaining=remaining)
+    _send(
+        client,
         "Input.dispatchKeyEvent",
         {"type": "char", "text": char, "unmodifiedText": char, **key},
+        remaining=remaining,
     )
-    client.send("Input.dispatchKeyEvent", {"type": "keyUp", **key})
+    _send(client, "Input.dispatchKeyEvent", {"type": "keyUp", **key}, remaining=remaining)
+
+
+def _validate_typing_options(*, mode: str, key_delay_ms: int) -> None:
+    if mode not in {"insert_text", "key_events"}:
+        raise ValueError(f"unsupported typing mode: {mode}")
+    if (
+        not isinstance(key_delay_ms, int)
+        or isinstance(key_delay_ms, bool)
+        or not 0 <= key_delay_ms <= 250
+    ):
+        raise ValueError("key_delay_ms must stay between 0 and 250")
+    if mode != "key_events" and key_delay_ms:
+        raise ValueError("key_delay_ms requires key_events mode")
+
+
+def _validate_typing(text: str, *, mode: str, key_delay_ms: int) -> None:
+    _validate_typing_options(mode=mode, key_delay_ms=key_delay_ms)
+    if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
+        raise ValueError("key_events typing supports printable ASCII only")
+
+
+def _send(
+    client: CDPClient,
+    method: str,
+    params: dict[str, Any] | None = None,
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> dict[str, Any]:
+    if remaining is None:
+        return client.send(method, params)
+    return client.send(method, params, timeout=remaining())
 
 
 def _insert_text(
@@ -306,32 +341,27 @@ def _insert_text(
     mode: str,
     key_delay_ms: int = 0,
     origin_guard: Callable[[], None] | None = None,
+    remaining: Callable[[], float] | None = None,
 ) -> None:
-    if mode not in {"insert_text", "key_events"}:
-        raise ValueError(f"unsupported typing mode: {mode}")
-    if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
-        raise ValueError("key_events typing supports printable ASCII only")
-    if (
-        not isinstance(key_delay_ms, int)
-        or isinstance(key_delay_ms, bool)
-        or not 0 <= key_delay_ms <= 250
-    ):
-        raise ValueError("key_delay_ms must stay between 0 and 250")
-    if mode != "key_events" and key_delay_ms:
-        raise ValueError("key_delay_ms requires key_events mode")
+    _validate_typing(text, mode=mode, key_delay_ms=key_delay_ms)
     if mode == "insert_text":
         if origin_guard is not None:
             origin_guard()
-        client.send("Input.insertText", {"text": text})
+        _send(client, "Input.insertText", {"text": text}, remaining=remaining)
         if origin_guard is not None:
             origin_guard()
         return
     for char in text:
         if origin_guard is not None:
             origin_guard()
-        _type_printable_key(client, char)
+        _type_printable_key(client, char, remaining=remaining)
         if key_delay_ms:
-            time.sleep(key_delay_ms / 1000)
+            delay = key_delay_ms / 1000
+            if remaining is not None:
+                delay = min(delay, remaining())
+            time.sleep(delay)
+            if remaining is not None:
+                remaining()
         if origin_guard is not None:
             origin_guard()
 
@@ -344,24 +374,27 @@ def type_text_in_frame(
     frame_origin: str,
     mode: str = "insert_text",
     key_delay_ms: int = 0,
+    remaining: Callable[[], float] | None = None,
 ) -> dict:
     """Type into a single-field cross-origin iframe without reading its DOM."""
-    state = _probe_actionability(client, selector)
+    _validate_typing(text, mode=mode, key_delay_ms=key_delay_ms)
+    state = _probe_actionability(client, selector, remaining=remaining)
     _require_actionable(state, selector)
     expected_origin = origin_from_url(frame_origin)
 
     def guard_origin() -> None:
-        assert_url_allowed(_frame_url(client, selector), (expected_origin,))
+        assert_url_allowed(_frame_url(client, selector, remaining=remaining), (expected_origin,))
 
-    frame_url = _frame_url(client, selector)
+    frame_url = _frame_url(client, selector, remaining=remaining)
     assert_url_allowed(frame_url, (expected_origin,))
-    click(client, selector)
+    click(client, selector, remaining=remaining)
     _insert_text(
         client,
         text,
         mode=mode,
         key_delay_ms=key_delay_ms,
         origin_guard=guard_origin,
+        remaining=remaining,
     )
     result = {
         "typed": True,
@@ -381,12 +414,14 @@ def type_text_in_candidate_frame(
     *,
     mode: str = "insert_text",
     key_delay_ms: int = 0,
+    remaining: Callable[[], float] | None = None,
 ) -> dict:
     """Type into exactly one declared cross-origin iframe candidate."""
+    _validate_typing_options(mode=mode, key_delay_ms=key_delay_ms)
     matches: list[tuple[str, str, str]] = []
     for selector, frame_origin, text in candidates:
         try:
-            frame_url = _frame_url(client, selector)
+            frame_url = _frame_url(client, selector, remaining=remaining)
         except ElementNotInteractable:
             continue
         assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
@@ -411,23 +446,34 @@ def type_text_in_candidate_frame(
         frame_origin=frame_origin,
         mode=mode,
         key_delay_ms=key_delay_ms,
+        remaining=remaining,
     )
 
 
-def _frame_url(client: CDPClient, selector: str) -> str:
-    document = client.send("DOM.getDocument", {"depth": 0})
+def _frame_url(
+    client: CDPClient,
+    selector: str,
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> str:
+    document = _send(client, "DOM.getDocument", {"depth": 0}, remaining=remaining)
     root_id = document.get("root", {}).get("nodeId")
     if not isinstance(root_id, int):
         raise ElementNotInteractable(f"iframe document unavailable: {selector}")
-    query = client.send("DOM.querySelector", {"nodeId": root_id, "selector": selector})
+    query = _send(
+        client,
+        "DOM.querySelector",
+        {"nodeId": root_id, "selector": selector},
+        remaining=remaining,
+    )
     node_id = query.get("nodeId")
     if not isinstance(node_id, int) or node_id <= 0:
         raise ElementNotInteractable(f"iframe unavailable: {selector}")
-    description = client.send("DOM.describeNode", {"nodeId": node_id})
+    description = _send(client, "DOM.describeNode", {"nodeId": node_id}, remaining=remaining)
     frame_id = description.get("node", {}).get("frameId")
     if not isinstance(frame_id, str) or not frame_id:
         raise ElementNotInteractable(f"iframe child frame unavailable: {selector}")
-    frame_tree = client.send("Page.getFrameTree").get("frameTree")
+    frame_tree = _send(client, "Page.getFrameTree", remaining=remaining).get("frameTree")
     frame_url = _find_frame_url(frame_tree, frame_id)
     if frame_url is None:
         raise ElementNotInteractable(f"iframe current URL unavailable: {selector}")

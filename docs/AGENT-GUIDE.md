@@ -176,8 +176,9 @@ For example, forcing an API failure around a real user click requires an
 explicit privileged session while keeping the origin narrow:
 
 ```bash
-cdpx session start --run-id failure-path --authority privileged --origins "http://demo.test" --ttl 900
+eval "$(cdpx session start --run-id failure-path --authority privileged --origins 'http://demo.test' --ttl 900 --export)"
 cdpx intercept --rule "*api/echo* => 503" --settle 1 click "#request-button"
+cdpx session stop
 ```
 
 The interception exists only for that composed command and is removed even

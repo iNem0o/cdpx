@@ -144,14 +144,56 @@ def _main_frame_id(client: CDPClient, *, timeout: float) -> str:
 
 
 def _disable_fetch(client: CDPClient, primary_error: Exception | None) -> None:
+    release_error: Exception | None = None
+    deadline = time.monotonic() + client.timeout
+
+    def remaining() -> float:
+        budget = deadline - time.monotonic()
+        if budget <= 0:
+            raise CDPTimeout("interception cleanup timeout")
+        return budget
+
+    try:
+        _release_buffered_paused_requests(client, remaining=remaining)
+    except Exception as error:
+        release_error = error
     try:
         # Cleanup gets its own bounded attempt even when the action exhausted
         # its execution budget. Closing the client remains the transport fallback.
         client.send("Fetch.disable", timeout=client.timeout)
     except Exception as cleanup_error:
-        if primary_error is None:
-            raise
-        primary_error.add_note(f"interception cleanup failed: {cleanup_error}")
+        if release_error is not None:
+            cleanup_error.add_note(f"paused request release failed: {release_error}")
+        if primary_error is not None:
+            primary_error.add_note(f"interception cleanup failed: {cleanup_error}")
+            return
+        raise
+    if release_error is not None:
+        if primary_error is not None:
+            primary_error.add_note(f"interception cleanup failed: {release_error}")
+            return
+        raise release_error
+
+
+def _release_buffered_paused_requests(
+    client: CDPClient,
+    *,
+    remaining: Callable[[], float],
+) -> None:
+    """Continue pauses observed after the rule-processing snapshot."""
+    while True:
+        paused = client.drain_events(("Fetch.requestPaused",))
+        if not paused:
+            return
+        for event in paused:
+            request_id = event.get("params", {}).get("requestId")
+            if not isinstance(request_id, str) or not request_id:
+                continue
+            client.send(
+                "Fetch.continueRequest",
+                {"requestId": request_id},
+                timeout=remaining(),
+            )
 
 
 def _collect_until_quiet(
@@ -198,7 +240,7 @@ def _collect_until_quiet(
     if load_seen and settle == 0:
         # Freeze exactly the events buffered by the completed click. Resolving
         # this snapshot uses synchronous CDP commands that may buffer newer
-        # traffic; Fetch.disable releases that traffic without applying rules.
+        # traffic; cleanup continues that traffic without applying rules.
         remaining()
         snapshot = client.drain_events()
         for event in snapshot:

@@ -30,10 +30,12 @@ PAGES_MARKERS = {
     "/intercept.html": [
         'id="intercept-result"',
         'id="request-button"',
+        'id="chained-request-button"',
         'id="forbidden-navigation"',
         'id="click-result"',
         "/api/status/500",
         "/api/echo",
+        "/api/redirect-echo",
         "DELETE",
     ],
     "/interactions-rich.html": [
@@ -104,6 +106,13 @@ def test_api_status_codes(fixtures_http):
         assert status == code
 
 
+def test_api_redirect_echo(fixtures_http):
+    status, body, _ = _get(fixtures_http.base_url, "/api/redirect-echo")
+
+    assert status == 200
+    assert json.loads(body) == {"method": "GET", "path": "/api/echo", "body": ""}
+
+
 def test_api_slow_actually_waits(fixtures_http):
     """/api/slow imposes a real, measurable latency, not merely a declared
     one: essential for exercising timeouts on the browser side."""
@@ -157,6 +166,22 @@ def test_api_profiler_sim(fixtures_http):
     #: to the fixed token, exactly as a real Symfony dev app would
     assert status == 200 and json.loads(body)["profiler"] == "sim"
     assert headers["X-Debug-Token-Link"].endswith("/_profiler/fixed-token")
+
+
+def test_api_profiler_shopware_sim_requires_db_collector_fallback(fixtures_http):
+    status, body, headers = _get(fixtures_http.base_url, "/api/profiler-shopware-sim")
+    assert status == 200 and json.loads(body)["profiler"] == "shopware-sim"
+    profiler_url = headers["X-Debug-Token-Link"].removeprefix(fixtures_http.base_url)
+
+    standard_status, _, _ = _get(fixtures_http.base_url, f"{profiler_url}?panel=db&group=true")
+    alias_status, alias_body, _ = _get(
+        fixtures_http.base_url,
+        f"{profiler_url}?panel=app.connection_collector&group=true",
+    )
+
+    assert standard_status == 404
+    assert alias_status == 200
+    assert "Database Queries" in alias_body
 
 
 def test_api_profiler_sim_never_reflects_the_request_host(fixtures_http):

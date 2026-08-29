@@ -123,6 +123,18 @@
         "frame_type": {
           "type": "object",
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": ["key_delay_ms"],
+                "properties": {"key_delay_ms": {"minimum": 1}}
+              },
+              "then": {
+                "required": ["mode"],
+                "properties": {"mode": {"const": "key_events"}}
+              }
+            }
+          ],
           "oneOf": [
             {"required": ["selector", "frame_origin", "secret_ref"], "not": {"required": ["candidates"]}},
             {"required": ["candidates"], "not": {"anyOf": [{"required": ["selector"]}, {"required": ["frame_origin"]}, {"required": ["secret_ref"]}]}}

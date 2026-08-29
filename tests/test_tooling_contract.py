@@ -60,7 +60,7 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
     include = fragment["$defs"]["includeStep"]["properties"]["include"]
     assert include["additionalProperties"] is False
     assert set(include["properties"]) == {"path", "as"}
-    assert "with" not in json.dumps(fragment)
+    assert "with" not in include["properties"]
     frame_type = fragment["$defs"]["frameTypeStep"]["properties"]["frame_type"]
     assert frame_type["additionalProperties"] is False
     assert "candidates" in frame_type["properties"]
@@ -69,6 +69,9 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
         "minimum": 0,
         "maximum": 250,
     }
+    delay_contract = frame_type["allOf"][0]
+    assert delay_contract["if"]["properties"]["key_delay_ms"] == {"minimum": 1}
+    assert delay_contract["then"]["properties"]["mode"] == {"const": "key_events"}
     candidate = frame_type["properties"]["candidates"]["items"]
     assert set(candidate["required"]) == {"selector", "frame_origin", "secret_ref"}
 

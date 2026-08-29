@@ -14,6 +14,7 @@ from cdpx import discovery
 from cdpx.client import CDPClient
 from cdpx.orchestration import OrchestrationContext
 from cdpx.primitives import profiler
+from cdpx.primitives.profiler.catalog import LIST_LIMIT
 from cdpx.primitives.profiler.html import _menu
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "profiler"
@@ -68,6 +69,42 @@ def test_parse_grouped_db_exposes_statement_repetition_bursts():
     assert len(res["repeated"]) == 1
     assert res["repeated"][0]["count"] == 5
     assert "FROM author" in res["repeated"][0]["sql"]
+
+
+def test_parse_db_bounds_rows_without_truncating_repetition_aggregation():
+    rows = "".join(
+        f"<tr><td>{index}</td><td>0.1 ms</td><td><pre>{sql}</pre></td></tr>"
+        for index, sql in enumerate(
+            [
+                *(f"SELECT {item}" for item in range(LIST_LIMIT)),
+                "SELECT repeated_tail",
+                "SELECT repeated_tail",
+            ],
+            start=1,
+        )
+    )
+    html = f"""
+    <div class="metrics">
+      <div class="metric">
+        <span class="value">{LIST_LIMIT + 2}</span>
+        <span class="label">Database Queries</span>
+      </div>
+      <div class="metric">
+        <span class="value">{LIST_LIMIT + 1}</span>
+        <span class="label">Different statements</span>
+      </div>
+    </div>
+    <table><thead><tr><th>#</th><th>Time</th><th>Info</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+    """
+
+    result = profiler.parse_panel("db", 200, html)
+
+    assert len(result["list"]) == LIST_LIMIT
+    assert all(entry["sql"] != "SELECT repeated_tail" for entry in result["list"])
+    assert result["repeated"] == [{"sql": "SELECT repeated_tail", "count": 2}]
+    assert result["max_repetitions"] == 2
 
 
 def test_parse_twig_counts_and_templates():

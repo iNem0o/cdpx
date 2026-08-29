@@ -1308,6 +1308,26 @@ def test_scenario_frame_type_rejects_key_delay_without_key_events(monkeypatch):
         )
 
 
+def test_scenario_frame_type_rejects_clear_even_when_false():
+    with pytest.raises(scenarios.ScenarioUsageError, match="unknown field.*clear"):
+        scenarios.parse(
+            {
+                "name": "unsupported_frame_clear",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [
+                    {
+                        "frame_type": {
+                            "selector": "iframe.card-number",
+                            "frame_origin": "https://frames.checkout.test",
+                            "secret_ref": "CHECKOUT_CARD",
+                            "clear": False,
+                        }
+                    }
+                ],
+            }
+        )
+
+
 def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, monkeypatch):
     monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
     mock.on_eval(
@@ -1467,6 +1487,61 @@ def test_scenario_frame_type_rechecks_current_frame_url_during_paced_input(
     ]
     assert result["verdict"] == "fail"
     assert "origin rejected" in result["steps"][0]["error"]
+    assert typed == ["1"]
+
+
+def test_scenario_timeout_stops_paced_frame_type_before_next_character(mock, tmp_path, monkeypatch):
+    monkeypatch.setenv("CHECKOUT_CARD", "12")
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps(
+            {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "stable": True,
+                "receives_events": True,
+                "editable": False,
+                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+            }
+        ),
+    )
+    mock.script_frame("iframe.card-number", "https://frames.checkout.test/field")
+    scenario = scenarios.parse(
+        {
+            "name": "paced_frame_timeout",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "frame_type": {
+                        "selector": "iframe.card-number",
+                        "frame_origin": "https://frames.checkout.test",
+                        "secret_ref": "CHECKOUT_CARD",
+                        "mode": "key_events",
+                        "key_delay_ms": 250,
+                    }
+                }
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            context=orchestration("http://*.test,https://*.test"),
+            timeout=0.2,
+            settle=0,
+        )
+
+    typed = [
+        command["text"]
+        for command in mock.commands_for("Input.dispatchKeyEvent")
+        if command["type"] == "char"
+    ]
+    assert result["verdict"] == "fail"
+    assert "scenario frame_type timeout" in result["steps"][0]["error"]
     assert typed == ["1"]
 
 
@@ -1808,6 +1883,30 @@ steps:
     assert result["dependencies"][1]["path"] == "login.yml"
     assert len(result["sha256"]) == 64
     assert "_cdpx" not in result
+
+
+def test_scenario_validation_reports_secret_reference_without_environment_value(monkeypatch):
+    secret = "validation-secret-canary-4821"
+    monkeypatch.setenv("VALIDATION_PASSWORD", secret)
+    scenario = scenarios.parse(
+        {
+            "name": "validation_redaction",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "type": {
+                        "selector": "#password",
+                        "secret_ref": "VALIDATION_PASSWORD",
+                    }
+                }
+            ],
+        }
+    )
+
+    result = scenarios.validation_result(scenario)
+
+    assert result["secret_refs"] == ["VALIDATION_PASSWORD"]
+    assert secret not in json.dumps(result)
 
 
 def test_scenario_cli_run_executes_composed_steps_and_reports_sources(

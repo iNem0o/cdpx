@@ -190,7 +190,7 @@ Command-specific options:
   conditions and CPU rate. Used without a preset.
 - `action` (after `--`): composed action executed under emulation —
   `goto <url>`, `wait <selector>`, `click <selector>`,
-  `type <selector> <text> [--clear]`, `key <key>`, `eval <js>`.
+  `type <selector> <text> [--clear] [--key-events]`, `key <key>`, `eval <js>`.
 
 ```bash
 cdpx emulate mobile -- goto http://demo.test/
@@ -396,8 +396,10 @@ Supported executable schema (`cdpx.scenario/v1`):
   candidate's referenced secret is typed. Zero or multiple matches fail closed.
   `mode: key_events` emits trusted printable-ASCII keyboard events for PSPs
   whose validation does not react to IME insertion. `key_delay_ms` optionally
-  spaces those events by 0 to 250 ms and is rejected for other modes. Clearing is deliberately
-  unsupported.
+  spaces those events by 0 to 250 ms and is rejected for other modes. The
+  complete frame lookup, focus, origin guards, key sequence and pacing consume
+  the scenario `--timeout`; expiration stops before the next browser effect.
+  Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
   `profiler`. These proofs are collected immediately after the step, even
   if the step fails.

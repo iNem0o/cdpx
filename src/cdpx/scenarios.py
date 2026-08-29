@@ -703,8 +703,9 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
         _require_pair(value, f"{prefix}{verb}")
     elif verb in {"type", "frame_type"}:
         if isinstance(value, dict):
-            fields = {"selector", "secret_ref", "clear"}
+            fields = {"selector", "secret_ref"}
             if verb == "type":
+                fields.add("clear")
                 fields.add("mode")
             if verb == "frame_type":
                 fields.add("frame_origin")
@@ -719,7 +720,7 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             has_secret_ref = isinstance(value.get("secret_ref"), str) and bool(value["secret_ref"])
             if verb == "type" and not has_secret_ref:
                 raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
-            if "clear" in value and not isinstance(value["clear"], bool):
+            if verb == "type" and "clear" in value and not isinstance(value["clear"], bool):
                 raise ScenarioUsageError(f"{prefix}{verb}.clear must be boolean")
             if value.get("mode", "insert_text") not in {
                 "insert_text",
@@ -788,8 +789,6 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                             )
                 elif not has_secret_ref:
                     raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
-                if value.get("clear"):
-                    raise ScenarioUsageError(f"{prefix}{verb}.clear is not supported")
         else:
             # The [selector, text] form would put the secret in plaintext in
             # the YAML: refused at validation time, with the step's position.
@@ -875,12 +874,21 @@ def _run_operation(
     timeout: float,
 ) -> dict:
     if operation.step.verb == "frame_type":
+        deadline = time.monotonic() + timeout
+
+        def remaining() -> float:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                raise CDPTimeout(f"scenario frame_type timeout after {timeout}s")
+            return budget
+
         if operation.frame_candidates:
             return inputs.type_text_in_candidate_frame(
                 client,
                 operation.frame_candidates,
                 mode=operation.frame_mode,
                 key_delay_ms=operation.frame_key_delay_ms,
+                remaining=remaining,
             )
         assert isinstance(operation.action, TypeAction)
         assert operation.frame_origin is not None
@@ -891,6 +899,7 @@ def _run_operation(
             frame_origin=operation.frame_origin,
             mode=operation.frame_mode,
             key_delay_ms=operation.frame_key_delay_ms,
+            remaining=remaining,
         )
     if operation.action is not None:
         return actions.run_action(client, operation.action, timeout)
