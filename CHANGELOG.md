@@ -35,8 +35,9 @@ cdpx uses semantic versioning.
   discovery, focus, origin guards, keyboard events and delays, and invalid
   typing options fail before the hosted frame receives a click.
 - Click interception now explicitly continues paused requests buffered after a
-  zero-settle snapshot before disabling Fetch, preventing cleanup from leaving
-  an observed request without a protocol decision.
+  zero-settle snapshot, including events delivered while Fetch is being
+  disabled, preventing cleanup from leaving an observed request without a
+  protocol decision.
 - Declarative scenarios now expand `${NAME}`, `${NAME:-default}` and `$$` in
   `context.base_url` before strict HTTP(S) origin preflight. Missing variables
   fail as usage errors without exposing their values; scenario secrets remain

@@ -2215,9 +2215,10 @@ def test_intercept_click_zero_settle_releases_redirect_pause_real(cli_page, evid
         "#chained-request-button",
     )
 
-    # With a zero settle window the reporting snapshot is intentionally empty;
-    # the redirected request may pause only while cleanup is disabling Fetch.
-    assert intercepted["matched_count"] == 0
+    # A zero settle window includes only events synchronously buffered by the
+    # click response; Chrome may deliver this pause just before or after that
+    # snapshot, so cleanup correctness is proved by the completed request.
+    assert intercepted["matched_count"] in {0, 1}
     assert intercepted["effective_count"] == 0
     deadline = time.monotonic() + 3
     text = ""

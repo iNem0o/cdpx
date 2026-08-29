@@ -77,6 +77,7 @@ class MockCDP:
         self.network_script: list[dict] = []  # events emitted after Page.navigate
         self.click_network_script: list[dict] = []  # events emitted after mouseReleased
         self.fetch_resolution_script: list[dict] = []  # events emitted during a Fetch verdict
+        self.fetch_disable_script: list[dict] = []  # events emitted after Fetch.disable responds
         # Direct target WebSockets are distinct CDP sessions; Fetch state does not
         # leak from a disconnected client to the next client for the same target.
         self._fetch_enabled_sessions: set[tuple[str, object]] = set()
@@ -116,6 +117,9 @@ class MockCDP:
 
     def script_fetch_resolution(self, events: list[dict]) -> None:
         self.fetch_resolution_script = events
+
+    def script_fetch_disable(self, events: list[dict]) -> None:
+        self.fetch_disable_script = events
 
     def commands_for(self, method: str) -> list[dict]:
         return [p for (_t, m, p) in self.commands if m == method]
@@ -337,6 +341,8 @@ class MockCDP:
             return {}, None, events
         if method == "Fetch.disable":
             self._fetch_enabled_sessions.discard(session_key)
+            events.extend(self.fetch_disable_script)
+            self.fetch_disable_script = []
             return {}, None, events
 
         if method == "Page.captureScreenshot":

@@ -1691,6 +1691,40 @@ def test_intercept_click_zero_settle_releases_traffic_after_snapshot(mock, clien
     assert mock.commands_for("Fetch.disable") == [{}]
 
 
+def test_intercept_click_cleanup_releases_pause_delivered_after_disable_response(mock, client):
+    """Cleanup observes a pause that races with the Fetch.disable response."""
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.script_fetch_disable(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "DISABLE-RACE",
+                    "request": {"url": "http://s.test/api/later", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+
+    assert result["matched_count"] == 0 and result["effective_count"] == 0
+    methods = [method for (_target, method, _params) in mock.commands]
+    assert methods.index("Fetch.disable") < methods.index("Fetch.continueRequest")
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "DISABLE-RACE"}]
+    assert mock.commands_for("Fetch.enable") == [
+        {"patterns": [{"urlPattern": "*"}]},
+        {"patterns": [{"urlPattern": "*"}]},
+    ]
+    assert mock.commands_for("Fetch.disable") == [{}, {}]
+
+
 def test_intercept_click_poll_is_capped_by_remaining_quiet_period():
     """A short settle never inherits the collector's 250 ms polling cap."""
 

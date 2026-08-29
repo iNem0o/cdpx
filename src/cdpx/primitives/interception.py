@@ -14,6 +14,10 @@ from cdpx.client import CDPClient, CDPTimeout, validate_time_budget
 from cdpx.policy import PolicyError, assert_url_allowed
 from cdpx.primitives import inputs, nav
 
+_CLEANUP_QUIET_SECONDS = 0.25
+_CLEANUP_POST_DISABLE_SECONDS = 0.05
+_CLEANUP_MAX_SECONDS = 2.0
+
 
 def intercept_goto(
     client: CDPClient,
@@ -144,8 +148,7 @@ def _main_frame_id(client: CDPClient, *, timeout: float) -> str:
 
 
 def _disable_fetch(client: CDPClient, primary_error: Exception | None) -> None:
-    release_error: Exception | None = None
-    deadline = time.monotonic() + client.timeout
+    deadline = time.monotonic() + min(client.timeout, _CLEANUP_MAX_SECONDS)
 
     def remaining() -> float:
         budget = deadline - time.monotonic()
@@ -154,46 +157,64 @@ def _disable_fetch(client: CDPClient, primary_error: Exception | None) -> None:
         return budget
 
     try:
-        _release_buffered_paused_requests(client, remaining=remaining)
-    except Exception as error:
-        release_error = error
-    try:
-        # Cleanup gets its own bounded attempt even when the action exhausted
-        # its execution budget. Closing the client remains the transport fallback.
-        client.send("Fetch.disable", timeout=client.timeout)
+        while True:
+            _release_buffered_paused_requests(client, remaining=remaining, wait_for_late=True)
+            remaining()
+            # Cleanup gets its own bounded attempt even when the action exhausted
+            # its execution budget. Closing the client remains the transport fallback.
+            client.send("Fetch.disable", timeout=client.timeout)
+            late_pauses = client.collect_events(
+                min(_CLEANUP_POST_DISABLE_SECONDS, remaining()),
+                ("Fetch.requestPaused",),
+            )
+            if not late_pauses:
+                return
+            # A pause can race with the disable response. Re-enable the domain
+            # before deciding that request, then repeat until one disable cycle
+            # observes a quiet wire.
+            _enable_fetch(client, timeout=remaining())
+            _continue_paused_requests(client, late_pauses, remaining=remaining)
     except Exception as cleanup_error:
-        if release_error is not None:
-            cleanup_error.add_note(f"paused request release failed: {release_error}")
         if primary_error is not None:
             primary_error.add_note(f"interception cleanup failed: {cleanup_error}")
             return
-        raise
-    if release_error is not None:
-        if primary_error is not None:
-            primary_error.add_note(f"interception cleanup failed: {release_error}")
-            return
-        raise release_error
+        raise cleanup_error
 
 
 def _release_buffered_paused_requests(
     client: CDPClient,
     *,
     remaining: Callable[[], float],
+    wait_for_late: bool,
 ) -> None:
     """Continue pauses observed after the rule-processing snapshot."""
     while True:
         paused = client.drain_events(("Fetch.requestPaused",))
+        if not paused and wait_for_late:
+            paused = client.collect_events(
+                min(_CLEANUP_QUIET_SECONDS, remaining()),
+                ("Fetch.requestPaused",),
+            )
         if not paused:
             return
-        for event in paused:
-            request_id = event.get("params", {}).get("requestId")
-            if not isinstance(request_id, str) or not request_id:
-                continue
-            client.send(
-                "Fetch.continueRequest",
-                {"requestId": request_id},
-                timeout=remaining(),
-            )
+        _continue_paused_requests(client, paused, remaining=remaining)
+
+
+def _continue_paused_requests(
+    client: CDPClient,
+    paused: list[CDPEvent],
+    *,
+    remaining: Callable[[], float],
+) -> None:
+    for event in paused:
+        request_id = event.get("params", {}).get("requestId")
+        if not isinstance(request_id, str) or not request_id:
+            continue
+        client.send(
+            "Fetch.continueRequest",
+            {"requestId": request_id},
+            timeout=remaining(),
+        )
 
 
 def _collect_until_quiet(
