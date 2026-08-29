@@ -847,7 +847,14 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
             operation = ScenarioOperation(
                 step,
                 action=(
-                    None
+                    # Runtime candidate selection remains a composed frame
+                    # operation, but its representative action makes the
+                    # interaction authority explicit during preflight.
+                    TypeAction(
+                        frame_candidates[0][0],
+                        frame_candidates[0][2],
+                        mode=step.value.get("mode", "insert_text"),
+                    )
                     if frame_candidates
                     else _type_action(step.value, context=context.redaction)
                 ),

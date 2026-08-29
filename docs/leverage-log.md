@@ -1,5 +1,18 @@
 # Leverage log
 
+- Session-Key: next-release@7d74508
+  - Symptom: a repeated full gate passed 893 unit tests and 49 Chrome E2E
+    tests, then Docker Compose reported `No such container` while starting the
+    freshly created cdpx service for the Symfony E2E stage.
+  - Root cause (missing capability): a concurrent purge of unused Docker
+    resources removed the container between the Compose create and start
+    phases; the gate requires exclusive access to those resources while it
+    runs.
+  - Fix encoded (doc/script/lint): this operational sequencing constraint is
+    recorded here; no product-code retry hides destructive Docker maintenance.
+  - Verification (command/CI): `./dev check` completed after the purge ended,
+    with `ok: true`, no proof failures and the Symfony E2E JUnit report present.
+
 - Session-Key: agent/intercept-click@934ee63
   - Symptom: invoking host `pytest` failed while importing Python 3.14 syntax,
     before collecting the targeted scenario regression tests.

@@ -163,14 +163,17 @@ scenario `--timeout`, allowing supervised third-party widgets to opt into a
 longer wait. A `type` step requires `secret_ref`
 (the plain `[selector, text]` form is rejected at validation). `frame_type`
 types a referenced secret into a single-field cross-origin iframe only after
-its runtime `src` matches the declared allowlisted origin. A `candidates` list
-can declare several selector/origin/secret-reference triples when the page
+the child frame's current document URL, read through CDP, matches the declared
+allowlisted origin. The URL is rechecked after focus and around secret input;
+paced key events stop if the frame navigates between characters. A `candidates`
+list can declare several selector/origin/secret-reference triples when the page
 chooses its PSP at runtime; exactly one must resolve and only its secret is
 typed. `mode: key_events` is available for PSP validation that requires trusted
 printable-ASCII keyboard events; `key_delay_ms` can pace those events from 0 to
-250 ms when a supervised widget needs human-like processing time. Screenshots at or
-after that sensitive step, including final screenshots, are refused. The final
-console/network drain precedes the assertions. `context.base_url` accepts the
+250 ms when a supervised widget needs human-like processing time. Screenshots
+at or after that sensitive step, including final screenshots, are refused. The
+final console/network drain precedes the assertions. `context.base_url`
+accepts the
 same `${NAME}`, `${NAME:-default}` and `$$` interpolation grammar as
 `cdpx.yaml`; it is expanded during compilation and the result remains subject
 to the session's strict HTTP(S) origin allowlist. A missing variable fails as

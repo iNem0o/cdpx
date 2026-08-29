@@ -64,6 +64,11 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
     frame_type = fragment["$defs"]["frameTypeStep"]["properties"]["frame_type"]
     assert frame_type["additionalProperties"] is False
     assert "candidates" in frame_type["properties"]
+    assert frame_type["properties"]["key_delay_ms"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 250,
+    }
     candidate = frame_type["properties"]["candidates"]["items"]
     assert set(candidate["required"]) == {"selector", "frame_origin", "secret_ref"}
 

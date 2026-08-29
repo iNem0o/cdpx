@@ -145,7 +145,8 @@
               }
             },
             "secret_ref": {"type": "string", "minLength": 1},
-            "mode": {"type": "string", "enum": ["insert_text", "key_events"]}
+            "mode": {"type": "string", "enum": ["insert_text", "key_events"]},
+            "key_delay_ms": {"type": "integer", "minimum": 0, "maximum": 250}
           }
         },
         "label": {"$ref": "#/$defs/label"},

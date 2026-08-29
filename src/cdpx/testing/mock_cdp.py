@@ -71,6 +71,8 @@ class MockCDP:
         self.targets: dict[str, dict] = {}
         self.commands: list[tuple[str, str, dict]] = []  # (target_id, method, params)
         self.eval_rules: list[tuple[str, deque]] = []  # (substring, successive values)
+        self.frame_nodes: dict[str, tuple[int, str]] = {}
+        self.frame_urls: dict[str, deque[str]] = {}
         self.console_script: list[dict] = []  # events emitted after Runtime.enable
         self.network_script: list[dict] = []  # events emitted after Page.navigate
         self.click_network_script: list[dict] = []  # events emitted after mouseReleased
@@ -92,6 +94,16 @@ class MockCDP:
         """When Runtime.evaluate contains `substring`, reply with these values in
         sequence (the last one repeats)."""
         self.eval_rules.append((substring, deque(values)))
+
+    def script_frame(self, selector: str, *urls: str) -> None:
+        """Expose an iframe owner and its successive current document URLs."""
+        if not urls:
+            raise ValueError("script_frame requires at least one URL")
+        existing = self.frame_nodes.get(selector)
+        node_id = existing[0] if existing else len(self.frame_nodes) + 2
+        frame_id = existing[1] if existing else f"CHILD{node_id}"
+        self.frame_nodes[selector] = (node_id, frame_id)
+        self.frame_urls[frame_id] = deque(urls)
 
     def script_console(self, entries: list[dict]) -> None:
         self.console_script = entries
@@ -269,13 +281,43 @@ class MockCDP:
             return {"frameId": "FRAME1", "loaderId": "LOADER1"}, None, events
 
         if method == "Page.getFrameTree":
+            child_frames = []
+            for frame_id, urls in self.frame_urls.items():
+                url = urls.popleft() if len(urls) > 1 else urls[0]
+                child_frames.append({"frame": {"id": frame_id, "url": url}})
+            frame_tree: dict[str, Any] = {
+                "frame": {
+                    "id": "FRAME1",
+                    "url": self.targets.get(tid, {}).get("url", "about:blank"),
+                }
+            }
+            if child_frames:
+                frame_tree["childFrames"] = child_frames
+            return (
+                {"frameTree": frame_tree},
+                None,
+                events,
+            )
+
+        if method == "DOM.getDocument":
+            return {"root": {"nodeId": 1}}, None, events
+
+        if method == "DOM.querySelector":
+            selector = params.get("selector")
+            node = self.frame_nodes.get(selector) if isinstance(selector, str) else None
+            return {"nodeId": node[0] if node else 0}, None, events
+
+        if method == "DOM.describeNode":
+            node_id = params.get("nodeId")
+            described_frame_id = next(
+                (frame for candidate, frame in self.frame_nodes.values() if candidate == node_id),
+                None,
+            )
             return (
                 {
-                    "frameTree": {
-                        "frame": {
-                            "id": "FRAME1",
-                            "url": self.targets.get(tid, {}).get("url", "about:blank"),
-                        }
+                    "node": {
+                        "nodeId": node_id,
+                        **({"frameId": described_frame_id} if described_frame_id else {}),
                     }
                 },
                 None,

@@ -67,7 +67,7 @@ title = "Type a referenced secret into a cross-origin field"
 ui_text = "A scenario can complete hosted payment fields without exposing their values."
 report_text = "A real Chromium run proves that a referenced secret reaches a single-field cross-origin iframe only after origin verification, while screenshots are forbidden from that step onward."
 given = "A top-level checkout embeds a card-like field from a distinct allowlisted origin."
-when = "frame_type verifies the iframe src, focuses it through the input pipeline and inserts the referenced secret."
+when = "frame_type verifies the child frame's current URL, focuses it through the input pipeline and inserts the referenced secret."
 then = "The child renderer receives the value, the result stays masked and the evidence contains no sensitive screenshot."
 tests = ["tests/e2e/test_e2e_chrome.py::test_declarative_scenario_types_secret_into_cross_origin_frame"]
 expected_proofs = ["junit", "logs"]
@@ -384,9 +384,12 @@ Supported executable schema (`cdpx.scenario/v1`):
   advance focus exactly as they do for a user. `frame_type` accepts
   `{selector, frame_origin, secret_ref}` for
   a single-field cross-origin iframe: cdpx requires an actionable iframe,
-  verifies that its resolved `src` matches the declared allowlisted origin,
-  focuses it through a trusted click, then inserts the secret without reading
-  the child DOM. When a controlled page may select one of several PSPs, replace
+  resolves its owner node to the current child document URL through CDP,
+  verifies that URL against the declared allowlisted origin, focuses it through
+  a trusted click, then rechecks the child URL around secret insertion without
+  reading the child DOM. Paced key events recheck between characters and stop
+  if the frame navigates. When a controlled page may select one of several
+  PSPs, replace
   `selector` and `frame_origin` with
   `candidates: [{selector, frame_origin, secret_ref}, ...]`; exactly one
   declared iframe must exist, its runtime origin must match, and only that

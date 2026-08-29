@@ -743,6 +743,38 @@ steps:
     assert mock.commands == []
 
 
+def test_session_scenario_candidate_frame_type_requires_interaction_before_cdp(
+    mock, capsys, tmp_path, monkeypatch
+):
+    manifest, _ = session_manifest(
+        mock,
+        tmp_path,
+        authority="observation",
+        origins="http://*.test,https://*.test",
+    )
+    monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
+    path = tmp_path / "candidate-frame.yml"
+    path.write_text(
+        """
+name: candidate-frame
+context:
+  base_url: http://demo.test
+steps:
+  - frame_type:
+      candidates:
+        - selector: iframe.card-number
+          frame_origin: https://frames.checkout.test
+          secret_ref: CHECKOUT_CARD
+""",
+        encoding="utf-8",
+    )
+
+    code, _, err = run_session(mock, capsys, manifest, "scenario", "run", str(path))
+
+    assert code == 1 and "requires interaction" in err
+    assert mock.commands == []
+
+
 def test_session_scenario_uses_private_session_evidence_and_secret_ref(
     mock, capsys, tmp_path, monkeypatch, evidence_case
 ):

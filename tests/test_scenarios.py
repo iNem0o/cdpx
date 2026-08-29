@@ -1134,7 +1134,7 @@ def test_scenario_frame_type_checks_origin_and_keeps_secret_out_of_evidence(
         }
     )
     mock.on_eval("__cdpx_actionability", actionable)
-    mock.on_eval("__cdpx_frame_url", "https://frames.checkout.test/card-number.html")
+    mock.script_frame("iframe.card-number", "https://frames.checkout.test/card-number.html")
     scenario = scenarios.parse(
         {
             "name": "hosted_card",
@@ -1174,6 +1174,13 @@ def test_scenario_frame_type_checks_origin_and_keeps_secret_out_of_evidence(
     assert scan_canaries(result["evidence_dir"], [secret]) == []
     assert mock.commands_for("Input.insertText")[-1]["text"] == secret
     assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
+    assert mock.commands_for("DOM.getDocument") == [{"depth": 0}] * 3
+    assert (
+        mock.commands_for("DOM.querySelector")
+        == [{"nodeId": 1, "selector": "iframe.card-number"}] * 3
+    )
+    assert mock.commands_for("DOM.describeNode") == [{"nodeId": 2}] * 3
+    assert mock.commands_for("Page.getFrameTree") == [{}] * 3
 
 
 def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp_path, monkeypatch):
@@ -1195,12 +1202,7 @@ def test_scenario_frame_type_selects_one_allowlisted_runtime_candidate(mock, tmp
         }
     )
     mock.on_eval("__cdpx_actionability", actionable)
-    mock.on_eval("iframe.adyen", None)
-    mock.on_eval(
-        "iframe.checkout",
-        "https://js.checkout.test/card-number.html",
-        "https://js.checkout.test/card-number.html",
-    )
+    mock.script_frame("iframe.checkout", "https://js.checkout.test/card-number.html")
     scenario = scenarios.parse(
         {
             "name": "hosted_card_candidates",
@@ -1322,7 +1324,7 @@ def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, m
             }
         ),
     )
-    mock.on_eval("__cdpx_frame_url", "https://evil.test/field")
+    mock.script_frame("iframe.card-number", "https://evil.test/field")
     scenario = scenarios.parse(
         {
             "name": "origin_guard",
@@ -1352,6 +1354,120 @@ def test_scenario_frame_type_rejects_mismatched_runtime_origin(mock, tmp_path, m
     assert "origin rejected" in result["steps"][0]["error"]
     assert mock.commands_for("Input.insertText") == []
     assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+def test_scenario_frame_type_rechecks_current_frame_url_after_focus(mock, tmp_path, monkeypatch):
+    monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps(
+            {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "stable": True,
+                "receives_events": True,
+                "editable": False,
+                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+            }
+        ),
+    )
+    mock.script_frame(
+        "iframe.card-number",
+        "https://frames.checkout.test/field",
+        "https://evil.test/redirected",
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "origin_drift_after_focus",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "frame_type": {
+                        "selector": "iframe.card-number",
+                        "frame_origin": "https://frames.checkout.test",
+                        "secret_ref": "CHECKOUT_CARD",
+                    }
+                }
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            context=orchestration("http://*.test,https://*.test"),
+            settle=0,
+        )
+
+    assert result["verdict"] == "fail"
+    assert "origin rejected" in result["steps"][0]["error"]
+    assert len(mock.commands_for("Input.dispatchMouseEvent")) == 3
+    assert mock.commands_for("Input.insertText") == []
+
+
+def test_scenario_frame_type_rechecks_current_frame_url_during_paced_input(
+    mock, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("CHECKOUT_CARD", "1234")
+    monkeypatch.setattr(scenarios.inputs.time, "sleep", lambda _delay: None)
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps(
+            {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "stable": True,
+                "receives_events": True,
+                "editable": False,
+                "rect": {"x": 1, "y": 1, "width": 10, "height": 10},
+            }
+        ),
+    )
+    mock.script_frame(
+        "iframe.card-number",
+        "https://frames.checkout.test/field",
+        "https://frames.checkout.test/field",
+        "https://evil.test/redirected",
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "origin_drift_during_typing",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "frame_type": {
+                        "selector": "iframe.card-number",
+                        "frame_origin": "https://frames.checkout.test",
+                        "secret_ref": "CHECKOUT_CARD",
+                        "mode": "key_events",
+                        "key_delay_ms": 30,
+                    }
+                }
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            context=orchestration("http://*.test,https://*.test"),
+            settle=0,
+        )
+
+    typed = [
+        command["text"]
+        for command in mock.commands_for("Input.dispatchKeyEvent")
+        if command["type"] == "char"
+    ]
+    assert result["verdict"] == "fail"
+    assert "origin rejected" in result["steps"][0]["error"]
+    assert typed == ["1"]
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.parse
 from collections.abc import Callable
 from typing import Any
 
@@ -300,7 +299,14 @@ def _type_printable_key(client: CDPClient, char: str) -> None:
     client.send("Input.dispatchKeyEvent", {"type": "keyUp", **key})
 
 
-def _insert_text(client: CDPClient, text: str, *, mode: str, key_delay_ms: int = 0) -> None:
+def _insert_text(
+    client: CDPClient,
+    text: str,
+    *,
+    mode: str,
+    key_delay_ms: int = 0,
+    origin_guard: Callable[[], None] | None = None,
+) -> None:
     if mode not in {"insert_text", "key_events"}:
         raise ValueError(f"unsupported typing mode: {mode}")
     if mode == "key_events" and any(not char.isascii() or not char.isprintable() for char in text):
@@ -314,12 +320,20 @@ def _insert_text(client: CDPClient, text: str, *, mode: str, key_delay_ms: int =
     if mode != "key_events" and key_delay_ms:
         raise ValueError("key_delay_ms requires key_events mode")
     if mode == "insert_text":
+        if origin_guard is not None:
+            origin_guard()
         client.send("Input.insertText", {"text": text})
+        if origin_guard is not None:
+            origin_guard()
         return
     for char in text:
+        if origin_guard is not None:
+            origin_guard()
         _type_printable_key(client, char)
         if key_delay_ms:
             time.sleep(key_delay_ms / 1000)
+        if origin_guard is not None:
+            origin_guard()
 
 
 def type_text_in_frame(
@@ -334,10 +348,21 @@ def type_text_in_frame(
     """Type into a single-field cross-origin iframe without reading its DOM."""
     state = _probe_actionability(client, selector)
     _require_actionable(state, selector)
+    expected_origin = origin_from_url(frame_origin)
+
+    def guard_origin() -> None:
+        assert_url_allowed(_frame_url(client, selector), (expected_origin,))
+
     frame_url = _frame_url(client, selector)
-    assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
+    assert_url_allowed(frame_url, (expected_origin,))
     click(client, selector)
-    _insert_text(client, text, mode=mode, key_delay_ms=key_delay_ms)
+    _insert_text(
+        client,
+        text,
+        mode=mode,
+        key_delay_ms=key_delay_ms,
+        origin_guard=guard_origin,
+    )
     result = {
         "typed": True,
         "value_masked": True,
@@ -390,21 +415,40 @@ def type_text_in_candidate_frame(
 
 
 def _frame_url(client: CDPClient, selector: str) -> str:
-    expression = r"""
-(() => {
-  const element = document.querySelector(__CDPX_SELECTOR__);
-  if (!(element instanceof HTMLIFrameElement) || !element.isConnected) return null;
-  return element.src;
-})() /* __cdpx_frame_url */
-""".replace("__CDPX_SELECTOR__", json.dumps(selector))
-    response = client.send("Runtime.evaluate", {"expression": expression, "returnByValue": True})
-    value = response.get("result", {}).get("value")
-    if not isinstance(value, str) or not value:
-        raise ElementNotInteractable(f"iframe src unavailable: {selector}")
-    parsed = urllib.parse.urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ElementNotInteractable(f"iframe src is not HTTP(S): {selector}")
-    return value
+    document = client.send("DOM.getDocument", {"depth": 0})
+    root_id = document.get("root", {}).get("nodeId")
+    if not isinstance(root_id, int):
+        raise ElementNotInteractable(f"iframe document unavailable: {selector}")
+    query = client.send("DOM.querySelector", {"nodeId": root_id, "selector": selector})
+    node_id = query.get("nodeId")
+    if not isinstance(node_id, int) or node_id <= 0:
+        raise ElementNotInteractable(f"iframe unavailable: {selector}")
+    description = client.send("DOM.describeNode", {"nodeId": node_id})
+    frame_id = description.get("node", {}).get("frameId")
+    if not isinstance(frame_id, str) or not frame_id:
+        raise ElementNotInteractable(f"iframe child frame unavailable: {selector}")
+    frame_tree = client.send("Page.getFrameTree").get("frameTree")
+    frame_url = _find_frame_url(frame_tree, frame_id)
+    if frame_url is None:
+        raise ElementNotInteractable(f"iframe current URL unavailable: {selector}")
+    return frame_url
+
+
+def _find_frame_url(frame_tree: Any, frame_id: str) -> str | None:
+    if not isinstance(frame_tree, dict):
+        return None
+    frame = frame_tree.get("frame")
+    if isinstance(frame, dict) and frame.get("id") == frame_id:
+        url = frame.get("url")
+        return url if isinstance(url, str) and url else None
+    children = frame_tree.get("childFrames", [])
+    if not isinstance(children, list):
+        return None
+    for child in children:
+        url = _find_frame_url(child, frame_id)
+        if url is not None:
+            return url
+    return None
 
 
 def press_key(client: CDPClient, key: str) -> dict:
