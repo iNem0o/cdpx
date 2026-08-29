@@ -30,8 +30,12 @@ Navigation, synchronization and trusted input support every family.
   without an extra multiplexing layer.
 - **Protocol-faithful mock:** deterministic tests assert returned data and the
   exact CDP methods, parameters and order.
-- **Real runtime gates:** Chrome and the Dockerized Symfony application verify
-  browser engine and framework behavior that the mock cannot provide.
+- **Explicit proof layers:** protocol mocks and HTML fixtures prove contracts;
+  they never imply that a browser or external framework ran. Every scenario
+  records both its target and whether the proof is contractual or runtime.
+- **Real runtime gates:** Chrome and the Dockerized Symfony and Shopware
+  applications verify browser-engine and framework behavior that contracts
+  cannot provide.
 - **One OCI toolchain:** the same pinned multi-stage image graph supplies
   development, CI, release and production. The host needs Docker, not a
   project-specific Python toolchain.
@@ -48,10 +52,11 @@ Navigation, synchronization and trusted input support every family.
   graph before secret resolution, authority/origin preflight or any CDP effect.
 
 Chrome discovery uses `PUT /json/new`; an explicit method rejection permits a
-bounded `GET` fallback for compatible endpoints. Cookie clearing similarly
-uses `Storage.clearCookies` with the browser-supported Network-domain
-fallback. These are current compatibility behaviors and are covered by
-protocol tests.
+bounded `GET` fallback for endpoints that expose the older contract. Cookie
+clearing similarly uses `Storage.clearCookies` with a Network-domain fallback.
+These are protocol fallback algorithms, not claims of runtime compatibility
+with historical Chrome versions; the runtime gate covers only the Chromium
+pinned in the cdpx image.
 
 ## Intended environment
 

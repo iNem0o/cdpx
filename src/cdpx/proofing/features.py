@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from cdpx.proofing.markdown import render_markdown
-from cdpx.proofing.scenario_models import ScenarioEvidence
+from cdpx.proofing.scenario_models import ALLOWED_PROOF_KINDS, ScenarioEvidence
 
 FEATURES_DIR = Path("docs/features")
 IGNORED_PATH_PARTS = {
@@ -58,6 +58,8 @@ class ScenarioSpec:
     given: str
     when: str
     then: str
+    target: str
+    proof_level: str
     tests: list[str]
     expected_proofs: list[str]
 
@@ -73,6 +75,8 @@ class ScenarioSpec:
             "given": self.given,
             "when": self.when,
             "then": self.then,
+            "target": self.target,
+            "proof_level": self.proof_level,
             "tests": self.tests,
             "expected_proofs": self.expected_proofs,
             "matched_tests": [],
@@ -243,6 +247,16 @@ def build_feature_inventory(
             path for path in changed_paths if path in set(feature["matched_paths"])
         ]
         _add_feature_gaps(feature)
+        if feature["status"] == "validated" and scenario_evidence.get("files"):
+            for scenario in feature.get("scenarios", []):
+                if scenario.get("target") not in {"symfony", "shopware"}:
+                    continue
+                if not _has_matching_passed_proof(scenario):
+                    violations.append(
+                        "validated external scenario lacks matching runtime proof: "
+                        f"{scenario['scenario_id']} -> "
+                        f"{scenario['target']}/{scenario['proof_level']}"
+                    )
 
     return {
         "features": sorted(features.values(), key=lambda item: item["id"]),
@@ -379,6 +393,8 @@ def parse_scenario_specs(
         "given",
         "when",
         "then",
+        "target",
+        "proof_level",
         "tests",
         "expected_proofs",
     )
@@ -401,6 +417,12 @@ def parse_scenario_specs(
                 isinstance(value, str) for value in item[key]
             ):
                 raise ValueError(f"{path}: scenario {scenario_id} {key} must be a list of strings")
+        target = str(item["target"])
+        proof_level = str(item["proof_level"])
+        if (target, proof_level) not in ALLOWED_PROOF_KINDS:
+            raise ValueError(
+                f"{path}: scenario {scenario_id} has invalid proof kind: {target}/{proof_level}"
+            )
         ids.append(scenario_id)
         scenarios.append(
             ScenarioSpec(
@@ -412,6 +434,8 @@ def parse_scenario_specs(
                 given=str(item["given"]),
                 when=str(item["when"]),
                 then=str(item["then"]),
+                target=target,
+                proof_level=proof_level,
                 tests=list(item["tests"]),
                 expected_proofs=list(item["expected_proofs"]),
             )
@@ -507,7 +531,20 @@ def _resolve_scenario_owner(
                     f"scenario references unknown scenario_id: {nodeid} -> {explicit_scenario_id}"
                 ),
             }
-        return {"feature": match[0], "scenario": match[1], "warning": "", "error": ""}
+        if not scenario.get("target") or not scenario.get("proof_level"):
+            return {
+                "feature": match[0],
+                "scenario": None,
+                "warning": f"auxiliary scenario lacks proof metadata: {nodeid}",
+                "error": "",
+            }
+        mismatch = _proof_kind_mismatch(scenario, match[1])
+        return {
+            "feature": match[0],
+            "scenario": match[1],
+            "warning": "",
+            "error": mismatch,
+        }
 
     explicit_feature = scenario.get("feature", "")
     if explicit_feature:
@@ -519,9 +556,7 @@ def _resolve_scenario_owner(
                 "warning": "",
                 "error": f"scenario references unknown feature: {nodeid} -> {explicit_feature}",
             }
-        scenario_spec = _match_scenario_spec(nodeid, owner.scenarios, scenario.get("journey", ""))
-        warning = "" if scenario_spec else f"scenario has no documented spec: {nodeid}"
-        return {"feature": owner, "scenario": scenario_spec, "warning": warning, "error": ""}
+        return {"feature": owner, "scenario": None, "warning": "", "error": ""}
 
     scenario_matches = [
         (spec, scenario_spec)
@@ -532,7 +567,7 @@ def _resolve_scenario_owner(
     if len(scenario_matches) == 1:
         return {
             "feature": scenario_matches[0][0],
-            "scenario": scenario_matches[0][1],
+            "scenario": None,
             "warning": "",
             "error": "",
         }
@@ -603,6 +638,8 @@ def _enrich_scenario(
             "given": scenario_spec.given,
             "when": scenario_spec.when,
             "then": scenario_spec.then,
+            "target": scenario_spec.target,
+            "proof_level": scenario_spec.proof_level,
             "expected_proofs": scenario_spec.expected_proofs,
         }
     )
@@ -693,5 +730,29 @@ def _add_expected_proof_gaps(node: dict[str, Any]) -> None:
             proof.get("type") == "screenshot" for proof in node.get("proofs", [])
         ):
             node["gaps"].append("expected screenshot proof missing")
-        elif expected == "junit" and not node.get("matched_tests"):
+        elif expected == "junit" and not any(
+            scenario.get("status") == "passed" for scenario in node.get("matched_scenarios", [])
+        ):
             node["gaps"].append("expected junit proof missing")
+
+
+def _proof_kind_mismatch(scenario: Mapping[str, Any], spec: ScenarioSpec) -> str:
+    actual = (scenario.get("target", ""), scenario.get("proof_level", ""))
+    expected = (spec.target, spec.proof_level)
+    if actual == expected:
+        return ""
+    return (
+        f"scenario proof kind mismatch: {scenario.get('nodeid', '')} -> "
+        f"expected {expected[0]}/{expected[1]}, got {actual[0] or 'unknown'}/"
+        f"{actual[1] or 'unknown'}"
+    )
+
+
+def _has_matching_passed_proof(scenario: Mapping[str, Any]) -> bool:
+    return any(
+        evidence.get("status") == "passed"
+        and evidence.get("scenario_id") == scenario.get("scenario_id")
+        and evidence.get("target") == scenario.get("target")
+        and evidence.get("proof_level") == scenario.get("proof_level")
+        for evidence in scenario.get("matched_scenarios", [])
+    )

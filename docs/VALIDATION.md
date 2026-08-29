@@ -10,13 +10,14 @@ and only the manifested `.proof/shareable/` subset may be uploaded.
 | --- | --- |
 | `./dev check-local` | Ruff, format, mypy, deterministic unit and branch coverage |
 | `./dev test-e2e` | real Chrome against the reference fixtures |
-| `./dev check` | blocking Chrome, Symfony and proof gate |
+| `./dev test-shopware-e2e` | real Shopware 6.7 profiler fallback with pinned CI Chromium |
+| `./dev check` | blocking Chrome, Symfony, Shopware and proof gate |
 | `./dev proof` | the same full gate with private cockpit and shareable staging |
 | `./dev release` | full gate plus internal wheel build |
 
-Unavailable Docker, Chrome, Compose or Symfony is a failure for `./dev check`,
-`./dev proof` and `./dev release`. `./dev check-local` is the browser-free
-development loop, not a release verdict.
+Unavailable Docker, pinned Chromium, Compose, Symfony or Shopware is a failure
+for `./dev check`, `./dev proof` and `./dev release`. `./dev check-local` is
+the browser-free development loop, not a release verdict.
 
 Unit coverage is measured with branches enabled. The gate requires at least
 85% line coverage and 75% branch coverage; the thresholds are evaluated
@@ -49,8 +50,8 @@ bounded proof command. Invalid values fail before the current proof tree is
 replaced. `CDPX_PROOF_DIR` selects the internal Compose mount and defaults to
 `./.proof`.
 
-Local image tags and the Symfony Compose project are scoped by the canonical
-worktree path. The Compose proof mount resolves to that worktree's
+Local image tags and the Symfony and Shopware Compose projects are scoped by
+the canonical worktree path. The Compose proof mount resolves to that worktree's
 transactional staging directory, and an advisory lock refuses overlapping
 proof writers inside one worktree. Gates from distinct worktrees may run in
 parallel, subject to host CPU and memory capacity.
@@ -58,8 +59,9 @@ parallel, subject to host CPU and memory capacity.
 ## GitHub Actions
 
 Pull requests run the containerized short gate natively on amd64 and arm64,
-the portable launcher smoke test on macOS, and the complete Chrome/Symfony
-gate on amd64. **`PR Gate / Required`** aggregates them and fails when a
+the portable launcher smoke test on macOS, and the complete
+Chrome/Symfony/Shopware gate on amd64. **`PR Gate / Required`** aggregates
+them and fails when a
 dependency is failed, cancelled or skipped.
 
 The **Full release gate** summary is generated from
@@ -75,6 +77,7 @@ the validation JSON, cockpit, JUnit and bounded text logs.
 | CLI and mock foundation | `./dev check-local`; mock output, method, parameter and ordering assertions |
 | Real browser behavior | `./dev test-e2e` and the full proof |
 | Symfony diagnostics | `./dev check` with real profiler panels |
+| Shopware diagnostics | `./dev test-shopware-e2e` and `./dev check` with the real `app.connection_collector` |
 | Interception and emulation | Fetch-domain and emulation unit plus Chrome scenarios |
 | SEO, performance and accessibility | rendered SEO cases, vitals interaction, AX tree and coverage |
 | Journey orchestration | record/replay divergence, frames, scenarios and action budgets |
@@ -84,7 +87,7 @@ the validation JSON, cockpit, JUnit and bounded text logs.
 
 ## Required edge cases
 
-- Explicit failure when Chrome, Docker or Symfony is unavailable.
+- Explicit failure when pinned Chromium, Docker, Symfony or Shopware is unavailable.
 - PUT tab creation with bounded GET fallback only after a method rejection.
 - Cookie clearing through the browser-supported domain fallback.
 - Interception restricted to `continue`, `block` or status `200..599`.
@@ -98,3 +101,15 @@ the validation JSON, cockpit, JUnit and bounded text logs.
 The signals remain bounded diagnostics: accessibility output is a compact AX
 view, vitals are a local measurement, SEO is an on-page inspection, network
 is not a HAR implementation and replay compares a defined subset.
+
+## Proof attestation
+
+Every documented scenario declares `target` and `proof_level`. Only five
+pairs are accepted: `cdp-mock/contract`, `fixture/contract`,
+`chrome/runtime`, `symfony/runtime` and `shopware/runtime`. The evidence file
+also carries a suite-level attestation, and every case must match it.
+
+A feature that names Symfony or Shopware cannot become `validated` unless an
+explicit scenario for that exact target produced a passed runtime JUnit case.
+Fixtures remain useful parser contracts, and Chrome against reference pages
+remains browser-runtime proof, but neither can validate an external framework.

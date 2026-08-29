@@ -627,6 +627,8 @@ steps:
     feature="orchestration-control",
     journey="scenario-run",
     scenario_id="orchestration-control.run-declarative-business-scenario",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A nominal scenario returns a pass verdict and materializes its proofs in order."],
 )
 def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path, evidence_case):
@@ -1008,6 +1010,8 @@ def test_scenario_network_evidence_redacts_sensitive_headers(mock, tmp_path):
     feature="orchestration-control",
     journey="scenario-run",
     scenario_id="orchestration-control.run-declarative-business-scenario",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A redirect off the allowlist stops the scenario before capture or mutation."],
 )
 def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mock, tmp_path):
@@ -1050,6 +1054,8 @@ def test_strict_scenario_stops_after_redirect_before_next_mutation_or_capture(mo
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A secret_ref typed on the CDP side stays absent from the result and any proof."],
 )
 def test_scenario_secret_ref_never_reaches_outputs_or_evidence(mock, tmp_path, monkeypatch):
@@ -1747,6 +1753,8 @@ def run_cli(mock, capsys, *argv):
     feature="orchestration-control",
     journey="scenario-run",
     scenario_id="orchestration-control.run-declarative-business-scenario",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The scenario run subcommand returns exit 0 and a single JSON object on stdout."],
 )
 def test_scenario_cli_run_passes_with_json(mock, cli_manifest, capsys, tmp_path, evidence_case):

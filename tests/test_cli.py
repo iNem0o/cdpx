@@ -142,7 +142,9 @@ def test_goto(mock, capsys):
 @pytest.mark.scenario(
     feature="browser-navigation",
     journey="open-page",
-    scenario_id="browser-navigation.open-page-success",
+    scenario_id="browser-navigation.handle-navigation-errors-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A CDP navigation error is surfaced as runtime exit 1."],
 )
 def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
@@ -323,6 +325,8 @@ def test_seo_with_navigation(mock, capsys):
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The cookie value is redacted by default: no session secret leaks."],
 )
 def test_cookies_masked_output(mock, capsys, evidence_case):
@@ -353,7 +357,9 @@ def test_cookies_masked_output(mock, capsys, evidence_case):
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Invalid conditional arguments fail with usage exit 2 before CDP."],
 )
 def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
@@ -369,7 +375,9 @@ def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Mutating command variants cannot bypass the configured origin guard."],
 )
 def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkeypatch):
@@ -399,6 +407,8 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
     feature="orchestration-control",
     journey="intercept-network",
     scenario_id="orchestration-control.intercept-network-request",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The origin guard judges the destination of the composed goto, not the initial tab."],
 )
 def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monkeypatch):
@@ -447,7 +457,9 @@ def test_intercept_click_checks_current_origin_before_fetch(mock, capsys):
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A mutating click on a disallowed origin is refused before the input protocol."],
 )
 def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
@@ -612,7 +624,9 @@ DISPATCH_CASES = [
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Each catalog subcommand reaches its primitive and emits its signature CDP command."],
 )
 def test_cli_dispatch_emits_protocol_and_json(

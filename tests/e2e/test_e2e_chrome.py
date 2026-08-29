@@ -2058,43 +2058,6 @@ def test_network_capture_real(page):
     assert any("/api/json" in u for u in urls)
 
 
-def test_profiler_fixture_real(page):
-    """The Symfony profiler reader extracts panel metrics via a real
-    page-context fetch, without ever leaking the profiler's token into the
-    output."""
-    # real page-context fetch: Chrome goes and fetches the fixture server's
-    # HTML panels and the parsers extract the fixed values from them.
-    c, base = page
-    res = dev.profiler(c, f"{base}/api/profiler-sim")
-    #: the token's presence is reported but its value appears nowhere
-    assert res["token_present"] is True
-    assert "token" not in res and "fixed-token" not in json.dumps(res)
-    #: each panel (db, cache, router, exception, logger) is parsed with the
-    #: fixed values served by the fixture
-    assert res["profiler_status"] == 200
-    assert res["panels"]["db"]["queries"] == 6
-    assert res["panels"]["db"]["duplicates"] == 4
-    assert res["panels"]["cache"]["hits"] == 3
-    assert res["panels"]["router"]["route"] == "scenario_profiler"
-    assert res["panels"]["exception"]["raised"] is False
-    assert res["panels"]["logger"]["deprecations"] == 2
-
-
-def test_profiler_shopware_collector_fallback_real(page):
-    """Chrome observes a failed standard db collector before using Shopware's alias."""
-    client, base = page
-
-    result = dev.profiler(
-        client,
-        f"{base}/api/profiler-shopware-sim",
-        panels=["db"],
-    )
-
-    assert result["profiler_status"] == 200
-    assert result["panels"]["db"]["queries"] == 6
-    assert result["panels"]["db"]["max_repetitions"] == 5
-
-
 def test_dom_diff_real(page):
     """dom-diff executes the enclosed action and makes the DOM change it
     triggers readable."""
@@ -2517,7 +2480,7 @@ def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
-    scenario_id="orchestration-control.run-declarative-business-scenario",
+    scenario_id="orchestration-control.run-declarative-business-scenario-in-chrome",
     proves=[
         "A YAML scenario drives a real browser through form navigation and interaction.",
         "Checkpoint and final artifacts are collected as proof files.",
@@ -2552,7 +2515,7 @@ def test_declarative_scenario_static_form_real(
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
-    scenario_id="orchestration-control.run-declarative-business-scenario",
+    scenario_id="orchestration-control.run-declarative-business-scenario-in-chrome",
     proves=[
         "A YAML scenario returns one fail verdict when console and network assertions fail.",
         "Failure evidence still includes checkpoint and final artifacts.",

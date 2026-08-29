@@ -28,8 +28,24 @@ report_text = "This scenario proves that the agent can inspect the browser-rende
 given = "A fixture page exposes a deterministic DOM and JavaScript state."
 when = "cdpx evaluates JavaScript, reads text or counts elements in the rendered page."
 then = "The command output gives a compact, verifiable representation of the browser state."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "dispatch-input-protocol-contract"
+journey = "submit-form"
+title = "Dispatch the trusted-input protocol sequence"
+ui_text = "The contract records the exact CDP mouse and keyboard commands emitted by cdpx."
+report_text = "This contract scenario proves method names, parameters and ordering against the protocol mock; real event trust remains covered by the Chrome runtime scenario."
+given = "The CDP mock exposes an actionable element rectangle."
+when = "cdpx emits a click or keyboard interaction."
+then = "The protocol sequence targets the expected coordinates in the required order."
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*"]
+expected_proofs = ["junit"]
 
 [[scenarios]]
 id = "submit-form-like-user"
@@ -40,7 +56,9 @@ report_text = "This scenario proves that the CLI can perform DOM interactions cl
 given = "A local form fixture is loaded in Chrome."
 when = "cdpx clicks, types text or presses keys via Chrome's Input domains."
 then = "The fixture state changes and the e2e proof keeps a screenshot of the final browser state."
-tests = ["tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*"]
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*", "tests/e2e/test_e2e_chrome.py::test_cli_dom_and_keyboard*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -52,6 +70,8 @@ report_text = "This scenario proves that the BrowserAction typed action model ro
 given = "Valid and invalid composed-action argv, with or without a session identity."
 when = "The CLI parses the composed action at preflight and renders it back as stable argv at the external boundaries."
 then = "The argv round-trip is lossless and invalid argv exits with a diagnosed usage error (exit 1/2) without a traceback."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_action_model.py::*", "tests/test_cli.py::test_invalid_action_argv*"]
 expected_proofs = ["junit"]
 

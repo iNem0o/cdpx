@@ -32,6 +32,8 @@ report_text = "This scenario explains demo behavior for humans."
 given = "Demo exists."
 when = "The user runs demo."
 then = "The result is visible."
+target = "fixture"
+proof_level = "contract"
 tests = ["tests/test_demo.py::test_demo"]
 expected_proofs = ["junit"]
 +++
@@ -144,7 +146,10 @@ def test_build_feature_inventory_maps_entrypoints_and_scenarios():
             "unit": [
                 {
                     "nodeid": "tests/test_cli.py::test_tabs_list",
+                    "scenario_id": "browser-navigation.wait-for-rendered-state",
                     "status": "passed",
+                    "target": "chrome",
+                    "proof_level": "runtime",
                     "artifacts": [],
                 }
             ],
@@ -185,6 +190,47 @@ def test_build_feature_inventory_maps_entrypoints_and_scenarios():
     assert feature["changed_paths"] == ["src/cdpx/discovery.py"]
 
 
+def test_auxiliary_glob_match_cannot_attest_documented_scenario():
+    """A broad test glob may classify an auxiliary test under a feature,
+    but it cannot lend that test the documented scenario's proof kind."""
+    scenarios = {
+        "suites": {
+            "unit": [
+                {
+                    "nodeid": "tests/test_cli.py::test_tabs_list",
+                    "status": "passed",
+                    "artifacts": [],
+                }
+            ],
+            "integration": [],
+            "e2e": [],
+        },
+        "files": [],
+        "totals": {"scenarios": 1},
+    }
+
+    inventory = build_feature_inventory(
+        [{"name": "tabs", "help": "tab management"}],
+        scenarios,
+        {"changed_files": []},
+    )
+
+    feature = next(item for item in inventory["features"] if item["id"] == "browser-navigation")
+    documented = next(
+        item for item in feature["scenarios"] if item["id"] == "wait-for-rendered-state"
+    )
+    auxiliary = next(
+        item
+        for item in feature["matched_scenarios"]
+        if item["nodeid"] == "tests/test_cli.py::test_tabs_list"
+    )
+    assert documented["matched_scenarios"] == []
+    assert auxiliary.get("scenario_id", "") == ""
+    assert auxiliary.get("target", "") == ""
+    assert auxiliary.get("proof_level", "") == ""
+    assert not any("proof kind mismatch" in item for item in inventory["violations"])
+
+
 def test_build_feature_inventory_maps_explicit_scenario_id():
     """A test carrying an explicit scenario_id is attached directly to the
     documented scenario, even if its path matches no sheet glob."""
@@ -195,6 +241,8 @@ def test_build_feature_inventory_maps_explicit_scenario_id():
                     "nodeid": "tests/custom.py::test_demo",
                     "scenario_id": "browser-navigation.open-page-success",
                     "status": "passed",
+                    "target": "chrome",
+                    "proof_level": "runtime",
                     "artifacts": [],
                 }
             ],
@@ -291,3 +339,48 @@ def test_build_feature_inventory_fails_unmapped_public_entrypoint():
     #: the failure names the orphan command to make obvious which sheet
     #: still needs to be written
     assert "feature inventory: entrypoint unmapped: cdpx unknown" in feature_failures(inventory)
+
+
+def test_validated_external_feature_requires_exact_passed_runtime_proof(tmp_path, monkeypatch):
+    """A JUnit-shaped scenario cannot validate Shopware unless its exact
+    scenario id, target and runtime level all passed."""
+    from cdpx.proofing import features as features_module
+
+    path = tmp_path / "demo.md"
+    path.write_text(
+        DEMO_DOC.replace('status = "active"', 'status = "validated"')
+        .replace('target = "fixture"', 'target = "shopware"')
+        .replace('proof_level = "contract"', 'proof_level = "runtime"'),
+        encoding="utf-8",
+    )
+    spec = parse_feature_doc(path)
+    monkeypatch.setattr(features_module, "load_feature_specs", lambda: ([spec], []))
+    base = {
+        "nodeid": "tests/test_demo.py::test_demo",
+        "scenario_id": "demo-feature.demo-happy-path",
+        "status": "passed",
+        "artifacts": [],
+    }
+
+    mismatched = build_feature_inventory(
+        [{"name": "demo", "help": "demo"}],
+        {
+            "suites": {"unit": [{**base, "target": "fixture", "proof_level": "contract"}]},
+            "files": ["unit-scenarios.json"],
+            "totals": {"scenarios": 1},
+        },
+        {"changed_files": []},
+    )
+    assert any("scenario proof kind mismatch" in item for item in mismatched["violations"])
+    assert any("lacks matching runtime proof" in item for item in mismatched["violations"])
+
+    matched = build_feature_inventory(
+        [{"name": "demo", "help": "demo"}],
+        {
+            "suites": {"shopware": [{**base, "target": "shopware", "proof_level": "runtime"}]},
+            "files": ["shopware-scenarios.json"],
+            "totals": {"scenarios": 1},
+        },
+        {"changed_files": []},
+    )
+    assert not any("runtime proof" in item for item in matched["violations"])

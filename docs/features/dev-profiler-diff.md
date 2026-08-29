@@ -3,9 +3,9 @@ id = "dev-profiler-diff"
 title = "Developer diagnostics"
 status = "validated"
 summary = "Parse the Symfony Web Profiler panels (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) from a browser navigation, then compare the DOM before/after an action."
-entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev check"]
-path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
-test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*"]
+entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev test-shopware-e2e", "./dev check"]
+path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "docker-compose.shopware-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/e2e/test_e2e_shopware.py", "tests/symfony-app/**", "tests/shopware-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
+test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*", "tests/e2e/test_e2e_shopware.py::*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -25,16 +25,60 @@ title = "Compare the DOM before and after an action"
 entrypoint = "cdpx dom-diff"
 
 [[scenarios]]
+id = "parse-profiler-html-contract"
+journey = "read-profiler"
+title = "Parse authentic profiler HTML contracts"
+ui_text = "The parser recognizes the committed profiler panel contracts and their edge cases."
+report_text = "This contract scenario proves HTML extraction only; it does not claim that Symfony or Shopware ran."
+given = "Versioned profiler HTML snapshots and small malformed edge-case inputs."
+when = "The panel parsers extract structured metrics."
+then = "The expected metrics and graceful parse failures are returned deterministically."
+target = "fixture"
+proof_level = "contract"
+tests = ["tests/test_profiler_panels.py::*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "exercise-profiler-protocol-contract"
+journey = "read-profiler"
+title = "Exercise profiler navigation and collector fallback contracts"
+ui_text = "The protocol contract covers tokens, panel fetches and ordered collector fallback."
+report_text = "This contract scenario proves emitted CDP commands and fallback behavior against the mock, without claiming an external framework runtime."
+given = "A scripted CDP peer returns profiler headers and panel responses."
+when = "cdpx follows the token and tries collector candidates in order."
+then = "The protocol, redaction and timeout behavior match the public contract."
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_primitives.py::test_profiler*", "tests/test_cli.py::test_profiler*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
 id = "read-symfony-profiler"
 journey = "read-profiler"
-title = "Read Symfony profiler data from a navigation"
-ui_text = "The agent can open a Symfony page and follow the profiler proof."
-report_text = "This scenario proves that framework diagnostics are reachable from a browser navigation. `./dev proof` runs the real Docker Symfony gate and blocks the verdict when Docker is unavailable, a scenario is skipped, or the suite fails."
-given = "A fixture or the Symfony test app exposes profiler-style headers and pages."
-when = "cdpx reads the profiler data after navigation during the Chrome e2e and, when Docker is available, via the Symfony e2e gate."
-then = "The report links the profiler tests, the Docker status, JUnit, logs, the profiler JSON output and the screenshots to the developer diagnostics feature."
-tests = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_cli.py::test_profiler*", "tests/e2e/test_e2e_chrome.py::test_profiler*", "tests/e2e/test_e2e_symfony.py::*"]
-expected_proofs = ["junit", "screenshot"]
+title = "Read a real Symfony profiler"
+ui_text = "The agent opens a real Symfony application and follows its WebProfiler token."
+report_text = "The blocking Symfony Docker gate proves WebProfilerBundle compatibility against the installed Symfony runtime."
+given = "The Docker gate starts the pinned Symfony application with WebProfilerBundle and Chrome."
+when = "cdpx navigates the application and parses the real collector pages."
+then = "A passed Symfony runtime proof carries the exact scenario identity, target and proof level."
+target = "symfony"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"]
+expected_proofs = ["junit", "json", "screenshot"]
+
+[[scenarios]]
+id = "read-shopware-profiler"
+journey = "read-profiler"
+title = "Read Shopware's real database collector fallback"
+ui_text = "The agent follows a real Shopware profiler token and reads its database collector."
+report_text = "The blocking Shopware Docker gate proves the `app.connection_collector` fallback against Shopware 6.7.13.1."
+given = "The Docker gate starts Shopware 6.7.13.1, MariaDB and Chrome in dev mode."
+when = "cdpx requests `db`, observes its absence, then fetches `app.connection_collector` with grouped queries."
+then = "The real Shopware collector reports the repeated tagged queries without exposing the profiler token."
+target = "shopware"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_connection_collector"]
+expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "compare-symfony-profiler-variants"
@@ -45,11 +89,13 @@ report_text = "This scenario proves that baseline/degraded, Doctrine-style N+1, 
 given = "The Symfony test app exercises real collectors (Doctrine, cache, HTTP client, Messenger...) under `/scenario/profiler/{case}`."
 when = "cdpx navigates each case, follows the real WebProfiler token and parses the panel HTML (db, twig, cache, exception, http_client, messenger, router, time, logger)."
 then = "The report links the sanitized JSON proofs, the Docker logs, JUnit and the private screenshots to the developer diagnostics feature without exposing the profiler token."
+target = "symfony"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_symfony.py::test_profiler_compares_deterministic_symfony_variants"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
-id = "diff-dom-after-action"
+id = "diff-dom-contract"
 journey = "diff-dom-action"
 title = "Compare the DOM before and after a browser action"
 ui_text = "The report explains what changed in the DOM after an action."
@@ -57,7 +103,23 @@ report_text = "This scenario proves that DOM changes can be compared around a co
 given = "A fixture page has a stable before-state and a user action that mutates the DOM."
 when = "cdpx records the DOM before and after the action."
 then = "The diff is available as structured test proof with browser screenshots for e2e coverage."
-tests = ["tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*"]
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_dom_diff*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "diff-dom-after-action"
+journey = "diff-dom-action"
+title = "Compare the DOM around a real Chrome action"
+ui_text = "The report explains what changed in the browser DOM after an action."
+report_text = "This runtime scenario proves the DOM comparison around a controlled action in real Chrome."
+given = "A reference page has a stable before-state and an action that mutates the DOM."
+when = "cdpx records the DOM before and after the real browser action."
+then = "The structured diff and screenshot show the observed browser transition."
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_dom_diff_real"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -69,6 +131,8 @@ report_text = "This scenario proves that a Symfony route can expose a controlled
 given = "The Symfony scenario engine exposes `/scenario/front/states`."
 when = "cdpx captures the DOM, clicks the state-transition button and captures the DOM again."
 then = "The DOM diff and the screenshot are attached as Symfony proofs."
+target = "symfony"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_front_state_dom_diff"]
 expected_proofs = ["junit", "json", "screenshot"]
 +++
@@ -76,11 +140,11 @@ expected_proofs = ["junit", "json", "screenshot"]
 ## Intent
 
 Give framework-aware diagnostic feedback without forcing the agent to
-manually pick apart a full browser session. `cdpx profiler` surfaces the
-Symfony WebProfiler data from a simple navigation; `cdpx dom-diff` turns
+manually pick apart a full browser session. `cdpx profiler` surfaces Symfony
+or Shopware WebProfiler data from a simple navigation; `cdpx dom-diff` turns
 "what changed on screen?" into a stable, reviewable DOM diff; `make
-docker-symfony-e2e` proves it all against a real Symfony application under
-Docker.
+docker-symfony-e2e` and `make docker-shopware-e2e` prove the named framework
+integrations against real applications under Docker.
 
 ## Usage
 
@@ -110,7 +174,7 @@ is parsed into the same query/statement/duplicate contract.
 
 Command-specific options:
 
-- `url` (positional, required) — the Symfony app route to profile.
+- `url` (positional, required) — the Symfony or Shopware app route to profile.
 - `--settle S` — time window in seconds for collecting network events
   after load, giving the response carrying the token time to arrive
   (default: 0.2).
@@ -258,36 +322,49 @@ Gotchas and error cases:
 
 ### `./dev check`
 
-Synopsis: `./dev check`
+Synopsis: `./dev check` or `./dev test-shopware-e2e`
 
-Runs the profiler e2e suite against a **real** Symfony application served
-by Docker (`docker-compose.symfony-e2e.yml` + `tests/symfony-app/`): the
-scenario controllers exercise **real collectors** (real Doctrine queries
-on SQLite — N+1 and duplicates included —, cache pool, HTTP client to
-local endpoints, Messenger messages, exceptions and redirects) under
-`/scenario/profiler/{case}`, and `/scenario/front/states` for the DOM
-diff. This is the proof that `cdpx profiler` parses the real WebProfiler
-panels, not just the committed HTML fixtures.
+The full gate runs two profiler suites. The Symfony suite uses
+`docker-compose.symfony-e2e.yml` and `tests/symfony-app/`: its controllers
+exercise real Doctrine, cache, HTTP client, Messenger, Twig, exception,
+routing and timing collectors. The Shopware suite uses Shopware 6.7.13.1,
+MariaDB and a minimal plugin route to prove the real
+`app.connection_collector` fallback after the standard `db` collector returns
+404. Both suites run cdpx through the Chromium pinned in the CI image.
+
+These runtime suites prove the named integrations. The committed Symfony and
+Shopware HTML excerpts prove only the parser contract, while Chrome against
+the fixture server proves browser mechanics only.
 
 Command-specific options: none (a parameterless Make target; Docker and
 Docker Compose must be installed and startable).
 
 ```bash
 ./dev check
+# Shopware gate alone, still with the pinned CI image and Chromium
+./dev test-shopware-e2e
 ```
 
 The resulting proofs land in `.proof/` (`symfony-e2e.log`,
-`symfony-e2e-junit.xml`, profiler comparison JSON, DOM diff JSON,
-screenshots).
+`shopware-e2e.log`, both JUnit files, profiler comparison JSON, DOM diff JSON
+and screenshots).
 
 Gotchas and error cases:
 
 - Docker missing: the target and the release proof fail with an explicit
   `unavailable` status; there is no degraded release success.
-- Docker present but the Symfony scenario fails: `./dev proof`'s overall
+- Docker present but either framework scenario fails: `./dev proof`'s overall
   verdict is blocked — a real failure is never disguised as absence.
-- The first run builds the Symfony image: expect an initial build time
-  before the scenarios execute.
+- The first run builds the framework images and installs Shopware into its
+  disposable database, so expect a longer initial gate.
+- The Shopware test requires `/usr/bin/chromium` inside the cdpx CI image and
+  never falls back to a host or arbitrary system Chrome.
+
+### `./dev test-shopware-e2e`
+
+Runs only the blocking Shopware runtime described above. It is useful while
+iterating on the collector integration; the release verdict still comes from
+the complete `./dev check` gate.
 
 ## User journeys
 
@@ -299,29 +376,30 @@ Gotchas and error cases:
   HTTP client issues, Messenger messages, routing issues and response
   cache headers — from the real panels.
 - Take a stable DOM diff around a browser action.
+- Navigate to real Shopware, follow its profiler token, observe `db` return
+  404, then parse grouped queries from `app.connection_collector`.
 
 ## Validation
 
 The panel parsers are unit-tested against committed HTML
-(`tests/fixtures/profiler/`, trimmed real WebProfilerBundle markup), also
-served by the fixture server for the Chrome e2e. `./dev proof` runs the
-Docker Symfony gate: unavailability, skip or failure blocks the verdict.
+(`tests/fixtures/profiler/`, normalized excerpts with provenance). The fixture
+server may serve these contracts to Chrome without claiming a framework
+runtime. `./dev proof` runs both Docker framework gates: unavailability, skip
+or failure blocks the verdict.
 
 ## Proofs
 
-The expected local proofs are JUnit and private screenshots for the
-Chrome scenarios. The Symfony gate adds `.proof/symfony-e2e.log`,
-`.proof/symfony-e2e-junit.xml`, the profiler diagnostics comparison JSON,
-the DOM diff JSON and browser screenshots. Opaque screenshots stay out of
-`.proof/shareable/`.
+The expected local proofs are JUnit and private screenshots for the Chrome
+scenarios. The Symfony and Shopware gates add their dedicated logs and JUnit
+files, the profiler diagnostics JSON, the DOM diff JSON and browser
+screenshots. Opaque screenshots stay out of `.proof/shareable/`.
 
 ## Known limitations
 
-Docker availability depends on the environment; its absence blocks the
-proof and is resolved by installing Docker then re-running `./dev proof`
-or `./dev check`. Panel parsing is coupled to the
-WebProfilerBundle 7.x HTML markup (no JSON API exists on the Symfony
-side): a major bundle update may require re-capturing the fixtures
+Docker availability depends on the environment; its absence blocks the proof
+and is resolved by installing Docker then re-running `./dev proof` or
+`./dev check`. Panel parsing is coupled to WebProfiler HTML markup (no JSON
+API exists): a major framework update may require re-capturing the fixtures
 and adjusting the parsers — the tolerance contract (`available`/
 `parse_error`, never an exception) guarantees that in the meantime the
 command degrades cleanly instead of breaking.

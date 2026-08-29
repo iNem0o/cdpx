@@ -10,6 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from cdpx.proofing.suites import compose_project_name
 from tools.bump import bump
 
 
@@ -56,8 +57,25 @@ def check_local() -> None:
 
 def check() -> None:
     # The proof pipeline is the full gate and already collects Ruff, mypy,
-    # unit, real Chrome and Symfony evidence exactly once.
+    # unit, real Chrome, Symfony and Shopware evidence exactly once.
     run((sys.executable, "-m", "cdpx.proof"))
+
+
+def shopware_e2e() -> None:
+    command = (
+        "docker",
+        "compose",
+        "--project-name",
+        compose_project_name(),
+        "-f",
+        "docker-compose.shopware-e2e.yml",
+    )
+    down = (*command, "down", "--volumes", "--remove-orphans")
+    run(down)
+    try:
+        run((*command, "up", "--build", "--abort-on-container-exit", "--exit-code-from", "cdpx"))
+    finally:
+        run(down)
 
 
 def format_sources() -> None:
@@ -102,7 +120,17 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="python -m tools.harness")
     root.add_argument(
         "command",
-        choices=("check-local", "check", "proof", "release", "fmt", "clean", "test-e2e", "bump"),
+        choices=(
+            "check-local",
+            "check",
+            "proof",
+            "release",
+            "fmt",
+            "clean",
+            "test-e2e",
+            "test-shopware-e2e",
+            "bump",
+        ),
     )
     root.add_argument("version", nargs="?", help="target X.Y.Z, required by bump")
     return root
@@ -128,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.version is None:
                 parser().error("bump requires a target version: bump X.Y.Z")
             bump(args.version)
+        elif args.command == "test-shopware-e2e":
+            shopware_e2e()
         else:
             run(("pytest", "tests/e2e", "-v"))
     except subprocess.CalledProcessError as error:

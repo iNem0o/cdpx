@@ -943,7 +943,7 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
-    scenario_id="orchestration-control.run-declarative-business-scenario",
+    scenario_id="orchestration-control.run-declarative-business-scenario-on-symfony",
     proves=[
         "Declarative YAML scenarios execute against the real Symfony test application.",
         "Pass, controlled fail, and profiler/vitals evidence runs all produce reports.",

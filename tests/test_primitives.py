@@ -191,7 +191,9 @@ ACTIONABLE = {
 @pytest.mark.scenario(
     feature="dom-interaction",
     journey="submit-form",
-    scenario_id="dom-interaction.submit-form-like-user",
+    scenario_id="dom-interaction.dispatch-input-protocol-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The click emits the moved/pressed/released mouse sequence at the element's center."],
 )
 def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
@@ -729,6 +731,8 @@ def test_console_follow_yields_ndjson_ready_entries(mock, client):
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Secret, Bearer, JWT and URL credentials are absent from console output."],
 )
 def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_case):
@@ -788,7 +792,9 @@ def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_c
 @pytest.mark.scenario(
     feature="browser-capture-observability",
     journey="inspect-runtime",
-    scenario_id="browser-capture-observability.inspect-runtime-failures",
+    scenario_id="browser-capture-observability.collect-observability-protocol-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The network capture summarizes total/failures/errors/bytes with masked URLs."],
 )
 def test_network_capture_assembles_requests(mock, client, evidence_case):
@@ -933,7 +939,9 @@ def _profiler_network_script(base_url: str, headers: dict) -> list[dict]:
 @pytest.mark.scenario(
     feature="dev-profiler-diff",
     journey="read-profiler",
-    scenario_id="dev-profiler-diff.read-symfony-profiler",
+    scenario_id="dev-profiler-diff.exercise-profiler-protocol-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The profiler exposes a masked token and SQL metrics parsed from the db panel."],
 )
 def test_profiler_reads_debug_token_link_and_parses_panels(
@@ -2187,7 +2195,9 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="replay-flow",
-    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    scenario_id="orchestration-control.enforce-replay-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The replay stops dead at the first divergence, without replaying what follows."],
 )
 def test_replay_stops_at_first_divergence(mock, client, tmp_path, evidence_case):

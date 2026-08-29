@@ -10,7 +10,9 @@ from cdpx.proofing.documentation import build_documentation_catalog
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="publish-proof",
-    scenario_id="harness-proof-cockpit.publish-feature-proof",
+    scenario_id="harness-proof-cockpit.publish-proof-contract",
+    target="fixture",
+    proof_level="contract",
     proves=["The shipped Docs catalog publishes references and feature sheets without violation."],
 )
 def test_real_documentation_catalog_publishes_references_and_all_features():

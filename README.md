@@ -4,13 +4,13 @@ cdpx is supervised browser automation for coding agents and the developers
 steering them: it turns a disposable development Chrome into a scriptable,
 measurable and policy-bound interface. Focused Chrome DevTools Protocol
 actions cover rendered-page inspection, trusted user input, audits, state
-control and reproducible browser evidence — proven on Symfony development,
-e-commerce journeys and SEO work.
+control and reproducible browser evidence — proven on Symfony and Shopware
+development, e-commerce journeys and SEO work.
 
 One command performs one browser action. stdout contains one JSON object,
 stderr carries diagnostics, and exit codes remain stable. The same commands
-run against the deterministic mock, a real Chrome and the Dockerized Symfony
-reference application.
+run against the deterministic mock, a real Chrome and Dockerized Symfony and
+Shopware reference applications.
 
 > **Version 0.1.4 — pre-1.0 beta.** The supported surface is documented and
 > tested end to end. Contract changes remain possible before 1.0 and are

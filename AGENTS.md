@@ -15,8 +15,9 @@ development Chrome. See `docs/PRIMITIVES.md` for the public catalog.
 ```text
 ./dev setup              # pinned Docker development/runtime images
 ./dev check-local        # short loop: lint + format + mypy + unit/coverage
-./dev check              # GATE: Docker + Chrome + Symfony + proof
+./dev check              # GATE: Docker + Chrome + Symfony + Shopware + proof
 ./dev test-e2e           # real Chrome — its absence is an error
+./dev test-shopware-e2e  # real Shopware 6.7 profiler gate
 ./dev proof              # private proof report under .proof/
 ./dev release            # gate + internal wheel verification
 ./dev fixtures           # reference site on :8899
@@ -27,8 +28,8 @@ development Chrome. See `docs/PRIMITIVES.md` for the public catalog.
 
 1. **`./dev check` is green before the session ends.**
 2. Unit tests are deterministic, loopback-only and browser-free. Real browser
-   coverage belongs in `tests/e2e/`; unavailable Chrome or Symfony blocks the
-   runtime and release gates.
+   coverage belongs in `tests/e2e/`; unavailable Chrome, Symfony or Shopware
+   blocks the runtime and release gates.
 3. The CLI contract is stable: stdout is one JSON object, stderr carries
    diagnostics, exit codes are 0/1/2. Contract changes require tests and an
    update to `docs/PRIMITIVES.md`.
@@ -49,7 +50,7 @@ src/cdpx/cli.py           argparse to primitives to JSON
 src/cdpx/testing/         shipped mock and fixture server
 tests/                    deterministic unit and contract tests
 tests/fixtures/           static reference site
-tests/e2e/                blocking Chrome and Symfony scenarios
+tests/e2e/                blocking Chrome, Symfony and Shopware scenarios
 docs/                     current product, feature and operating references
 ```
 

@@ -30,11 +30,13 @@ class ProofPaths:
     unit_log: Path
     e2e_log: Path
     symfony_log: Path
+    shopware_log: Path
     cli_help: Path
     git_status: Path
     git_diff_stat: Path
     evidence_dir: Path
     symfony_junit: Path
+    shopware_junit: Path
 
 
 def _junit_status(suite: dict) -> str:
@@ -48,10 +50,12 @@ def build_evidence_catalog(
     unit: dict,
     e2e: dict,
     symfony: dict,
+    shopware: dict | None = None,
     *,
     paths: ProofPaths,
     proof_dir: Path | None = None,
 ) -> list[dict]:
+    shopware = shopware or {"tests": 0, "skipped": 0, "exists": False}
     # Physical root walked for visual proofs/casts; the published canonical
     # paths remain derived from the facade's constants.
     scan_root = paths.proof_dir if proof_dir is None else proof_dir
@@ -100,6 +104,16 @@ def build_evidence_catalog(
             ),
         },
         {
+            "type": "junit",
+            "name": "Shopware E2E JUnit",
+            "path": shopware.get("path", str(paths.shopware_junit)),
+            "status": _junit_status(shopware),
+            "roi": (
+                f"{shopware.get('tests', 0)} real Shopware scenario, "
+                f"{shopware.get('skipped', 0)} declared unavailability/skip."
+            ),
+        },
+        {
             "type": "logs",
             "name": "Unit logs",
             "path": str(paths.unit_log),
@@ -126,6 +140,20 @@ def build_evidence_catalog(
                 "generated",
             ),
             "roi": "Docker Compose transcript, unavailability policy and teardown.",
+        },
+        {
+            "type": "logs",
+            "name": "Shopware E2E logs",
+            "path": str(paths.shopware_log),
+            "status": next(
+                (
+                    command.get("status", "generated")
+                    for command in summary.get("commands", [])
+                    if command.get("id") == "shopware-e2e"
+                ),
+                "generated",
+            ),
+            "roi": "Real Shopware 6.7 Compose transcript and collector fallback.",
         },
         {
             "type": "public-surface",
@@ -248,9 +276,20 @@ def parse_validation_matrix() -> list[dict[str, str]]:
     return rows
 
 
-def group_cases_by_module(unit: dict, e2e: dict, symfony: dict | None = None) -> list[dict]:
+def group_cases_by_module(
+    unit: dict,
+    e2e: dict,
+    symfony: dict | None = None,
+    shopware: dict | None = None,
+) -> list[dict]:
     groups: dict[str, dict] = {}
-    for suite_name, suite in (("unit", unit), ("e2e", e2e), ("symfony", symfony or {"cases": []})):
+    suites = (
+        ("unit", unit),
+        ("e2e", e2e),
+        ("symfony", symfony or {"cases": []}),
+        ("shopware", shopware or {"cases": []}),
+    )
+    for suite_name, suite in suites:
         for case in suite["cases"]:
             module = case["classname"].split(".")[-1] or suite_name
             group = groups.setdefault(

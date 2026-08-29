@@ -529,6 +529,20 @@ def _fake_symfony_evidence(*, proof_dir, **_kwargs):
     )
 
 
+def _fake_shopware_evidence(*, proof_dir, **_kwargs):
+    log_path = proof_dir / "shopware-e2e.log"
+    proof._write_private_text(log_path, "docker compose ok\n")
+    return proof.CommandEvidence(
+        id="shopware-e2e",
+        label="Shopware E2E Docker",
+        argv=["docker", "compose", "up"],
+        log=str(log_path),
+        exit_code=0,
+        duration_s=0.01,
+        status="ok",
+    )
+
+
 def _fake_cast_entries(root, **_kwargs):
     return [
         {"id": cast_id, "path": str(root / f"{cast_id}.cast"), "bytes": 1, "status": "generated"}
@@ -563,6 +577,7 @@ def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
     monkeypatch.setattr(proof, "run_evidence", run_evidence or _fake_run_evidence)
     monkeypatch.setattr(proof, "run_symfony_evidence", symfony or _fake_symfony_evidence)
+    monkeypatch.setattr(proof, "run_shopware_evidence", _fake_shopware_evidence)
     monkeypatch.setattr(proof, "collect_cast_evidence", casts or _fake_cast_entries)
     monkeypatch.setattr(proof, "collect_git_context", _fake_git_context)
     return proof_dir
@@ -1353,8 +1368,17 @@ def test_render_html_size_stays_bounded():
         cast_entries=generated_casts(),
     )
     # Mermaid vendored ~3.5 MB; the cockpit shell/CSS/JS must stay marginal.
+    # The 5 KB provenance margin covers the contract/runtime scenarios added
+    # to prevent broad test globs from being mistaken for runtime proof.
     #: beyond the ceiling, an asset grew without justification: the gate blocks it
-    assert len(proof.render_html(summary)) < 4_500_000
+    assert len(proof.render_html(summary)) < 4_525_000
+
+
+def test_cockpit_names_each_proof_kind_explicitly():
+    javascript = proof.cockpit_javascript()
+
+    for label in ("mock", "fixture contract", "real Chrome", "real Symfony", "real Shopware"):
+        assert label in javascript
 
 
 def test_load_scenario_evidence_accepts_schema_v1_payloads(tmp_path):
@@ -1414,6 +1438,61 @@ def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
     assert str(path) in message
     assert "cdpx.scenarios/v2" in message
     assert "cdpx.scenarios/v3" in message
+
+
+def test_suite_attestation_allows_unattested_auxiliary_scenarios(tmp_path):
+    """A suite-level runtime label describes the environment, while an
+    auxiliary case without its own proof kind remains deliberately neutral."""
+    path = tmp_path / "e2e-scenarios.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "cdpx.scenarios/v2",
+                "suite": "e2e",
+                "target": "chrome",
+                "proof_level": "runtime",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/e2e/test_demo.py::test_auxiliary",
+                        "status": "passed",
+                        "artifacts": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    evidence = proof.load_scenario_evidence(tmp_path)
+
+    auxiliary = evidence["suites"]["e2e"][0]
+    assert "target" not in auxiliary
+    assert "proof_level" not in auxiliary
+
+
+def test_suite_attestation_rejects_conflicting_scenario_proof_kind(tmp_path):
+    path = tmp_path / "e2e-scenarios.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "cdpx.scenarios/v2",
+                "suite": "e2e",
+                "target": "chrome",
+                "proof_level": "runtime",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/e2e/test_demo.py::test_wrong_runtime",
+                        "target": "fixture",
+                        "proof_level": "contract",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactError, match="proof kind does not match suite attestation"):
+        proof.load_scenario_evidence(tmp_path)
 
 
 def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
@@ -1881,7 +1960,14 @@ def test_spa_renders_every_summary_key():
         cast_entries=generated_casts(),
     )
     shell_keys = {"ok", "generated_at", "git"}  # rendered directly by render_html
-    meta_keys = {"artifact_dir", "report_html", "unit_log", "e2e_log", "symfony_log"}
+    meta_keys = {
+        "artifact_dir",
+        "report_html",
+        "unit_log",
+        "e2e_log",
+        "symfony_log",
+        "shopware_log",
+    }
     meta_keys.add("scenario_evidence")  # raw duplicate of feature_inventory/matched_scenarios
     #: a key computed but never read by the SPA fails here: dead work is a bug
     for key in summary:

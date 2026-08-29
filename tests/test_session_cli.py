@@ -369,6 +369,8 @@ def test_session_start_export_prints_evalable_identity_lines(
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.mark-page-content-untrusted",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "Page content read under observation authority is labelled untrusted.",
         "An in-page instruction injection is returned as data, never obeyed.",

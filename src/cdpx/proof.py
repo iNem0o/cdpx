@@ -274,6 +274,9 @@ from cdpx.proofing.scenario_models import (
     ScenarioEvidence,
 )
 from cdpx.proofing.suites import (
+    SHOPWARE_NODEID as SHOPWARE_NODEID,
+)
+from cdpx.proofing.suites import (
     SYMFONY_NODEID as SYMFONY_NODEID,
 )
 from cdpx.proofing.suites import (
@@ -283,7 +286,13 @@ from cdpx.proofing.suites import (
     run_evidence as _run_evidence_impl,
 )
 from cdpx.proofing.suites import (
+    run_shopware_evidence as _run_shopware_evidence_impl,
+)
+from cdpx.proofing.suites import (
     run_symfony_evidence as _run_symfony_evidence_impl,
+)
+from cdpx.proofing.suites import (
+    write_shopware_unavailable_evidence as _write_shopware_unavailable_evidence_impl,
 )
 from cdpx.proofing.suites import (
     write_symfony_unavailable_evidence as _write_symfony_unavailable_evidence_impl,
@@ -302,11 +311,13 @@ SUMMARY_JSON = PROOF_DIR / "validation-summary.json"
 UNIT_LOG = PROOF_DIR / "make-check-pytest.log"
 E2E_LOG = PROOF_DIR / "e2e-chrome.log"
 SYMFONY_LOG = PROOF_DIR / "symfony-e2e.log"
+SHOPWARE_LOG = PROOF_DIR / "shopware-e2e.log"
 CLI_HELP = PROOF_DIR / "cdpx-help.txt"
 GIT_STATUS = PROOF_DIR / "git-status.txt"
 GIT_DIFF_STAT = PROOF_DIR / "git-diff-stat.txt"
 EVIDENCE_DIR = PROOF_DIR / "evidence"
 SYMFONY_JUNIT = PROOF_DIR / "symfony-e2e-junit.xml"
+SHOPWARE_JUNIT = PROOF_DIR / "shopware-e2e-junit.xml"
 # Default runtime evidence store (`cdpx run-scenario`): runs accumulate
 # there between sessions; the retention purge at the start of every
 # `./dev proof` applies the manifested TTLs there, with no manual step.
@@ -328,6 +339,7 @@ MYPY_TIMEOUT_S = 300.0
 UNIT_TIMEOUT_S = 600.0
 E2E_TIMEOUT_S = 900.0
 SYMFONY_TIMEOUT_S = 900.0
+SHOPWARE_TIMEOUT_S = 1200.0
 CLI_HELP_TIMEOUT_S = 30.0
 GIT_TIMEOUT_S = 30.0
 
@@ -475,6 +487,46 @@ def run_symfony_evidence(
     )
 
 
+def write_shopware_unavailable_evidence(
+    reason: str,
+    *,
+    redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+) -> None:
+    """Write an explicit failed runtime attestation for Shopware."""
+
+    return _write_shopware_unavailable_evidence_impl(
+        reason,
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        shopware_log=SHOPWARE_LOG,
+        evidence_dir=EVIDENCE_DIR,
+    )
+
+
+def run_shopware_evidence(
+    *,
+    redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+    timeout: float | None = None,
+    path_rewrites: Sequence[tuple[str, str]] = (),
+) -> CommandEvidence:
+    """Run the blocking real Shopware 6.7 Docker gate."""
+
+    return _run_shopware_evidence_impl(
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        timeout=timeout,
+        path_rewrites=path_rewrites,
+        run_text=_run_text,
+        stream_and_collect=_stream_and_collect,
+        which=shutil.which,
+        shopware_log=SHOPWARE_LOG,
+        evidence_dir=EVIDENCE_DIR,
+        default_proof_dir=PROOF_DIR,
+    )
+
+
 def collect_git_context(
     *,
     redaction_context: RedactionContext | None = None,
@@ -518,11 +570,13 @@ def _current_proof_paths() -> ProofPaths:
         unit_log=UNIT_LOG,
         e2e_log=E2E_LOG,
         symfony_log=SYMFONY_LOG,
+        shopware_log=SHOPWARE_LOG,
         cli_help=CLI_HELP,
         git_status=GIT_STATUS,
         git_diff_stat=GIT_DIFF_STAT,
         evidence_dir=EVIDENCE_DIR,
         symfony_junit=SYMFONY_JUNIT,
+        shopware_junit=SHOPWARE_JUNIT,
     )
 
 
@@ -531,13 +585,20 @@ def build_evidence_catalog(
     unit: dict,
     e2e: dict,
     symfony: dict,
+    shopware: dict | None = None,
     *,
     proof_dir: Path | None = None,
 ) -> list[dict]:
     """Facade wrapper: resolves the patchable paths at call time."""
 
     return _build_evidence_catalog_impl(
-        summary, unit, e2e, symfony, paths=_current_proof_paths(), proof_dir=proof_dir
+        summary,
+        unit,
+        e2e,
+        symfony,
+        shopware,
+        paths=_current_proof_paths(),
+        proof_dir=proof_dir,
     )
 
 
@@ -652,6 +713,7 @@ def build_summary(
     unit: dict,
     e2e: dict,
     symfony: dict | None = None,
+    shopware: dict | None = None,
     *,
     git_context: dict | None = None,
     help_commands: list[dict[str, str]] | None = None,
@@ -667,6 +729,7 @@ def build_summary(
         unit,
         e2e,
         symfony,
+        shopware,
         git_context=git_context,
         help_commands=help_commands,
         scenario_evidence=scenario_evidence,
@@ -878,6 +941,7 @@ def _generate() -> dict:
     unit_xml = staging / "unit-junit.xml"
     e2e_xml = staging / "e2e-junit.xml"
     symfony_xml = staging / SYMFONY_JUNIT.name
+    shopware_xml = staging / SHOPWARE_JUNIT.name
     cli_help = staging / CLI_HELP.name
 
     commands = [
@@ -963,6 +1027,9 @@ def _generate() -> dict:
                 "tests/e2e/test_e2e_runtime_network.py",
                 "-v",
                 f"--cdpx-evidence-dir={evidence_dir}",
+                "--cdpx-evidence-suite=e2e",
+                "--cdpx-evidence-target=chrome",
+                "--cdpx-evidence-proof-level=runtime",
                 f"--junitxml={e2e_xml}",
             ],
             staging / E2E_LOG.name,
@@ -975,6 +1042,12 @@ def _generate() -> dict:
             redaction_context=context,
             proof_dir=staging,
             timeout=scaled(SYMFONY_TIMEOUT_S),
+            path_rewrites=publish_rewrites,
+        ),
+        run_shopware_evidence(
+            redaction_context=context,
+            proof_dir=staging,
+            timeout=scaled(SHOPWARE_TIMEOUT_S),
             path_rewrites=publish_rewrites,
         ),
         run_evidence(
@@ -997,7 +1070,7 @@ def _generate() -> dict:
     # (124 deadline, 137 OOM, negative returncode from a signal, segfault)
     # can mean death without an epilogue, so we purge as soon as exit ≠ 0.
     if any(
-        command.id in {"unit", "e2e", "symfony-e2e"} and command.exit_code != 0
+        command.id in {"unit", "e2e", "symfony-e2e", "shopware-e2e"} and command.exit_code != 0
         for command in commands
     ):
         try:
@@ -1010,11 +1083,12 @@ def _generate() -> dict:
     # requires a "generated" status for every demonstration command.
     cast_entries = collect_cast_evidence(staging, env=env, redaction_context=context)
 
-    for path in (unit_xml, e2e_xml, symfony_xml):
+    for path in (unit_xml, e2e_xml, symfony_xml, shopware_xml):
         _sanitize_text_file(path, context, path_rewrites=publish_rewrites)
     unit = parse_junit(unit_xml)
     e2e = parse_junit(e2e_xml)
     symfony = parse_junit(symfony_xml)
+    shopware = parse_junit(shopware_xml)
     help_commands = parse_help_commands(cli_help.read_text(encoding="utf-8", errors="replace"))
     git_context = collect_git_context(
         redaction_context=context,
@@ -1027,6 +1101,7 @@ def _generate() -> dict:
         unit,
         e2e,
         symfony,
+        shopware,
         git_context=git_context,
         help_commands=help_commands,
         scenario_evidence=scenario_evidence,

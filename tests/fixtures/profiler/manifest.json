@@ -1,0 +1,14 @@
+{
+  "schema": "cdpx.profiler-fixtures/v1",
+  "fixtures": {
+    "shopware-db-grouped.html": {
+      "target": "shopware",
+      "target_version": "6.7.13.1",
+      "web_profiler_bundle_version": "7.4.17",
+      "collector": "app.connection_collector",
+      "request": "/_profiler/<redacted>?group=true&panel=app.connection_collector",
+      "source": "real Docker runtime gate",
+      "normalization": "Interface assets, token-bearing links, parameter dumps, backtraces and unrelated grouped statements removed; metrics and the five-execution SQL row retained."
+    }
+  }
+}

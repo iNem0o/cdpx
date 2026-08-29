@@ -9,7 +9,7 @@ DEV_IMAGE ?= $(or $(CDPX_DEV_IMAGE),cdpx-dev:wt-$(WORKTREE_ID))
 RUNTIME_IMAGE ?= $(or $(CDPX_RUNTIME_IMAGE),cdpx-runtime:wt-$(WORKTREE_ID))
 COMPOSE_PROJECT ?= cdpx-gate-$(WORKTREE_ID)
 
-.PHONY: help setup check-local check lint fmt test test-e2e cov typecheck fixtures mock site-casts worktree-id docker-build docker-check docker-e2e docker-symfony-e2e proof release bump clean dist smoke-dist
+.PHONY: help setup check-local check lint fmt test test-e2e test-shopware-e2e cov typecheck fixtures mock site-casts worktree-id docker-build docker-check docker-e2e docker-symfony-e2e docker-shopware-e2e proof release bump clean dist smoke-dist
 
 help:
 	@./dev help
@@ -35,6 +35,9 @@ test:
 
 test-e2e:
 	$(HARNESS) test-e2e
+
+test-shopware-e2e:
+	$(HARNESS) test-shopware-e2e
 
 cov:
 	$(PY) -m pytest tests --ignore=tests/e2e --cov=cdpx --cov-branch --cov-fail-under=85
@@ -70,6 +73,12 @@ docker-symfony-e2e:
 	docker compose -p $(COMPOSE_PROJECT) -f docker-compose.symfony-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; \
 	status=$$?; \
 	docker compose -p $(COMPOSE_PROJECT) -f docker-compose.symfony-e2e.yml down --volumes --remove-orphans; \
+	exit $$status
+
+docker-shopware-e2e:
+	docker compose -p $(COMPOSE_PROJECT) -f docker-compose.shopware-e2e.yml up --build --abort-on-container-exit --exit-code-from cdpx; \
+	status=$$?; \
+	docker compose -p $(COMPOSE_PROJECT) -f docker-compose.shopware-e2e.yml down --volumes --remove-orphans; \
 	exit $$status
 
 proof:

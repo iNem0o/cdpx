@@ -136,6 +136,17 @@ def test_dockerfile_uses_one_pinned_multistage_toolchain():
     assert "COPY --from=docker-cli" in dockerfile
 
 
+def test_shopware_gate_uses_only_the_ci_image_chromium():
+    test_source = Path("tests/e2e/test_e2e_shopware.py").read_text(encoding="utf-8")
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert 'PINNED_CHROMIUM = Path("/usr/bin/chromium")' in test_source
+    assert "chrome_bin=str(PINNED_CHROMIUM)" in test_source
+    assert "shutil.which" not in test_source
+    assert "CHROME_BIN" not in test_source
+    assert '"chromium=' in dockerfile
+
+
 def test_release_promotes_candidate_digest_and_never_publishes_python_package():
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")

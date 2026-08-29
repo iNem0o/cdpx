@@ -33,8 +33,24 @@ report_text = "This scenario proves that network behavior can be controlled duri
 given = "A fixture page issues requests that the interception rules can match."
 when = "cdpx intercept applies a fulfill, block or continue behavior during the composed navigation or trusted click."
 then = "The browser result and the screenshot prove the requested network path."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_intercept*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "enforce-replay-contract"
+journey = "replay-flow"
+title = "Enforce the bounded replay contract"
+ui_text = "The protocol contract stops replay on divergence and before a missing secret can reach CDP."
+report_text = "This contract scenario proves journal validation, fail-closed secret resolution and stop-on-divergence behavior against the CDP mock; browser execution is covered separately."
+given = "A journal diverges or references an unavailable secret."
+when = "cdpx validates and replays the bounded action sequence."
+then = "Execution stops at the first divergence and emits no later CDP effect."
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect"]
+expected_proofs = ["junit"]
 
 [[scenarios]]
 id = "orchestrate-replay-and-emulation"
@@ -45,7 +61,9 @@ report_text = "This scenario proves that bounded browser actions and device cons
 given = "An NDJSON journal of recorded actions, iframe fixtures or emulation constraints are available."
 when = "cdpx validates the entire journal (syntax, actions, budget) then actually replays each action against the browser, emulates, reads iframes or applies the origin guard."
 then = "Each action is replayed within the budget limit, the replay stops at the first divergence, and the result stays bounded, verifiable and tied to the orchestration feature."
-tests = ["tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -57,7 +75,37 @@ report_text = "This scenario proves that reusable fragments are expanded determi
 given = "A disposable Chrome targets a local or Symfony application and a YAML scenario includes local, versioned fragments."
 when = "cdpx compiles the complete include graph, validates its budget, authority, origins and secrets, then scenario run executes the flattened steps and collects proofs."
 then = "The output contains one verdict plus qualified labels, source provenance, a composition digest, findings and artifacts."
-tests = ["tests/test_scenarios.py::*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_scenarios.py::*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
+id = "run-declarative-business-scenario-in-chrome"
+journey = "scenario-run"
+title = "Run a YAML business scenario in real Chrome"
+ui_text = "The validated scenario drives the reproducible Chrome runtime and captures its browser proofs."
+report_text = "This runtime scenario proves execution of the declarative action language against reference pages in the pinned real Chromium."
+given = "A fully preflighted declarative scenario targets local reference pages."
+when = "cdpx executes the flattened steps in the pinned Chromium runtime."
+then = "Browser assertions and artifacts reflect the observed real-Chrome journey."
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*"]
+expected_proofs = ["junit", "json", "screenshot"]
+
+[[scenarios]]
+id = "run-declarative-business-scenario-on-symfony"
+journey = "scenario-run"
+title = "Run a YAML business scenario against real Symfony"
+ui_text = "The declarative runner drives the real Symfony reference application and records its framework-backed proofs."
+report_text = "This runtime scenario proves the declarative runner against the installed Symfony application rather than a fixture backend."
+given = "The real Symfony application exposes deterministic business scenario routes."
+when = "cdpx executes passing, controlled-failure, profiler and vitals journeys against it."
+then = "The reports and artifacts come from the Symfony runtime and its real collectors."
+target = "symfony"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
@@ -69,6 +117,8 @@ report_text = "A real Chromium run proves that a referenced secret reaches a sin
 given = "A top-level checkout embeds a card-like field from a distinct allowlisted origin."
 when = "frame_type verifies the child frame's current URL, focuses it through the input pipeline and inserts the referenced secret."
 then = "The child renderer receives the value, the result stays masked and the evidence contains no sensitive screenshot."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_chrome.py::test_declarative_scenario_types_secret_into_cross_origin_frame"]
 expected_proofs = ["junit", "logs"]
 +++

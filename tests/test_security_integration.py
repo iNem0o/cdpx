@@ -49,6 +49,8 @@ def _assert_private_tree(root: Path) -> None:
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Aggregated console, storage, network and error outputs ship canary-free."],
 )
 def test_observation_outputs_redact_url_console_storage_and_errors(
@@ -156,6 +158,8 @@ def test_observation_outputs_redact_url_console_storage_and_errors(
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The redact_tree boundary keeps the shareable profiler artifact canary-free."],
 )
 def test_profiler_redacts_token_headers_and_urls_before_artifact(
@@ -277,6 +281,8 @@ def test_profiler_redacts_token_headers_and_urls_before_artifact(
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The replayable journal stores only the secret_ref, never the secret value."],
 )
 def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
@@ -390,7 +396,9 @@ def test_secret_ref_record_stdout_journal_and_artifacts_are_canary_free(
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="replay-flow",
-    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    scenario_id="orchestration-control.enforce-replay-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A missing secret_ref fails the replay closed before any CDP command is emitted."],
 )
 def test_missing_secret_ref_is_rejected_before_any_cdp_effect(

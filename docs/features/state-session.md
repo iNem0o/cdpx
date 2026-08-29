@@ -48,6 +48,8 @@ report_text = "This scenario proves that the browser's session state is observab
 given = "A local storage fixture sets cookies and browser storage values."
 when = "cdpx reads the cookies, localStorage, or sessionStorage."
 then = "The output is structured and safe to review in the proof report."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_cli.py::test_cookies*", "tests/test_primitives.py::test_cookies*", "tests/test_primitives.py::test_get_storage*", "tests/e2e/test_e2e_chrome.py::test_cookies*", "tests/test_primitives.py::test_storage_rejects_unknown_kind*"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -60,6 +62,8 @@ report_text = "This scenario proves that repeatable browser workflows can prepar
 given = "A browser target accepts cookie mutation via CDP."
 when = "cdpx sets or clears the cookies for the target origin."
 then = "The following steps run on a controlled session state."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/test_primitives.py::test_set_and_clear*", "tests/test_primitives.py::test_clear_cookies*"]
 expected_proofs = ["junit"]
 
@@ -72,6 +76,8 @@ report_text = "This scenario proves on real Chrome the isolation of three runs, 
 given = "Three runs start supervised sessions with the observation, interaction, and privileged authorities."
 when = "The CLI performs reads, interactions, and privileged operations, attempts a concurrent lease, then stops each session."
 then = "The browser states remain isolated, the authorities are enforced, the second lease fails, and each profile/endpoint disappears at teardown."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/test_cli.py::test_missing_session*", "tests/test_cli.py::test_direct_connection_options*", "tests/test_session.py::*", "tests/test_policy.py::*", "tests/test_session_cli.py::*", "tests/e2e/test_e2e_sessions.py::test_supervised_sessions_are_isolated_authorized_and_torn_down", "tests/test_private_files.py::*"]
 expected_proofs = ["junit", "json", "screenshot"]
 
@@ -84,6 +90,8 @@ report_text = "This scenario proves that the mock creates a private manifest, at
 given = "Real Chrome is not required and the mock CDP backend is available on loopback."
 when = "A supervised mock session starts, runs a command, then stops."
 then = "The command goes through the assigned manifest and the teardown deletes the private resources."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_session.py::test_mock_backend_uses_supervised_session_contract"]
 expected_proofs = ["junit"]
 
@@ -96,6 +104,8 @@ report_text = "This scenario proves that a read under the observation authority 
 given = "A page served on the allowed origin returns text that mimics an injection instruction."
 when = "cdpx reads the page text under the observation authority in a supervised session."
 then = "The text is returned as data accompanied by the _cdpx content_trust=untrusted block, without ever being executed."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_session_cli.py::test_session_observation_is_scoped_and_emits_untrusted_metadata"]
 expected_proofs = ["junit", "command"]
 
@@ -108,6 +118,8 @@ report_text = "This scenario proves that known canaries are absent from outputs 
 given = "The mock CDP exposes a canary secret across several browser surfaces."
 when = "cdpx observes, logs, and builds a shareable staging area."
 then = "The protocol may receive the value in memory, but stdout, stderr, log, and shareable artifacts do not contain it."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_cli.py::test_cookies_masked_output", "tests/test_primitives.py::test_console_entries_redact*", "tests/test_artifacts.py::*", "tests/test_redaction.py::*", "tests/test_security_integration.py::*", "tests/test_scenarios.py::test_scenario_secret_ref_never_reaches_outputs_or_evidence"]
 expected_proofs = ["junit", "json"]
 
@@ -120,6 +132,8 @@ report_text = "This scenario proves on real Chrome that the supervisor's teardow
 given = "A supervised session is active with a target and a disposable profile."
 when = "The supervisor process receives SIGTERM."
 then = "The manifest, profile, and folder disappear, and the loopback port no longer accepts connections."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_sessions.py::test_supervisor_signal_still_tears_down_chrome_and_private_files"]
 expected_proofs = ["junit", "json", "screenshot"]
 
@@ -132,6 +146,8 @@ report_text = "This scenario proves, without real Chrome, that the supervisor re
 given = "An attested bootstrap describes a session whose Chrome and HTTP discovery are simulated."
 when = "The supervisor first receives an invalid attestation, then the correct attestation, and runs through to SIGTERM."
 then = "The invalid attestation fails without touching any files, the published manifest is reloadable, the surplus targets are closed, and the session is destroyed only once."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_session.py::test_supervisor_builds_manifest_closes_extra_target_and_cleans_up"]
 expected_proofs = ["junit"]
 
@@ -144,6 +160,8 @@ report_text = "This scenario proves, without real Chrome, that ignore_tls_errors
 given = "A mock-backend session is started with ignore_tls_errors and no trust store."
 when = "The caller reads the manifest and its public view."
 then = "The manifest records the option, the public view exposes ignore_tls_errors and a boolean trust_ca, and the raw trust_ca_dir path is absent."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_session.py::test_mock_session_records_ignore_tls_errors_and_public_view"]
 expected_proofs = ["junit"]
 
@@ -156,6 +174,8 @@ report_text = "This scenario proves that a startup that times out names both log
 given = "A simulated supervisor stalls at the wait_devtools stage while writing a secret into its logs."
 when = "start_session exceeds its startup budget."
 then = "The PolicyError cites supervisor.log and chrome-stderr.log, the secret is replaced with ***, and then the private session is deleted."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_session.py::test_start_session_timeout_reports_redacted_log_tails_before_cleanup"]
 expected_proofs = ["junit", "logs"]
 
@@ -168,6 +188,8 @@ report_text = "This scenario proves that public_dict exposes run_id, target_id, 
 given = "A complete supervised session manifest is built."
 when = "The caller reads the public view of the manifest."
 then = "The logical identity is present and no browser or profile attack capability leaks into the default output."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_session.py::test_public_manifest_omits_capabilities_and_physical_profile"]
 expected_proofs = ["junit", "json"]
 
@@ -180,6 +202,8 @@ report_text = "This scenario proves on real Chrome that navigating a default ses
 given = "A loopback HTTPS server serves a page with a self-signed certificate whose issuing CA is not trusted."
 when = "A default supervised session navigates to that HTTPS origin."
 then = "The navigation fails with exit 1 and a certificate error on stderr, leaving stdout empty."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_tls.py::test_default_session_rejects_untrusted_local_https"]
 expected_proofs = ["junit", "command"]
 
@@ -192,6 +216,8 @@ report_text = "This scenario proves that --ignore-tls-errors launches Chrome wit
 given = "A loopback HTTPS server serves a page with an untrusted self-signed certificate."
 when = "A supervised session started with --ignore-tls-errors navigates to that HTTPS origin."
 then = "The navigation succeeds and the JSON reports the loaded HTTPS page."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_tls.py::test_ignore_tls_errors_allows_untrusted_local_https"]
 expected_proofs = ["junit", "command"]
 
@@ -204,6 +230,8 @@ report_text = "This scenario proves that --trust-ca-dir seeds a private per-sess
 given = "A directory holds the PEM CA that issued the loopback HTTPS server's leaf certificate."
 when = "A supervised session started with --trust-ca-dir navigates to that HTTPS origin, and certutil is available."
 then = "The certificate validates against the imported CA and the navigation succeeds; the seeding logic is asserted by the unit suite, which skips cleanly when certutil is unavailable."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_tls.py::test_trust_ca_dir_allows_local_https_signed_by_that_ca", "tests/test_trust.py::*"]
 expected_proofs = ["junit", "command"]
 +++
@@ -307,9 +335,10 @@ Read output:
 `--show-values` is a deliberate elevation: its output does not belong in
 a commit, a ticket, or a proof. Cross-cutting redaction still takes
 priority and therefore re-masks a secret that was already recorded, even
-with this option. `clear` purges the entire assigned profile. A fallback
-to `Network.clearBrowserCookies` maintains compatibility with Chrome
-versions that do not yet offer `Storage.clearCookies`.
+with this option. `clear` purges the entire assigned profile. If
+`Storage.clearCookies` is rejected as an unknown method, the implementation
+falls back to `Network.clearBrowserCookies`. Unit tests prove that protocol
+algorithm; cdpx does not claim a runtime matrix of historical Chrome versions.
 
 ### `cdpx storage`
 

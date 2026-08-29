@@ -1,0 +1,54 @@
+services:
+  database:
+    image: mariadb@sha256:2439dcd7d14010ecd1ff7a4e1c5abe8e208c34fe35290744deeeaac3569043c3
+    environment:
+      MARIADB_DATABASE: shopware
+      MARIADB_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  shopware:
+    build:
+      context: ./tests/shopware-app
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      APP_URL: http://shopware:8000
+      DATABASE_URL: mysql://root:root@database:3306/shopware
+      SHOPWARE_SKIP_WEBINSTALLER: "1"
+      INSTALL_LOCALE: en-GB
+      INSTALL_CURRENCY: EUR
+      INSTALL_ADMIN_USERNAME: admin
+      INSTALL_ADMIN_PASSWORD: cdpx-shopware-e2e
+    depends_on:
+      database:
+        condition: service_healthy
+    command:
+      [
+        "/bin/sh",
+        "-lc",
+        "bin/console system:install --basic-setup --no-assign-theme --skip-assets-install --skip-first-run-wizard && bin/console plugin:refresh && bin/console plugin:install --activate CdpxE2E && bin/console cache:clear && exec /usr/bin/supervisord -c /etc/supervisord.conf",
+      ]
+
+  cdpx:
+    build:
+      context: .
+      target: ci
+    volumes:
+      - ${CDPX_PROOF_DIR:-./.proof}:/workspace/.proof
+    environment:
+      SHOPWARE_E2E_URL: http://shopware:8000
+      CDPX_E2E_UID: "${CDPX_E2E_UID:-1000}"
+      CDPX_E2E_GID: "${CDPX_E2E_GID:-1000}"
+      CDPX_PROOF_RETENTION_DAYS: "${CDPX_PROOF_RETENTION_DAYS:-14}"
+    depends_on:
+      - shopware
+    command:
+      [
+        "/bin/sh",
+        "-lc",
+        "cleanup() { chown -R $${CDPX_E2E_UID}:$${CDPX_E2E_GID} .proof; }; trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; cleanup; exit 143' TERM INT; .venv/bin/python -m pytest tests/e2e/test_e2e_shopware.py -v --cdpx-evidence-dir=.proof/evidence --cdpx-evidence-suite=shopware --cdpx-evidence-target=shopware --cdpx-evidence-proof-level=runtime --junitxml=.proof/shopware-e2e-junit.xml & pid=$$!; wait $$pid; status=$$?; cleanup; exit $$status",
+      ]

@@ -1,5 +1,21 @@
 # Leverage log
 
+- Session-Key: next-release@f2d013c
+  - Symptom: the first proof aggregation treated every test in an attested
+    suite, and then every broad scenario glob match, as if it carried the
+    documented scenario's proof kind; auxiliary tests could therefore create
+    false runtime evidence or fail the provenance gate noisily.
+  - Root cause (missing capability): suite environment attestation, feature
+    classification and scenario proof identity were not distinct concepts in
+    the evidence pipeline.
+  - Fix encoded (doc/script/lint): suite attestations remain at the file root;
+    auxiliary cases stay unattested; only an explicit `scenario_id` can attach
+    proof to a documented scenario; contract and runtime scenarios are split
+    in the feature sheets and covered by reader/writer/inventory tests.
+  - Verification (command/CI): `./dev check-local` passed 926 unit/contract
+    tests, then `./dev check` passed all 983 tests (49 real Chrome, 7 real
+    Symfony and 1 real Shopware) with zero proof failure.
+
 - Session-Key: next-release@7d74508
   - Symptom: a repeated full gate passed 893 unit tests and 49 Chrome E2E
     tests, then Docker Compose reported `No such container` while starting the

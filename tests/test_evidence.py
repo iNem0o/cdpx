@@ -294,6 +294,8 @@ def test_marker_metadata_captures_feature_and_journey():
             feature="harness-proof-cockpit",
             journey="run-quality-gate",
             scenario_id="harness-proof-cockpit.run-local-quality-gate",
+            target="cdp-mock",
+            proof_level="contract",
         ),
     )
 
@@ -304,6 +306,105 @@ def test_marker_metadata_captures_feature_and_journey():
     assert data["feature"] == "harness-proof-cockpit"
     assert data["journey"] == "run-quality-gate"
     assert data["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"
+    assert data["target"] == "cdp-mock"
+    assert data["proof_level"] == "contract"
+
+
+def test_suite_attestation_is_written_at_root_and_case_level(tmp_path):
+    """A runtime proof identifies the exercised system both for the suite
+    and every scenario, so readers can reject a relabelled test."""
+    session = EvidenceSession(
+        tmp_path,
+        suite_override="symfony",
+        target_override="symfony",
+        proof_level_override="runtime",
+        ttl=3600,
+    )
+    case = session.case_for_item(
+        FakeItem(
+            "tests/e2e/test_e2e_symfony.py::test_runtime",
+            FakeMarker(target="symfony", proof_level="runtime"),
+        )
+    )
+    case.status = "passed"
+
+    session.write()
+
+    payload = json.loads((tmp_path / "symfony-scenarios.json").read_text(encoding="utf-8"))
+    assert (payload["target"], payload["proof_level"]) == ("symfony", "runtime")
+    assert (payload["scenarios"][0]["target"], payload["scenarios"][0]["proof_level"]) == (
+        "symfony",
+        "runtime",
+    )
+
+
+def test_external_runtime_marker_requires_matching_suite_attestation(tmp_path):
+    """A marker cannot turn a normal pytest run into proof of an external
+    runtime: Symfony and Shopware must be attested by the invoking gate."""
+    session = EvidenceSession(tmp_path, ttl=3600)
+    item = FakeItem(
+        "tests/test_demo.py::test_shopware",
+        FakeMarker(target="shopware", proof_level="runtime"),
+    )
+
+    with pytest.raises(ValueError, match="requires suite attestation"):
+        session.case_for_item(item)
+
+
+@pytest.mark.parametrize(
+    ("target", "proof_level"),
+    [("fixture", "runtime"), ("chrome", "contract"), ("unknown", "contract")],
+)
+def test_evidence_rejects_forbidden_proof_kinds(tmp_path, target, proof_level):
+    """Only the five intentionally supported proof kinds are accepted."""
+    with pytest.raises(ValueError, match="proof target|proof kind"):
+        EvidenceSession(
+            tmp_path,
+            target_override=target,
+            proof_level_override=proof_level,
+            ttl=3600,
+        )
+
+
+def test_unmarked_auxiliary_case_remains_explicitly_unattested(tmp_path):
+    session = EvidenceSession(tmp_path, ttl=3600)
+
+    case = session.case_for_item(FakeItem("tests/test_demo.py::test_auxiliary"))
+
+    assert "target" not in case.as_dict()
+    assert "proof_level" not in case.as_dict()
+
+
+def test_suite_attestation_does_not_promote_unmarked_auxiliary_case(tmp_path):
+    """The suite identifies its runtime, but only a documented marker may
+    turn an individual test into scenario proof for that runtime."""
+    session = EvidenceSession(
+        tmp_path,
+        suite_override="e2e",
+        target_override="chrome",
+        proof_level_override="runtime",
+        ttl=3600,
+    )
+    case = session.case_for_item(FakeItem("tests/e2e/test_e2e_chrome.py::test_auxiliary"))
+    case.status = "passed"
+
+    session.write()
+
+    payload = json.loads((tmp_path / "e2e-scenarios.json").read_text(encoding="utf-8"))
+    assert (payload["target"], payload["proof_level"]) == ("chrome", "runtime")
+    assert "target" not in payload["scenarios"][0]
+    assert "proof_level" not in payload["scenarios"][0]
+
+
+def test_documented_scenario_requires_a_proof_kind(tmp_path):
+    session = EvidenceSession(tmp_path, ttl=3600)
+    item = FakeItem(
+        "tests/test_demo.py::test_documented",
+        FakeMarker(feature="demo", scenario_id="demo.runtime"),
+    )
+
+    with pytest.raises(ValueError, match="documented scenario requires a proof kind"):
+        session.case_for_item(item)
 
 
 def test_attach_file_enforces_closed_artifact_taxonomy(tmp_path):
@@ -508,7 +609,9 @@ def test_evidence_session_writes_grouped_scenarios(tmp_path):
             FakeMarker(
                 feature="harness-proof-cockpit",
                 journey="run-quality-gate",
-                scenario_id="harness-proof-cockpit.run-local-quality-gate",
+                scenario_id="harness-proof-cockpit.publish-proof-contract",
+                target="fixture",
+                proof_level="contract",
             ),
         )
     )
@@ -529,4 +632,4 @@ def test_evidence_session_writes_grouped_scenarios(tmp_path):
         assert payload["schema"] == "cdpx.scenarios/v2"
     #: the test's scenario marker is found again in the case's proof
     assert case.as_dict()["feature"] == "harness-proof-cockpit"
-    assert case.as_dict()["scenario_id"] == "harness-proof-cockpit.run-local-quality-gate"
+    assert case.as_dict()["scenario_id"] == "harness-proof-cockpit.publish-proof-contract"

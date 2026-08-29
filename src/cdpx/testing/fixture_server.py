@@ -17,10 +17,6 @@ API endpoints (in addition to the static files in tests/fixtures/):
   GET /api/redirect-echo -> redirects to /api/echo
   ANY /api/echo          -> returns method, path, body received
   GET /api/set-cookie    -> sets Set-Cookie: fixture=on
-  GET /api/profiler-sim  -> sets X-Debug-Token-Link to the fake Web Profiler
-  GET /api/profiler-shopware-sim -> fake profiler whose db alias requires fallback
-  GET /_profiler/TOKEN?panel=X -> fixed panel HTML (tests/fixtures/profiler/X.html,
-                            real WebProfilerBundle markup trimmed down; default: request)
 """
 
 from __future__ import annotations
@@ -28,11 +24,9 @@ from __future__ import annotations
 import http.server
 import json
 import pathlib
-import re
 import threading
 import time
 import urllib.parse
-from typing import cast
 
 DEFAULT_FIXTURES = pathlib.Path(__file__).resolve().parents[3] / "tests" / "fixtures"
 
@@ -96,28 +90,6 @@ def _make_handler(root: pathlib.Path):
                     extra={"Set-Cookie": "fixture=on; Path=/"},
                 )
                 return True
-            if path == "/api/profiler-sim":
-                # The server is deliberately bound to loopback. Never reflect
-                # the request's Host header into a response header: besides
-                # making the fixture nondeterministic, that permits response
-                # splitting when a raw client supplies control characters.
-                server = cast(http.server.ThreadingHTTPServer, self.server)
-                port = server.server_port
-                self._send(
-                    json.dumps({"ok": True, "profiler": "sim"}).encode(),
-                    extra={"X-Debug-Token-Link": f"http://127.0.0.1:{port}/_profiler/fixed-token"},
-                )
-                return True
-            if path == "/api/profiler-shopware-sim":
-                server = cast(http.server.ThreadingHTTPServer, self.server)
-                port = server.server_port
-                self._send(
-                    json.dumps({"ok": True, "profiler": "shopware-sim"}).encode(),
-                    extra={
-                        "X-Debug-Token-Link": (f"http://127.0.0.1:{port}/_profiler/shopware-token")
-                    },
-                )
-                return True
             return False
 
         def _serve(self):
@@ -125,27 +97,6 @@ def _make_handler(root: pathlib.Path):
             if parsed.path.startswith("/api/"):
                 if not self._api(parsed):
                     self._send(b'{"error": "unknown api"}', status=404)
-                return
-            if parsed.path.startswith("/_profiler/"):
-                qs = urllib.parse.parse_qs(parsed.query)
-                panel = qs.get("panel", ["request"])[0]
-                token = parsed.path.rstrip("/").rsplit("/", 1)[-1]
-                if token == "shopware-token" and panel == "db":
-                    self._send(b'{"error": "unknown panel"}', status=404)
-                    return
-                filename = (
-                    "db-grouped"
-                    if token == "shopware-token" and panel == "app.connection_collector"
-                    else panel
-                )
-                target = root / "profiler" / f"{filename}.html"
-                valid_panel = bool(re.fullmatch(r"[a-z_]+", panel)) or (
-                    token == "shopware-token" and panel == "app.connection_collector"
-                )
-                if not valid_panel or not target.is_file():
-                    self._send(b'{"error": "unknown panel"}', status=404)
-                    return
-                self._send(target.read_bytes(), ctype="text/html; charset=utf-8")
                 return
             rel = parsed.path.lstrip("/") or "index.html"
             target = (root / rel).resolve()

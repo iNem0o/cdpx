@@ -169,6 +169,7 @@
         <strong><a href="#/features/${esc(feature.id)}/scenarios/${esc(scenario.id)}">${esc(scenario.title)}</a></strong>
         <p>${esc(scenario.ui_text)}</p>
         <code>${esc(scenario.scenario_id)}</code>
+        <span class="badge">${esc(proofKindLabel(scenario))}</span>
       </div>
       <div class="muted">${(scenario.matched_tests || []).length} tests<br>${(scenario.proofs || []).length} proofs<div class="badges">${typeBadges(scenarioArtifacts(scenario.matched_scenarios))}</div></div>
     </article>`;
@@ -183,7 +184,7 @@
     ])}
       <h1>${esc(scenario.title)}</h1>
       <p>${esc(scenario.report_text || scenario.ui_text)}</p>
-      <div class="meta"><code>${esc(scenario.scenario_id)}</code>${statusPill((scenario.gaps || []).length ? 'warning' : 'ok')}</div>
+      <div class="meta"><code>${esc(scenario.scenario_id)}</code><span class="badge">${esc(proofKindLabel(scenario))}</span>${statusPill((scenario.gaps || []).length ? 'warning' : 'ok')}</div>
       <section class="bdd">
         <div><h3>Given</h3><p>${esc(scenario.given)}</p></div>
         <div><h3>When</h3><p>${esc(scenario.when)}</p></div>
@@ -263,7 +264,7 @@
       ? `<details class="test-streams"><summary>stdout / stderr</summary>${run.stdout ? `<pre>${esc(run.stdout)}</pre>` : ''}${run.stderr ? `<pre>${esc(run.stderr)}</pre>` : ''}</details>`
       : '';
     return `<details class="test-card"${failed ? ' open' : ''}>
-      <summary>${statusPill(run.status || 'unknown')} <code>${esc(run.nodeid)}</code><span class="muted">${esc(run.duration_s || 0)}s</span><span class="badges">${typeBadges(run.artifacts)}</span></summary>
+      <summary>${statusPill(run.status || 'unknown')} <span class="badge">${esc(proofKindLabel(run))}</span> <code>${esc(run.nodeid)}</code><span class="muted">${esc(run.duration_s || 0)}s</span><span class="badges">${typeBadges(run.artifacts)}</span></summary>
       ${intent}${orphanFailure}${assertionRows(run)}${artifactTimeline(run, scenario)}${streams}
     </details>`;
   }

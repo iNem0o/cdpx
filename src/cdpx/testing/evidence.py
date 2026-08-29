@@ -41,6 +41,7 @@ from cdpx.proofing.evidence_policy import (
 from cdpx.proofing.evidence_policy import (
     redaction_context_from_environment as redaction_context_from_environment,
 )
+from cdpx.proofing.scenario_models import ALLOWED_PROOF_KINDS, PROOF_LEVELS, PROOF_TARGETS
 from cdpx.security.redaction import (
     RedactionContext,
     redact_text,
@@ -162,6 +163,17 @@ def marker_metadata(item: Any) -> dict[str, Any]:
     return data
 
 
+def _validate_proof_kind(target: str, proof_level: str, where: str) -> None:
+    if not target or not proof_level:
+        raise ValueError(f"{where}: proof target and proof level must be declared together")
+    if target not in PROOF_TARGETS:
+        raise ValueError(f"{where}: unknown proof target: {target}")
+    if proof_level not in PROOF_LEVELS:
+        raise ValueError(f"{where}: unknown proof level: {proof_level}")
+    if (target, proof_level) not in ALLOWED_PROOF_KINDS:
+        raise ValueError(f"{where}: forbidden proof kind: {target}/{proof_level}")
+
+
 @dataclass
 class EvidenceArtifact:
     type: str
@@ -204,6 +216,8 @@ class EvidenceCase:
     feature: str = ""
     journey: str = ""
     scenario_id: str = ""
+    target: str = ""
+    proof_level: str = ""
     proves: list[str] = field(default_factory=list)
     intent: str = ""
     intent_line: int = 0
@@ -550,6 +564,9 @@ class EvidenceCase:
             "stderr": self.stderr,
             "artifacts": [artifact.as_dict() for artifact in self.artifacts],
         }
+        if self.target and self.proof_level:
+            payload["target"] = self.target
+            payload["proof_level"] = self.proof_level
         return redact_tree(payload, context=self.redaction_context, path="$.case")
 
 
@@ -558,6 +575,8 @@ class EvidenceSession:
         self,
         root: str | Path,
         suite_override: str | None = None,
+        target_override: str | None = None,
+        proof_level_override: str | None = None,
         *,
         ttl: float | None = None,
         redaction_context: RedactionContext | None = None,
@@ -567,6 +586,9 @@ class EvidenceSession:
             raise ValueError("strictly positive proof TTL required")
         self.root = Path(root)
         self.suite_override = suite_override
+        self.target_override = target_override
+        self.proof_level_override = proof_level_override
+        self._validate_suite_attestation()
         self.cases: dict[str, EvidenceCase] = {}
         self._intent_cache: dict[str, TestIntent | None] = {}
         self.redaction_context = redaction_context or redaction_context_from_environment()
@@ -580,6 +602,13 @@ class EvidenceSession:
             return self.cases[nodeid]
         metadata = marker_metadata(item)
         suite = self.suite_override or classify_nodeid(nodeid)
+        target = metadata.get("target", "")
+        proof_level = metadata.get("proof_level", "")
+        documented = bool(metadata.get("feature") or metadata.get("scenario_id"))
+        if documented:
+            target = target or self.target_override or ""
+            proof_level = proof_level or self.proof_level_override or ""
+        self._validate_case_proof_kind(metadata, target, proof_level, nodeid)
         intent = self._intent_for_item(item)
         case = EvidenceCase(
             nodeid=nodeid,
@@ -590,6 +619,8 @@ class EvidenceSession:
             feature=metadata.get("feature", ""),
             journey=metadata.get("journey", ""),
             scenario_id=metadata.get("scenario_id", ""),
+            target=target,
+            proof_level=proof_level,
             proves=list(metadata.get("proves", [])),
             intent=intent.docstring if intent else "",
             intent_line=intent.line if intent else 0,
@@ -598,6 +629,46 @@ class EvidenceSession:
         )
         self.cases[nodeid] = case
         return case
+
+    def _validate_suite_attestation(self) -> None:
+        target = self.target_override
+        proof_level = self.proof_level_override
+        if (target is None) != (proof_level is None):
+            raise ValueError(
+                "proof target and proof level suite attestations must be declared together"
+            )
+        if target is None or proof_level is None:
+            return
+        _validate_proof_kind(target, proof_level, "pytest suite attestation")
+
+    def _validate_case_proof_kind(
+        self,
+        metadata: dict[str, Any],
+        target: str,
+        proof_level: str,
+        nodeid: str,
+    ) -> None:
+        marker_target = metadata.get("target", "")
+        marker_level = metadata.get("proof_level", "")
+        if (
+            self.target_override is not None
+            and marker_target
+            and marker_target != self.target_override
+        ):
+            raise ValueError(f"{nodeid}: marker target conflicts with suite attestation")
+        if (
+            self.proof_level_override is not None
+            and marker_level
+            and marker_level != self.proof_level_override
+        ):
+            raise ValueError(f"{nodeid}: marker proof level conflicts with suite attestation")
+        if not target and not proof_level:
+            if metadata.get("feature") or metadata.get("scenario_id"):
+                raise ValueError(f"{nodeid}: documented scenario requires a proof kind")
+            return
+        _validate_proof_kind(target, proof_level, nodeid)
+        if target in {"symfony", "shopware"} and self.target_override is None:
+            raise ValueError(f"{nodeid}: external runtime proof requires suite attestation")
 
     def _intent_for_item(self, item: Any) -> TestIntent | None:
         # Parametrized tests share the same function: extraction happens
@@ -624,6 +695,9 @@ class EvidenceSession:
                 "count": len(cases),
                 "scenarios": sorted(cases, key=lambda item: item["nodeid"]),
             }
+            if self.target_override is not None and self.proof_level_override is not None:
+                payload["target"] = self.target_override
+                payload["proof_level"] = self.proof_level_override
             cleaned = redact_tree(
                 payload,
                 context=self.redaction_context,

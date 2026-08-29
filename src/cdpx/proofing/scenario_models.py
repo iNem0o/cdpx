@@ -10,9 +10,22 @@ the correlation key of the entire pipeline.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Required, TypedDict, cast
 
 from cdpx.artifacts import ArtifactError
+
+PROOF_TARGETS = frozenset({"cdp-mock", "fixture", "chrome", "symfony", "shopware"})
+PROOF_LEVELS = frozenset({"contract", "runtime"})
+ALLOWED_PROOF_KINDS = frozenset(
+    {
+        ("cdp-mock", "contract"),
+        ("fixture", "contract"),
+        ("chrome", "runtime"),
+        ("symfony", "runtime"),
+        ("shopware", "runtime"),
+    }
+)
 
 
 class ScenarioAssertion(TypedDict, total=False):
@@ -53,6 +66,8 @@ class Scenario(TypedDict, total=False):
     feature: str
     journey: str
     scenario_id: str
+    target: str
+    proof_level: str
     proves: list[str]
     intent: str
     intent_line: int
@@ -84,6 +99,8 @@ class ScenarioFile(TypedDict, total=False):
 
     schema: str
     suite: str
+    target: str
+    proof_level: str
     generated_at: str
     count: int
     scenarios: list[Scenario]
@@ -97,6 +114,7 @@ class ScenarioTotals(TypedDict):
     integration: int
     e2e: int
     symfony: int
+    shopware: int
     screenshots: int
     missing_e2e_captures: list[str]
 
@@ -116,6 +134,8 @@ _SCENARIO_STRINGS = (
     "feature",
     "journey",
     "scenario_id",
+    "target",
+    "proof_level",
     "intent",
     "started_at",
     "status",
@@ -169,8 +189,25 @@ def validated_scenario_file(payload: Any, *, source: str, expected_schema: str) 
     }
     if schema is not None:
         normalized["schema"] = schema
-    _copy_optional_scalars(payload, normalized, ("suite", "generated_at"), str, source)
+    _copy_optional_scalars(
+        payload,
+        normalized,
+        ("suite", "target", "proof_level", "generated_at"),
+        str,
+        source,
+    )
     _copy_optional_scalars(payload, normalized, ("count",), int, source)
+    _validate_proof_kind(normalized, source)
+    root_target = normalized.get("target")
+    root_level = normalized.get("proof_level")
+    if root_target or root_level:
+        for index, scenario in enumerate(normalized["scenarios"]):
+            if not scenario.get("target") and not scenario.get("proof_level"):
+                continue
+            if scenario.get("target") != root_target or scenario.get("proof_level") != root_level:
+                raise ArtifactError(
+                    f"{source}: scenarios[{index}] proof kind does not match suite attestation"
+                )
     return cast(ScenarioFile, normalized)
 
 
@@ -196,7 +233,23 @@ def _validated_scenario(value: Any, *, source: str, index: int) -> Scenario:
         normalized["assertions"] = _validated_assertions(value["assertions"], where)
     if "artifacts" in value:
         normalized["artifacts"] = _validated_artifacts(value["artifacts"], where)
+    _validate_proof_kind(normalized, where)
     return cast(Scenario, normalized)
+
+
+def _validate_proof_kind(value: Mapping[str, Any], where: str) -> None:
+    target = value.get("target")
+    proof_level = value.get("proof_level")
+    if target is None and proof_level is None:
+        return
+    if not isinstance(target, str) or not isinstance(proof_level, str):
+        raise ArtifactError(f"{where}: `target` and `proof_level` must be declared together")
+    if target not in PROOF_TARGETS:
+        raise ArtifactError(f"{where}: unknown proof target: {target}")
+    if proof_level not in PROOF_LEVELS:
+        raise ArtifactError(f"{where}: unknown proof level: {proof_level}")
+    if (target, proof_level) not in ALLOWED_PROOF_KINDS:
+        raise ArtifactError(f"{where}: forbidden proof kind: {target}/{proof_level}")
 
 
 def _validated_assertions(value: Any, where: str) -> list[ScenarioAssertion]:

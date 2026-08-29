@@ -48,7 +48,13 @@ E2E_CAPTURE_TYPES = frozenset({"screenshot", "command"})
 
 
 def load_scenario_evidence(root: Path) -> ScenarioEvidence:
-    suites: dict[str, list[Scenario]] = {"unit": [], "integration": [], "e2e": [], "symfony": []}
+    suites: dict[str, list[Scenario]] = {
+        "unit": [],
+        "integration": [],
+        "e2e": [],
+        "symfony": [],
+        "shopware": [],
+    }
     files: list[str] = []
     if not root.exists():
         return {"suites": suites, "files": files, "totals": scenario_totals(suites)}
@@ -92,6 +98,7 @@ def scenario_totals(suites: dict[str, list[Scenario]]) -> ScenarioTotals:
         "integration": len(suites.get("integration", [])),
         "e2e": len(e2e),
         "symfony": len(symfony),
+        "shopware": len(suites.get("shopware", [])),
         "screenshots": screenshots,
         "missing_e2e_captures": missing_e2e,
     }
@@ -237,5 +244,13 @@ def write_scenario_evidence(
             "count": len(scenarios),
             "scenarios": sorted(scenarios, key=lambda item: item["nodeid"]),
         }
+        proof_kinds = {
+            (scenario.get("target", ""), scenario.get("proof_level", "")) for scenario in scenarios
+        }
+        if len(proof_kinds) == 1:
+            target, proof_level = next(iter(proof_kinds))
+            if target and proof_level:
+                payload["target"] = target
+                payload["proof_level"] = proof_level
         cleaned = redact_tree(payload, context=context, path=f"$.scenarios.{suite}")
         _write_private_text(path, json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n")

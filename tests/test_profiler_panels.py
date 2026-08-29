@@ -71,6 +71,16 @@ def test_parse_grouped_db_exposes_statement_repetition_bursts():
     assert "FROM author" in res["repeated"][0]["sql"]
 
 
+def test_parse_real_shopware_grouped_connection_collector_excerpt():
+    res = profiler.parse_panel("db", 200, read("shopware-db-grouped.html"))
+
+    assert res["queries"] == 37
+    assert res["statements"] == 32
+    assert res["duplicates"] == 5
+    assert res["max_repetitions"] == 5
+    assert res["repeated"] == [{"sql": "SELECT 1 /* cdpx-shopware-e2e */", "count": 5}]
+
+
 def test_parse_db_bounds_rows_without_truncating_repetition_aggregation():
     rows = "".join(
         f"<tr><td>{index}</td><td>0.1 ms</td><td><pre>{sql}</pre></td></tr>"
