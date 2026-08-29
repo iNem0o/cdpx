@@ -394,6 +394,8 @@ Supported executable schema (`cdpx.scenario/v1`):
   `candidates: [{selector, frame_origin, secret_ref}, ...]`; exactly one
   declared iframe must exist, its runtime origin must match, and only that
   candidate's referenced secret is typed. Zero or multiple matches fail closed.
+  Every `frame_origin` is one exact HTTP(S) origin without wildcard, path or
+  credentials; the session origin allowlist may remain broader.
   `mode: key_events` emits trusted printable-ASCII keyboard events for PSPs
   whose validation does not react to IME insertion. `key_delay_ms` optionally
   spaces those events by 0 to 250 ms and is rejected for other modes. The

@@ -13,6 +13,7 @@ from cdpx import discovery
 from cdpx.action_model import ClickAction, EvalAction, GotoAction
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
+from cdpx.policy import PolicyError
 from cdpx.primitives import (
     actions,
     audit,
@@ -420,6 +421,34 @@ def test_type_text_key_events_rejects_non_ascii_before_browser_effect(mock, clie
     assert mock.commands == []
 
 
+def test_type_text_key_events_maps_punctuation_to_physical_us_keys(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+
+    inputs.type_text(client, "#code", "-./!_?", mode="key_events")
+
+    downs = [
+        event
+        for event in mock.commands_for("Input.dispatchKeyEvent")
+        if event["type"] == "rawKeyDown"
+    ]
+    assert [
+        (event["key"], event["code"], event["windowsVirtualKeyCode"], event.get("modifiers", 0))
+        for event in downs
+    ] == [
+        ("-", "Minus", 189, 0),
+        (".", "Period", 190, 0),
+        ("/", "Slash", 191, 0),
+        ("!", "Digit1", 49, 8),
+        ("_", "Minus", 189, 8),
+        ("?", "Slash", 191, 8),
+    ]
+    chars = [
+        event for event in mock.commands_for("Input.dispatchKeyEvent") if event["type"] == "char"
+    ]
+    assert [event["unmodifiedText"] for event in chars] == ["-", ".", "/", "1", "-", "/"]
+
+
 @pytest.mark.parametrize(
     ("mode", "key_delay_ms", "message"),
     [
@@ -438,6 +467,35 @@ def test_frame_type_validates_text_and_options_before_browser_effect(
             frame_origin="https://frames.test",
             mode=mode,
             key_delay_ms=key_delay_ms,
+        )
+
+    assert mock.commands == []
+
+
+@pytest.mark.parametrize(
+    "frame_origin",
+    ["https://*.frames.test", "https://frames.test/card", "https://user@frames.test"],
+)
+def test_frame_type_requires_an_exact_origin_before_browser_effect(mock, client, frame_origin):
+    with pytest.raises(PolicyError, match="origin|credentials"):
+        inputs.type_text_in_frame(
+            client,
+            "iframe.card",
+            "secret",
+            frame_origin=frame_origin,
+        )
+
+    assert mock.commands == []
+
+
+def test_frame_candidate_origins_are_all_validated_before_browser_effect(mock, client):
+    with pytest.raises(PolicyError, match="concrete origin"):
+        inputs.type_text_in_candidate_frame(
+            client,
+            (
+                ("iframe.valid", "http://local-frame.test", "one"),
+                ("iframe.wildcard", "https://*.frames.test", "two"),
+            ),
         )
 
     assert mock.commands == []

@@ -29,7 +29,7 @@ from cdpx.artifacts import ArtifactClassification, ArtifactEntry, SecureArtifact
 from cdpx.cdp_types import CDPEvent
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
-from cdpx.policy import assert_url_allowed
+from cdpx.policy import PolicyError, assert_url_allowed, parse_exact_origin
 from cdpx.primitives import actions, capture, dev, emulation, inputs, js, nav, profiler
 from cdpx.runtime_config import ConfigurationError, interpolate_environment_text
 from cdpx.security import (
@@ -780,6 +780,10 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                             raise ScenarioUsageError(
                                 f"{candidate_prefix}frame_origin must be a non-empty string"
                             )
+                        _validate_exact_frame_origin(
+                            candidate["frame_origin"],
+                            f"{candidate_prefix}frame_origin",
+                        )
                         if (
                             not isinstance(candidate.get("secret_ref"), str)
                             or not candidate["secret_ref"]
@@ -787,12 +791,26 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
                             raise ScenarioUsageError(
                                 f"{candidate_prefix}secret_ref must be a non-empty string"
                             )
-                elif not has_secret_ref:
-                    raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
+                else:
+                    _validate_exact_frame_origin(
+                        value["frame_origin"],
+                        f"{prefix}{verb}.frame_origin",
+                    )
+                    if not has_secret_ref:
+                        raise ScenarioUsageError(f"{prefix}{verb} requires secret_ref")
         else:
             # The [selector, text] form would put the secret in plaintext in
             # the YAML: refused at validation time, with the step's position.
             raise ScenarioUsageError(f"{prefix}{verb} requires an object with secret_ref")
+
+
+def _validate_exact_frame_origin(value: str, field: str) -> None:
+    try:
+        parse_exact_origin(value)
+    except PolicyError as exc:
+        raise ScenarioUsageError(
+            f"{field} must be one exact HTTP(S) origin without wildcard, path, or credentials"
+        ) from exc
 
 
 def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenario:

@@ -33,7 +33,9 @@ cdpx uses semantic versioning.
 
 - Paced `frame_type` input now consumes the scenario timeout across frame
   discovery, focus, origin guards, keyboard events and delays, and invalid
-  typing options fail before the hosted frame receives a click.
+  typing options fail before the hosted frame receives a click. Declared frame
+  origins must be concrete HTTP(S) origins, and printable punctuation now emits
+  its physical US-key metadata and modifiers.
 - Click interception now explicitly continues paused requests buffered after a
   zero-settle snapshot, including events delivered while Fetch is being
   disabled, preventing cleanup from leaving an observed request without a

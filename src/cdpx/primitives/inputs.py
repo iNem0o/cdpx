@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from cdpx.client import CDPClient
-from cdpx.policy import assert_url_allowed, origin_from_url
+from cdpx.policy import assert_url_allowed, origin_from_url, parse_exact_origin
 
 _ACTIONABILITY_EXPR = r"""
 (() => {
@@ -284,23 +284,56 @@ def _type_printable_key(
     *,
     remaining: Callable[[], float] | None = None,
 ) -> None:
-    virtual_key = ord(char.upper()) if char.isalpha() else ord(char)
-    code = f"Digit{char}" if char.isdigit() else f"Key{char.upper()}" if char.isalpha() else ""
+    virtual_key, code, modifiers, unmodified_text = _printable_key_layout(char)
     key = {
         "key": char,
+        "code": code,
         "windowsVirtualKeyCode": virtual_key,
         "nativeVirtualKeyCode": virtual_key,
     }
-    if code:
-        key["code"] = code
+    if modifiers:
+        key["modifiers"] = modifiers
     _send(client, "Input.dispatchKeyEvent", {"type": "rawKeyDown", **key}, remaining=remaining)
     _send(
         client,
         "Input.dispatchKeyEvent",
-        {"type": "char", "text": char, "unmodifiedText": char, **key},
+        {"type": "char", "text": char, "unmodifiedText": unmodified_text, **key},
         remaining=remaining,
     )
     _send(client, "Input.dispatchKeyEvent", {"type": "keyUp", **key}, remaining=remaining)
+
+
+_SHIFTED_DIGITS = dict(zip("!@#$%^&*()", "1234567890", strict=True))
+_PUNCTUATION_KEYS = {
+    "`": (192, "Backquote"),
+    "-": (189, "Minus"),
+    "=": (187, "Equal"),
+    "[": (219, "BracketLeft"),
+    "]": (221, "BracketRight"),
+    "\\": (220, "Backslash"),
+    ";": (186, "Semicolon"),
+    "'": (222, "Quote"),
+    ",": (188, "Comma"),
+    ".": (190, "Period"),
+    "/": (191, "Slash"),
+}
+_SHIFTED_PUNCTUATION = dict(zip('~_+{}|:"<>?', _PUNCTUATION_KEYS, strict=True))
+
+
+def _printable_key_layout(char: str) -> tuple[int, str, int, str]:
+    """Return the US physical-key metadata for one printable ASCII character."""
+    if char == " ":
+        return 32, "Space", 0, char
+    if char.isalpha():
+        return ord(char.upper()), f"Key{char.upper()}", 8 if char.isupper() else 0, char.lower()
+    if char.isdigit():
+        return ord(char), f"Digit{char}", 0, char
+    digit = _SHIFTED_DIGITS.get(char)
+    if digit is not None:
+        return ord(digit), f"Digit{digit}", 8, digit
+    base = _SHIFTED_PUNCTUATION.get(char, char)
+    virtual_key, code = _PUNCTUATION_KEYS[base]
+    return virtual_key, code, 8 if base != char else 0, base
 
 
 def _validate_typing_options(*, mode: str, key_delay_ms: int) -> None:
@@ -378,9 +411,9 @@ def type_text_in_frame(
 ) -> dict:
     """Type into a single-field cross-origin iframe without reading its DOM."""
     _validate_typing(text, mode=mode, key_delay_ms=key_delay_ms)
+    expected_origin = parse_exact_origin(frame_origin)
     state = _probe_actionability(client, selector, remaining=remaining)
     _require_actionable(state, selector)
-    expected_origin = origin_from_url(frame_origin)
 
     def guard_origin() -> None:
         assert_url_allowed(_frame_url(client, selector, remaining=remaining), (expected_origin,))
@@ -418,13 +451,17 @@ def type_text_in_candidate_frame(
 ) -> dict:
     """Type into exactly one declared cross-origin iframe candidate."""
     _validate_typing_options(mode=mode, key_delay_ms=key_delay_ms)
+    validated_candidates = tuple(
+        (selector, parse_exact_origin(frame_origin), text)
+        for selector, frame_origin, text in candidates
+    )
     matches: list[tuple[str, str, str]] = []
-    for selector, frame_origin, text in candidates:
+    for selector, frame_origin, text in validated_candidates:
         try:
             frame_url = _frame_url(client, selector, remaining=remaining)
         except ElementNotInteractable:
             continue
-        assert_url_allowed(frame_url, (origin_from_url(frame_origin),))
+        assert_url_allowed(frame_url, (frame_origin,))
         matches.append((selector, frame_origin, text))
 
     if not matches:

@@ -170,7 +170,9 @@ list can declare several selector/origin/secret-reference triples when the page
 chooses its PSP at runtime; exactly one must resolve and only its secret is
 typed. `mode: key_events` is available for PSP validation that requires trusted
 printable-ASCII keyboard events; `key_delay_ms` can pace those events from 0 to
-250 ms when a supervised widget needs human-like processing time. Frame lookup,
+250 ms when a supervised widget needs human-like processing time. Every
+`frame_origin` is one exact HTTP(S) origin without wildcard, path or credentials;
+the session origin allowlist may remain broader. Frame lookup,
 focus, origin guards, input events and pacing share the scenario `--timeout`;
 expiration prevents any later character from being dispatched. Screenshots at
 or after that sensitive step, including final screenshots, are refused. The

@@ -70,10 +70,13 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
         "maximum": 250,
     }
     delay_contract = frame_type["allOf"][0]
+    assert delay_contract["if"]["required"] == ["key_delay_ms"]
     assert delay_contract["if"]["properties"]["key_delay_ms"] == {"minimum": 1}
+    assert delay_contract["then"]["required"] == ["mode"]
     assert delay_contract["then"]["properties"]["mode"] == {"const": "key_events"}
     candidate = frame_type["properties"]["candidates"]["items"]
     assert set(candidate["required"]) == {"selector", "frame_origin", "secret_ref"}
+    assert candidate["properties"]["frame_origin"] == frame_type["properties"]["frame_origin"]
 
 
 def test_portable_scripts_are_posix_and_shellcheck_clean():

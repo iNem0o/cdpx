@@ -406,6 +406,33 @@ steps:
 
 
 @pytest.mark.parametrize(
+    "invalid_yaml",
+    [
+        """schema: cdpx.scenario/v1
+name: invalid
+context: {base_url: http://shop.test}
+steps: []
+1: value
+""",
+        """schema: cdpx.scenario/v1
+name: invalid
+context: {base_url: http://shop.test}
+steps:
+  - include:
+      path: fragment.yml
+      1: value
+""",
+    ],
+)
+def test_load_rejects_non_string_yaml_keys_as_usage_errors(tmp_path, invalid_yaml):
+    entrypoint = tmp_path / "scenario.yml"
+    entrypoint.write_text(invalid_yaml, encoding="utf-8")
+
+    with pytest.raises(scenarios.ScenarioUsageError, match="field names must be strings: 1"):
+        scenarios.load(entrypoint)
+
+
+@pytest.mark.parametrize(
     ("fragment_header", "message"),
     [
         ("name: legacy_fragment", "unexpected fragment schema"),
@@ -1309,7 +1336,7 @@ def test_scenario_frame_type_rejects_key_delay_without_key_events(monkeypatch):
 
 
 def test_scenario_frame_type_rejects_clear_even_when_false():
-    with pytest.raises(scenarios.ScenarioUsageError, match="unknown field.*clear"):
+    with pytest.raises(scenarios.ScenarioUsageError, match=r"unknown field.*clear"):
         scenarios.parse(
             {
                 "name": "unsupported_frame_clear",
@@ -1321,6 +1348,33 @@ def test_scenario_frame_type_rejects_clear_even_when_false():
                             "frame_origin": "https://frames.checkout.test",
                             "secret_ref": "CHECKOUT_CARD",
                             "clear": False,
+                        }
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "frame_origin",
+    [
+        "https://*.checkout.test",
+        "https://frames.checkout.test/path",
+        "https://user@frames.checkout.test",
+    ],
+)
+def test_scenario_frame_type_requires_one_exact_origin(frame_origin):
+    with pytest.raises(scenarios.ScenarioUsageError, match=r"one exact HTTP\(S\) origin"):
+        scenarios.parse(
+            {
+                "name": "invalid_frame_origin",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [
+                    {
+                        "frame_type": {
+                            "selector": "iframe.card-number",
+                            "frame_origin": frame_origin,
+                            "secret_ref": "CHECKOUT_CARD",
                         }
                     }
                 ],

@@ -285,6 +285,10 @@ class _Compiler:
 
     @staticmethod
     def _unknown(data: dict[str, Any], allowed: set[str], where: str) -> None:
+        non_string = [key for key in data if not isinstance(key, str)]
+        if non_string:
+            rendered = ", ".join(sorted(repr(key) for key in non_string))
+            raise ScenarioUsageError(f"{where}: field names must be strings: {rendered}")
         unknown = sorted(set(data) - allowed)
         if unknown:
             raise ScenarioUsageError(f"{where}: unknown field(s): {', '.join(unknown)}")

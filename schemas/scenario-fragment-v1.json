@@ -141,7 +141,11 @@
           ],
           "properties": {
             "selector": {"type": "string", "minLength": 1},
-            "frame_origin": {"type": "string", "format": "uri"},
+            "frame_origin": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^[hH][tT][tT][pP][sS]?://(?![^/?#]*[@*])[^/?#]+$"
+            },
             "candidates": {
               "type": "array",
               "minItems": 1,
@@ -151,7 +155,11 @@
                 "required": ["selector", "frame_origin", "secret_ref"],
                 "properties": {
                   "selector": {"type": "string", "minLength": 1},
-                  "frame_origin": {"type": "string", "format": "uri"},
+                  "frame_origin": {
+                    "type": "string",
+                    "format": "uri",
+                    "pattern": "^[hH][tT][tT][pP][sS]?://(?![^/?#]*[@*])[^/?#]+$"
+                  },
                   "secret_ref": {"type": "string", "minLength": 1}
                 }
               }
