@@ -213,11 +213,22 @@ def _require_actionable(state: dict[str, Any], selector: str) -> None:
             raise ElementNotInteractable(f"{message}: {selector}")
 
 
-def _prepare_text_input(client: CDPClient, selector: str, clear: bool) -> None:
+def _prepare_text_input(
+    client: CDPClient,
+    selector: str,
+    clear: bool,
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> None:
     expr = _PREPARE_TEXT_EXPR.replace("__CDPX_CLEAR__", "true" if clear else "false").replace(
         "__CDPX_SELECTOR__", json.dumps(selector)
     )
-    res = client.send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
+    res = _send(
+        client,
+        "Runtime.evaluate",
+        {"expression": expr, "returnByValue": True},
+        remaining=remaining,
+    )
     if res.get("result", {}).get("value") is not True:
         raise ElementNotFound(f"selector not found or selection not possible: {selector}")
 
@@ -254,24 +265,31 @@ def type_text(
     *,
     mode: str = "insert_text",
     origin_guard: Callable[[], None] | None = None,
+    remaining: Callable[[], float] | None = None,
 ) -> dict:
     """Focus an element and type with IME insertion or discrete trusted key events."""
     _validate_typing(text, mode=mode, key_delay_ms=0)
-    state = _probe_actionability(client, selector)
+    state = _probe_actionability(client, selector, remaining=remaining)
     _require_attached(state, selector)
     for field, message in _FAILURE_MESSAGES[:2]:
         if not state[field]:
             raise ElementNotInteractable(f"{message}: {selector}")
     if not state["editable"]:
         raise ElementNotInteractable(f"element not editable: {selector}")
-    _prepare_text_input(client, selector, clear)
+    _prepare_text_input(client, selector, clear, remaining=remaining)
     if clear:
         if origin_guard is not None:
             origin_guard()
-        press_key(client, "Backspace")
+        press_key(client, "Backspace", remaining=remaining)
         if origin_guard is not None:
             origin_guard()
-    _insert_text(client, text, mode=mode, origin_guard=origin_guard)
+    _insert_text(
+        client,
+        text,
+        mode=mode,
+        origin_guard=origin_guard,
+        remaining=remaining,
+    )
     result = {
         "typed": True,
         "value_masked": True,
@@ -544,19 +562,28 @@ def _find_frame_url(frame_tree: Any, frame_id: str) -> str | None:
     return None
 
 
-def press_key(client: CDPClient, key: str) -> dict:
+def press_key(
+    client: CDPClient,
+    key: str,
+    *,
+    remaining: Callable[[], float] | None = None,
+) -> dict:
     if key not in KEY_MAP:
         raise ValueError(f"unsupported key: {key} (available: {', '.join(KEY_MAP)})")
     params = KEY_MAP[key]
     down = {"type": "rawKeyDown", **{k: v for k, v in params.items() if k != "text"}}
-    client.send("Input.dispatchKeyEvent", down)
+    _send(client, "Input.dispatchKeyEvent", down, remaining=remaining)
     if "text" in params:
-        client.send(
+        _send(
+            client,
             "Input.dispatchKeyEvent",
             {"type": "char", "text": params["text"], "key": params["key"]},
+            remaining=remaining,
         )
-    client.send(
+    _send(
+        client,
         "Input.dispatchKeyEvent",
         {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
+        remaining=remaining,
     )
     return {"pressed": key}

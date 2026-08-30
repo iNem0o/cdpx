@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -44,10 +45,14 @@ LOCAL_GATES = (
 )
 
 
-def run(command: tuple[str, ...] | list[str]) -> None:
+def run(
+    command: tuple[str, ...] | list[str],
+    *,
+    env: dict[str, str] | None = None,
+) -> None:
     rendered = " ".join(command)
     print(f"==> {rendered}", file=sys.stderr, flush=True)
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, env=env)
 
 
 def check_local() -> None:
@@ -76,11 +81,17 @@ def framework_e2e(suite: str) -> None:
         compose_file,
     )
     down = (*command, "down", "--volumes", "--remove-orphans")
-    run(down)
+    compose_env = os.environ.copy()
+    compose_env["CDPX_E2E_UID"] = str(os.getuid())
+    compose_env["CDPX_E2E_GID"] = str(os.getgid())
+    run(down, env=compose_env)
     try:
-        run((*command, "up", "--build", "--abort-on-container-exit", "--exit-code-from", "cdpx"))
+        run(
+            (*command, "up", "--build", "--abort-on-container-exit", "--exit-code-from", "cdpx"),
+            env=compose_env,
+        )
     finally:
-        run(down)
+        run(down, env=compose_env)
 
 
 def format_sources() -> None:

@@ -1986,6 +1986,34 @@ steps:
     assert "_cdpx" not in result
 
 
+def test_scenario_validate_rejects_non_string_candidate_keys_without_traceback(capsys, tmp_path):
+    entrypoint = tmp_path / "invalid-candidate.yml"
+    entrypoint.write_text(
+        """
+schema: cdpx.scenario/v1
+name: invalid_candidate
+context:
+  base_url: http://shop.test
+steps:
+  - frame_type:
+      candidates:
+        - selector: iframe.card
+          frame_origin: https://frames.test
+          secret_ref: CARD_SECRET
+          1: value
+""",
+        encoding="utf-8",
+    )
+
+    code = main(["scenario", "validate", str(entrypoint)])
+    output = capsys.readouterr()
+
+    assert code == 2
+    assert output.out == ""
+    assert "field names must be strings: 1" in output.err
+    assert "Traceback" not in output.err
+
+
 def test_scenario_validation_reports_secret_reference_without_environment_value(monkeypatch):
     secret = "validation-secret-canary-4821"
     monkeypatch.setenv("VALIDATION_PASSWORD", secret)

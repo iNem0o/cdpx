@@ -45,6 +45,13 @@ cdpx uses semantic versioning.
 
 ### Fixed
 
+- Composed `type` actions now consume one timeout across actionability,
+  preparation, optional clearing and trusted key events, so a long referenced
+  secret cannot continue dispatching characters after its action budget.
+- Scenario validation now reports non-string keys inside `frame_type`
+  candidates as exit-2 usage errors instead of leaking an internal traceback.
+- Direct Symfony and Shopware gates now pass the invoking UID/GID into Compose,
+  preserving ownership of their bind-mounted proof artifacts on Linux hosts.
 - Paced `frame_type` input now consumes the scenario timeout across frame
   discovery, focus, origin guards, keyboard events and delays, and invalid
   typing options fail before the hosted frame receives a click. Declared frame

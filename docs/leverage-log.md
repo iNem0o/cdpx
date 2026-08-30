@@ -1,5 +1,19 @@
 # Leverage log
 
+- Session-Key: next-release@0622b44
+  - Symptom: review found that composed secret typing could outlive its action
+    timeout, numeric YAML keys in frame candidates escaped as a traceback, and
+    direct framework gates could leave proof artifacts owned by UID/GID 1000.
+  - Root cause (missing capability): ordinary typing reset the CDP timeout for
+    each event, the scenario unknown-field formatter assumed string keys, and
+    the direct Compose path did not forward the invoking identity.
+  - Fix encoded (doc/script/lint): one remaining-time callback now covers the
+    typed action, scenario mappings reject non-string keys as usage errors, and
+    both direct framework gates pass UID/GID through a tested Compose environment.
+  - Verification (command/CI): `./dev check-local` passed 974 tests with
+    89.96% line and 78.97% branch coverage; `./dev check` returned `ok: true`
+    for 1,034 tests with zero proof failure.
+
 - Session-Key: next-release@9172a15
   - Symptom: five review regressions exposed a Shopware access-key leak, a
     per-key-event origin race, asymmetric profiler URL comparison, unattested

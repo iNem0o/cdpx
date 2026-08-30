@@ -10,7 +10,7 @@ from typing import cast
 import pytest
 
 from cdpx import discovery
-from cdpx.action_model import ClickAction, EvalAction, GotoAction
+from cdpx.action_model import ClickAction, EvalAction, GotoAction, TypeAction
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.policy import PolicyError
@@ -292,6 +292,62 @@ def test_click_stops_before_command_when_remaining_budget_is_exhausted(mock, cli
     assert [call["type"] for call in mock.commands_for("Input.dispatchMouseEvent")] == [
         "mouseMoved"
     ]
+
+
+def test_type_text_applies_remaining_budget_to_probe_clear_and_key_sequence(
+    mock, client, monkeypatch
+):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+    original_send = client.send
+    observed_timeouts: list[float | None] = []
+    budgets = iter((7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0))
+
+    def send(method, params=None, timeout=None):
+        observed_timeouts.append(timeout)
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    inputs.type_text(
+        client,
+        "#otp",
+        "7",
+        clear=True,
+        mode="key_events",
+        remaining=lambda: next(budgets),
+    )
+
+    assert observed_timeouts == [7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
+
+
+def test_type_text_stops_before_next_character_when_budget_expires(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+    calls = 0
+
+    def remaining() -> float:
+        nonlocal calls
+        calls += 1
+        if calls == 6:
+            raise CDPTimeout("typed action timeout")
+        return 1.0
+
+    with pytest.raises(CDPTimeout, match="typed action timeout"):
+        inputs.type_text(
+            client,
+            "#otp",
+            "72",
+            mode="key_events",
+            remaining=remaining,
+        )
+
+    typed = [
+        event["text"]
+        for event in mock.commands_for("Input.dispatchKeyEvent")
+        if event["type"] == "char"
+    ]
+    assert typed == ["7"]
 
 
 def test_click_element_not_found(mock, client):
@@ -2464,3 +2520,41 @@ def test_run_action_dispatches_and_rejects_unknown(mock, client):
         actions.run_action_argv(client, ["shell", "rm -rf /"])
     with pytest.raises(ValueError):
         actions.run_action_argv(client, [])
+
+
+def test_run_action_passes_one_remaining_budget_to_type(monkeypatch, client):
+    observed: dict[str, object] = {}
+
+    def type_text(
+        _client,
+        selector,
+        text,
+        clear=False,
+        *,
+        mode="insert_text",
+        origin_guard=None,
+        remaining=None,
+    ):
+        observed.update(
+            selector=selector,
+            text=text,
+            clear=clear,
+            mode=mode,
+            origin_guard=origin_guard,
+            remaining=remaining,
+        )
+        return {"typed": True, "value_masked": True}
+
+    monkeypatch.setattr(inputs, "type_text", type_text)
+
+    result = actions.run_action(
+        client,
+        TypeAction("#otp", "secret", clear=True, mode="key_events"),
+        timeout=1.0,
+    )
+
+    assert result == {"typed": True, "value_masked": True}
+    assert observed["text"] == "secret"
+    remaining = observed["remaining"]
+    assert callable(remaining)
+    assert 0 < remaining() <= 1.0

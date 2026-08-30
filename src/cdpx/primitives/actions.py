@@ -9,6 +9,7 @@ to set the authority and the allowed origins.
 
 from __future__ import annotations
 
+import time
 import urllib.parse
 from collections.abc import Callable
 
@@ -22,7 +23,7 @@ from cdpx.action_model import (
     WaitAction,
     parse_action,
 )
-from cdpx.client import CDPClient, CDPError, CDPTimeout
+from cdpx.client import CDPClient, CDPError, CDPTimeout, validate_time_budget
 from cdpx.primitives import inputs, js, nav
 
 
@@ -46,6 +47,15 @@ def run_action(
     if isinstance(action, ClickAction):
         return inputs.click(client, action.selector)
     if isinstance(action, TypeAction):
+        timeout = validate_time_budget(timeout, "typed action timeout")
+        deadline = time.monotonic() + timeout
+
+        def remaining() -> float:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                raise CDPTimeout(f"typed action timeout after {timeout}s")
+            return budget
+
         return inputs.type_text(
             client,
             action.selector,
@@ -53,6 +63,7 @@ def run_action(
             clear=action.clear,
             mode=action.mode,
             origin_guard=origin_guard,
+            remaining=remaining,
         )
     if isinstance(action, KeyAction):
         return inputs.press_key(client, action.key)

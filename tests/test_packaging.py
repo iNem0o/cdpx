@@ -6,11 +6,13 @@ the local gate. These tests run inside ``./dev check``.
 
 import hashlib
 import json
+import os
 import re
 import tomllib
 from pathlib import Path
 
 import yaml
+from tools import harness
 from tools.release_pins import version_pins
 
 from cdpx import __version__
@@ -25,6 +27,28 @@ def test_action_journal_layer_does_not_depend_on_browser_primitives():
 
     assert "cdpx.primitives" not in journal_source
     assert "cdpx.primitives" not in action_source
+
+
+def test_direct_framework_gates_preserve_host_artifact_ownership(monkeypatch):
+    calls: list[tuple[tuple[str, ...], dict[str, str] | None]] = []
+
+    def fake_run(command, *, env=None):
+        calls.append((tuple(command), env))
+
+    monkeypatch.setattr(os, "getuid", lambda: 4242)
+    monkeypatch.setattr(os, "getgid", lambda: 4343)
+    monkeypatch.setattr(harness, "run", fake_run)
+
+    for suite in ("symfony", "shopware"):
+        calls.clear()
+        harness.framework_e2e(suite)
+
+        assert len(calls) == 3
+        for command, env in calls:
+            assert command[:2] == ("docker", "compose")
+            assert env is not None
+            assert env["CDPX_E2E_UID"] == "4242"
+            assert env["CDPX_E2E_GID"] == "4343"
 
 
 def test_version_has_single_source():
