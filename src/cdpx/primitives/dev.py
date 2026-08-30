@@ -10,14 +10,13 @@ from __future__ import annotations
 import difflib
 import json
 import urllib.parse
-from collections.abc import Callable
 
 from cdpx.action_model import BrowserAction, action_argv
 from cdpx.cdp_types import CDPEvent
 from cdpx.client import CDPClient, validate_time_budget
 from cdpx.orchestration import OrchestrationContext
 from cdpx.policy import assert_url_allowed
-from cdpx.primitives import actions, js, nav
+from cdpx.primitives import actions, inputs, js, nav
 from cdpx.primitives import profiler as profiler_api
 
 PROFILER_HEADER = "x-debug-token-link"
@@ -136,7 +135,7 @@ def dom_diff(
     client: CDPClient,
     action: BrowserAction,
     *,
-    origin_guard: Callable[[], None] | None = None,
+    origin_guard: inputs.OriginGuard | None = None,
 ) -> dict:
     before = _snapshot(client)
     actions.run_action(client, action, origin_guard=origin_guard)

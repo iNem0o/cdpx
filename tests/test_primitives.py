@@ -321,6 +321,36 @@ def test_type_text_applies_remaining_budget_to_probe_clear_and_key_sequence(
     assert observed_timeouts == [7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
 
 
+def test_type_text_applies_remaining_budget_to_origin_guards(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+    original_send = client.send
+    command_timeouts: list[float | None] = []
+    guard_timeouts: list[float | None] = []
+    budgets = iter((9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0))
+
+    def send(method, params=None, timeout=None):
+        command_timeouts.append(timeout)
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    def guard(remaining):
+        guard_timeouts.append(remaining() if remaining is not None else None)
+
+    inputs.type_text(
+        client,
+        "#otp",
+        "7",
+        mode="key_events",
+        origin_guard=guard,
+        remaining=lambda: next(budgets),
+    )
+
+    assert command_timeouts == [9.0, 8.0, 6.0, 4.0, 2.0]
+    assert guard_timeouts == [7.0, 5.0, 3.0, 1.0]
+
+
 def test_type_text_stops_before_next_character_when_budget_expires(mock, client):
     mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
     mock.on_eval("__cdpx_prepare_text", True)

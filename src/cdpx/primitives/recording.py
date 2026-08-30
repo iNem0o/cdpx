@@ -70,8 +70,12 @@ def record(
         result: dict[str, Any] = actions.run_action(
             client,
             execution_action,
-            origin_guard=lambda: assert_url_allowed(
-                actions.require_current_http_url(client, "during record action"),
+            origin_guard=lambda remaining: assert_url_allowed(
+                actions.require_current_http_url(
+                    client,
+                    "during record action",
+                    timeout=remaining() if remaining is not None else None,
+                ),
                 allowed,
             ),
         )
@@ -180,8 +184,12 @@ def replay(
                 actions.run_action(
                     client,
                     action,
-                    origin_guard=lambda: assert_url_allowed(
-                        actions.require_current_http_url(client, "during replay action"),
+                    origin_guard=lambda remaining: assert_url_allowed(
+                        actions.require_current_http_url(
+                            client,
+                            "during replay action",
+                            timeout=remaining() if remaining is not None else None,
+                        ),
                         origin_patterns,
                     ),
                 ),

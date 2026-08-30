@@ -1175,7 +1175,10 @@ def _run_operation(
             client,
             operation.action,
             timeout,
-            origin_guard=lambda: assert_url_allowed(_current_url(client), allowed_origins),
+            origin_guard=lambda remaining: assert_url_allowed(
+                _current_url(client, timeout=remaining() if remaining is not None else None),
+                allowed_origins,
+            ),
         )
     if operation.wait_kind == "visible" and operation.selector is not None:
         return nav.wait_for_visible(client, operation.selector, timeout=timeout)
@@ -1405,8 +1408,8 @@ def _assert_current_origin(client: CDPClient, origins: tuple[str, ...]) -> str:
     return current_url
 
 
-def _current_url(client: CDPClient) -> str:
-    current_url = js.evaluate(client, "window.location.href")
+def _current_url(client: CDPClient, *, timeout: float | None = None) -> str:
+    current_url = js.evaluate(client, "window.location.href", timeout=timeout)
     if not isinstance(current_url, str):
         raise ScenarioUsageError("current URL cannot be determined")
     return current_url

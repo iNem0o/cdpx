@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import time
 import urllib.parse
-from collections.abc import Callable
 
 from cdpx.action_model import (
     BrowserAction,
@@ -37,7 +36,7 @@ def run_action(
     action: BrowserAction,
     timeout: float = 30.0,
     *,
-    origin_guard: Callable[[], None] | None = None,
+    origin_guard: inputs.OriginGuard | None = None,
 ) -> dict:
     """Executes an action and returns the output of the underlying primitive."""
     if isinstance(action, GotoAction):
@@ -72,17 +71,22 @@ def run_action(
     raise AssertionError(f"unhandled action: {action!r}")
 
 
-def current_http_url(client: CDPClient) -> str | None:
+def current_http_url(client: CDPClient, *, timeout: float | None = None) -> str | None:
     """Returns the page's real HTTP(S) URL, or ``None`` otherwise."""
-    value = js.evaluate(client, "window.location.href")
+    value = js.evaluate(client, "window.location.href", timeout=timeout)
     parsed = urllib.parse.urlparse(value if isinstance(value, str) else "")
     return value if parsed.scheme in {"http", "https"} and parsed.netloc else None
 
 
-def require_current_http_url(client: CDPClient, phase: str) -> str:
+def require_current_http_url(
+    client: CDPClient,
+    phase: str,
+    *,
+    timeout: float | None = None,
+) -> str:
     """Reads the current URL and fails closed if the browser cannot provide it."""
     try:
-        current_url = current_http_url(client)
+        current_url = current_http_url(client, timeout=timeout)
     except (ValueError, CDPError, CDPTimeout, js.JSException) as error:
         raise ValueError(f"unable to determine the current URL {phase}: {error}") from error
     if current_url is None:

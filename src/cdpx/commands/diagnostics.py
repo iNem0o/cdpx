@@ -80,7 +80,11 @@ def cmd_dom_diff(args) -> None:
         result = dev.dom_diff(
             c,
             action,
-            origin_guard=lambda: _assert_session_current(args, c),
+            origin_guard=lambda remaining: _assert_session_current(
+                args,
+                c,
+                timeout=remaining() if remaining is not None else None,
+            ),
         )
         _assert_session_current(args, c)
         _out(args, result)
@@ -125,7 +129,11 @@ def cmd_emulate(args) -> None:
                     c,
                     action,
                     timeout=args.options.timeout,
-                    origin_guard=lambda: _assert_session_current(args, c),
+                    origin_guard=lambda remaining: _assert_session_current(
+                        args,
+                        c,
+                        timeout=remaining() if remaining is not None else None,
+                    ),
                 ),
             }
             _assert_session_current(args, c)

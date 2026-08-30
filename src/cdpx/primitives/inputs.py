@@ -16,6 +16,8 @@ from typing import Any
 from cdpx.client import CDPClient
 from cdpx.policy import assert_url_allowed, origin_from_url, parse_exact_origin
 
+OriginGuard = Callable[[Callable[[], float] | None], None]
+
 _ACTIONABILITY_EXPR = r"""
 (() => {
   const selector = __CDPX_SELECTOR__;
@@ -264,7 +266,7 @@ def type_text(
     clear: bool = False,
     *,
     mode: str = "insert_text",
-    origin_guard: Callable[[], None] | None = None,
+    origin_guard: OriginGuard | None = None,
     remaining: Callable[[], float] | None = None,
 ) -> dict:
     """Focus an element and type with IME insertion or discrete trusted key events."""
@@ -278,11 +280,9 @@ def type_text(
         raise ElementNotInteractable(f"element not editable: {selector}")
     _prepare_text_input(client, selector, clear, remaining=remaining)
     if clear:
-        if origin_guard is not None:
-            origin_guard()
+        _guard_origin(origin_guard, remaining)
         press_key(client, "Backspace", remaining=remaining)
-        if origin_guard is not None:
-            origin_guard()
+        _guard_origin(origin_guard, remaining)
     _insert_text(
         client,
         text,
@@ -305,7 +305,7 @@ def _type_printable_key(
     client: CDPClient,
     char: str,
     *,
-    origin_guard: Callable[[], None] | None = None,
+    origin_guard: OriginGuard | None = None,
     remaining: Callable[[], float] | None = None,
 ) -> None:
     virtual_key, code, modifiers, unmodified_text = _printable_key_layout(char)
@@ -323,11 +323,9 @@ def _type_printable_key(
         {"type": "keyUp", **key},
     )
     for event in events:
-        if origin_guard is not None:
-            origin_guard()
+        _guard_origin(origin_guard, remaining)
         _send(client, "Input.dispatchKeyEvent", event, remaining=remaining)
-    if origin_guard is not None:
-        origin_guard()
+    _guard_origin(origin_guard, remaining)
 
 
 _SHIFTED_DIGITS = dict(zip("!@#$%^&*()", "1234567890", strict=True))
@@ -394,22 +392,28 @@ def _send(
     return client.send(method, params, timeout=remaining())
 
 
+def _guard_origin(
+    origin_guard: OriginGuard | None,
+    remaining: Callable[[], float] | None,
+) -> None:
+    if origin_guard is not None:
+        origin_guard(remaining)
+
+
 def _insert_text(
     client: CDPClient,
     text: str,
     *,
     mode: str,
     key_delay_ms: int = 0,
-    origin_guard: Callable[[], None] | None = None,
+    origin_guard: OriginGuard | None = None,
     remaining: Callable[[], float] | None = None,
 ) -> None:
     _validate_typing(text, mode=mode, key_delay_ms=key_delay_ms)
     if mode == "insert_text":
-        if origin_guard is not None:
-            origin_guard()
+        _guard_origin(origin_guard, remaining)
         _send(client, "Input.insertText", {"text": text}, remaining=remaining)
-        if origin_guard is not None:
-            origin_guard()
+        _guard_origin(origin_guard, remaining)
         return
     for char in text:
         _type_printable_key(
@@ -443,8 +447,11 @@ def type_text_in_frame(
     state = _probe_actionability(client, selector, remaining=remaining)
     _require_actionable(state, selector)
 
-    def guard_origin() -> None:
-        assert_url_allowed(_frame_url(client, selector, remaining=remaining), (expected_origin,))
+    def guard_origin(guard_remaining: Callable[[], float] | None) -> None:
+        assert_url_allowed(
+            _frame_url(client, selector, remaining=guard_remaining),
+            (expected_origin,),
+        )
 
     frame_url = _frame_url(client, selector, remaining=remaining)
     assert_url_allowed(frame_url, (expected_origin,))

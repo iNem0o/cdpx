@@ -59,16 +59,21 @@ def orchestration(args: CommandInvocation) -> OrchestrationContext:
     return OrchestrationContext(execution(args).origins, args.redaction)
 
 
-def current_http_url(client: CDPClient) -> str:
-    current = js.evaluate(client, "window.location.href")
+def current_http_url(client: CDPClient, *, timeout: float | None = None) -> str:
+    current = js.evaluate(client, "window.location.href", timeout=timeout)
     if not isinstance(current, str):
         raise PolicyError("session: current URL undeterminable")
     return current
 
 
-def assert_session_current(args: CommandInvocation, client: CDPClient) -> None:
+def assert_session_current(
+    args: CommandInvocation,
+    client: CDPClient,
+    *,
+    timeout: float | None = None,
+) -> None:
     context = execution(args)
-    assert_url_allowed(current_http_url(client), context.origins)
+    assert_url_allowed(current_http_url(client, timeout=timeout), context.origins)
 
 
 def artifact_path(
