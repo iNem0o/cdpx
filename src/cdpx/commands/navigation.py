@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import sys
+from pathlib import Path
 from typing import Any
 
-from cdpx import discovery, session
+from cdpx import discovery, scenarios, session
 from cdpx.client import CDPClient
 from cdpx.commands.shared import (
     assert_session_current as _assert_session_current,
@@ -31,6 +34,8 @@ from cdpx.policy import (
     assert_url_allowed,
 )
 from cdpx.primitives import inputs, js, nav
+
+MAX_EVAL_SOURCE_BYTES = 1_000_000
 
 
 def cmd_tabs(args) -> None:
@@ -88,10 +93,50 @@ def cmd_wait(args) -> None:
 
 
 def cmd_eval(args) -> None:
+    expression, source = _eval_source(args)
     with _client(args) as c:
-        value = js.evaluate(c, args.options.expression, await_promise=args.options.await_promise)
+        value = js.evaluate(c, expression, await_promise=args.options.await_promise)
         _assert_session_current(args, c)
-        _out(args, {"value": value})
+        _out(
+            args,
+            {
+                "value": value,
+                "source": source,
+                "script_sha256": hashlib.sha256(expression.encode()).hexdigest(),
+            },
+        )
+
+
+def _eval_source(args) -> tuple[str, str]:
+    if args.options.expression is not None:
+        expression = args.options.expression
+        source = "inline"
+    elif args.options.expression_file is not None:
+        source = "file"
+        try:
+            with Path(args.options.expression_file).open("rb") as handle:
+                payload = handle.read(MAX_EVAL_SOURCE_BYTES + 1)
+        except OSError as error:
+            raise scenarios.ScenarioUsageError(f"eval: cannot read --file: {error}") from error
+        if len(payload) > MAX_EVAL_SOURCE_BYTES:
+            raise scenarios.ScenarioUsageError(
+                f"eval: source exceeds {MAX_EVAL_SOURCE_BYTES} bytes"
+            )
+        try:
+            expression = payload.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise scenarios.ScenarioUsageError("eval: --file must be UTF-8") from error
+    elif args.options.expression_stdin:
+        source = "stdin"
+        expression = sys.stdin.read(MAX_EVAL_SOURCE_BYTES + 1)
+    else:  # pragma: no cover - argparse enforces one source
+        raise scenarios.ScenarioUsageError("eval: one source is required")
+    size = len(expression.encode())
+    if size > MAX_EVAL_SOURCE_BYTES:
+        raise scenarios.ScenarioUsageError(f"eval: source exceeds {MAX_EVAL_SOURCE_BYTES} bytes")
+    if not expression:
+        raise scenarios.ScenarioUsageError("eval: source must not be empty")
+    return expression, source
 
 
 def cmd_text(args) -> None:
@@ -171,7 +216,15 @@ def register_commands(
     parser.set_defaults(func=cmd_wait)
 
     parser = sub.add_parser("eval", help="evaluate JS in the page")
-    parser.add_argument("expression")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("expression", nargs="?")
+    source.add_argument("--file", dest="expression_file", help="read UTF-8 JS from a file")
+    source.add_argument(
+        "--stdin",
+        dest="expression_stdin",
+        action="store_true",
+        help="read UTF-8 JS from stdin",
+    )
     parser.add_argument("--await", dest="await_promise", action="store_true")
     parser.set_defaults(func=cmd_eval)
 

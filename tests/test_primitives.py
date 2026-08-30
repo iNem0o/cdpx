@@ -738,6 +738,13 @@ def test_press_key_supports_common_navigation_and_editing_keys(mock, client, key
     assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == types
 
 
+def test_press_key_normalizes_unambiguous_case_aliases(mock, client):
+    result = inputs.press_key(client, "PAGEDOWN")
+
+    assert result == {"pressed": "PageDown", "requested": "PAGEDOWN"}
+    assert mock.commands_for("Input.dispatchKeyEvent")[0]["key"] == "PageDown"
+
+
 # -- capture ----------------------------------------------------------------------
 
 
@@ -2066,14 +2073,113 @@ def test_vitals_installs_observer_and_reads_values(mock, client):
     """vitals installs the observer before navigation, triggers the
     requested interaction and then reads the web vitals metrics from the
     page."""
-    mock.on_eval("__cdpxVitals", json.dumps({"lcp": 12, "cls": 0.1, "inp": 0}))
+    mock.on_eval(
+        "__cdpxVitals",
+        json.dumps(
+            {
+                "lcp": 12,
+                "cls": 0.1,
+                "raw_sum": 0.15,
+                "inp": 0,
+                "total_entries": 2,
+                "ignored_recent_input": 0,
+                "winning_window": {
+                    "value": 0.1,
+                    "start_time": 1200,
+                    "end_time": 1800,
+                    "entry_count": 1,
+                    "entries": [
+                        {
+                            "value": 0.1,
+                            "start_time": 1200,
+                            "duration": 0,
+                            "had_recent_input": False,
+                            "sources": [
+                                {
+                                    "node": {
+                                        "tag": "main",
+                                        "id": "content",
+                                        "classes": ["ready"],
+                                        "selector": "#content",
+                                    },
+                                    "previous_rect": {
+                                        "x": 0,
+                                        "y": 100,
+                                        "width": 800,
+                                        "height": 200,
+                                    },
+                                    "current_rect": {
+                                        "x": 0,
+                                        "y": 200,
+                                        "width": 800,
+                                        "height": 200,
+                                    },
+                                }
+                            ],
+                            "source_count": 1,
+                            "sources_truncated": False,
+                        }
+                    ],
+                    "entries_truncated": False,
+                },
+            }
+        ),
+    )
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = diagnostics.vitals(client, "http://s.test/vitals.html", click_selector="#inp-button")
     #: the reported metrics really come from the observer injected into the page
     assert res["lcp"] == 12 and res["cls"] == 0.1
+    assert res["raw_sum"] == 0.15
+    assert res["cls"] != res["raw_sum"]
+    assert res["winning_window"]["entries"][0]["sources"][0] == {
+        "node": {
+            "tag": "main",
+            "id": "content",
+            "classes": ["ready"],
+            "selector": "#content",
+        },
+        "previous_rect": {"x": 0, "y": 100, "width": 800, "height": 200},
+        "current_rect": {"x": 0, "y": 200, "width": 800, "height": 200},
+    }
     #: the observer was in place before the load, and the INP click did happen
     assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument")
     assert mock.commands_for("Input.dispatchMouseEvent")
+
+
+def test_vitals_observer_uses_official_session_windows(mock, client):
+    """The injected observer starts a new CLS window after a one-second gap
+    or five seconds from the first entry, while retaining a separate raw sum."""
+    mock.on_eval(
+        "__cdpxVitals",
+        json.dumps(
+            {
+                "lcp": 0,
+                "cls": 0.25,
+                "raw_sum": 0.35,
+                "inp": 0,
+                "total_entries": 3,
+                "ignored_recent_input": 1,
+                "winning_window": {
+                    "value": 0.25,
+                    "start_time": 6200,
+                    "end_time": 6400,
+                    "entry_count": 2,
+                    "entries": [],
+                    "entries_truncated": False,
+                },
+            }
+        ),
+    )
+
+    result = diagnostics.vitals(client, "http://s.test/vitals.html")
+
+    source = mock.commands_for("Page.addScriptToEvaluateOnNewDocument")[0]["source"]
+    assert "entry.startTime - current.last_time < 1000" in source
+    assert "entry.startTime - current.start_time < 5000" in source
+    assert "raw_sum" in source
+    assert result["cls"] == 0.25
+    assert result["raw_sum"] == 0.35
+    assert result["winning_window"]["entry_count"] == 2
 
 
 def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, client):

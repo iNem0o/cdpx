@@ -30,7 +30,18 @@ from cdpx.cdp_types import CDPEvent
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.policy import PolicyError, assert_url_allowed, parse_exact_origin
-from cdpx.primitives import actions, capture, dev, emulation, inputs, js, nav, profiler
+from cdpx.primitives import (
+    actions,
+    capture,
+    dev,
+    diagnostics,
+    emulation,
+    inputs,
+    interception,
+    js,
+    nav,
+    profiler,
+)
 from cdpx.runtime_config import ConfigurationError, interpolate_environment_text
 from cdpx.security import (
     MASK,
@@ -50,10 +61,13 @@ STEP_ACTIONS = {
     "key",
     "eval",
     "wait_text",
+    "wait_ms",
 }
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
 ASSERTIONS = {"no_console_errors", "network_errors_max", "text_contains"}
-ARTIFACTS = {"screenshot", "console", "network", "profiler"}
+ARTIFACTS = {"screenshot", "console", "network", "profiler", "vitals"}
+MAX_WAIT_MS = 60_000
+MAX_INTERCEPTION_HITS = 200
 PROFILER_RESOURCE_TYPES = {"document", "xhr", "fetch"}
 _HTTP_METHOD_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 SCENARIO_SCHEMA = "cdpx.scenario/v1"
@@ -169,6 +183,7 @@ class Scenario:
     name: str
     base_url: str
     emulation: str | None
+    intercept_rules: tuple[str, ...]
     steps: list[ScenarioStep]
     assertions: list[dict[str, Any]]
     artifacts: list[CaptureSpec]
@@ -179,9 +194,10 @@ class Scenario:
 class ScenarioOperation:
     step: ScenarioStep
     action: BrowserAction | None = None
-    wait_kind: Literal["visible", "text"] | None = None
+    wait_kind: Literal["visible", "text", "delay"] | None = None
     selector: str | None = None
     expected: str | None = None
+    delay_ms: int = 0
     frame_origin: str | None = None
     frame_candidates: tuple[tuple[str, str, str], ...] = ()
     frame_mode: str = "insert_text"
@@ -206,6 +222,11 @@ class ScenarioRun:
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     last_url: str | None = None
     composition: ScenarioComposition | None = None
+    interception_rules: tuple[str, ...] = ()
+    interception_hits: list[dict[str, Any]] = field(default_factory=list)
+    interception_count: int = 0
+    interception_matched_count: int = 0
+    interception_effective_count: int = 0
 
     def finding(
         self,
@@ -236,6 +257,15 @@ class ScenarioRun:
         }
         if self.composition is not None:
             result["composition"] = self.composition.as_dict()
+        if self.interception_rules:
+            result["interception"] = {
+                "rules": list(self.interception_rules),
+                "hits": self.interception_hits,
+                "count": self.interception_count,
+                "hits_truncated": self.interception_count > len(self.interception_hits),
+                "matched_count": self.interception_matched_count,
+                "effective_count": self.interception_effective_count,
+            }
         return result
 
 
@@ -506,7 +536,7 @@ def parse(
         raise ScenarioUsageError(f"{where}unexpected scenario schema: {schema}")
     name = _required_str(raw, "name", where)
     context = _required_dict(raw, "context", where)
-    _unknown(context, {"base_url", "emulation"}, f"{where}context.")
+    _unknown(context, {"base_url", "emulation", "intercept"}, f"{where}context.")
     raw_base_url = _required_str(context, "base_url", f"{where}context.")
     if environ is None:
         environ = os.environ
@@ -523,6 +553,7 @@ def parse(
     emulation_preset = context.get("emulation")
     if emulation_preset is not None and emulation_preset not in emulation.PRESETS:
         raise ScenarioUsageError(f"{where}context.emulation unknown: {emulation_preset}")
+    intercept_rules = _parse_intercept_rules(context.get("intercept", []), where)
     steps = _parse_steps(raw.get("steps"), where, sources=step_sources)
     assertions = _parse_assertions(raw.get("assertions", []), where)
     artifacts = _parse_artifacts(raw.get("artifacts", []), where, "artifacts")
@@ -531,6 +562,7 @@ def parse(
         name=name,
         base_url=base_url,
         emulation=emulation_preset,
+        intercept_rules=intercept_rules,
         steps=steps,
         assertions=assertions,
         artifacts=artifacts,
@@ -572,6 +604,7 @@ def validation_result(scenario: Scenario) -> dict[str, Any]:
         steps.append(item)
     if (
         scenario.emulation
+        or scenario.intercept_rules
         or has_capture(scenario.artifacts, "profiler")
         or any(has_capture(step.capture, "profiler") for step in scenario.steps)
     ):
@@ -632,9 +665,14 @@ def run(
         writer.run_dir,
         writer,
         composition=scenario_spec.composition,
+        interception_rules=scenario_spec.intercept_rules,
     )
     collector = PassiveCollector(context)
     collector.enable(client)
+    if has_capture(scenario_spec.artifacts, "vitals") or any(
+        has_capture(step.capture, "vitals") for step in scenario_spec.steps
+    ):
+        diagnostics.install_vitals_observer(client)
     if scenario_spec.emulation:
         emulation.emulate(client, scenario_spec.emulation)
 
@@ -710,7 +748,16 @@ def _execute_scenario_operation(
     started = time.monotonic()
     try:
         _assert_origin(client, scenario, step, allowed_origins)
-        result = _run_operation(client, operation, timeout, allowed_origins)
+        result = _run_operation(
+            client,
+            operation,
+            timeout,
+            settle,
+            allowed_origins,
+            scenario.intercept_rules,
+        )
+        if scenario.intercept_rules and step.verb in {"goto", "click"}:
+            _record_interception(run_state, step, result)
         if step.verb == "goto":
             run_state.last_url = _absolute_url(scenario.base_url, step.value)
         record["result"] = _persistable_step_result(step, result, redaction)
@@ -863,6 +910,24 @@ def _parse_artifacts(value: Any, where: str, field_name: str) -> list[CaptureSpe
     return captures
 
 
+def _parse_intercept_rules(value: Any, where: str) -> tuple[str, ...]:
+    field = f"{where}context.intercept"
+    if not isinstance(value, list):
+        raise ScenarioUsageError(f"{field} must be a list")
+    if not value:
+        return ()
+    if any(not isinstance(rule, str) or not rule for rule in value):
+        raise ScenarioUsageError(f"{field} entries must be non-empty strings")
+    if len(value) > 20:
+        raise ScenarioUsageError(f"{field} accepts at most 20 rules")
+    try:
+        for rule in value:
+            interception.parse_intercept_rule(rule)
+    except ValueError as error:
+        raise ScenarioUsageError(f"{field}: {error}") from error
+    return tuple(value)
+
+
 def _parse_capture_item(value: Any, field: str) -> CaptureSpec:
     if isinstance(value, str):
         if value not in ARTIFACTS:
@@ -951,6 +1016,11 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             raise ScenarioUsageError(f"{prefix}{verb} must be a non-empty string")
     elif verb == "wait_text":
         _require_pair(value, f"{prefix}{verb}")
+    elif verb == "wait_ms":
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= MAX_WAIT_MS:
+            raise ScenarioUsageError(
+                f"{prefix}{verb} must be an integer between 0 and {MAX_WAIT_MS}"
+            )
     elif verb in {"type", "frame_type"}:
         if isinstance(value, dict):
             fields = {"selector", "secret_ref"}
@@ -1081,6 +1151,8 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 selector=selector,
                 expected=expected,
             )
+        elif step.verb == "wait_ms":
+            operation = ScenarioOperation(step, wait_kind="delay", delay_ms=step.value)
         elif step.verb == "click":
             operation = ScenarioOperation(step, action=ClickAction(step.value))
         elif step.verb == "key":
@@ -1140,7 +1212,9 @@ def _run_operation(
     client: CDPClient,
     operation: ScenarioOperation,
     timeout: float,
+    settle: float,
     allowed_origins: tuple[str, ...],
+    intercept_rules: tuple[str, ...],
 ) -> dict:
     if operation.step.verb == "frame_type":
         deadline = time.monotonic() + timeout
@@ -1170,6 +1244,24 @@ def _run_operation(
             key_delay_ms=operation.frame_key_delay_ms,
             remaining=remaining,
         )
+    if isinstance(operation.action, GotoAction) and intercept_rules:
+        return interception.intercept_goto(
+            client,
+            operation.action.url,
+            rules=list(intercept_rules),
+            timeout=timeout,
+            settle=settle,
+            allowed_origins=allowed_origins,
+        )
+    if isinstance(operation.action, ClickAction) and intercept_rules:
+        return interception.intercept_click(
+            client,
+            operation.action.selector,
+            rules=list(intercept_rules),
+            allowed_origins=allowed_origins,
+            timeout=timeout,
+            settle=settle,
+        )
     if operation.action is not None:
         return actions.run_action(
             client,
@@ -1188,7 +1280,34 @@ def _run_operation(
         and operation.expected is not None
     ):
         return _wait_text(client, operation.selector, operation.expected, timeout)
+    if operation.wait_kind == "delay":
+        seconds = operation.delay_ms / 1000
+        if seconds > timeout:
+            raise CDPTimeout(
+                f"scenario wait_ms {operation.delay_ms} exceeds step timeout {timeout}s"
+            )
+        time.sleep(seconds)
+        return {"waited_ms": operation.delay_ms}
     raise ScenarioUsageError(f"operation not materialized: {operation.step.label}")
+
+
+def _record_interception(
+    run_state: ScenarioRun,
+    step: ScenarioStep,
+    result: dict[str, Any],
+) -> None:
+    hits = result.get("hits")
+    if isinstance(hits, list):
+        run_state.interception_count += len(hits)
+        for hit in hits:
+            if isinstance(hit, dict) and len(run_state.interception_hits) < MAX_INTERCEPTION_HITS:
+                run_state.interception_hits.append({**hit, "step": step.label})
+    run_state.interception_matched_count += _non_negative_int(result.get("matched_count"))
+    run_state.interception_effective_count += _non_negative_int(result.get("effective_count"))
+
+
+def _non_negative_int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
@@ -1332,6 +1451,13 @@ def _capture_one(
     if kind == "network":
         entry = run_state.writer.write_json(f"{stem}.json", collector.network())
         run_state.artifacts.append(_artifact("network", label, entry, run_state.evidence_dir))
+        return
+    if kind == "vitals":
+        entry = run_state.writer.write_json(
+            f"{stem}.json",
+            diagnostics.collect_vitals(client, settle=0),
+        )
+        run_state.artifacts.append(_artifact("vitals", label, entry, run_state.evidence_dir))
         return
     if kind == "profiler":
         try:

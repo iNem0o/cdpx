@@ -3,6 +3,24 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- `vitals` now reports official CLS session windows, a separate `raw_sum`,
+  and bounded winning-window entries with DOM sources and before/current
+  rectangles.
+- Scenarios can capture `vitals`, use a bounded `wait_ms`, and apply existing
+  interception rules around journey navigations and trusted clicks while
+  reporting matched/effective counts.
+- `eval --file` and `eval --stdin` accept UTF-8 scripts up to 1,000,000 bytes
+  and report source kind plus SHA-256 without echoing the script.
+
+### Changed
+
+- Named keys accept unambiguous case-insensitive aliases and report their
+  canonical spelling.
+
 ## [0.2.0] — 2026-08-30
 
 ### Added

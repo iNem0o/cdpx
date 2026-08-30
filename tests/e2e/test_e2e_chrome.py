@@ -2257,10 +2257,39 @@ def test_vitals_real_with_interaction(page):
     c, base = page
     res = diagnostics.vitals(c, f"{base}/vitals.html", click_selector="#inp-button", settle=1.0)
     #: all three metrics are present and plausible (never negative)
-    assert set(res) == {"url", "lcp", "cls", "inp"}
+    assert set(res) == {
+        "url",
+        "lcp",
+        "cls",
+        "raw_sum",
+        "inp",
+        "total_entries",
+        "ignored_recent_input",
+        "winning_window",
+    }
     assert res["lcp"] >= 0 and res["cls"] >= 0 and res["inp"] >= 0
     #: the interaction that feeds the INP genuinely reached the page
     assert js.evaluate(c, "document.body.dataset.clicked") == "1"
+
+
+def test_vitals_real_uses_cls_session_window_and_attributes_source(page):
+    """Two groups of fixture shifts separated by more than one second prove
+    that CLS is the winning session window rather than the visit-wide sum."""
+    client, base = page
+
+    result = diagnostics.vitals(client, f"{base}/vitals-windows.html", settle=2.0)
+
+    assert result["cls"] > 0
+    assert result["raw_sum"] > result["cls"]
+    assert result["total_entries"] >= 3
+    window = result["winning_window"]
+    assert window is not None
+    assert window["entry_count"] >= 2
+    assert window["entries_truncated"] is False
+    sources = [source for entry in window["entries"] for source in entry["sources"]]
+    assert sources
+    assert any(source["node"] for source in sources)
+    assert any(source["previous_rect"] != source["current_rect"] for source in sources)
 
 
 @pytest.mark.scenario(
@@ -2487,8 +2516,13 @@ def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
             evidence_case.attach_file(
                 path,
                 f"{label}-{artifact['label']}-{artifact['type']}",
-                artifact["type"],
+                "json" if artifact["type"] == "vitals" else artifact["type"],
             )
+
+
+def scenario_artifact_json(result: dict, kind: str) -> dict:
+    artifact = next(item for item in result["artifacts"] if item["type"] == kind)
+    return json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
 
 
 @pytest.mark.scenario(
@@ -2524,6 +2558,51 @@ def test_declarative_scenario_static_form_real(
     #: the checkpoint and end-of-flow visual proofs are indeed collected
     assert any(artifact["label"] == "form_page" for artifact in result["artifacts"])
     assert any(artifact["label"] == "final" for artifact in result["artifacts"])
+
+
+@pytest.mark.scenario(
+    feature="seo-performance-accessibility",
+    journey="measure-vitals",
+    scenario_id="seo-performance-accessibility.attribute-late-cls-and-block-cause",
+    target="chrome",
+    proof_level="runtime",
+    proves=[
+        "A scenario attributes a late layout shift after scroll without raw CDP access.",
+        "A scenario-scoped blocking rule proves causality and reports its effective match.",
+    ],
+)
+def test_scenario_attributes_late_cls_and_proves_blocked_control(
+    managed_cli_session, fixtures_http, tmp_path, evidence_case
+):
+    active_path = materialize_scenario(
+        "vitals_journey_active.yml", fixtures_http.base_url, tmp_path
+    )
+    active_code, active, active_err = run_scenario_cli(managed_cli_session, active_path, timeout=5)
+    attach_scenario_run(evidence_case, active, "vitals-journey-active")
+
+    assert active_code == 0, active_err
+    active_vitals = scenario_artifact_json(active, "vitals")
+    assert active_vitals["cls"] > 0
+    assert active_vitals["raw_sum"] >= active_vitals["cls"]
+    active_window = active_vitals["winning_window"]
+    assert active_window is not None
+    sources = [source for entry in active_window["entries"] for source in entry["sources"]]
+    assert any(source["node"] and source["node"]["id"] == "shifted-content" for source in sources)
+
+    blocked_path = materialize_scenario(
+        "vitals_journey_blocked.yml", fixtures_http.base_url, tmp_path
+    )
+    blocked_code, blocked, blocked_err = run_scenario_cli(
+        managed_cli_session, blocked_path, timeout=5
+    )
+    attach_scenario_run(evidence_case, blocked, "vitals-journey-blocked")
+
+    assert blocked_code == 0, blocked_err
+    blocked_vitals = scenario_artifact_json(blocked, "vitals")
+    assert blocked_vitals["cls"] == 0
+    assert blocked["interception"]["matched_count"] == 1
+    assert blocked["interception"]["effective_count"] == 1
+    assert any(hit["action"] == "block" for hit in blocked["interception"]["hits"])
 
 
 @pytest.mark.scenario(

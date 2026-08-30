@@ -3,6 +3,8 @@ primitive -> JSON on stdout + exit code. This is the contract seen by the agent.
 
 import json
 import pathlib
+import sys
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -213,8 +215,45 @@ def test_eval(mock, capsys):
     payload = json.loads(out)
     #: the value evaluated page-side comes back unchanged to the agent
     assert code == 0 and payload["value"] == 42
+    assert payload["source"] == "inline"
+    assert payload["script_sha256"] == (
+        "4add15946ce36199897a10bc4fe5749d28306b291959adbde54f6a36e4a149d0"
+    )
     #: any content coming from the page carries the untrusted marker
     assert payload["_cdpx"]["content_trust"] == "untrusted"
+
+
+def test_eval_reads_file_without_echoing_source(mock, capsys, tmp_path):
+    """A file avoids shell quoting while stdout retains only its digest and
+    source kind, never a duplicate of the arbitrary JavaScript."""
+    script = tmp_path / "probe.js"
+    script.write_text("({answer: 6 * 7})", encoding="utf-8")
+    mock.on_eval("answer: 6 * 7", {"answer": 42})
+
+    code, out, err = run(mock, capsys, "eval", "--file", str(script))
+
+    payload = json.loads(out)
+    assert code == 0 and not err
+    assert payload["value"] == {"answer": 42}
+    assert payload["source"] == "file"
+    assert payload["script_sha256"] == (
+        "440d3390bf32f8d9c07a19e10cc6f42f3c3cfc1cd895377f2fbf3f0ea1b0e126"
+    )
+    assert str(script) not in out
+    assert "answer: 6 * 7" not in out
+
+
+def test_eval_reads_stdin_with_the_same_bounded_contract(mock, capsys, monkeypatch):
+    mock.on_eval("document.title", "Fixture title")
+    monkeypatch.setattr(sys, "stdin", StringIO("document.title"))
+
+    code, out, err = run(mock, capsys, "eval", "--stdin")
+
+    payload = json.loads(out)
+    assert code == 0 and not err
+    assert payload["value"] == "Fixture title"
+    assert payload["source"] == "stdin"
+    assert len(payload["script_sha256"]) == 64
 
 
 def test_pretty_output_is_explicit(mock, capsys):
@@ -906,7 +945,16 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
     #: received the promised 503 via the Fetch protocol
     assert code == 0 and len(data["rules"]) == 2
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
-    assert set(data) == {"url", "rules", "hits", "count", "settle", "_cdpx"}
+    assert set(data) == {
+        "url",
+        "rules",
+        "hits",
+        "count",
+        "matched_count",
+        "effective_count",
+        "settle",
+        "_cdpx",
+    }
     # unsupported action: execution error BEFORE any Fetch command
     mock.commands.clear()
     code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "key", "Enter")

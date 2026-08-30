@@ -26,6 +26,7 @@ def intercept_goto(
     rules: list[str],
     timeout: float = 30.0,
     settle: float = 0.5,
+    allowed_origins: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     timeout = validate_time_budget(timeout, "interception timeout")
     settle = validate_time_budget(settle, "interception settle")
@@ -43,25 +44,38 @@ def intercept_goto(
     enabled = False
     primary_error: Exception | None = None
     try:
+        main_frame_id = (
+            _main_frame_id(client, timeout=remaining()) if allowed_origins is not None else None
+        )
         _enable_fetch(client, timeout=remaining())
         enabled = True
         client.send("Page.enable", timeout=remaining())
         remaining()
         navigation_id = client.send_nowait("Page.navigate", {"url": url})
-        _collect_until_quiet(
+        matched_count, effective_count = _collect_until_quiet(
             client,
             parsed_rules,
             hits,
             settle=settle,
             remaining=remaining,
             wait_for_load=True,
+            main_frame_id=main_frame_id,
+            allowed_origins=allowed_origins,
         )
         navigation = client.wait_response(
             navigation_id,
             timeout=remaining(),
         )
         nav.raise_for_navigation_error(navigation, url, wait="load")
-        return {"url": url, "rules": rules, "hits": hits, "count": len(hits), "settle": settle}
+        return {
+            "url": url,
+            "rules": rules,
+            "hits": hits,
+            "count": len(hits),
+            "matched_count": matched_count,
+            "effective_count": effective_count,
+            "settle": settle,
+        }
     except Exception as error:
         primary_error = error
         raise

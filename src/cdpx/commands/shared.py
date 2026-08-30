@@ -250,6 +250,7 @@ def preflight_scenario(args: CommandInvocation, prepared: scenarios.PreparedScen
     required = preflight_actions(args, scenario_actions)
     if (
         scenario_spec.emulation
+        or scenario_spec.intercept_rules
         or scenarios.has_capture(scenario_spec.artifacts, "profiler")
         or any(scenarios.has_capture(step.capture, "profiler") for step in scenario_spec.steps)
     ):

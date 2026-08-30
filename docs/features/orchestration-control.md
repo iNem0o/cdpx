@@ -2,7 +2,7 @@
 id = "orchestration-control"
 title = "Interception, emulation and orchestration"
 status = "validated"
-summary = "Control network behavior around navigation or trusted clicks, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
+summary = "Control network behavior around navigation or trusted clicks, emulate device constraints, capture attributed vitals in journeys, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
 path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/inputs.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "src/cdpx/scenario_compiler.py", "schemas/scenario-*.json", "tests/fixtures/interactions-rich.html", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/fixtures/scenarios/fragments/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
 test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*", "tests/e2e/test_e2e_shopware.py::test_scenario_targets_real_shopware_fetch_profiler"]
@@ -418,7 +418,7 @@ Synopsis: `cdpx scenario run <file.yml> [--settle S]` or
 `cdpx scenario validate <file.yml>`
 
 Runs a declarative YAML business scenario against the targeted tab. The
-scenario describes a context (`base_url`, optional emulation), a suite of
+scenario describes a context (`base_url`, optional emulation/interception), a suite of
 steps, assertions, final proofs and, if needed, proofs to collect at key
 moments of the run (`capture` on a step). The output is always a single
 JSON object with `verdict` (`pass` or `fail`), `findings`, `steps`,
@@ -438,8 +438,13 @@ Supported executable schema (`cdpx.scenario/v1`):
   variable is an exit-2 usage error that names the variable.
 - `context.emulation`: optional, `mobile`, `slow-3g` or `cpu-4x`, applied
   within the same CDP connection as the steps.
+- `context.intercept`: optional list of at most 20 normal interception rules.
+  They wrap every `goto` and trusted `click`, require `privileged`, clean up
+  Fetch after each action, and aggregate bounded hits plus matched/effective
+  counts in the result.
 - Steps: `goto`, `wait_visible`, `click`, `type`, `frame_type`, `key`, `eval`,
-  `wait_text`. `wait_visible` requires an element that is attached,
+  `wait_text`, `wait_ms`. `wait_ms` is a 0..60000 integer and must fit the
+  per-step scenario `--timeout`. `wait_visible` requires an element that is attached,
   rendered, visible and has a non-zero box; its deadline is the bounded
   scenario `--timeout`. `type` accepts only
   `{selector, secret_ref, clear, mode}` and prevalidates the environment
@@ -467,7 +472,10 @@ Supported executable schema (`cdpx.scenario/v1`):
   the scenario `--timeout`; expiration stops before the next browser effect.
   Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
-  `profiler`. These proofs are collected immediately after the step, even
+  `profiler`, `vitals`. A scenario requesting vitals installs the bounded
+  observer before its first navigation; the internal JSON contains official
+  session-window CLS, `raw_sum`, the winning entries, sources and rectangles.
+  These proofs are collected immediately after the step, even
   if the step fails. `profiler` also accepts the structured form documented
   below; only one profiler capture is allowed at each checkpoint.
 - Assertions: `no_console_errors`, `network_errors_max`, `text_contains`.
@@ -490,6 +498,7 @@ name: checkout_guest_add_to_cart
 context:
   base_url: "${APP_URL:-http://shop.localhost}"
   emulation: mobile
+  intercept: ["*optional-widget.js* => block"]
 steps:
   - label: product_page
     goto: /product/42
@@ -502,6 +511,7 @@ steps:
       secret_ref: CHECKOUT_PASSWORD
       clear: true
   - wait_text: ['[data-testid="cart-count"]', '1']
+  - wait_ms: 750
 assertions:
   - no_console_errors: true
   - network_errors_max: 0
@@ -511,6 +521,7 @@ artifacts:
   - console
   - network
   - profiler
+  - vitals
 ```
 
 A profiler capture may select panels and the last observed request matching
@@ -634,8 +645,10 @@ runs, console, network and profiler collected by `cdpx scenario run`.
   connection (Chrome behavior, verified e2e on Chrome 151). `cdpx emulate
   mobile` alone therefore has no lasting effect — always use the composed
   form `cdpx emulate mobile -- goto http://demo.test/`.
-- `intercept` composes with one `goto <url>` or `click <selector>` action; it
-  does not wrap `type`, `key`, `eval`, or a full journey.
+- The standalone `intercept` command composes with one `goto` or `click`.
+  Scenario `context.intercept` reuses those typed rules across a journey but
+  still applies them only around `goto` and `click`, not `type`, `key` or
+  `eval`.
 - `frame` only reads same-origin iframes (a cross-origin iframe's
   `contentDocument` is inaccessible) and returns the first match. Scenario
   `frame_type` can focus and type into a single-field cross-origin iframe but

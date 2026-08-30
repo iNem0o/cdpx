@@ -224,6 +224,42 @@ def test_parse_scenario_with_step_capture():
     assert [capture.kind for capture in scenario.steps[0].capture] == ["screenshot", "console"]
 
 
+def test_parse_attributed_vitals_journey_with_bounded_wait_and_interception():
+    scenario = scenarios.parse(
+        {
+            "name": "blocked_widget",
+            "context": {
+                "base_url": "http://shop.test",
+                "intercept": ["*widget.js* => block"],
+            },
+            "steps": [
+                {"goto": "/product"},
+                {"key": "PageDown"},
+                {"click": "#load-widget"},
+                {"wait_ms": 750},
+            ],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    assert scenario.intercept_rules == ("*widget.js* => block",)
+    assert scenario.steps[-1].value == 750
+    assert scenario.artifacts == [scenarios.CaptureSpec("vitals")]
+    assert scenarios.validation_result(scenario)["required_authority"] == "privileged"
+
+
+@pytest.mark.parametrize("wait_ms", [-1, 60_001, True, 1.5])
+def test_parse_rejects_unbounded_scenario_wait(wait_ms):
+    with pytest.raises(scenarios.ScenarioUsageError, match="wait_ms"):
+        scenarios.parse(
+            {
+                "name": "bad_wait",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"wait_ms": wait_ms}],
+            }
+        )
+
+
 def test_parse_structured_profiler_capture_for_step_and_final_artifact():
     scenario = scenarios.parse(
         {
@@ -945,6 +981,81 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path, evide
                 evidence_case.attach_screenshot(artifact["path"], label=label)
             else:
                 evidence_case.attach_file(artifact["path"], label)
+
+
+def test_scenario_captures_vitals_and_proves_interception_matches(mock, tmp_path):
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.on_eval(
+        "__cdpxVitals",
+        json.dumps(
+            {
+                "lcp": 120,
+                "cls": 0,
+                "raw_sum": 0,
+                "inp": 0,
+                "total_entries": 0,
+                "winning_window": None,
+            }
+        ),
+    )
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "WIDGET1",
+                    "request": {"url": "http://shop.test/assets/widget.js"},
+                    "resourceType": "Script",
+                    "frameId": "FRAME1",
+                },
+            }
+        ]
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "blocked_widget",
+            "context": {
+                "base_url": "http://shop.test",
+                "intercept": ["*widget.js* => block"],
+            },
+            "steps": [
+                {"goto": "/product"},
+                {"key": "PageDown"},
+                {"click": "#load-widget"},
+                {"wait_ms": 0},
+            ],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=1,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    assert result["interception"]["matched_count"] == 1
+    assert result["interception"]["effective_count"] == 1
+    assert result["interception"]["hits"] == [
+        {"url": "http://shop.test/assets/widget.js", "action": "block", "step": "002-click"}
+    ]
+    vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
+    captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
+    assert captured["cls"] == 0
+    assert captured["raw_sum"] == 0
+    methods = [method for (_target, method, _params) in mock.commands]
+    assert methods.index("Page.addScriptToEvaluateOnNewDocument") < methods.index("Page.navigate")
+    assert mock.commands_for("Fetch.failRequest") == [
+        {"requestId": "WIDGET1", "errorReason": "BlockedByClient"}
+    ]
 
 
 def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock, tmp_path):

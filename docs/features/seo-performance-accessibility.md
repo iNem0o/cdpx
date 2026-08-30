@@ -2,10 +2,10 @@
 id = "seo-performance-accessibility"
 title = "SEO, performance, and accessibility audits"
 status = "validated"
-summary = "Audit the SEO contract of the rendered DOM, Web Vitals diagnostics, the accessibility tree, an automated front-end RGAA subset, and JS/CSS coverage."
+summary = "Audit the SEO contract of the rendered DOM, attributed Web Vitals diagnostics, the accessibility tree, an automated front-end RGAA subset, and JS/CSS coverage."
 entrypoints = ["cdpx seo", "cdpx vitals", "cdpx a11y", "cdpx coverage"]
-path_globs = ["src/cdpx/primitives/audit.py", "src/cdpx/primitives/diagnostics.py", "src/cdpx/primitives/frames.py", "tests/fixtures/seo*.html", "tests/fixtures/vitals.html", "tests/fixtures/coverage.html", "tests/fixtures/coverage.css", "tests/fixtures/coverage.js", "tests/fixtures/iframe.html", "tests/fixtures/child.html", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
-test_globs = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_vitals*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*", "tests/e2e/test_e2e_symfony.py::test_symfony_vitals*", "tests/e2e/test_e2e_symfony.py::test_symfony_rgaa*"]
+path_globs = ["src/cdpx/primitives/audit.py", "src/cdpx/primitives/diagnostics.py", "src/cdpx/primitives/frames.py", "tests/fixtures/seo*.html", "tests/fixtures/vitals*.html", "tests/fixtures/vitals-widget.js", "tests/fixtures/scenarios/vitals_journey_*.yml", "tests/fixtures/coverage.html", "tests/fixtures/coverage.css", "tests/fixtures/coverage.js", "tests/fixtures/iframe.html", "tests/fixtures/child.html", "tests/e2e/test_e2e_symfony.py", "tests/symfony-app/**"]
+test_globs = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_vitals*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_scenario_attributes_late_cls*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*", "tests/e2e/test_e2e_symfony.py::test_symfony_vitals*", "tests/e2e/test_e2e_symfony.py::test_symfony_rgaa*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -51,6 +51,20 @@ target = "cdp-mock"
 proof_level = "contract"
 tests = ["tests/test_primitives.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_vitals*"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "attribute-late-cls-and-block-cause"
+journey = "measure-vitals"
+title = "Attribute a late CLS window and prove its network cause"
+ui_text = "A scrolled scenario attributes a delayed shift, then an effective blocking control removes it."
+report_text = "This scenario proves that attributed session-window CLS and scenario-scoped interception reproduce a delayed third-party widget expansion without a raw CDP client."
+given = "A fixture's empty widget host expands by 467 px after scrolling and a delayed script load."
+when = "One scenario captures attributed vitals and another blocks the widget script with the same journey."
+then = "The active run names the shifted DOM source; the control reports an effective rule match and zero CLS."
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_scenario_attributes_late_cls_and_proves_blocked_control"]
+expected_proofs = ["junit", "json", "screenshot"]
 
 [[scenarios]]
 id = "compare-symfony-vitals"
@@ -187,6 +201,11 @@ Measures LCP, CLS, and INP via `PerformanceObserver` instances pre-injected
 **before** navigation (`Page.addScriptToEvaluateOnNewDocument`), which
 captures buffered entries from the very first paint. The optional
 `--click` interaction fires a real event to feed the INP measurement.
+CLS follows the official session-window algorithm: a new window starts after
+a gap of at least one second or five seconds from its first entry. `cls` is the
+maximum window while `raw_sum` remains available as a diagnostic visit-wide
+sum. The winning window keeps up to 50 entries; each entry keeps up to five
+shift sources with a bounded node descriptor and previous/current rectangles.
 
 Specific options:
 
@@ -211,7 +230,11 @@ Output:
   "url": "https://shop.example.test/product-42",
   "lcp": 812.4,
   "cls": 0.031,
-  "inp": 96
+  "raw_sum": 0.042,
+  "inp": 96,
+  "total_entries": 3,
+  "ignored_recent_input": 0,
+  "winning_window": {"value": 0.031, "entry_count": 2, "entries": []}
 }
 ```
 
@@ -222,6 +245,8 @@ Pitfalls and edge cases:
   absence is not an error, the value simply stays at 0.
 - A `--settle` that is too short can underestimate CLS/LCP on pages that
   inject content late.
+- Node IDs/classes and rectangles come from untrusted page performance data;
+  they are bounded and redacted but remain evidence, never instructions.
 
 ### `cdpx a11y`
 

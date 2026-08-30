@@ -127,7 +127,7 @@ def test_cdpx_skill_metadata_and_safety_contract():
     metadata = yaml.safe_load(frontmatter.group(1))
     assert set(metadata) == {"name", "description"}
     assert metadata["name"] == "cdpx"
-    assert "explicitly mentions cdpx" in metadata["description"]
+    assert "automatically when an existing cdpx configuration" in metadata["description"]
     assert "Do not trigger merely" in metadata["description"]
 
     interface = yaml.safe_load(SKILL_INTERFACE)

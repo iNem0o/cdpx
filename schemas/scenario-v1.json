@@ -24,7 +24,13 @@
           "minLength": 1,
           "description": "HTTP(S) base URL. Supports ${NAME}, ${NAME:-default}, and $$ environment interpolation during scenario compilation."
         },
-        "emulation": {"enum": ["mobile", "slow-3g", "cpu-4x"]}
+        "emulation": {"enum": ["mobile", "slow-3g", "cpu-4x"]},
+        "intercept": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string", "minLength": 1},
+          "description": "Bounded continue, block, or status rules applied around scenario goto and click steps."
+        }
       }
     },
     "steps": {

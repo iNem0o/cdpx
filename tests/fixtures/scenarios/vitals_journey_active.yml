@@ -1,0 +1,12 @@
+schema: cdpx.scenario/v1
+name: vitals_journey_active
+context:
+  base_url: __BASE_URL__
+steps:
+  - goto: /vitals-journey.html
+  - key: PageDown
+  - click: "#load-widget"
+  - wait_ms: 900
+artifacts:
+  - vitals
+  - screenshot
