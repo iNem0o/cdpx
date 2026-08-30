@@ -56,7 +56,7 @@ def test_version_has_single_source():
     assert PYPROJECT["project"]["version"] == __version__
     assert "dynamic" not in PYPROJECT["project"]
     assert __version__.count(".") == 2  # x.y.z
-    assert __version__ == "0.1.4"
+    assert __version__ == "0.2.0"
 
 
 def test_release_version_pins_move_together():

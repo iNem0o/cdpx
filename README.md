@@ -12,7 +12,7 @@ stderr carries diagnostics, and exit codes remain stable. The same commands
 run against the deterministic mock, a real Chrome and Dockerized Symfony and
 Shopware reference applications.
 
-> **Version 0.1.4 — pre-1.0 beta.** The supported surface is documented and
+> **Version 0.2.0 — pre-1.0 beta.** The supported surface is documented and
 > tested end to end. Contract changes remain possible before 1.0 and are
 > recorded in the [changelog](CHANGELOG.md).
 
