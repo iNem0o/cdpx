@@ -23,6 +23,7 @@ from cdpx.client import CDPError, CDPTimeout, CDPTransportError
 from cdpx.commands.diagnostics import register_commands as register_diagnostic_commands
 from cdpx.commands.navigation import register_commands as register_page_commands
 from cdpx.commands.orchestration import register_commands as register_orchestration_commands
+from cdpx.commands.rgaa import register_commands as register_rgaa_commands
 from cdpx.commands.sessions import register_commands as register_session_commands
 from cdpx.commands.shared import (
     build_redaction_context as _build_redaction_context,
@@ -64,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_state_commands(sub)
     register_diagnostic_commands(sub)
     register_orchestration_commands(sub)
+    register_rgaa_commands(sub)
     register_session_commands(sub)
 
     return p
@@ -83,6 +85,11 @@ def _require_session_values(values: tuple[tuple[str, str | None], ...]) -> None:
 
 def _prepare_args(args: CommandInvocation) -> CommandInvocation:
     if args.options.command == "scenario" and args.options.scenario_action == "validate":
+        return args
+    if args.options.command == "rgaa" and (
+        args.options.rgaa_action == "catalog"
+        or (args.options.rgaa_action == "sample" and args.options.rgaa_sample_action == "validate")
+    ):
         return args
     if args.options.command == "session":
         if (

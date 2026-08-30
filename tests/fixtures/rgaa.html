@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Compte de démonstration — cdpx</title>
+  <style>
+    body { color: rgb(28, 28, 28); background: rgb(255, 255, 255); font: 16px/1.5 sans-serif; }
+    a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid rgb(0, 85, 170); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <header><h1>Compte de démonstration</h1></header>
+  <main id="main">
+    <p>Cette page fournit une base structurelle déterministe pour le moteur RGAA.</p>
+    <a id="account" href="#form">Accéder au formulaire</a>
+    <form id="form">
+      <label for="email">Adresse électronique</label>
+      <input id="email" name="email" type="email">
+      <button id="send" type="submit">Envoyer</button>
+    </form>
+    <iframe id="help" title="Aide contextuelle" srcdoc="<!doctype html><html lang='fr'><title>Aide</title><p>Aide</p></html>"></iframe>
+  </main>
+</body>
+</html>

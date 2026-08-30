@@ -41,6 +41,7 @@ from cdpx.primitives import (
     recording,
     state,
 )
+from cdpx.rgaa.scanner import scan as rgaa_scan
 from cdpx.session import SessionManifest, start_session, stop_session
 from cdpx.testing.e2e import (
     attach_cli_run,
@@ -2094,6 +2095,44 @@ def test_a11y_and_frame_real(page):
     assert tree["count"] > 0
     #: the text read does come from the child document, not the host page
     assert frames.frame_text(c, "#child-marker")["text"] == "Iframe content"
+
+
+@pytest.mark.scenario(
+    feature="rgaa-audit",
+    journey="scan-rendered-page",
+    scenario_id="rgaa-audit.resolve-deterministic-subset",
+    proves=[
+        "The pinned RGAA catalog stays exhaustive while real Chromium proves "
+        "clear structural failures."
+    ],
+)
+def test_rgaa_native_scan_real(page, evidence_case):
+    """The native engine resolves only its modeled subset in real Chromium;
+    every other official test remains visible and unresolved."""
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    baseline = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
+    baseline_tests = {test["id"]: test for test in baseline["tests"]}
+    assert baseline["summary"]["official_tests"] == 258
+    assert all(
+        baseline_tests[test_id]["verdict"] == "pass"
+        for test_id in ("2.1.1", "3.2.1", "8.3.1", "11.1.1")
+    )
+    assert baseline_tests["1.1.1"]["verdict"] == "not_tested"
+
+    nav.navigate(c, f"{base}/rgaa-broken.html")
+    broken = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
+    broken_tests = {test["id"]: test for test in broken["tests"]}
+    assert all(
+        broken_tests[test_id]["verdict"] == "fail"
+        for test_id in ("2.1.1", "3.2.1", "8.3.1", "11.1.1")
+    )
+    assert broken["summary"]["certification_claim"] is False
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "RGAA baseline and controlled regression",
+            {"baseline": baseline["summary"], "regression": broken["summary"]},
+        )
 
 
 def test_coverage_real(page):

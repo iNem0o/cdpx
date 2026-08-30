@@ -145,6 +145,7 @@ def test_target_must_be_the_owned_page_target():
         ("goto", Authority.OBSERVATION),
         ("text", Authority.OBSERVATION),
         ("network", Authority.OBSERVATION),
+        ("rgaa", Authority.OBSERVATION),
         ("click", Authority.INTERACTION),
         ("type", Authority.INTERACTION),
         ("key", Authority.INTERACTION),

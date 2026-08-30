@@ -52,6 +52,8 @@ PAGES_MARKERS = {
     "/vitals.html": ['id="inp-button"', "Largest content candidate"],
     "/coverage.html": ['href="/coverage.css"', 'src="/coverage.js"'],
     "/seo-edge.html": ["Duplicate product", "{invalid json"],
+    "/rgaa.html": ["Compte de démonstration", 'title="Aide contextuelle"', 'for="email"'],
+    "/rgaa-broken.html": ["Régression RGAA déterministe", 'id="unlabelled"'],
 }
 
 

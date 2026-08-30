@@ -23,6 +23,8 @@ keywords = [
     "coding-agent",
     "symfony",
     "seo",
+    "rgaa",
+    "accessibility",
     "e2e",
 ]
 classifiers = [

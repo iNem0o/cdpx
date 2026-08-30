@@ -137,6 +137,9 @@ COMMAND_SEMANTICS = {
     ),
     "metrics": _fixed(Authority.OBSERVATION),
     "a11y": _fixed(Authority.OBSERVATION),
+    # Subcommands preflight their complete scope.  Browser-free catalog and
+    # sample validation never enter the browser adapter.
+    "rgaa": _fixed(Authority.OBSERVATION, current_origin="never"),
     "coverage": _fixed(Authority.OBSERVATION, destination_source="url", current_origin="never"),
     "frame": _fixed(Authority.OBSERVATION),
     "click": _fixed(Authority.INTERACTION),

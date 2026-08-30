@@ -303,6 +303,9 @@ class MockCDP:
                 events,
             )
 
+        if method == "Page.createIsolatedWorld":
+            return {"executionContextId": 42}, None, events
+
         if method == "DOM.getDocument":
             return {"root": {"nodeId": 1}}, None, events
 

@@ -188,7 +188,7 @@ continues.
 - `./dev mock` opens a supervised session in the foreground without a
   browser, prints the identity exports and exposes the received CDP
   commands. `Ctrl-C` triggers the full teardown.
-- `a11y`, `vitals`, `seo`, `network` and `replay` are bounded diagnostics,
+- `a11y`, `rgaa`, `vitals`, `seo`, `network` and `replay` are bounded diagnostics,
   not exhaustive certifications: their limits are documented in
   `docs/PRIMITIVES.md` and the feature sheets.
 

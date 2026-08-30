@@ -1,0 +1,28 @@
+{
+  "schema": "cdpx.rgaa.source/v1",
+  "rgaa_version": "4.1.2",
+  "repository": "DISIC/accessibilite.numerique.gouv.fr",
+  "source_commit": "ca4019f95073b6cbd2482a16e9f12b52d8de678d",
+  "fetched_at": "2026-08-30T00:00:00Z",
+  "generator_version": 1,
+  "files": [
+    {
+      "path": "RGAA/criteres.json",
+      "sha256": "25f71c18150d15514253badd883d0c62e329bc3928814779dc4b41497002a13a",
+      "license": "Licence Ouverte 2.0",
+      "role": "criteria"
+    },
+    {
+      "path": "RGAA/methodologies.json",
+      "sha256": "199dcd99b3c9783465c74936e721f2d905bfbd286ff6a3197358912e2ba1b84d",
+      "license": "Licence Ouverte 2.0",
+      "role": "methodologies"
+    },
+    {
+      "path": "RGAA/glossaire.json",
+      "sha256": "6855035e03fd9c47aee743976897f9958539e5b2be88996a41a1b273e29e01a4",
+      "license": "Licence Ouverte 2.0",
+      "role": "glossary"
+    }
+  ]
+}

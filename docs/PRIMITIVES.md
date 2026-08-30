@@ -114,6 +114,26 @@ cdpx seo https://shop.example.test/collection/dresses
 cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 ```
 
+## RGAA evidence workflow — [sheet](features/rgaa-audit.md)
+
+| CLI | Use case | Why |
+|---|---|---|
+| `cdpx rgaa catalog [--tests IDS]` | inspect the pinned official 4.1.2 inventory | keeps provenance, 13/106/258 cardinalities and automation powers reviewable without a browser |
+| `cdpx rgaa scan [url] [--scope ...] [--engine ...] [--tests IDS]` | collect page-level findings/evidence and conservative test verdicts | distinguishes proven failures/passes from review, manual work, errors and exclusions |
+| `cdpx rgaa sample validate FILE` | compile a declared multi-page sample without Chrome | closes URL/test/budget/authority drift before effects |
+| `cdpx rgaa sample run FILE` | run and conservatively aggregate the declared pages | no implicit crawler or hidden sample selection |
+
+All 258 official tests remain in each result. The native engine owns RGAA
+semantics; optional axe-core observations are offline, isolated and advisory.
+Every aggregation publishes `certification_claim: false`.
+
+```bash
+cdpx rgaa catalog --tests 2.1.1,8.3.1
+cdpx rgaa scan http://app.test/ --scope passive --engine native
+cdpx rgaa sample validate audit/rgaa-sample.yml
+cdpx rgaa sample run audit/rgaa-sample.yml
+```
+
 ## Developer diagnostics — [sheet](features/dev-profiler-diff.md)
 
 | CLI | Use case | Why |

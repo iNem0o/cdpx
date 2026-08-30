@@ -135,6 +135,30 @@ def test_vendored_xterm_bundle_and_notice_are_pinned():
     assert "Copyright" in license_path.read_text(encoding="utf-8")
 
 
+def test_rgaa_sources_and_axe_provider_are_offline_pinned_and_noticed():
+    """Normative RGAA data and advisory provider code cannot drift or fetch at runtime."""
+    data = Path("src/cdpx/rgaa/data/4.1.2")
+    expected = {
+        "criteres.json": "25f71c18150d15514253badd883d0c62e329bc3928814779dc4b41497002a13a",
+        "methodologies.json": "199dcd99b3c9783465c74936e721f2d905bfbd286ff6a3197358912e2ba1b84d",
+        "glossaire.json": "6855035e03fd9c47aee743976897f9958539e5b2be88996a41a1b273e29e01a4",
+        "catalog.json": "0de067569afa90cd2b6a88ad322c0561f81f7ec0f5c939f88203fe39c0e64a4a",
+        "automation-matrix.json": (
+            "2a123cce73d2a9b05449d3047c5a7a7ee9fe1dcb3870fb82a3663b05e927acec"
+        ),
+    }
+    for name, digest in expected.items():
+        assert hashlib.sha256((data / name).read_bytes()).hexdigest() == digest
+    axe = Path("src/cdpx/rgaa/vendor/axe-core-4.10.3.min.js")
+    assert hashlib.sha256(axe.read_bytes()).hexdigest() == (
+        "880970c081707360e64f34cea25ff91892f5bc95675b0776925b9709dd8a68bb"
+    )
+    assert Path("src/cdpx/rgaa/vendor/LICENSE.axe-core").is_file()
+    notices = Path("THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert "Licence Ouverte 2.0" in notices
+    assert "axe-core@4.10.3" in notices
+
+
 def test_public_project_metadata_points_to_github():
     """The package's public metadata (author, repository, issues, changelog)
     all point to the canonical GitHub repository."""

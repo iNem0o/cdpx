@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inem0o.github.io/cdpx/schema/rgaa-result-v1.json",
+  "title": "cdpx RGAA evidence result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "rgaa_version", "catalog", "scope", "summary", "themes", "criteria", "tests"],
+  "properties": {
+    "schema": {"const": "cdpx.rgaa.result/v1"},
+    "rgaa_version": {"const": "4.1.2"},
+    "catalog": {
+      "type": "object",
+      "required": ["id", "source_commit", "catalog_sha256"],
+      "properties": {
+        "id": {"const": "rgaa-4.1.2"},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "required": ["mode", "engine", "url"],
+      "properties": {
+        "mode": {"enum": ["passive", "interactive", "privileged"]},
+        "engine": {"enum": ["native", "hybrid"]},
+        "url": {"type": ["string", "null"]}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["official_tests", "selected", "certification_claim"],
+      "properties": {
+        "official_tests": {"const": 258},
+        "selected": {"type": "integer", "minimum": 0, "maximum": 258},
+        "certification_claim": {"const": false}
+      }
+    },
+    "themes": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {"$ref": "#/$defs/rollup"}
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 106,
+      "maxItems": 106,
+      "items": {"$ref": "#/$defs/rollup"}
+    },
+    "tests": {
+      "type": "array",
+      "minItems": 258,
+      "maxItems": 258,
+      "items": {
+        "type": "object",
+        "required": ["id", "criterion_id", "verdict", "findings", "evidence", "limitations"],
+        "properties": {
+          "id": {"type": "string"},
+          "criterion_id": {"type": "string"},
+          "verdict": {
+            "enum": ["pass", "fail", "not_applicable", "needs_review", "manual_only", "error", "not_tested"]
+          },
+          "findings": {"type": "array"},
+          "evidence": {"type": "array"},
+          "limitations": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rollup": {
+      "type": "object",
+      "required": ["id", "verdict", "tests"],
+      "properties": {
+        "id": {"type": ["integer", "string"]},
+        "verdict": {
+          "enum": ["pass", "fail", "not_applicable", "needs_review", "manual_only", "error", "not_tested"]
+        },
+        "tests": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

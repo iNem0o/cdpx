@@ -7,6 +7,15 @@ cdpx uses semantic versioning.
 
 ### Added
 
+- `cdpx rgaa` adds an integrity-checked offline RGAA 4.1.2 catalog with all
+  13 themes, 106 criteria and 258 official tests; conservative page verdicts;
+  passive, interactive and privileged scopes; an isolated advisory axe-core
+  provider; and deterministic declared multi-page sample validation/runs.
+- Public RGAA result/sample schemas, an exhaustive generated 258-row
+  automation matrix, provenance/security/architecture records, protocol mock
+  coverage and accessible/regressed real-Chromium fixtures document and prove
+  the new workflow without ever claiming automatic certification.
+
 - Scenario `profiler` captures now accept explicit panels and an optional
   request selector over path prefix, Document/XHR/Fetch type and HTTP method.
   Explicit selectors fail closed instead of silently profiling the current

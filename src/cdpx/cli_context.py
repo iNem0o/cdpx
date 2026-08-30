@@ -61,6 +61,11 @@ class CommandOptions:
     click: str | None = None
     path: str | None = None
     scenario_action: str | None = None
+    rgaa_action: str | None = None
+    rgaa_sample_action: str | None = None
+    scope: str = "passive"
+    engine: str = "native"
+    tests: tuple[str, ...] | None = None
     session_action: str | None = None
     session_run_id: str | None = None
     authority: Authority | None = None
@@ -121,6 +126,11 @@ class CommandOptions:
             click=cast(str | None, values.get("click")),
             path=cast(str | None, values.get("path")),
             scenario_action=cast(str | None, values.get("scenario_action")),
+            rgaa_action=cast(str | None, values.get("rgaa_action")),
+            rgaa_sample_action=cast(str | None, values.get("rgaa_sample_action")),
+            scope=cast(str, values.get("scope", "passive")),
+            engine=cast(str, values.get("engine", "native")),
+            tests=cast(tuple[str, ...] | None, values.get("tests")),
             session_action=cast(str | None, values.get("session_action")),
             session_run_id=cast(str | None, values.get("session_run_id")),
             authority=_authority(values.get("authority")),
