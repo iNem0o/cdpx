@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from cdpx.artifacts import ArtifactClassification
+from cdpx.artifacts import REDACTION_POLICY_VERSION, ArtifactClassification
 from cdpx.security.redaction import RedactionContext
 from cdpx.testing.evidence import (
     EvidenceCase,
@@ -182,7 +182,7 @@ def test_evidence_session_writes_private_manifest_with_ttl(tmp_path):
     #: policy, and classified artifacts
     assert manifest["schema"] == "cdpx.evidence/v2"
     assert manifest["expires_at"] > manifest["created_at"]
-    assert manifest["redaction_policy"] == "1"
+    assert manifest["redaction_policy"] == REDACTION_POLICY_VERSION
     assert any(item["classification"] == "internal" for item in manifest["artifacts"])
     #: the proof root and the manifest are out of reach of other accounts
     assert mode(tmp_path) == 0o700

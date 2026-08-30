@@ -33,7 +33,9 @@ from cdpx.proofing.private_io import _now, _secure_dir, _write_private_text
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
 
 SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
-SHOPWARE_NODEID = "tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_collector"
+SHOPWARE_NODEID = (
+    "tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_connection_collector"
+)
 
 StreamAndCollect = Callable[..., tuple[int, bool, str]]
 RunText = Callable[..., tuple[int, str]]

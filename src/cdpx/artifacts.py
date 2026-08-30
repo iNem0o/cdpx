@@ -19,7 +19,7 @@ from cdpx.private_files import PrivateFileError, atomic_write_bytes
 from cdpx.security import RedactionContext, redact_text, redact_tree
 
 SCHEMA = "cdpx.artifacts/v1"
-REDACTION_POLICY_VERSION = "1"
+REDACTION_POLICY_VERSION = "2"
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 

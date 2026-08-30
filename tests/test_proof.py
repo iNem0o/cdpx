@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from cdpx import proof
-from cdpx.artifacts import ArtifactClassification, ArtifactError
+from cdpx.artifacts import REDACTION_POLICY_VERSION, ArtifactClassification, ArtifactError
 from cdpx.cli import build_parser
 from cdpx.proofing import cast as proof_cast
 from cdpx.proofing.suites import compose_project_name
@@ -51,7 +51,7 @@ def _manifest_entry(path, classification, upload_allowed):
         "mime": "text/plain",
         "classification": classification,
         "upload_allowed": upload_allowed,
-        "redaction_policy": "1",
+        "redaction_policy": REDACTION_POLICY_VERSION,
         "created_at": "2026-07-15T00:00:00+00:00",
     }
 
@@ -62,7 +62,7 @@ def _write_evidence_manifest(
     *,
     name="evidence-manifest-unit.json",
     schema="cdpx.evidence/v2",
-    redaction_policy="1",
+    redaction_policy=REDACTION_POLICY_VERSION,
 ):
     payload = {
         "schema": schema,
@@ -222,6 +222,34 @@ def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
     assert not (proof_dir / "shareable").exists()
 
 
+def test_build_shareable_proof_masks_shopware_credentials_in_published_log(tmp_path):
+    """The newly allowlisted Shopware log is sanitized again at the
+    publication boundary, including credentials generated inside Docker."""
+    proof_dir = tmp_path / ".proof"
+    access_key = "SWSC0123456789SHOPWAREACCESSKEY"
+    context_token = "shopware-context-token-value"
+    proof._write_private_text(
+        proof_dir / "shopware-e2e.log",
+        (
+            f"shopware-1 | | Access key | {access_key} |\n"
+            "shopware-1 | "
+            + json.dumps(
+                {"resp_headers": {"Sw-Context-Token": [context_token]}},
+                separators=(",", ":"),
+            )
+            + "\n"
+        ),
+    )
+
+    staging = proof.build_shareable_proof(proof_dir, ttl=3600)
+
+    published = (staging / ".proof" / "shopware-e2e.log").read_text(encoding="utf-8")
+    assert access_key not in published
+    assert context_token not in published
+    assert "| Access key | *** |" in published
+    assert '"Sw-Context-Token":["***"]' in published
+
+
 def test_pre_redacted_report_still_fails_closed_on_canary(tmp_path):
     """Declaring a pre-redacted file does not exempt it from the canary
     check: the anti-leak verification stays systematic."""
@@ -340,7 +368,7 @@ def test_evidence_manifests_with_mixed_redaction_policies_fail_closed(tmp_path):
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
     _write_evidence_manifest(proof_dir, [], name="evidence-manifest-unit.json")
-    _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="2")
+    _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="3")
 
     #: heterogeneous redaction policies is a named error, not a silent merge
     with pytest.raises(ArtifactError, match="heterogeneous redaction policies"):
@@ -1900,6 +1928,31 @@ def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
     assert '"suite": "symfony"' in payload
     assert '"status": "unavailable"' in payload
     assert "Docker daemon unavailable" in payload
+
+
+def test_write_shopware_unavailable_evidence_references_existing_runtime_test(
+    tmp_path, monkeypatch
+):
+    """Synthetic Shopware evidence keeps a directly rerunnable pytest node
+    ID instead of drifting from the real runtime scenario name."""
+    proof_dir = tmp_path / ".proof"
+    monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
+    monkeypatch.setattr(proof, "EVIDENCE_DIR", proof_dir / "evidence")
+    monkeypatch.setattr(proof, "SHOPWARE_LOG", proof_dir / "shopware-e2e.log")
+    proof.SHOPWARE_LOG.parent.mkdir(parents=True)
+    proof.SHOPWARE_LOG.write_text("docker unavailable\n", encoding="utf-8")
+
+    proof.write_shopware_unavailable_evidence("Docker daemon unavailable")
+
+    payload = json.loads(
+        (proof.EVIDENCE_DIR / "shopware-scenarios.json").read_text(encoding="utf-8")
+    )
+    nodeid = payload["scenarios"][0]["nodeid"]
+    path_text = Path(nodeid.partition("::")[0]).read_text(encoding="utf-8")
+    assert nodeid == (
+        "tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_connection_collector"
+    )
+    assert f"def {nodeid.partition('::')[2]}(" in path_text
 
 
 def test_run_symfony_evidence_fails_when_docker_is_missing(tmp_path, monkeypatch):
