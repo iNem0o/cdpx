@@ -250,16 +250,19 @@ def _parse_shopware_cache_tags(html: str) -> dict[str, Any]:
             if len(row) < 2:
                 continue
             tag_count += 1
+            caller_matches = _CACHE_CALLER_RE.findall(row[1])
             callers: list[dict[str, Any]] = [
                 {"call": redact_text(call.strip()), "count": int(count)}
-                for count, call in _CACHE_CALLER_RE.findall(row[1])
+                for count, call in caller_matches[:LIST_LIMIT]
             ]
-            emissions += sum(int(item["count"]) for item in callers)
+            emissions += sum(int(count) for count, _call in caller_matches)
             if len(items) < LIST_LIMIT:
                 items.append(
                     {
                         "route": route,
                         "tag": redact_text(row[0]),
+                        "callers_total": len(caller_matches),
+                        "callers_truncated": len(caller_matches) > LIST_LIMIT,
                         "callers": callers,
                     }
                 )

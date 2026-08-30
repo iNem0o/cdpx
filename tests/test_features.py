@@ -341,15 +341,18 @@ def test_build_feature_inventory_fails_unmapped_public_entrypoint():
     assert "feature inventory: entrypoint unmapped: cdpx unknown" in feature_failures(inventory)
 
 
-def test_validated_external_feature_requires_exact_passed_runtime_proof(tmp_path, monkeypatch):
-    """A JUnit-shaped scenario cannot validate Shopware unless its exact
-    scenario id, target and runtime level all passed."""
+@pytest.mark.parametrize("runtime_target", ["chrome", "symfony", "shopware"])
+def test_validated_runtime_feature_requires_exact_passed_runtime_proof(
+    tmp_path, monkeypatch, runtime_target
+):
+    """A JUnit-shaped scenario cannot validate a runtime unless its exact
+    scenario id, attested target and runtime level all passed."""
     from cdpx.proofing import features as features_module
 
     path = tmp_path / "demo.md"
     path.write_text(
         DEMO_DOC.replace('status = "active"', 'status = "validated"')
-        .replace('target = "fixture"', 'target = "shopware"')
+        .replace('target = "fixture"', f'target = "{runtime_target}"')
         .replace('proof_level = "contract"', 'proof_level = "runtime"'),
         encoding="utf-8",
     )
@@ -377,8 +380,10 @@ def test_validated_external_feature_requires_exact_passed_runtime_proof(tmp_path
     matched = build_feature_inventory(
         [{"name": "demo", "help": "demo"}],
         {
-            "suites": {"shopware": [{**base, "target": "shopware", "proof_level": "runtime"}]},
-            "files": ["shopware-scenarios.json"],
+            "suites": {
+                runtime_target: [{**base, "target": runtime_target, "proof_level": "runtime"}]
+            },
+            "files": [f"{runtime_target}-scenarios.json"],
             "totals": {"scenarios": 1},
         },
         {"changed_files": []},

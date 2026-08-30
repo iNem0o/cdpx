@@ -136,6 +136,7 @@ def cmd_type(args) -> None:
             text,
             clear=args.options.clear,
             mode="key_events" if args.options.key_events else "insert_text",
+            origin_guard=lambda: _assert_session_current(args, c),
         )
         _assert_session_current(args, c)
         _out(args, result)

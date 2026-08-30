@@ -172,7 +172,8 @@ macros), `cache`
 `router` (route, controller, status, redirect), `time` (total/init time,
 best-effort timeline), `logger` (errors, warnings, deprecations),
 `shopware_rules` (Rule Builder rules active for the request),
-`shopware_cache_tags` (cache-tag emissions and callers),
+`shopware_cache_tags` (cache-tag emissions plus bounded callers with
+per-tag total/truncation metadata),
 `shopware_feature_flags` (technical feature configuration) and
 `shopware_cart` (bounded cart totals, lines and pipeline topology).
 

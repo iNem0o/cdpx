@@ -50,7 +50,7 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx count <selector>` | cheap assertion ("there really are 12 products") | quick check loop after an action |
 | `cdpx eval <js> [--await]` | root primitive: everything else | universal escape hatch; last resort (fragile, untyped) |
 | `cdpx click <selector>` | click via the Input domain (trusted) | requires attached, visible, enabled, stable, a non-zero box, and a center hit-test |
-| `cdpx type <selector> --secret-env NAME [--clear] [--key-events]` | fill a field from an environment reference | defaults to IME-safe `Input.insertText`; `--key-events` emits one trusted key sequence per printable ASCII character for segmented controls |
+| `cdpx type <selector> --secret-env NAME [--clear] [--key-events]` | fill a field from an environment reference | defaults to IME-safe `Input.insertText`; `--key-events` emits one trusted key sequence per printable ASCII character for segmented controls and rechecks the allowed origin between events |
 | `cdpx key <key>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
 
 ```bash
@@ -118,7 +118,7 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 
 | CLI | Use case | Why |
 |---|---|---|
-| `cdpx profiler <url> [--settle s] [--panels ...]` | probe and parse the Web Profiler panels of the last request (Doctrine/DAL, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs, Shopware rules/cache tags/feature flags and opt-in Cart) | Collector IDs select composable panel specs before fetch; defaults stay lightweight, `--panels all` includes bounded Cart, and absent collectors cause no speculative request |
+| `cdpx profiler <url> [--settle s] [--panels ...]` | probe and parse the Web Profiler panels of the last request (Doctrine/DAL, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs, Shopware rules/cache tags/feature flags and opt-in Cart) | Collector IDs select composable panel specs before fetch; defaults stay lightweight, cache-tag rows and caller lists expose totals/truncation metadata, `--panels all` includes bounded Cart, and absent collectors cause no speculative request |
 | `cdpx dom-diff -- <action>` | before/after snapshot of an action → stable structural diff | see exactly what a click changed in the DOM |
 
 ```bash

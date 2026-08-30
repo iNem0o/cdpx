@@ -338,13 +338,14 @@ def test_suite_attestation_is_written_at_root_and_case_level(tmp_path):
     )
 
 
-def test_external_runtime_marker_requires_matching_suite_attestation(tmp_path):
-    """A marker cannot turn a normal pytest run into proof of an external
-    runtime: Symfony and Shopware must be attested by the invoking gate."""
+@pytest.mark.parametrize("runtime_target", ["chrome", "symfony", "shopware"])
+def test_runtime_marker_requires_matching_suite_attestation(tmp_path, runtime_target):
+    """A marker cannot turn a normal pytest run into runtime proof: Chrome,
+    Symfony and Shopware must be attested by the invoking gate."""
     session = EvidenceSession(tmp_path, ttl=3600)
     item = FakeItem(
-        "tests/test_demo.py::test_shopware",
-        FakeMarker(target="shopware", proof_level="runtime"),
+        f"tests/test_demo.py::test_{runtime_target}",
+        FakeMarker(target=runtime_target, proof_level="runtime"),
     )
 
     with pytest.raises(ValueError, match="requires suite attestation"):

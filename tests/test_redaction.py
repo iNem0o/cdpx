@@ -201,6 +201,7 @@ def test_redact_text_masks_shopware_access_keys_and_serialized_sensitive_headers
     sales-channel keys or authentication headers through free text."""
     access_key = "SWSC0123456789SHOPWAREACCESSKEY"
     context_token = "shopware-context-token-value"
+    header_access_key = "SWSCHEADERACCESSKEY"
     cookie = "session=shopware-cookie-value"
     value = (
         f"shopware-1 | | Access key | {access_key} |\n"
@@ -210,6 +211,7 @@ def test_redact_text_masks_shopware_access_keys_and_serialized_sensitive_headers
                 "request": {
                     "headers": {
                         "Sw-Context-Token": [context_token],
+                        "Sw-Access-Key": [header_access_key],
                         "Cookie": [cookie],
                         "X-Tokenizer-Version": ["ordinary"],
                     }
@@ -224,9 +226,11 @@ def test_redact_text_masks_shopware_access_keys_and_serialized_sensitive_headers
 
     assert access_key not in redacted
     assert context_token not in redacted
+    assert header_access_key not in redacted
     assert cookie not in redacted
     assert "| Access key | *** |" in redacted
     assert '"Sw-Context-Token":["***"]' in redacted
+    assert '"Sw-Access-Key":["***"]' in redacted
     assert '"Cookie":["***"]' in redacted
     assert '"X-Tokenizer-Version":["ordinary"]' in redacted
 

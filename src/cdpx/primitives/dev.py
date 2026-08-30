@@ -10,6 +10,7 @@ from __future__ import annotations
 import difflib
 import json
 import urllib.parse
+from collections.abc import Callable
 
 from cdpx.action_model import BrowserAction, action_argv
 from cdpx.cdp_types import CDPEvent
@@ -131,9 +132,14 @@ def profiler(
     )
 
 
-def dom_diff(client: CDPClient, action: BrowserAction) -> dict:
+def dom_diff(
+    client: CDPClient,
+    action: BrowserAction,
+    *,
+    origin_guard: Callable[[], None] | None = None,
+) -> dict:
     before = _snapshot(client)
-    actions.run_action(client, action)
+    actions.run_action(client, action, origin_guard=origin_guard)
     after = _snapshot(client)
     diff = list(difflib.unified_diff(before, after, fromfile="before", tofile="after", lineterm=""))
     return {

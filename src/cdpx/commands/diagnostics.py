@@ -77,7 +77,11 @@ def cmd_profiler(args) -> None:
 def cmd_dom_diff(args) -> None:
     action = _require_action(args)
     with _client(args, required_authority=action_authority(action)) as c:
-        result = dev.dom_diff(c, action)
+        result = dev.dom_diff(
+            c,
+            action,
+            origin_guard=lambda: _assert_session_current(args, c),
+        )
         _assert_session_current(args, c)
         _out(args, result)
 
@@ -117,7 +121,12 @@ def cmd_emulate(args) -> None:
             # requires running the action WITHIN this connection (see e2e).
             res["action"] = {
                 "argv": action_argv(action),
-                "result": actions.run_action(c, action, timeout=args.options.timeout),
+                "result": actions.run_action(
+                    c,
+                    action,
+                    timeout=args.options.timeout,
+                    origin_guard=lambda: _assert_session_current(args, c),
+                ),
             }
             _assert_session_current(args, c)
         _out(args, res)

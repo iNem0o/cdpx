@@ -10,6 +10,7 @@ to set the authority and the allowed origins.
 from __future__ import annotations
 
 import urllib.parse
+from collections.abc import Callable
 
 from cdpx.action_model import (
     BrowserAction,
@@ -30,7 +31,13 @@ def run_action_argv(client: CDPClient, argv: list[str], timeout: float = 30.0) -
     return run_action(client, parse_action(argv), timeout=timeout)
 
 
-def run_action(client: CDPClient, action: BrowserAction, timeout: float = 30.0) -> dict:
+def run_action(
+    client: CDPClient,
+    action: BrowserAction,
+    timeout: float = 30.0,
+    *,
+    origin_guard: Callable[[], None] | None = None,
+) -> dict:
     """Executes an action and returns the output of the underlying primitive."""
     if isinstance(action, GotoAction):
         return nav.navigate(client, action.url, timeout=timeout)
@@ -45,6 +52,7 @@ def run_action(client: CDPClient, action: BrowserAction, timeout: float = 30.0) 
             action.text,
             clear=action.clear,
             mode=action.mode,
+            origin_guard=origin_guard,
         )
     if isinstance(action, KeyAction):
         return inputs.press_key(client, action.key)

@@ -67,7 +67,14 @@ def record(
         )
     error: Exception | None = None
     try:
-        result: dict[str, Any] = actions.run_action(client, execution_action)
+        result: dict[str, Any] = actions.run_action(
+            client,
+            execution_action,
+            origin_guard=lambda: assert_url_allowed(
+                actions.require_current_http_url(client, "during record action"),
+                allowed,
+            ),
+        )
         assert_url_allowed(
             actions.require_current_http_url(client, "after record action"),
             allowed,
@@ -169,7 +176,17 @@ def replay(
             except ACTION_ERRORS as error:
                 return _replay_error(path, len(entries), played, index, error)
         try:
-            actual = redact_tree(actions.run_action(client, action), context=redaction)
+            actual = redact_tree(
+                actions.run_action(
+                    client,
+                    action,
+                    origin_guard=lambda: assert_url_allowed(
+                        actions.require_current_http_url(client, "during replay action"),
+                        origin_patterns,
+                    ),
+                ),
+                context=redaction,
+            )
         except ACTION_ERRORS as error:
             return _replay_error(path, len(entries), played, index, error)
         played += 1

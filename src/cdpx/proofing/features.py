@@ -249,7 +249,7 @@ def build_feature_inventory(
         _add_feature_gaps(feature)
         if feature["status"] == "validated" and scenario_evidence.get("files"):
             for scenario in feature.get("scenarios", []):
-                if scenario.get("target") not in {"symfony", "shopware"}:
+                if scenario.get("proof_level") != "runtime":
                     continue
                 if not _has_matching_passed_proof(scenario):
                     violations.append(

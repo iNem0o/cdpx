@@ -54,7 +54,7 @@ _SENSITIVE_HEADER_NAMES = {
 }
 _API_KEY_HEADER_RE = re.compile(r"(?:^|[-_])api[-_]?key(?:$|[-_])", flags=re.IGNORECASE)
 _SENSITIVE_HEADER_PART_RE = re.compile(
-    r"(?:^|[-_])(?:csrf|xsrf|token|secret)(?:$|[-_])",
+    r"(?:^|[-_])(?:access[-_]?key|csrf|xsrf|token|secret)(?:$|[-_])",
     flags=re.IGNORECASE,
 )
 

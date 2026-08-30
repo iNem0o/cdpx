@@ -334,7 +334,12 @@ _NET_EVENTS = (
 def _same_page_url(candidate: Any, page_url: str) -> bool:
     if not isinstance(candidate, str):
         return False
-    return urllib.parse.urldefrag(candidate).url == urllib.parse.urldefrag(page_url).url
+    normalized_candidate = redact_url(candidate)
+    normalized_page = redact_url(page_url)
+    return (
+        urllib.parse.urldefrag(normalized_candidate).url
+        == urllib.parse.urldefrag(normalized_page).url
+    )
 
 
 def load(
@@ -570,7 +575,7 @@ def _execute_scenario_operation(
     started = time.monotonic()
     try:
         _assert_origin(client, scenario, step, allowed_origins)
-        result = _run_operation(client, operation, timeout)
+        result = _run_operation(client, operation, timeout, allowed_origins)
         if step.verb == "goto":
             run_state.last_url = _absolute_url(scenario.base_url, step.value)
         record["result"] = _persistable_step_result(step, result, redaction)
@@ -915,6 +920,7 @@ def _run_operation(
     client: CDPClient,
     operation: ScenarioOperation,
     timeout: float,
+    allowed_origins: tuple[str, ...],
 ) -> dict:
     if operation.step.verb == "frame_type":
         deadline = time.monotonic() + timeout
@@ -945,7 +951,12 @@ def _run_operation(
             remaining=remaining,
         )
     if operation.action is not None:
-        return actions.run_action(client, operation.action, timeout)
+        return actions.run_action(
+            client,
+            operation.action,
+            timeout,
+            origin_guard=lambda: assert_url_allowed(_current_url(client), allowed_origins),
+        )
     if operation.wait_kind == "visible" and operation.selector is not None:
         return nav.wait_for_visible(client, operation.selector, timeout=timeout)
     if (

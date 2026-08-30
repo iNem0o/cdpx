@@ -1926,7 +1926,13 @@ def test_navigate_and_read_title(page):
     assert js.evaluate(c, "document.title") == "cdpx fixtures — home"
 
 
-def test_wait_for_late_spa_content(page):
+@pytest.mark.scenario(
+    feature="browser-navigation",
+    journey="wait-spa-content",
+    scenario_id="browser-navigation.wait-for-rendered-state",
+    proves=["Real Chrome waits for DOM content injected after the initial page load."],
+)
+def test_wait_for_late_spa_content(page, evidence_case):
     """wait_for genuinely waits for content injected late by an SPA instead
     of concluding on the first pass."""
     c, base = page
@@ -1935,6 +1941,7 @@ def test_wait_for_late_spa_content(page):
     #: the element is found and the measured delay proves a real wait
     #: (the fixture only injects the content after ~250 ms)
     assert res["found"] and res["elapsed_ms"] >= 250
+    attach_screenshot(evidence_case, c, "late-spa-content")
 
 
 def test_form_click_and_type(page):
@@ -2058,7 +2065,13 @@ def test_network_capture_real(page):
     assert any("/api/json" in u for u in urls)
 
 
-def test_dom_diff_real(page):
+@pytest.mark.scenario(
+    feature="dev-profiler-diff",
+    journey="diff-dom-action",
+    scenario_id="dev-profiler-diff.diff-dom-after-action",
+    proves=["A real Chrome action produces a readable DOM diff and screenshot."],
+)
+def test_dom_diff_real(page, evidence_case):
     """dom-diff executes the enclosed action and makes the DOM change it
     triggers readable."""
     c, base = page
@@ -2068,6 +2081,7 @@ def test_dom_diff_real(page):
     #: the diff materializes the mutation triggered by the click (transition to submitted state)
     assert res["changed"] is True
     assert any("submitted" in line for line in res["diff"])
+    attach_screenshot(evidence_case, c, "dom-diff-after-action")
 
 
 def test_a11y_and_frame_real(page):

@@ -154,9 +154,10 @@ def test_record_v2_executes_secret_but_never_persists_it(
     path = tmp_path / "record.ndjson"
     seen = []
 
-    def run_action(_client, action, timeout=30):
+    def run_action(_client, action, timeout=30, *, origin_guard=None):
         seen.append(action)
         assert isinstance(action, TypeAction)
+        assert origin_guard is not None
         return {"typed": action.text, "selector": action.selector}
 
     monkeypatch.setenv("CHECKOUT_PASSWORD", "runtime-canary-secret")
@@ -204,7 +205,8 @@ def test_record_eval_never_persists_result_or_error(
     path = tmp_path / "eval.ndjson"
     canary = "unknown-eval-result-canary-7734"
 
-    def run_action(_client, _action, timeout=30):
+    def run_action(_client, _action, timeout=30, *, origin_guard=None):
+        assert origin_guard is not None
         if fails:
             raise ValueError(f"eval failed with {canary}")
         return {"value": canary}

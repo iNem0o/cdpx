@@ -475,6 +475,34 @@ def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
     assert mock.commands_for("Input.dispatchMouseEvent") == []
 
 
+def test_type_key_events_rechecks_origin_between_secret_bearing_events(mock, capsys, monkeypatch):
+    """A navigation caused by an early key event blocks the rest of the
+    secret before its character event or any later key reaches the new page."""
+    monkeypatch.setenv("CLI_SECRET", "12")
+    mock.on_eval("focus", True)
+    mock.on_eval(
+        "window.location.href",
+        "http://demo.test/form",
+        "http://demo.test/form",
+        "https://prod.example/redirected",
+    )
+
+    code, _, err = run(
+        mock,
+        capsys,
+        "type",
+        "#otp",
+        "--secret-env",
+        "CLI_SECRET",
+        "--key-events",
+    )
+
+    assert code == 1 and "origin rejected" in err
+    events = mock.commands_for("Input.dispatchKeyEvent")
+    assert [event["type"] for event in events] == ["rawKeyDown"]
+    assert all(event.get("text") is None for event in events)
+
+
 def test_origin_guard_blocks_dom_diff(mock, capsys, monkeypatch):
     """dom-diff executes a real mutating action: the wrapper undergoes the
     same origin guard as the mutation it carries."""

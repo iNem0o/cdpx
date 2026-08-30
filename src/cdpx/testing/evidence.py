@@ -667,8 +667,8 @@ class EvidenceSession:
                 raise ValueError(f"{nodeid}: documented scenario requires a proof kind")
             return
         _validate_proof_kind(target, proof_level, nodeid)
-        if target in {"symfony", "shopware"} and self.target_override is None:
-            raise ValueError(f"{nodeid}: external runtime proof requires suite attestation")
+        if target in {"chrome", "symfony", "shopware"} and self.target_override is None:
+            raise ValueError(f"{nodeid}: runtime proof requires suite attestation")
 
     def _intent_for_item(self, item: Any) -> TestIntent | None:
         # Parametrized tests share the same function: extraction happens

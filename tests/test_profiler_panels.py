@@ -142,6 +142,8 @@ def test_parse_shopware_cache_tags():
         {
             "route": "/cdpx-profiler",
             "tag": "system.config-",
+            "callers_total": 1,
+            "callers_truncated": False,
             "callers": [
                 {
                     "call": "SystemConfigService::get | SystemConfigService::getBool",
@@ -152,6 +154,8 @@ def test_parse_shopware_cache_tags():
         {
             "route": "/cdpx-profiler",
             "tag": "rule-rule-a",
+            "callers_total": 2,
+            "callers_truncated": False,
             "callers": [
                 {"call": "CachedRuleLoader::load", "count": 1},
                 {"call": "RuleLoader::load", "count": 3},
@@ -160,9 +164,27 @@ def test_parse_shopware_cache_tags():
         {
             "route": "/nested",
             "tag": "product-product-a",
+            "callers_total": 1,
+            "callers_truncated": False,
             "callers": [{"call": "ProductRoute::load", "count": 1}],
         },
     ]
+
+
+def test_parse_shopware_cache_tags_bounds_callers_and_reports_truncation():
+    html = read("shopware-cache-tags.html").replace(
+        "2x SystemConfigService::get | SystemConfigService::getBool",
+        " ".join(f"{index}x Caller::{index}" for index in range(1, LIST_LIMIT + 3)),
+    )
+
+    res = profiler.parse_panel("shopware_cache_tags", 200, html)
+
+    first = res["list"][0]
+    assert first["callers_total"] == LIST_LIMIT + 2
+    assert first["callers_truncated"] is True
+    assert len(first["callers"]) == LIST_LIMIT
+    assert first["callers"][-1] == {"call": f"Caller::{LIST_LIMIT}", "count": LIST_LIMIT}
+    assert res["emissions"] == sum(range(1, LIST_LIMIT + 3)) + 5
 
 
 def test_parse_shopware_feature_flags_uses_icons_and_redacts_text():

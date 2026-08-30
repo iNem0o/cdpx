@@ -28,7 +28,7 @@ def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch
     collector = scenarios.PassiveCollector(orchestration())
     collector.profiler_hits = [
         {
-            "url": "http://shop.test/scenario/profiler/baseline?variant=***",
+            "url": "http://shop.test/scenario/profiler/baseline?variant=baseline",
             "link": "http://shop.test/_profiler/main",
         },
         {
@@ -49,7 +49,7 @@ def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch
 
     result = collector.profiler(object(), 1.0)
 
-    assert result["url"] == ("http://shop.test/scenario/profiler/baseline?variant=***")
+    assert result["link"] == "http://shop.test/_profiler/main"
 
 
 def test_parse_scenario_with_step_capture():
@@ -1584,7 +1584,9 @@ def test_scenario_frame_type_rechecks_current_frame_url_during_paced_input(
     ]
     assert result["verdict"] == "fail"
     assert "origin rejected" in result["steps"][0]["error"]
-    assert typed == ["1"]
+    # The redirect becomes visible after rawKeyDown; the secret-bearing
+    # character event is withheld from the new frame.
+    assert typed == []
 
 
 def test_scenario_timeout_stops_paced_frame_type_before_next_character(mock, tmp_path, monkeypatch):

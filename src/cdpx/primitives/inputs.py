@@ -253,6 +253,7 @@ def type_text(
     clear: bool = False,
     *,
     mode: str = "insert_text",
+    origin_guard: Callable[[], None] | None = None,
 ) -> dict:
     """Focus an element and type with IME insertion or discrete trusted key events."""
     _validate_typing(text, mode=mode, key_delay_ms=0)
@@ -265,8 +266,12 @@ def type_text(
         raise ElementNotInteractable(f"element not editable: {selector}")
     _prepare_text_input(client, selector, clear)
     if clear:
+        if origin_guard is not None:
+            origin_guard()
         press_key(client, "Backspace")
-    _insert_text(client, text, mode=mode)
+        if origin_guard is not None:
+            origin_guard()
+    _insert_text(client, text, mode=mode, origin_guard=origin_guard)
     result = {
         "typed": True,
         "value_masked": True,
@@ -282,6 +287,7 @@ def _type_printable_key(
     client: CDPClient,
     char: str,
     *,
+    origin_guard: Callable[[], None] | None = None,
     remaining: Callable[[], float] | None = None,
 ) -> None:
     virtual_key, code, modifiers, unmodified_text = _printable_key_layout(char)
@@ -293,14 +299,17 @@ def _type_printable_key(
     }
     if modifiers:
         key["modifiers"] = modifiers
-    _send(client, "Input.dispatchKeyEvent", {"type": "rawKeyDown", **key}, remaining=remaining)
-    _send(
-        client,
-        "Input.dispatchKeyEvent",
+    events = (
+        {"type": "rawKeyDown", **key},
         {"type": "char", "text": char, "unmodifiedText": unmodified_text, **key},
-        remaining=remaining,
+        {"type": "keyUp", **key},
     )
-    _send(client, "Input.dispatchKeyEvent", {"type": "keyUp", **key}, remaining=remaining)
+    for event in events:
+        if origin_guard is not None:
+            origin_guard()
+        _send(client, "Input.dispatchKeyEvent", event, remaining=remaining)
+    if origin_guard is not None:
+        origin_guard()
 
 
 _SHIFTED_DIGITS = dict(zip("!@#$%^&*()", "1234567890", strict=True))
@@ -385,9 +394,12 @@ def _insert_text(
             origin_guard()
         return
     for char in text:
-        if origin_guard is not None:
-            origin_guard()
-        _type_printable_key(client, char, remaining=remaining)
+        _type_printable_key(
+            client,
+            char,
+            origin_guard=origin_guard,
+            remaining=remaining,
+        )
         if key_delay_ms:
             delay = key_delay_ms / 1000
             if remaining is not None:
@@ -395,8 +407,6 @@ def _insert_text(
             time.sleep(delay)
             if remaining is not None:
                 remaining()
-        if origin_guard is not None:
-            origin_guard()
 
 
 def type_text_in_frame(

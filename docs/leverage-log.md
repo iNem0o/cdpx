@@ -1,5 +1,27 @@
 # Leverage log
 
+- Session-Key: next-release@9172a15
+  - Symptom: five review regressions exposed a Shopware access-key leak, a
+    per-key-event origin race, asymmetric profiler URL comparison, unattested
+    Chrome runtime claims and unbounded cache-tag callers. Enforcing the
+    Chrome rule then correctly made the first full proof red for five
+    documented scenarios without exact attested evidence.
+  - Root cause (missing capability): sensitive-header matching omitted the
+    `access-key` family; typing guards surrounded characters rather than each
+    CDP event; profiler hits and the current page used different URL forms;
+    runtime provenance checks covered Symfony/Shopware but not Chrome; and a
+    bounded cache-tag row still retained every nested caller. The proof's
+    Chrome command also omitted TLS scenarios, while wait/DOM-diff runtime
+    tests lacked explicit scenario identities.
+  - Fix encoded (doc/script/lint): redaction, per-event guards, symmetric URL
+    normalization, runtime suite attestation and nested list metadata now have
+    focused tests. The proof gate runs TLS E2E and the wait/DOM-diff Chrome
+    tests publish exact scenario IDs and screenshots; public primitive docs
+    describe the tightened contracts.
+  - Verification (command/CI): `./dev check-local` passed 969 tests (89.96%
+    line, 78.98% branch); `./dev check` returned `ok: true` with 52 attested
+    Chrome tests, 7 Symfony tests, 1 Shopware test and zero proof failures.
+
 - Session-Key: next-release@952bd0d
   - Symptom: the first real Shopware proof exposed 23 feature flags, so the
     deterministic E2E flag was absent from cdpx's intentionally bounded first

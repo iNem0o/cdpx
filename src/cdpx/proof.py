@@ -1025,6 +1025,7 @@ def _generate() -> dict:
                 "tests/e2e/test_e2e_chrome.py",
                 "tests/e2e/test_e2e_sessions.py",
                 "tests/e2e/test_e2e_runtime_network.py",
+                "tests/e2e/test_e2e_tls.py",
                 "-v",
                 f"--cdpx-evidence-dir={evidence_dir}",
                 "--cdpx-evidence-suite=e2e",
