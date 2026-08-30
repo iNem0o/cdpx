@@ -272,6 +272,13 @@ def test_parse_structured_profiler_capture_for_step_and_final_artifact():
         ({"panels": ["db", "db"]}, "entries must be unique"),
         ({"panels": ["unknown"]}, "unknown panel"),
         ({"request": {}}, "at least one selector"),
+        ({"request": {"url_prefix": None}}, "url_prefix must not be null"),
+        ({"request": {"resource_type": None}}, "resource_type must not be null"),
+        ({"request": {"method": None}}, "method must not be null"),
+        (
+            {"request": {"url_prefix": "/checkout", "method": None}},
+            "method must not be null",
+        ),
         ({"request": {"url_prefix": "https://shop.test/cart"}}, "absolute path prefix"),
         ({"request": {"url_prefix": "/cart?token=secret"}}, "without query"),
         ({"request": {"resource_type": "image"}}, "must be one of"),

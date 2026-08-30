@@ -84,6 +84,15 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
         {"$ref": "#/$defs/artifact"},
         {"$ref": "#/$defs/profilerCapture"},
     ]
+    profiler_capture_item = fragment["$defs"]["profilerCaptureItem"]
+    assert profiler_capture_item["oneOf"] == [
+        {"const": "profiler"},
+        {"$ref": "#/$defs/profilerCapture"},
+    ]
+    capture = fragment["$defs"]["capture"]
+    assert capture["contains"] == {"$ref": "#/$defs/profilerCaptureItem"}
+    assert capture["minContains"] == 0
+    assert capture["maxContains"] == 1
     profiler_capture = fragment["$defs"]["profilerCapture"]["properties"]["profiler"]
     assert profiler_capture["additionalProperties"] is False
     assert profiler_capture["properties"]["panels"]["uniqueItems"] is True
@@ -94,6 +103,11 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
     assert scenario["properties"]["artifacts"]["items"] == {
         "$ref": "scenario-fragment-v1.json#/$defs/captureItem"
     }
+    assert scenario["properties"]["artifacts"]["contains"] == {
+        "$ref": "scenario-fragment-v1.json#/$defs/profilerCaptureItem"
+    }
+    assert scenario["properties"]["artifacts"]["minContains"] == 0
+    assert scenario["properties"]["artifacts"]["maxContains"] == 1
 
 
 def test_portable_scripts_are_posix_and_shellcheck_clean():

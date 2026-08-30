@@ -73,6 +73,11 @@
       "items": {
         "$ref": "scenario-fragment-v1.json#/$defs/captureItem"
       },
+      "contains": {
+        "$ref": "scenario-fragment-v1.json#/$defs/profilerCaptureItem"
+      },
+      "minContains": 0,
+      "maxContains": 1,
       "default": []
     }
   }

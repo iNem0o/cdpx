@@ -909,6 +909,9 @@ def _parse_profiler_request(value: Any, field: str) -> ProfilerRequestSelector:
     _unknown(value, {"url_prefix", "resource_type", "method"}, f"{field}.")
     if not value:
         raise ScenarioUsageError(f"{field} must declare at least one selector")
+    for selector in ("url_prefix", "resource_type", "method"):
+        if selector in value and value[selector] is None:
+            raise ScenarioUsageError(f"{field}.{selector} must not be null")
     url_prefix = value.get("url_prefix")
     if url_prefix is not None and (
         not isinstance(url_prefix, str)

@@ -30,11 +30,22 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/captureItem"
-      }
+      },
+      "contains": {
+        "$ref": "#/$defs/profilerCaptureItem"
+      },
+      "minContains": 0,
+      "maxContains": 1
     },
     "captureItem": {
       "oneOf": [
         {"$ref": "#/$defs/artifact"},
+        {"$ref": "#/$defs/profilerCapture"}
+      ]
+    },
+    "profilerCaptureItem": {
+      "oneOf": [
+        {"const": "profiler"},
         {"$ref": "#/$defs/profilerCapture"}
       ]
     },

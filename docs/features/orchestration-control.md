@@ -516,9 +516,12 @@ artifacts:
 A profiler capture may select panels and the last observed request matching
 its path, CDP resource type and HTTP method. `panels` omitted keeps the
 lightweight defaults; an empty list records token discovery only. The request
-object must contain at least one selector, `url_prefix` is a path without query
-or fragment, `resource_type` is `document`, `xhr` or `fetch`, and method names
-are normalized to uppercase. The same form is accepted in final `artifacts`:
+object must contain at least one non-null selector, explicit null selector values
+are refused, `url_prefix` is a path without query or fragment, `resource_type`
+is `document`, `xhr` or `fetch`, and method names are normalized to uppercase.
+Each `capture` list and the final `artifacts` list may contain at most one
+profiler capture, whether expressed as `profiler` or as the structured form.
+The same structured form is accepted in final `artifacts`:
 
 ```yaml
 capture:
