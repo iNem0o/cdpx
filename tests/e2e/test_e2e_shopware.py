@@ -50,7 +50,8 @@ def runtime_session(tmp_path_factory):
     proof_level="runtime",
     proves=[
         "Shopware 6.7 emits a real profiler token.",
-        "The db panel falls back to app.connection_collector with grouped queries.",
+        "The collector probe selects app.connection_collector without a speculative 404.",
+        "DAL titles, source locations, active rules and cache tags are structured.",
     ],
 )
 def test_profiler_reads_real_shopware_connection_collector(runtime_session, evidence_case):
@@ -64,7 +65,7 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
         "profiler",
         f"{SHOPWARE_URL}/cdpx-profiler",
         "--panels",
-        "db,router",
+        "db,router,shopware_rules,shopware_cache_tags",
         "--settle",
         "0.8",
         timeout=180,
@@ -93,6 +94,7 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
         attach_screenshot(evidence_case, client, "Real Shopware profiler target")
 
     panel = result["panels"]["db"]
+    profile = result["profile"]
     assert result["token_present"] is True and "token" not in result
     assert result["status"] == 200
     assert result["response_headers"]["sw-language-id"]
@@ -101,21 +103,40 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
     assert runtime_identity["middlewares"].split(",") == [
         "Shopware\\Core\\Profiling\\Doctrine\\ProfilingMiddleware"
     ]
+    assert profile["engine"] == "symfony_web_profiler"
+    assert profile["probed"] is True
+    assert profile["extensions"] == ["shopware"]
+    assert profile["collectors"]["total"] > len(profile["collectors"]["items"])
+    assert profile["collectors"]["truncated"] is True
     assert panel["available"] is True
     assert panel["queries"] >= 5
     assert panel["max_repetitions"] >= 5
     assert {"sql": "SELECT 1 /* cdpx-shopware-e2e */", "count": 5} in panel["repeated"]
+    tagged = next(
+        item for item in panel["tagged"] if "cdpx-shopware-e2e::search-ids" in item["tags"]
+    )
+    assert tagged["source"]["call"] == (
+        "Shopware\\Core\\Framework\\DataAbstractionLayer\\EntityRepository->searchIds"
+    )
+    assert tagged["source"]["file"].endswith("/CdpxE2E/src/Controller/ProfilerController.php")
     assert result["panels"]["router"]["route"] == "frontend.cdpx.profiler"
-    assert set(requested_collectors) == {"db", "app.connection_collector", "request"}
-    assert requested_collectors.index("db") < requested_collectors.index("app.connection_collector")
+    assert result["panels"]["shopware_rules"]["count"] >= 1
+    assert result["panels"]["shopware_cache_tags"]["tags"] >= 1
+    assert "db" not in requested_collectors
+    assert {
+        "request",
+        "app.connection_collector",
+        "Shopware\\Core\\Profiling\\Subscriber\\ActiveRulesDataCollectorSubscriber",
+        "Shopware\\Core\\Profiling\\Subscriber\\CacheTagCollectorSubscriber",
+    } <= set(requested_collectors)
 
     if evidence_case is not None:
         evidence_case.attach_json("Shopware profiler result", result, "shopware-profiler.json")
         evidence_case.attach_json(
-            "Shopware collector fallback",
+            "Shopware adaptive collector probe",
             {
                 "requested_collectors": requested_collectors,
                 "runtime_identity": runtime_identity,
             },
-            "shopware-collector-fallback.json",
+            "shopware-collector-probe.json",
         )

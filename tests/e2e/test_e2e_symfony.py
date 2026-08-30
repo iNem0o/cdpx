@@ -360,6 +360,9 @@ def test_profiler_reads_real_symfony_web_profiler(runtime_session, evidence_case
     assert res["token_present"] is True and "token" not in res
     assert res["profiler_url"].startswith(f"{SYMFONY_URL}/_profiler/")
     assert res["profiler_status"] == 200
+    assert res["profile"]["engine"] == "symfony_web_profiler"
+    assert res["profile"]["probed"] is True
+    assert res["profile"]["extensions"] == []
     #: internal collection fields do not leak into the CLI contract
     assert "signals" not in res and "profiler_bytes" not in res
     panels = res["panels"]
@@ -375,6 +378,8 @@ def test_profiler_reads_real_symfony_web_profiler(runtime_session, evidence_case
     assert panels["db"]["available"] is True
     assert panels["db"]["queries"] == 0  # this route does not touch the database
     assert panels["logger"]["available"] is True
+    assert panels["shopware_rules"] == {"available": False, "status": 0}
+    assert panels["shopware_cache_tags"] == {"available": False, "status": 0}
 
 
 @pytest.mark.scenario(

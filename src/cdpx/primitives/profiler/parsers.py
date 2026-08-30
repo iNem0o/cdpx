@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 from collections import Counter
+from html import unescape
 from typing import Any
 
 from cdpx.security import redact_text, redact_url
@@ -63,15 +65,20 @@ def _parse_db(html: str) -> dict[str, Any]:
         "repeated": [],
         "time_ms": _ms(_metric(metrics, "query time")),
         "list": [],
+        "tagged_total": 0,
+        "tagged_truncated": False,
+        "tagged": [],
     }
     table = _find_table(_tables(html), "info")
     if table:
+        details = _db_row_details(html)
         sql_col = _column(table, "info")
         time_col = _column(table, "time")
         count_col = _column(table, "count")
         parsed_rows: list[dict[str, Any]] = []
         frequencies: Counter[str] = Counter()
-        for row in table["rows"]:
+        tagged_total = 0
+        for row_index, row in enumerate(table["rows"]):
             if sql_col is None or sql_col >= len(row):
                 continue
             # The Info cell contains the SQL followed by the parameter dump.
@@ -87,6 +94,22 @@ def _parse_db(html: str) -> dict[str, Any]:
             if len(parsed_rows) < LIST_LIMIT:
                 parsed_rows.append(entry)
             frequencies[entry["sql"]] += count
+            detail = details[row_index] if row_index < len(details) else {}
+            tags = _leading_sql_tags(sql, detail.get("comments", []))
+            if tags:
+                tagged_total += 1
+                if len(out["tagged"]) < LIST_LIMIT:
+                    tagged: dict[str, Any] = {
+                        "tags": [redact_text(tag) for tag in tags],
+                        "sql": entry["sql"],
+                        "count": count,
+                    }
+                    if "duration_ms" in entry:
+                        tagged["duration_ms"] = entry["duration_ms"]
+                    source = _query_source(detail.get("frames", []))
+                    if source is not None:
+                        tagged["source"] = source
+                    out["tagged"].append(tagged)
         out["list"] = parsed_rows
         repeated = sorted(
             ((count, sql) for sql, count in frequencies.items() if count > 1),
@@ -94,7 +117,155 @@ def _parse_db(html: str) -> dict[str, Any]:
         )
         out["repeated"] = [{"sql": sql, "count": count} for count, sql in repeated[:LIST_LIMIT]]
         out["max_repetitions"] = max(frequencies.values(), default=0)
+        out["tagged_total"] = tagged_total
+        out["tagged_truncated"] = tagged_total > len(out["tagged"])
     return out
+
+
+def _db_row_details(html: str) -> list[dict[str, Any]]:
+    """Extracts Shopware's highlighted comments and hidden query backtraces."""
+    starts = list(re.finditer(r'<tr\s+id="queryNo-[^"]+"', html))
+    details: list[dict[str, Any]] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(html)
+        chunk = html[start.start() : end]
+        pre = re.search(r'<pre[^>]*class="[^"]*highlight-sql[^"]*"[^>]*>(.*?)</pre>', chunk, re.S)
+        comments: list[str] = []
+        if pre:
+            comments = [
+                _norm(unescape(re.sub(r"<[^>]+>", "", value)))
+                for value in re.findall(
+                    r'<span[^>]*class="[^"]*\bcomment\b[^"]*"[^>]*>(.*?)</span>',
+                    pre.group(1),
+                    re.S,
+                )
+            ]
+        frames: list[dict[str, Any]] = []
+        trace = re.search(r'<div\s+id="backtrace-[^"]+"[^>]*>(.*?)</div>', chunk, re.S)
+        if trace:
+            for row in re.findall(r"<tr[^>]*>(.*?)</tr>", trace.group(1), re.S):
+                anchor = re.search(r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', row, re.S)
+                if anchor is None or "status-warning" not in anchor.group(2):
+                    continue
+                call = _norm(unescape(re.sub(r"<[^>]+>", "", anchor.group(2))))
+                line_match = re.search(r"\(line\s+(\d+)\)\s*$", call)
+                line = int(line_match.group(1)) if line_match else None
+                call = re.sub(r"\s*\(line\s+\d+\)\s*$", "", call)
+                frame: dict[str, Any] = {"call": redact_text(call)}
+                file = _file_from_profiler_link(unescape(anchor.group(1)))
+                if file:
+                    frame["file"] = redact_text(file)
+                if line is not None:
+                    frame["line"] = line
+                frames.append(frame)
+        details.append({"comments": comments, "frames": frames})
+    return details
+
+
+def _file_from_profiler_link(href: str) -> str | None:
+    line_suffix = re.search(r"[?&]line=\d+", href)
+    without_line = href[: line_suffix.start()] if line_suffix else href
+    parsed = urllib.parse.urlsplit(without_line)
+    query_file = urllib.parse.parse_qs(parsed.query).get("file", [])
+    if query_file:
+        return query_file[0]
+    if parsed.scheme == "file" and parsed.path:
+        return urllib.parse.unquote(parsed.path)
+    return None
+
+
+def _leading_sql_tags(sql: str, comments: list[str]) -> list[str]:
+    remaining = _norm(sql)
+    tags: list[str] = []
+    for comment in comments:
+        normalized = _norm(comment)
+        if not normalized or not remaining.startswith(normalized):
+            break
+        remaining = remaining[len(normalized) :].lstrip()
+        if normalized.startswith("--"):
+            value = normalized[2:].strip()
+        elif normalized.startswith("#"):
+            value = normalized[1:].strip()
+        elif normalized.startswith("/*") and normalized.endswith("*/"):
+            value = normalized[2:-2].strip()
+        else:
+            break
+        if value:
+            tags.append(value)
+    return tags
+
+
+def _query_source(frames: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for frame in frames:
+        file = frame.get("file")
+        if isinstance(file, str) and "/vendor/" not in file.replace("\\", "/"):
+            return frame
+    for frame in frames:
+        call = frame.get("call")
+        if isinstance(call, str) and not call.startswith(
+            ("Doctrine\\DBAL\\", "Symfony\\Bridge\\Doctrine\\")
+        ):
+            return frame
+    return frames[0] if frames else None
+
+
+def _parse_shopware_rules(html: str) -> dict[str, Any]:
+    table = _find_table(_tables(html), "priority", "name", "id")
+    rows = table["rows"] if table else []
+    parsed: list[dict[str, Any]] = []
+    for row in rows[:LIST_LIMIT]:
+        if len(row) < 5:
+            continue
+        parsed.append(
+            {
+                "priority": _int(row[0]),
+                "name": redact_text(row[1]),
+                "id": redact_text(row[2]),
+                "module_types": [
+                    redact_text(item.strip()) for item in row[3].split(",") if item.strip()
+                ],
+                "description": redact_text(row[4]),
+            }
+        )
+    return {"count": len(rows), "list": parsed}
+
+
+_CACHE_CALLER_RE = re.compile(r"(\d+)\s*x\s+(.*?)(?=\s*\d+\s*x\s+|$)")
+
+
+def _parse_shopware_cache_tags(html: str) -> dict[str, Any]:
+    tables = [table for table in _tables(html) if _find_table([table], "tag", "source")]
+    routes: set[str] = set()
+    tag_count = 0
+    emissions = 0
+    items: list[dict[str, Any]] = []
+    for table in tables:
+        route = redact_text(table["heading"])
+        if route:
+            routes.add(route)
+        for row in table["rows"]:
+            if len(row) < 2:
+                continue
+            tag_count += 1
+            callers: list[dict[str, Any]] = [
+                {"call": redact_text(call.strip()), "count": int(count)}
+                for count, call in _CACHE_CALLER_RE.findall(row[1])
+            ]
+            emissions += sum(int(item["count"]) for item in callers)
+            if len(items) < LIST_LIMIT:
+                items.append(
+                    {
+                        "route": route,
+                        "tag": redact_text(row[0]),
+                        "callers": callers,
+                    }
+                )
+    return {
+        "routes": len(routes),
+        "tags": tag_count,
+        "emissions": emissions,
+        "list": items,
+    }
 
 
 def _parse_twig(html: str) -> dict[str, Any]:
@@ -361,4 +532,6 @@ _PARSERS = {
     "router": _parse_router,
     "time": _parse_time,
     "logger": _parse_logger,
+    "shopware_rules": _parse_shopware_rules,
+    "shopware_cache_tags": _parse_shopware_cache_tags,
 }

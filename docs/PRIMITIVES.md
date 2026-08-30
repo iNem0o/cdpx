@@ -118,7 +118,7 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 
 | CLI | Use case | Why |
 |---|---|---|
-| `cdpx profiler <url> [--settle s] [--panels ...]` | parse the Web Profiler panels of the last request (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) | N+1s, SQL duplicates, and exceptions quantified by the agent without opening the browser; `X-Debug-Token-Link` + `X-Debug-Token` fallback, panel HTML parsed (no JSON API on the Symfony side) |
+| `cdpx profiler <url> [--settle s] [--panels ...]` | probe and parse the Web Profiler panels of the last request (Doctrine/DAL, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs, Shopware rules/cache tags) | Collector IDs select composable framework adapters before fetch; N+1s, tagged DAL SQL with source locations, SQL duplicates, and exceptions are returned in one bounded schema without opening the browser |
 | `cdpx dom-diff -- <action>` | before/after snapshot of an action → stable structural diff | see exactly what a click changed in the DOM |
 
 ```bash

@@ -1,5 +1,20 @@
 # Leverage log
 
+- Session-Key: next-release@106cb40
+  - Symptom: Shopware 6.7 advertised 26 profiler collectors, but cdpx still
+    learned its DB collector through a speculative `?panel=db` 404 and
+    discarded DAL query comments, source links, active rules and cache tags.
+  - Root cause (missing capability): panel selection was a static fallback
+    list with no collector-menu probe or composable extension registry, and
+    the shared DB parser ignored Shopware's highlighted comments/backtraces.
+  - Fix encoded (doc/script/lint): one same-origin request-panel probe now
+    selects advertised collectors through adapters; bounded `profile`
+    metadata, tagged DB queries with best-effort sources, active rules and
+    cache-tag panels share the stable profiler schema and redaction boundary.
+  - Verification (command/CI): `./dev test-shopware-e2e`, `./dev check-local`
+    (947 tests; 89.84% line and 78.6% branch coverage) and `./dev check`
+    (`ok: true`) all completed successfully.
+
 - Session-Key: next-release@9706c80
   - Symptom: mocked profiler scenarios stayed green while the real Symfony
     browser selected a later `/favicon` profiler token, and the Shopware test

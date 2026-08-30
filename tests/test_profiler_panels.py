@@ -14,8 +14,9 @@ from cdpx import discovery
 from cdpx.client import CDPClient
 from cdpx.orchestration import OrchestrationContext
 from cdpx.primitives import profiler
+from cdpx.primitives.profiler.adapters import detect_extensions
 from cdpx.primitives.profiler.catalog import LIST_LIMIT
-from cdpx.primitives.profiler.html import _menu
+from cdpx.primitives.profiler.html import _menu, _menu_items
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "profiler"
 PROFILER_CONTEXT = OrchestrationContext.from_origins("http://app.test")
@@ -79,6 +80,89 @@ def test_parse_shopware_grouped_connection_collector_fixture():
     assert res["duplicates"] == 5
     assert res["max_repetitions"] == 5
     assert res["repeated"] == [{"sql": "SELECT 1 /* cdpx-shopware-e2e */", "count": 5}]
+
+
+def test_parse_shopware_tagged_dal_query_exposes_bounded_source():
+    res = profiler.parse_panel("db", 200, read("shopware-db-tagged.html"))
+
+    assert res["tagged_total"] == 1
+    assert res["tagged_truncated"] is False
+    assert res["tagged"] == [
+        {
+            "tags": ["cdpx-shopware-e2e::search-ids"],
+            "sql": "-- cdpx-shopware-e2e::search-ids SELECT id FROM rule",
+            "count": 1,
+            "duration_ms": 0.3,
+            "source": {
+                "call": "CdpxE2E\\Controller\\ProfilerController->__invoke",
+                "file": (
+                    "/var/www/html/custom/plugins/CdpxE2E/src/Controller/ProfilerController.php"
+                ),
+                "line": 31,
+            },
+        }
+    ]
+    #: an inline SQL comment remains part of the SQL but is not promoted to
+    #: a DAL title/tag; only leading comments carry that contract.
+    assert "inline diagnostic only" in res["list"][1]["sql"]
+
+
+def test_parse_shopware_active_rules():
+    res = profiler.parse_panel("shopware_rules", 200, read("shopware-rules.html"))
+
+    assert res == {
+        "available": True,
+        "count": 2,
+        "list": [
+            {
+                "priority": 100,
+                "name": "Cart >= 0",
+                "id": "rule-a",
+                "module_types": ["promotion", "flow"],
+                "description": "Always matches carts.",
+            },
+            {
+                "priority": 50,
+                "name": "Default",
+                "id": "rule-b",
+                "module_types": [],
+                "description": "",
+            },
+        ],
+    }
+
+
+def test_parse_shopware_cache_tags():
+    res = profiler.parse_panel("shopware_cache_tags", 200, read("shopware-cache-tags.html"))
+
+    assert res["routes"] == 2
+    assert res["tags"] == 3
+    assert res["emissions"] == 7
+    assert res["list"] == [
+        {
+            "route": "/cdpx-profiler",
+            "tag": "system.config-",
+            "callers": [
+                {
+                    "call": "SystemConfigService::get | SystemConfigService::getBool",
+                    "count": 2,
+                }
+            ],
+        },
+        {
+            "route": "/cdpx-profiler",
+            "tag": "rule-rule-a",
+            "callers": [
+                {"call": "CachedRuleLoader::load", "count": 1},
+                {"call": "RuleLoader::load", "count": 3},
+            ],
+        },
+        {
+            "route": "/nested",
+            "tag": "product-product-a",
+            "callers": [{"call": "ProductRoute::load", "count": 1}],
+        },
+    ]
 
 
 def test_parse_db_bounds_rows_without_truncating_repetition_aggregation():
@@ -213,7 +297,35 @@ def test_profiler_free_text_only_redacts_high_confidence_credentials(evidence_ca
     exception = profiler.parse_panel("exception", 200, exception_html)
     db = profiler.parse_panel("db", 200, db_html)
     http = profiler.parse_panel("http_client", 200, http_html)
-    serialized = json.dumps({"exception": exception, "db": db, "http": http})
+    tagged = profiler.parse_panel(
+        "db",
+        200,
+        read("shopware-db-tagged.html").replace(
+            "cdpx-shopware-e2e::search-ids", "Bearer tagged-secret"
+        ),
+    )
+    rules = profiler.parse_panel(
+        "shopware_rules",
+        200,
+        read("shopware-rules.html").replace("Cart &gt;= 0", "Bearer rule-secret"),
+    )
+    cache_tags = profiler.parse_panel(
+        "shopware_cache_tags",
+        200,
+        read("shopware-cache-tags.html").replace(
+            "SystemConfigService::getBool", "Bearer cache-tag-secret"
+        ),
+    )
+    serialized = json.dumps(
+        {
+            "exception": exception,
+            "db": db,
+            "http": http,
+            "tagged": tagged,
+            "rules": rules,
+            "cache_tags": cache_tags,
+        }
+    )
 
     #: none of the injected secret values (Bearer, JWT, URL credentials)
     #: survives the full JSON serialization of the result, regardless of
@@ -221,6 +333,9 @@ def test_profiler_free_text_only_redacts_high_confidence_credentials(evidence_ca
     assert "exception-secret" not in serialized
     assert "sql-secret" not in serialized
     assert jwt not in serialized
+    assert "tagged-secret" not in serialized
+    assert "rule-secret" not in serialized
+    assert "cache-tag-secret" not in serialized
     assert "alice" not in serialized and "password" not in serialized
     #: harmless business text is not over-redacted: exception message and
     #: SQL stay readable for the diagnosis
@@ -354,6 +469,7 @@ def test_normalize_panels_defaults_and_rejects():
     #: through intact, in the requested order
     assert profiler.normalize_panels(None) == list(profiler.ALL_PANELS)
     assert profiler.normalize_panels(["db", "twig"]) == ["db", "twig"]
+    assert {"shopware_rules", "shopware_cache_tags"} <= set(profiler.ALL_PANELS)
     #: an unknown key fails validation, hence before any request to the
     #: profiler
     with pytest.raises(ValueError, match=r"unknown panel\(s\)"):
@@ -367,6 +483,15 @@ def test_menu_lists_sidebar_panels():
     #: the key collectors of the Symfony scenario appear in the menu
     #: extracted from any panel page (here db)
     assert {"request", "db", "twig", "cache", "messenger"} <= menu
+
+
+def test_probe_menu_decodes_shopware_collectors_and_detects_extension():
+    collectors = _menu_items(read("shopware-probe.html"))
+
+    assert collectors[:2] == ["request", "app.connection_collector"]
+    assert "Shopware\\Core\\Profiling\\Subscriber\\ActiveRulesDataCollectorSubscriber" in collectors
+    assert "unknown.bundle_collector" in collectors
+    assert detect_extensions(collectors) == ["shopware"]
 
 
 # -- fetch page-context + assemblage (mock CDP) ---------------------------------
@@ -404,20 +529,15 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
     #: the panel's HTML comes back already parsed, paired with its original status
     assert fetched[0]["panel"] == "db" and fetched[0]["status"] == 200
     (call,) = mock.commands_for("Runtime.evaluate")
-    #: the emitted protocol proves the contract: Promise awaited, ?panel=db
-    #: URL rebuilt without the input querystring, and timeout translated to
-    #: milliseconds in AbortSignal — the fetch cannot hang
+    #: the emitted protocol proves the contract: one request-panel probe
+    #: discovers collectors before choosing the DB source, and the timeout is
+    #: shared by the bounded browser-side operation.
     assert call["awaitPromise"] is True
-    assert '"http://app.test/_profiler/fixed-token?panel=db&group=true"' in call["expression"]
-    assert (
-        '"http://app.test/_profiler/fixed-token?panel=app.connection_collector&group=true"'
-        in call["expression"]
-    )
-    #: Shopware replaces Symfony's standard Doctrine collector name. The
-    #: browser tries the standard source first, then the compatible alias,
-    #: and stops as soon as one panel is available.
-    assert "for (const url of urls)" in call["expression"]
-    assert "if (res.status === 200) return result" in call["expression"]
+    assert "const __cdpx_profiler_panels = 1" in call["expression"]
+    assert "fetchOne('router', 'request')" in call["expression"]
+    assert '"db","app.connection_collector"' in call["expression"]
+    assert "collectors.includes(source)" in call["expression"]
+    assert "probeUsable ? advertised : candidates" in call["expression"]
     assert "const deadline = performance.now() + 7000" in call["expression"]
     assert "AbortSignal.timeout(remaining)" in call["expression"]
     assert "panel fetch timeout" in call["expression"]
@@ -460,6 +580,12 @@ def test_collect_assembles_contract(mock, client, evidence_case):
     #: the requested panels arrive parsed into metrics, not as raw HTML
     assert res["panels"]["db"]["queries"] == 6
     assert res["panels"]["exception"]["raised"] is False
+    assert res["profile"] == {
+        "engine": "symfony_web_profiler",
+        "probed": False,
+        "extensions": [],
+        "collectors": {"items": [], "total": None, "truncated": False},
+    }
 
     # Secondary evidence: the masked collect report (token/headers as ***).
     if evidence_case is not None:
@@ -474,7 +600,44 @@ def test_collect_without_panels_probes_token_only(mock, client):
     #: Runtime.evaluate on the protocol side: the probe costs no browser
     #: round trip
     assert res["panels"] == {} and res["profiler_status"] is None
+    assert res["profile"]["probed"] is False
+    assert res["profile"]["collectors"]["total"] is None
     assert mock.commands_for("Runtime.evaluate") == []
+
+
+def test_collect_publishes_bounded_shopware_probe_profile(mock, client):
+    collectors = _menu_items(read("shopware-probe.html")) + [
+        f"custom.collector_{index}" for index in range(LIST_LIMIT + 2)
+    ]
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps(
+            {
+                "probe": {"status": 200, "usable": True, "collectors": collectors},
+                "panels": [
+                    {
+                        "panel": "shopware_rules",
+                        "status": 200,
+                        "html": read("shopware-rules.html"),
+                    }
+                ],
+            }
+        ),
+    )
+
+    res = profiler.collect_profiler_report(
+        client, HIT, context=PROFILER_CONTEXT, panels=["shopware_rules"]
+    )
+
+    assert res["profile"]["engine"] == "symfony_web_profiler"
+    assert res["profile"]["probed"] is True
+    assert res["profile"]["extensions"] == ["shopware"]
+    assert res["profile"]["collectors"] == {
+        "items": collectors[:LIST_LIMIT],
+        "total": len(collectors),
+        "truncated": True,
+    }
+    assert res["panels"]["shopware_rules"]["count"] == 2
 
 
 def test_collect_rejects_unknown_panel_before_fetch(mock, client):
@@ -522,13 +685,11 @@ def test_collect_resolves_relative_link_before_same_origin_fetch(mock, client):
         for call in mock.commands_for("Runtime.evaluate")
         if "__cdpx_profiler_panels" in call["expression"]
     ]
-    #: the single fetch targets the absolute URL resolved against the
-    #: page's origin: resolution happened before sending it to the browser
+    #: the single browser expression receives the absolute trusted base and
+    #: builds both the probe and selected collector URLs from it.
     assert len(panel_calls) == 1
-    assert (
-        '"http://app.test/_profiler/relative-token?panel=db&group=true"'
-        in panel_calls[0]["expression"]
-    )
+    assert 'const base = "http://app.test/_profiler/relative-token"' in panel_calls[0]["expression"]
+    assert '["db","app.connection_collector"]' in panel_calls[0]["expression"]
 
 
 def test_collect_rejects_cross_origin_link_before_fetch(mock, client):

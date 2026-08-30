@@ -13,11 +13,11 @@ blocks, `tab-title` tabs, pool and HTTP-client badges, mixed
 `<th>key</th><td>value</td>` rows, `sf-dump` blocks, response status spans
 and logger filter badges.
 
-`shopware-db-grouped.html` is a normalized excerpt captured from the real
-Shopware 6.7.13.1 gate. It retains the authentic Shopware collector metrics,
-table headings and the five-execution SQL row while removing tokens,
-backtraces and unrelated statements. `manifest.json` records its provenance
-and exact component versions.
+The `shopware-*` files are normalized excerpts captured from the real Shopware
+6.7.13.1 gate. They retain the meaningful collector menu, DB metrics, titled
+DAL query and source frame, active-rule rows, cache tags and caller counts
+while removing tokens, interface assets and unrelated application data.
+`manifest.json` records their provenance and exact component versions.
 
 Values are deliberately distinctive and asserted by
 `tests/test_profiler_panels.py`; update the tests with any fixture change.
@@ -28,8 +28,9 @@ text.
 
 To refresh Symfony markup, run the real Symfony gate, obtain its disposable
 token and download the requested panel. To refresh Shopware markup, run the
-real Shopware gate and download `app.connection_collector` with `group=true`.
-Normalize the capture without changing meaningful labels or table structure.
+real Shopware gate and download the `request`, `app.connection_collector`,
+Active Rules and Cache Tags collectors. Normalize the capture without changing
+meaningful labels or table structure.
 
 After any refresh, run `./dev check` and update parsers only when a meaningful
 marker changed.

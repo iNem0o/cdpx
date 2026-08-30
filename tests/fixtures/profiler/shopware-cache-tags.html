@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<title>Shopware 6.7 cache tags collector contract excerpt</title>
+<body>
+<h2>Http cache tags per route</h2>
+<div class="sf-tabs">
+  <div class="tab">
+    <h3 class="tab-title">/cdpx-profiler</h3>
+    <div class="tab-content">
+      <table>
+        <thead><tr><th>Tag</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>system.config-</td><td><div>2x SystemConfigService::get | SystemConfigService::getBool</div></td></tr>
+          <tr><td>rule-rule-a</td><td><div>1x CachedRuleLoader::load</div><div>3x RuleLoader::load</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tab">
+    <h3 class="tab-title">/nested</h3>
+    <div class="tab-content">
+      <table>
+        <thead><tr><th>Tag</th><th>Source</th></tr></thead>
+        <tbody><tr><td>product-product-a</td><td><div>1x ProductRoute::load</div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</body>
+</html>

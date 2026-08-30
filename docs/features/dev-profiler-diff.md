@@ -2,7 +2,7 @@
 id = "dev-profiler-diff"
 title = "Developer diagnostics"
 status = "validated"
-summary = "Parse the Symfony Web Profiler panels (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) from a browser navigation, then compare the DOM before/after an action."
+summary = "Probe and parse Symfony Web Profiler collectors, including Shopware DAL tags, active rules and cache tags, from a browser navigation, then compare the DOM before/after an action."
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev test-symfony-e2e", "./dev test-shopware-e2e", "./dev check"]
 path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "docker-compose.shopware-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/e2e/test_e2e_shopware.py", "tests/symfony-app/**", "tests/shopware-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
 test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*", "tests/e2e/test_e2e_shopware.py::*"]
@@ -69,12 +69,12 @@ expected_proofs = ["junit", "json", "screenshot"]
 [[scenarios]]
 id = "read-shopware-profiler"
 journey = "read-profiler"
-title = "Read Shopware's real database collector fallback"
-ui_text = "The agent follows a real Shopware profiler token and reads its database collector."
-report_text = "The blocking Shopware Docker gate proves the `app.connection_collector` fallback against Shopware 6.7.13.1."
+title = "Read Shopware's real profiler extensions"
+ui_text = "The agent probes a real Shopware profiler and reads its DAL, active-rules and cache-tag collectors."
+report_text = "The blocking Shopware Docker gate proves collector probing, direct `app.connection_collector` selection and the Shopware-specific panels against Shopware 6.7.13.1."
 given = "The Docker gate starts Shopware 6.7.13.1, MariaDB and Chrome in dev mode."
 when = "cdpx requests `db`, observes its absence, then fetches `app.connection_collector` with grouped queries."
-then = "The real Shopware collector reports the repeated tagged queries without exposing the profiler token."
+then = "The real Shopware collectors report repeated and tagged DAL queries with source locations, active rules and cache-tag emissions without exposing the profiler token."
 target = "shopware"
 proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_connection_collector"]
@@ -159,18 +159,27 @@ responses (falling back to `X-Debug-Token` by rebuilding the
 `/_profiler/<token>` URL), then fetches the Web Profiler panel pages
 **from the page itself** (same-origin `fetch()`: browser cookies and host
 resolution, essential behind Docker or a port-forward) and parses their
-HTML. Since the WebProfilerBundle exposes no JSON API, cdpx extracts a
-structured contract per panel: `db` (queries, distinct statements,
-duplicates, SQL list), `twig` (template calls, blocks, macros), `cache`
+HTML. Before fetching the requested panels, cdpx parses the profiler menu once
+to discover its advertised collector IDs. Those IDs select composable
+extensions (`shopware` today; bundle-specific adapters can be added without a
+framework-wide branch) and avoid requests for absent collectors. Since the
+WebProfilerBundle exposes no JSON API, cdpx extracts a structured contract per
+panel: `db` (queries, distinct statements, duplicates, SQL list and leading
+SQL tags with an optional source location), `twig` (template calls, blocks,
+macros), `cache`
 (hits/misses/writes, per pool), `exception` (class/message), `http_client`
 (outgoing requests, statuses), `messenger` (messages dispatched per bus),
 `router` (route, controller, status, redirect), `time` (total/init time,
-best-effort timeline) and `logger` (errors, warnings, deprecations).
+best-effort timeline), `logger` (errors, warnings, deprecations),
+`shopware_rules` (active rules) and `shopware_cache_tags` (cache-tag emissions
+and callers).
 
-Logical panel names stay stable across supported applications. For `db`,
-cdpx first requests Symfony's standard `db` collector and then falls back to
-Shopware's compatible `app.connection_collector`; the first successful panel
-is parsed into the same query/statement/duplicate contract.
+Logical panel names and their output stay stable across supported
+applications. The probe maps `db` directly to Symfony's standard `db`
+collector or Shopware's compatible `app.connection_collector`. If an older or
+unexpected profiler menu cannot be parsed, cdpx retains the bounded candidate
+fallback (`db`, then `app.connection_collector`). Unadvertised semantic panels
+remain present when requested and return `{"available": false, "status": 0}`.
 
 Command-specific options:
 
@@ -178,9 +187,9 @@ Command-specific options:
 - `--settle S` — time window in seconds for collecting network events
   after load, giving the response carrying the token time to arrive
   (default: 0.2).
-- `--panels` — `all` (default, all 9 panels), `none` (token probe only,
-  no panel fetch) or a CSV list
-  (`router,time,db,twig,cache,exception,http_client,messenger,logger`);
+- `--panels` — `all` (default, all 11 semantic panels), `none` (token discovery
+  only: no collector probe or panel fetch) or a CSV list
+  (`router,time,db,twig,cache,exception,http_client,messenger,logger,shopware_rules,shopware_cache_tags`);
   an unknown name is a usage error (exit 2).
 
 ```bash
@@ -201,6 +210,16 @@ Output (realistic excerpt, truncated to the requested panels):
   "profiler_url": "http://127.0.0.1:8000/_profiler/***",
   "profiler_status": 200,
   "response_headers": {"x-debug-token-link": "http://127.0.0.1:8000/_profiler/***"},
+  "profile": {
+    "engine": "symfony_web_profiler",
+    "probed": true,
+    "extensions": ["shopware"],
+    "collectors": {
+      "items": ["request", "time", "app.connection_collector"],
+      "total": 26,
+      "truncated": true
+    }
+  },
   "panels": {
     "db": {
       "available": true,
@@ -210,7 +229,16 @@ Output (realistic excerpt, truncated to the requested panels):
       "max_repetitions": 5,
       "repeated": [{"sql": "SELECT ... FROM author a0_ WHERE ...", "count": 5}],
       "time_ms": 1.76,
-      "list": [{"sql": "SELECT ... FROM book b0_", "duration_ms": 0.42}]
+      "list": [{"sql": "-- product::read SELECT ...", "duration_ms": 0.42}],
+      "tagged_total": 1,
+      "tagged_truncated": false,
+      "tagged": [{
+        "tags": ["product::read"],
+        "sql": "-- product::read SELECT ...",
+        "count": 1,
+        "duration_ms": 0.42,
+        "source": {"call": "EntityRepository->search", "file": "/app/src/ProductLoader.php", "line": 27}
+      }]
     },
     "cache": {
       "available": true,
@@ -228,6 +256,14 @@ Output (realistic excerpt, truncated to the requested panels):
 Gotchas and error cases:
 
 - `panels` is a structured object per panel and never a raw envelope.
+- `profile.engine` identifies the common profiler protocol, while
+  `profile.extensions` reports detected adapters. Collector IDs are redacted,
+  capped at 20, and accompanied by `total`/`truncated`. With `--panels none`,
+  `profile.probed` is false and `collectors.total` is null because the command
+  deliberately performs no fetch.
+- Only leading `--`, `#` and `/* ... */` SQL comments become DB tags. Inline
+  comments stay in SQL text and are not promoted. `source` is best effort and
+  omitted when the collector exposes no useful backtrace.
 - The raw token is never returned: the output only exposes
   `token_present`, redacts the segment in `profiler_url` and sanitizes
   headers, URL/query, SQL/messages and results a second time at the
@@ -328,9 +364,10 @@ The full gate runs two profiler suites. The Symfony suite uses
 `docker-compose.symfony-e2e.yml` and `tests/symfony-app/`: its controllers
 exercise real Doctrine, cache, HTTP client, Messenger, Twig, exception,
 routing and timing collectors. The Shopware suite uses Shopware 6.7.13.1,
-MariaDB and a minimal plugin route to prove the real
-`app.connection_collector` fallback after the standard `db` collector returns
-404. Both suites run the public `cdpx profiler` command through the same
+MariaDB and a minimal plugin route to prove collector probing, direct
+`app.connection_collector` selection without a speculative `db` request,
+tagged DAL SQL/source extraction, active rules and cache-tag emissions. Both
+suites run the public `cdpx profiler` command through the same
 supervised Chromium pinned in the CI image. The remaining mock coverage pins
 emitted CDP, redaction and deterministic failures only; it does not claim
 framework runtime compatibility.
@@ -388,8 +425,9 @@ verdict still comes from `./dev check`.
   HTTP client issues, Messenger messages, routing issues and response
   cache headers — from the real panels.
 - Take a stable DOM diff around a browser action.
-- Navigate to real Shopware, follow its profiler token, observe `db` return
-  404, then parse grouped queries from `app.connection_collector`.
+- Navigate to real Shopware, follow its profiler token, probe its collector
+  menu, select `app.connection_collector` directly, and parse grouped/tagged
+  DAL queries plus active rules and cache-tag emissions.
 
 ## Validation
 

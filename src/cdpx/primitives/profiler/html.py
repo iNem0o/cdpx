@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from html.parser import HTMLParser
 from typing import Any
 
@@ -254,9 +255,34 @@ def _tables(html: str) -> list[dict[str, Any]]:
     return parser.tables
 
 
+class _MenuParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.items: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        href = dict(attrs).get("href")
+        if not href:
+            return
+        query = urllib.parse.urlsplit(href).query
+        values = urllib.parse.parse_qs(query).get("panel", [])
+        for value in values:
+            if value and value not in self.items:
+                self.items.append(value)
+
+
+def _menu_items(html: str) -> list[str]:
+    """Ordered, decoded collector IDs advertised by profiler links."""
+    parser = _MenuParser()
+    parser.feed(html)
+    return parser.items
+
+
 def _menu(html: str) -> set[str]:
-    """Panels advertised by the sidebar (?panel=X links). Best-effort cross-check."""
-    return set(re.findall(r'href="[^"]*[?&](?:amp;)?panel=([a-zA-Z_]+)"', html))
+    """Collector set advertised by the sidebar; kept for parser cross-checks."""
+    return set(_menu_items(html))
 
 
 def _metric(

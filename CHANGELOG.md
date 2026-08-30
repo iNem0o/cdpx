@@ -7,6 +7,13 @@ cdpx uses semantic versioning.
 
 ### Added
 
+- `cdpx profiler` now probes advertised collector IDs and reports a bounded
+  `profile` descriptor. A composable Shopware adapter selects the DAL
+  collector directly and exposes active rules and cache-tag emissions through
+  stable semantic panels.
+- Database profiler output now extracts leading Shopware DAL query tags and
+  their best-effort source location without changing the existing query and
+  repetition lists.
 - Versioned `cdpx.scenario/v1` journeys can compose nested local
   `cdpx.scenario-fragment/v1` step files through explicit `include` nodes.
   Expansion is deterministic, workspace-confined and cycle/budget guarded;

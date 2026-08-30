@@ -806,14 +806,18 @@ def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
             }
         ]
     )
+    panel_fixtures = {
+        "shopware_rules": "shopware-rules",
+        "shopware_cache_tags": "shopware-cache-tags",
+    }
     payload = json.dumps(
         [
             {
                 "panel": key,
                 "status": 200,
-                "html": (fixtures / f"{profiler.PANEL_SOURCES[key]}.html").read_text(
-                    encoding="utf-8"
-                ),
+                "html": (
+                    fixtures / f"{panel_fixtures.get(key, profiler.PANEL_SOURCES[key])}.html"
+                ).read_text(encoding="utf-8"),
             }
             for key in profiler.ALL_PANELS
         ]

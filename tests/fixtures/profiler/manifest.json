@@ -9,6 +9,42 @@
       "request": "/_profiler/<redacted>?group=true&panel=app.connection_collector",
       "source": "real Docker runtime gate",
       "normalization": "Interface assets, token-bearing links, parameter dumps, backtraces and unrelated grouped statements removed; metrics and the five-execution SQL row retained."
+    },
+    "shopware-probe.html": {
+      "target": "shopware",
+      "target_version": "6.7.13.1",
+      "web_profiler_bundle_version": "7.4.17",
+      "collector": "request/sidebar",
+      "request": "/_profiler/<redacted>?panel=request",
+      "source": "real Docker runtime gate",
+      "normalization": "Collector links retained; profiler token, interface assets and unrelated collectors removed."
+    },
+    "shopware-db-tagged.html": {
+      "target": "shopware",
+      "target_version": "6.7.13.1",
+      "web_profiler_bundle_version": "7.4.17",
+      "collector": "app.connection_collector",
+      "request": "/_profiler/<redacted>?group=true&panel=app.connection_collector",
+      "source": "real Docker runtime gate",
+      "normalization": "One titled DAL statement, one inline-comment control and three representative backtrace frames retained."
+    },
+    "shopware-rules.html": {
+      "target": "shopware",
+      "target_version": "6.7.13.1",
+      "web_profiler_bundle_version": "7.4.17",
+      "collector": "Shopware\\Core\\Profiling\\Subscriber\\ActiveRulesDataCollectorSubscriber",
+      "request": "/_profiler/<redacted>?panel=<collector>",
+      "source": "real Docker runtime gate",
+      "normalization": "Two representative rule rows retained; profiler chrome and token-bearing links removed."
+    },
+    "shopware-cache-tags.html": {
+      "target": "shopware",
+      "target_version": "6.7.13.1",
+      "web_profiler_bundle_version": "7.4.17",
+      "collector": "Shopware\\Core\\Profiling\\Subscriber\\CacheTagCollectorSubscriber",
+      "request": "/_profiler/<redacted>?panel=<collector>",
+      "source": "real Docker runtime gate",
+      "normalization": "Two routes, three tags and representative caller counts retained; profiler chrome removed."
     }
   }
 }

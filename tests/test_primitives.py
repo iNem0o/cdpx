@@ -981,9 +981,11 @@ def test_profiler_reads_debug_token_link_and_parses_panels(
         for item in mock.commands_for("Runtime.evaluate")
         if "__cdpx_profiler_panels" in item["expression"]
     ]
-    #: the panel fetch is an awaited promise, targeting the token URL + panel
+    #: the awaited browser program receives the trusted token URL as its base,
+    #: probes request, then selects the advertised DB collector.
     assert call["awaitPromise"] is True
-    assert f'"{link}?panel=db&group=true"' in call["expression"]
+    assert f'const base = "{link}"' in call["expression"]
+    assert '["db",["db","app.connection_collector"]]' in call["expression"]
 
     # Secondary evidence: the profiler output (masked token, parsed SQL metrics).
     if evidence_case is not None:
