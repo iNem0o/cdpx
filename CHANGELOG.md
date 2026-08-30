@@ -7,6 +7,10 @@ cdpx uses semantic versioning.
 
 ### Added
 
+- Scenario `profiler` captures now accept explicit panels and an optional
+  request selector over path prefix, Document/XHR/Fetch type and HTTP method.
+  Explicit selectors fail closed instead of silently profiling the current
+  document, while artifacts record safe selection metadata.
 - `cdpx profiler` now probes advertised collector IDs and reports a bounded
   `profile` descriptor. A composable Shopware adapter selects the DAL
   collector directly and exposes active rules and cache-tag emissions through

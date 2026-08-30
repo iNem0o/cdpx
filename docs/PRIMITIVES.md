@@ -137,7 +137,7 @@ cdpx dom-diff -- click "#submit-btn"
 | `cdpx record [-o j.ndjson] -- <action>` | run ONE action and write a redacted `cdpx.record/v2` log | `type` replayable via `@env:NAME`; eval/sensitive literals not replayable |
 | `cdpx replay <j.ndjson>` | pre-validate then replay, stop at first divergence | rereads the actual URL after navigation and before mutation; `--max-actions` budget |
 | `cdpx scenario validate <file.yml>` | compile a versioned scenario and its local fragments without Chrome | ordered plan, sources, authority, secret references, dependency hashes and digest |
-| `cdpx scenario run <file.yml>` | run a declarative business journey after expanding local step fragments | single pass/fail verdict, findings, provenance, composition digest and proof bundle |
+| `cdpx scenario run <file.yml>` | run a declarative business journey after expanding local step fragments | single verdict and proof bundle; structured profiler captures select panels and the last observed document/XHR/Fetch matching path, type and method |
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/

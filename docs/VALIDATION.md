@@ -11,7 +11,7 @@ and only the manifested `.proof/shareable/` subset may be uploaded.
 | `./dev check-local` | Ruff, format, mypy, deterministic unit and branch coverage |
 | `./dev test-e2e` | real Chrome against the reference fixtures |
 | `./dev test-symfony-e2e` | real Symfony profiler panels with pinned supervised Chromium |
-| `./dev test-shopware-e2e` | real Shopware 6.7 profiler probing, DAL tags, rules, cache tags, feature flags and opt-in Cart with pinned CI Chromium |
+| `./dev test-shopware-e2e` | real Shopware 6.7 profiler probing, DAL tags, rules, cache tags, feature flags, opt-in Cart and targeted scenario Fetch with pinned CI Chromium |
 | `./dev check` | blocking Chrome, Symfony, Shopware and proof gate |
 | `./dev proof` | the same full gate with private cockpit and shareable staging |
 | `./dev release` | full gate plus internal wheel build |
@@ -78,7 +78,7 @@ the validation JSON, cockpit, JUnit and bounded text logs.
 | CLI and mock foundation | `./dev check-local`; mock output, method, parameter and ordering assertions |
 | Real browser behavior | `./dev test-e2e` and the full proof |
 | Symfony diagnostics | `./dev test-symfony-e2e` and `./dev check` with real profiler panels |
-| Shopware diagnostics | `./dev test-shopware-e2e` and `./dev check` with the real collector menu, `app.connection_collector`, active rules, cache tags, a deterministic feature flag and real Cart pipeline |
+| Shopware diagnostics | `./dev test-shopware-e2e` and `./dev check` with the real collector menu, `app.connection_collector`, active rules, cache tags, a deterministic feature flag, real Cart pipeline and targeted scenario Fetch |
 | Interception and emulation | Fetch-domain and emulation unit plus Chrome scenarios |
 | SEO, performance and accessibility | rendered SEO cases, vitals interaction, AX tree and coverage |
 | Journey orchestration | record/replay divergence, frames, scenarios and action budgets |
@@ -93,7 +93,8 @@ the validation JSON, cockpit, JUnit and bounded text logs.
 - Cookie clearing through the browser-supported domain fallback.
 - Interception restricted to `continue`, `block` or status `200..599`.
 - Replay preflight, action budget, origin re-read and first-divergence stop.
-- Scenario assertion drain and secret-reference refusal before browser effect.
+- Scenario assertion drain, deterministic profiler-request selection and
+  secret-reference refusal before browser effect.
 - Visible, enabled, stable and unobscured interaction targets.
 - Mandatory session/run/target identity and fail-closed origin allowlist.
 - Redacted cookies, storage, input, URLs, headers, console and profiler data.

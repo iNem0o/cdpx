@@ -1,5 +1,17 @@
 # Leverage log
 
+- Session-Key: next-release@643eea8
+  - Symptom: invoking host `pytest` failed during collection on the project's
+    Python 3.14 multiple-exception syntax because the host interpreter is 3.12.
+  - Root cause (missing capability): the source targets the pinned Python 3.14
+    toolchain and deliberately does not support an arbitrary host Python.
+  - Fix encoded (doc/script/lint): `docs/DEVELOPMENT.md` already makes Docker
+    the only host dependency and `./dev check-local` the canonical short loop;
+    validation was rerun exclusively through that portal.
+  - Verification (command/CI): `./dev check-local` passed 988 tests with
+    89.97% line and 79.01% branch coverage; `./dev check` returned `ok: true`
+    with the targeted Shopware Fetch profiler scenario and zero proof failure.
+
 - Session-Key: next-release@0622b44
   - Symptom: review found that composed secret typing could outlive its action
     timeout, numeric YAML keys in frame candidates escaped as a traceback, and

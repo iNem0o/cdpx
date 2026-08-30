@@ -71,7 +71,7 @@
     "artifacts": {
       "type": "array",
       "items": {
-        "$ref": "scenario-fragment-v1.json#/$defs/artifact"
+        "$ref": "scenario-fragment-v1.json#/$defs/captureItem"
       },
       "default": []
     }

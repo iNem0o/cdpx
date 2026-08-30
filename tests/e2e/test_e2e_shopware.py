@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -227,4 +228,103 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
                 "runtime_identity": runtime_identity,
             },
             "shopware-collector-probe.json",
+        )
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.target-shopware-profiler-request",
+    target="shopware",
+    proof_level="runtime",
+    proves=[
+        "A scenario selects the profiler token emitted by a real Shopware Fetch request.",
+        "The scenario fetches only its explicit panels, including the opt-in Cart panel.",
+    ],
+)
+def test_scenario_targets_real_shopware_fetch_profiler(runtime_session, evidence_case, tmp_path):
+    assert SHOPWARE_URL is not None
+    manifest, manifest_path = runtime_session
+    scenario_path = tmp_path / "targeted-shopware-profiler.yml"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "schema": "cdpx.scenario/v1",
+                "name": "targeted-shopware-cart-profiler",
+                "context": {"base_url": SHOPWARE_URL},
+                "steps": [
+                    {"goto": "/cdpx-profiler", "label": "shopware-document"},
+                    {
+                        "label": "cart-fetch",
+                        "eval": (
+                            "fetch('/cdpx-cart-profiler').then(response => response.text())"
+                            ".then(() => 'cart-loaded')"
+                        ),
+                        "capture": [
+                            {
+                                "profiler": {
+                                    "panels": [
+                                        "time",
+                                        "db",
+                                        "shopware_rules",
+                                        "shopware_cache_tags",
+                                        "shopware_cart",
+                                    ],
+                                    "request": {
+                                        "url_prefix": "/cdpx-cart-profiler",
+                                        "resource_type": "fetch",
+                                        "method": "GET",
+                                    },
+                                }
+                            }
+                        ],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    scenario_proc = run_cli(
+        manifest,
+        manifest_path,
+        "--timeout",
+        "30",
+        "scenario",
+        "run",
+        str(scenario_path),
+        "--settle",
+        "0.8",
+        timeout=180,
+    )
+    attach_cli_run(evidence_case, "Targeted Shopware profiler scenario", scenario_proc)
+    scenario_result = successful_json(scenario_proc)
+    assert isinstance(scenario_result, dict)
+    assert scenario_result["verdict"] == "pass"
+    (scenario_artifact,) = scenario_result["artifacts"]
+    scenario_profiler = json.loads(Path(scenario_artifact["path"]).read_text(encoding="utf-8"))
+
+    assert scenario_profiler["panels"].keys() == {
+        "time",
+        "db",
+        "shopware_rules",
+        "shopware_cache_tags",
+        "shopware_cart",
+    }
+    assert scenario_profiler["panels"]["shopware_cart"]["present"] is True
+    assert scenario_profiler["selection"] == {
+        "mode": "request_selector",
+        "criteria": {
+            "url_prefix": "/cdpx-cart-profiler",
+            "resource_type": "fetch",
+            "method": "GET",
+        },
+        "matched": {"resource_type": "fetch", "method": "GET"},
+    }
+    serialized = json.dumps(scenario_profiler)
+    assert "CDPX-CART-PAYLOAD-MUST-NOT-LEAK" not in serialized
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "Targeted Shopware scenario profiler",
+            scenario_profiler,
+            "shopware-targeted-scenario-profiler.json",
         )

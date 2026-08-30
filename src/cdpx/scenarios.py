@@ -11,11 +11,11 @@ import os
 import re
 import time
 import urllib.parse
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from cdpx.action_model import (
     BrowserAction,
@@ -54,6 +54,8 @@ STEP_ACTIONS = {
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
 ASSERTIONS = {"no_console_errors", "network_errors_max", "text_contains"}
 ARTIFACTS = {"screenshot", "console", "network", "profiler"}
+PROFILER_RESOURCE_TYPES = {"document", "xhr", "fetch"}
+_HTTP_METHOD_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 SCENARIO_SCHEMA = "cdpx.scenario/v1"
 FRAGMENT_SCHEMA = "cdpx.scenario-fragment/v1"
 VALIDATION_SCHEMA = "cdpx.scenario-validation/v1"
@@ -69,6 +71,10 @@ ACTION_ERRORS = (
 
 class ScenarioUsageError(ValueError):
     """Invalid scenario file or CLI-level scenario invocation."""
+
+
+class ProfilerRequestNotFound(ValueError):
+    """No observed profiler response matched an explicit request selector."""
 
 
 @dataclass(frozen=True)
@@ -118,13 +124,43 @@ class ScenarioComposition:
         }
 
 
+@dataclass(frozen=True)
+class ProfilerRequestSelector:
+    url_prefix: str | None = None
+    resource_type: Literal["document", "xhr", "fetch"] | None = None
+    method: str | None = None
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            key: value
+            for key, value in (
+                ("url_prefix", self.url_prefix),
+                ("resource_type", self.resource_type),
+                ("method", self.method),
+            )
+            if value is not None
+        }
+
+
+@dataclass(frozen=True)
+class ProfilerCapture:
+    panels: tuple[str, ...] | None = None
+    request: ProfilerRequestSelector | None = None
+
+
+@dataclass(frozen=True)
+class CaptureSpec:
+    kind: str
+    profiler: ProfilerCapture | None = None
+
+
 @dataclass
 class ScenarioStep:
     index: int
     verb: str
     value: Any
     label: str
-    capture: list[str] = field(default_factory=list)
+    capture: list[CaptureSpec] = field(default_factory=list)
     source: StepSource | None = None
 
 
@@ -135,7 +171,7 @@ class Scenario:
     emulation: str | None
     steps: list[ScenarioStep]
     assertions: list[dict[str, Any]]
-    artifacts: list[str]
+    artifacts: list[CaptureSpec]
     composition: ScenarioComposition | None = None
 
 
@@ -239,35 +275,68 @@ class PassiveCollector:
         requests = list(self.requests.values())
         return {"requests": requests, "summary": _network_summary(requests)}
 
-    def profiler(self, client: CDPClient, timeout: float) -> dict[str, Any] | None:
+    def profiler(
+        self,
+        client: CDPClient,
+        timeout: float,
+        options: ProfilerCapture | None = None,
+    ) -> dict[str, Any] | None:
+        request = options.request if options is not None else None
+        panels = (
+            list(options.panels) if options is not None and options.panels is not None else None
+        )
         if not self.profiler_hits:
+            if request is not None:
+                raise ProfilerRequestNotFound(_profiler_request_not_found(request))
             return None
         page_url = _current_url(client)
-        comparable_page_url = redact_url(
-            page_url,
-            context=self.redaction,
-            path="$.network.url",
-        )
-        # Browser subresources (notably /favicon.ico) can also carry Symfony's
-        # profiler headers. Prefer the hit for the document that is currently
-        # displayed instead of blindly taking the most recent response. Hits
-        # are already redacted during ingestion, so compare against the same
-        # normalized representation of the current URL.
-        hit = next(
-            (
-                candidate
-                for candidate in reversed(self.profiler_hits)
-                if _same_page_url(candidate.get("url"), comparable_page_url)
-            ),
-            self.profiler_hits[-1],
-        )
-        return profiler.collect_profiler_report(
+        if request is not None:
+            hit = next(
+                (
+                    candidate
+                    for candidate in reversed(self.profiler_hits)
+                    if _matches_profiler_request(candidate, request)
+                ),
+                None,
+            )
+            if hit is None:
+                raise ProfilerRequestNotFound(_profiler_request_not_found(request))
+            selection = _profiler_selection("request_selector", hit, request=request)
+        else:
+            comparable_page_url = redact_url(
+                page_url,
+                context=self.redaction,
+                path="$.network.url",
+            )
+            # Browser subresources (notably /favicon.ico) can also carry Symfony's
+            # profiler headers. Prefer the hit for the document that is currently
+            # displayed instead of blindly taking the most recent response. Hits
+            # are normalized during comparison so query-string redaction does not
+            # accidentally make the favicon win.
+            hit = next(
+                (
+                    candidate
+                    for candidate in reversed(self.profiler_hits)
+                    if _same_page_url(candidate.get("url"), comparable_page_url)
+                ),
+                None,
+            )
+            if hit is None:
+                hit = self.profiler_hits[-1]
+                mode = "latest_observed"
+            else:
+                mode = "current_document"
+            selection = _profiler_selection(mode, hit)
+        report = profiler.collect_profiler_report(
             client,
             hit,
+            panels=panels,
             timeout=timeout,
             context=self.context,
             page_url=page_url,
         )
+        report["selection"] = selection
+        return report
 
     def _ingest(self, events: list[CDPEvent]) -> None:
         self.console_entries.extend(
@@ -283,6 +352,19 @@ class PassiveCollector:
                 continue
             entry = self.requests.setdefault(request_id, {"requestId": request_id})
             if ev["method"] == "Network.requestWillBeSent":
+                # On redirects this event describes the new request while the
+                # redirectResponse belongs to the previous one. Capture its
+                # profiler hit before replacing the request metadata.
+                hit = dev.find_profiler_hit([ev], entry.get("url") or "")
+                if hit:
+                    self.profiler_hits.append(
+                        _profiler_hit(
+                            hit,
+                            request_id=request_id,
+                            method=entry.get("method"),
+                            resource_type=entry.get("resourceType") or params.get("type"),
+                        )
+                    )
                 request = params.get("request", {})
                 request_url = request.get("url")
                 entry["url"] = (
@@ -292,11 +374,6 @@ class PassiveCollector:
                 )
                 entry["method"] = request.get("method")
                 entry["resourceType"] = params.get("type")
-                # A redirect does not emit responseReceived: its profiler
-                # token only exists in redirectResponse.
-                hit = dev.find_profiler_hit([ev], entry.get("url") or "")
-                if hit:
-                    self.profiler_hits.append(hit)
             elif ev["method"] == "Network.responseReceived":
                 response = params.get("response", {})
                 headers = redact_headers(
@@ -316,7 +393,14 @@ class PassiveCollector:
                 entry["headers"] = headers
                 hit = dev.find_profiler_hit([ev], entry.get("url") or "")
                 if hit:
-                    self.profiler_hits.append(hit)
+                    self.profiler_hits.append(
+                        _profiler_hit(
+                            hit,
+                            request_id=request_id,
+                            method=entry.get("method"),
+                            resource_type=params.get("type") or entry.get("resourceType"),
+                        )
+                    )
             elif ev["method"] == "Network.loadingFinished":
                 entry["encodedBytes"] = params.get("encodedDataLength")
             elif ev["method"] == "Network.loadingFailed":
@@ -340,6 +424,57 @@ def _same_page_url(candidate: Any, page_url: str) -> bool:
         urllib.parse.urldefrag(normalized_candidate).url
         == urllib.parse.urldefrag(normalized_page).url
     )
+
+
+def _profiler_hit(
+    hit: dict[str, Any],
+    *,
+    request_id: str,
+    method: Any,
+    resource_type: Any,
+) -> dict[str, Any]:
+    enriched = dict(hit)
+    enriched["request_id"] = request_id
+    if isinstance(method, str) and method:
+        enriched["method"] = method.upper()
+    if isinstance(resource_type, str) and resource_type:
+        enriched["resource_type"] = resource_type.lower()
+    return enriched
+
+
+def _matches_profiler_request(hit: Mapping[str, Any], request: ProfilerRequestSelector) -> bool:
+    if request.url_prefix is not None:
+        url = hit.get("url")
+        if not isinstance(url, str) or not urllib.parse.urlparse(url).path.startswith(
+            request.url_prefix
+        ):
+            return False
+    if request.resource_type is not None and hit.get("resource_type") != request.resource_type:
+        return False
+    return request.method is None or hit.get("method") == request.method
+
+
+def _profiler_selection(
+    mode: str,
+    hit: Mapping[str, Any] | None = None,
+    *,
+    request: ProfilerRequestSelector | None = None,
+) -> dict[str, Any]:
+    selection: dict[str, Any] = {"mode": mode}
+    if request is not None:
+        selection["criteria"] = request.as_dict()
+    if hit is not None:
+        matched = {
+            key: hit[key] for key in ("resource_type", "method") if isinstance(hit.get(key), str)
+        }
+        if matched:
+            selection["matched"] = matched
+    return selection
+
+
+def _profiler_request_not_found(request: ProfilerRequestSelector) -> str:
+    criteria = ", ".join(f"{key}={value}" for key, value in request.as_dict().items())
+    return f"no observed profiler response matched request selector: {criteria}"
 
 
 def load(
@@ -437,8 +572,8 @@ def validation_result(scenario: Scenario) -> dict[str, Any]:
         steps.append(item)
     if (
         scenario.emulation
-        or "profiler" in scenario.artifacts
-        or any("profiler" in step.capture for step in scenario.steps)
+        or has_capture(scenario.artifacts, "profiler")
+        or any(has_capture(step.capture, "profiler") for step in scenario.steps)
     ):
         authority = "privileged"
     result: dict[str, Any] = {
@@ -714,15 +849,97 @@ def _parse_assertions(value: Any, where: str) -> list[dict[str, Any]]:
     return assertions
 
 
-def _parse_artifacts(value: Any, where: str, field_name: str) -> list[str]:
+def _parse_artifacts(value: Any, where: str, field_name: str) -> list[CaptureSpec]:
     if value is None:
         return []
     if not isinstance(value, list):
         raise ScenarioUsageError(f"{where}{field_name} must be a list")
-    for item in value:
-        if item not in ARTIFACTS:
-            raise ScenarioUsageError(f"{where}{field_name}: unknown artifact: {item}")
-    return list(value)
+    captures = [
+        _parse_capture_item(item, f"{where}{field_name}[{index}]")
+        for index, item in enumerate(value)
+    ]
+    if sum(capture.kind == "profiler" for capture in captures) > 1:
+        raise ScenarioUsageError(f"{where}{field_name}: profiler capture must be unique")
+    return captures
+
+
+def _parse_capture_item(value: Any, field: str) -> CaptureSpec:
+    if isinstance(value, str):
+        if value not in ARTIFACTS:
+            raise ScenarioUsageError(f"{field}: unknown artifact: {value}")
+        return CaptureSpec(value)
+    if not isinstance(value, dict):
+        raise ScenarioUsageError(f"{field} must be an artifact name or profiler object")
+    _unknown(value, {"profiler"}, f"{field}.")
+    if set(value) != {"profiler"}:
+        raise ScenarioUsageError(f"{field} must declare exactly one profiler capture")
+    options = value["profiler"]
+    if not isinstance(options, dict):
+        raise ScenarioUsageError(f"{field}.profiler must be an object")
+    _unknown(options, {"panels", "request"}, f"{field}.profiler.")
+    panels = (
+        _parse_profiler_panels(options["panels"], f"{field}.profiler.panels")
+        if "panels" in options
+        else None
+    )
+    request = (
+        _parse_profiler_request(options["request"], f"{field}.profiler.request")
+        if "request" in options
+        else None
+    )
+    return CaptureSpec("profiler", ProfilerCapture(panels=panels, request=request))
+
+
+def _parse_profiler_panels(value: Any, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ScenarioUsageError(f"{field} must be a list")
+    if any(not isinstance(item, str) for item in value):
+        raise ScenarioUsageError(f"{field} entries must be strings")
+    if len(set(value)) != len(value):
+        raise ScenarioUsageError(f"{field} entries must be unique")
+    try:
+        return tuple(profiler.normalize_panels(value))
+    except ValueError as error:
+        raise ScenarioUsageError(f"{field}: {error}") from error
+
+
+def _parse_profiler_request(value: Any, field: str) -> ProfilerRequestSelector:
+    if not isinstance(value, dict):
+        raise ScenarioUsageError(f"{field} must be an object")
+    _unknown(value, {"url_prefix", "resource_type", "method"}, f"{field}.")
+    if not value:
+        raise ScenarioUsageError(f"{field} must declare at least one selector")
+    url_prefix = value.get("url_prefix")
+    if url_prefix is not None and (
+        not isinstance(url_prefix, str)
+        or not url_prefix.startswith("/")
+        or url_prefix.startswith("//")
+        or "?" in url_prefix
+        or "#" in url_prefix
+    ):
+        raise ScenarioUsageError(
+            f"{field}.url_prefix must be an absolute path prefix without query or fragment"
+        )
+    resource_type = value.get("resource_type")
+    if resource_type is not None and (
+        not isinstance(resource_type, str) or resource_type not in PROFILER_RESOURCE_TYPES
+    ):
+        choices = ", ".join(sorted(PROFILER_RESOURCE_TYPES))
+        raise ScenarioUsageError(f"{field}.resource_type must be one of: {choices}")
+    method = value.get("method")
+    if method is not None and (
+        not isinstance(method, str) or not method or not _HTTP_METHOD_RE.fullmatch(method)
+    ):
+        raise ScenarioUsageError(f"{field}.method must be a valid HTTP method")
+    return ProfilerRequestSelector(
+        url_prefix=url_prefix,
+        resource_type=cast(Literal["document", "xhr", "fetch"] | None, resource_type),
+        method=method.upper() if isinstance(method, str) else None,
+    )
+
+
+def has_capture(captures: Iterable[CaptureSpec], kind: str) -> bool:
+    return any(capture.kind == kind for capture in captures)
 
 
 def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
@@ -992,17 +1209,17 @@ def _secret_text(secret_ref: str, *, context: RedactionContext) -> str:
 
 
 def _validate_sensitive_captures(
-    steps: list[ScenarioStep], artifacts: list[str], where: str
+    steps: list[ScenarioStep], artifacts: list[CaptureSpec], where: str
 ) -> None:
     sensitive = False
     for step in steps:
         if step.verb == "frame_type":
             sensitive = True
-        if sensitive and "screenshot" in step.capture:
+        if sensitive and has_capture(step.capture, "screenshot"):
             raise ScenarioUsageError(
                 f"{where}steps[{step.index}].capture: screenshot forbidden after frame_type"
             )
-    if sensitive and "screenshot" in artifacts:
+    if sensitive and has_capture(artifacts, "screenshot"):
         raise ScenarioUsageError(
             f"{where}artifacts: final screenshot forbidden when frame_type is used"
         )
@@ -1066,7 +1283,7 @@ def _capture_many(
     client: CDPClient,
     collector: PassiveCollector,
     run_state: ScenarioRun,
-    artifacts: list[str],
+    artifacts: list[CaptureSpec],
     label: str,
     index: int | None,
     timeout: float,
@@ -1077,7 +1294,7 @@ def _capture_many(
         except ACTION_ERRORS as e:
             run_state.finding(
                 "artifact_failed",
-                f"{artifact} proof unavailable: {e}",
+                f"{artifact.kind} proof unavailable: {e}",
                 step=label,
             )
 
@@ -1086,13 +1303,14 @@ def _capture_one(
     client: CDPClient,
     collector: PassiveCollector,
     run_state: ScenarioRun,
-    artifact: str,
+    artifact: CaptureSpec,
     label: str,
     index: int | None,
     timeout: float,
 ) -> None:
-    stem = f"final-{artifact}" if index is None else f"{index:03d}-{slugify(label)}-{artifact}"
-    if artifact == "screenshot":
+    kind = artifact.kind
+    stem = f"final-{kind}" if index is None else f"{index:03d}-{slugify(label)}-{kind}"
+    if kind == "screenshot":
         result = capture.screenshot(client, str(run_state.evidence_dir / f"{stem}.png"))
         entry = run_state.writer.register_file(
             result["path"],
@@ -1101,23 +1319,38 @@ def _capture_one(
         )
         run_state.artifacts.append(_artifact("screenshot", label, entry, run_state.evidence_dir))
         return
-    if artifact == "console":
+    if kind == "console":
         entry = run_state.writer.write_json(f"{stem}.json", collector.console())
         run_state.artifacts.append(_artifact("console", label, entry, run_state.evidence_dir))
         return
-    if artifact == "network":
+    if kind == "network":
         entry = run_state.writer.write_json(f"{stem}.json", collector.network())
         run_state.artifacts.append(_artifact("network", label, entry, run_state.evidence_dir))
         return
-    if artifact == "profiler":
-        profiler_result = collector.profiler(client, timeout)
+    if kind == "profiler":
+        try:
+            profiler_result = collector.profiler(client, timeout, artifact.profiler)
+        except ProfilerRequestNotFound as error:
+            run_state.finding(
+                "profiler_request_not_found",
+                str(error),
+                step=label,
+            )
+            return
         if profiler_result is None and run_state.last_url:
+            panels = (
+                list(artifact.profiler.panels)
+                if artifact.profiler is not None and artifact.profiler.panels is not None
+                else None
+            )
             profiler_result = dev.profiler(
                 client,
                 run_state.last_url,
+                panels=panels,
                 timeout=timeout,
                 context=collector.context,
             )
+            profiler_result["selection"] = _profiler_selection("fallback_navigation")
         if profiler_result is None:
             run_state.finding(
                 "profiler_unavailable",

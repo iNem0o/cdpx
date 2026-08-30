@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from cdpx.primitives import profiler
+
 
 def test_every_new_surface_has_user_and_integrator_documentation():
     catalog = yaml.safe_load(Path("docs/surfaces.yaml").read_text(encoding="utf-8"))
@@ -77,6 +79,21 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
     candidate = frame_type["properties"]["candidates"]["items"]
     assert set(candidate["required"]) == {"selector", "frame_origin", "secret_ref"}
     assert candidate["properties"]["frame_origin"] == frame_type["properties"]["frame_origin"]
+    capture_item = fragment["$defs"]["captureItem"]
+    assert capture_item["oneOf"] == [
+        {"$ref": "#/$defs/artifact"},
+        {"$ref": "#/$defs/profilerCapture"},
+    ]
+    profiler_capture = fragment["$defs"]["profilerCapture"]["properties"]["profiler"]
+    assert profiler_capture["additionalProperties"] is False
+    assert profiler_capture["properties"]["panels"]["uniqueItems"] is True
+    assert profiler_capture["properties"]["panels"]["items"]["enum"] == list(profiler.ALL_PANELS)
+    request = profiler_capture["properties"]["request"]
+    assert request["minProperties"] == 1
+    assert set(request["properties"]) == {"url_prefix", "resource_type", "method"}
+    assert scenario["properties"]["artifacts"]["items"] == {
+        "$ref": "scenario-fragment-v1.json#/$defs/captureItem"
+    }
 
 
 def test_portable_scripts_are_posix_and_shellcheck_clean():

@@ -52,6 +52,151 @@ def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch
     assert result["link"] == "http://shop.test/_profiler/main"
 
 
+def test_passive_profiler_selects_latest_matching_request(monkeypatch):
+    collector = scenarios.PassiveCollector(orchestration())
+    collector.profiler_hits = [
+        {
+            "url": "http://shop.test/checkout/cart",
+            "link": "http://shop.test/_profiler/document",
+            "method": "GET",
+            "resource_type": "document",
+        },
+        {
+            "url": "http://shop.test/checkout/cart/line-item",
+            "link": "http://shop.test/_profiler/first-fetch",
+            "method": "POST",
+            "resource_type": "fetch",
+        },
+        {
+            "url": "http://shop.test/favicon.ico",
+            "link": "http://shop.test/_profiler/favicon",
+            "method": "GET",
+            "resource_type": "other",
+        },
+        {
+            "url": "http://shop.test/checkout/cart/recalculate?token=secret",
+            "link": "http://shop.test/_profiler/latest-fetch",
+            "method": "POST",
+            "resource_type": "fetch",
+        },
+    ]
+    monkeypatch.setattr(scenarios, "_current_url", lambda client: "http://shop.test/checkout")
+    monkeypatch.setattr(
+        profiler,
+        "collect_profiler_report",
+        lambda client, hit, **kwargs: {"url": hit["url"], "link": hit["link"]},
+    )
+    options = scenarios.ProfilerCapture(
+        panels=("db",),
+        request=scenarios.ProfilerRequestSelector(
+            url_prefix="/checkout/cart",
+            resource_type="fetch",
+            method="POST",
+        ),
+    )
+
+    result = collector.profiler(object(), 1.0, options)
+
+    assert result["link"] == "http://shop.test/_profiler/latest-fetch"
+    assert result["selection"] == {
+        "mode": "request_selector",
+        "criteria": {
+            "url_prefix": "/checkout/cart",
+            "resource_type": "fetch",
+            "method": "POST",
+        },
+        "matched": {"resource_type": "fetch", "method": "POST"},
+    }
+
+
+def test_passive_profiler_explicit_selector_fails_closed(monkeypatch):
+    collector = scenarios.PassiveCollector(orchestration())
+    collector.profiler_hits = [
+        {
+            "url": "http://shop.test/checkout",
+            "link": "http://shop.test/_profiler/document",
+            "method": "GET",
+            "resource_type": "document",
+        }
+    ]
+    monkeypatch.setattr(scenarios, "_current_url", lambda client: "http://shop.test/checkout")
+    options = scenarios.ProfilerCapture(
+        request=scenarios.ProfilerRequestSelector(url_prefix="/checkout/cart")
+    )
+
+    with pytest.raises(scenarios.ProfilerRequestNotFound, match="url_prefix=/checkout/cart"):
+        collector.profiler(object(), 1.0, options)
+
+
+def test_passive_collector_correlates_profiler_request_metadata():
+    collector = scenarios.PassiveCollector(orchestration())
+
+    collector._ingest(
+        [
+            {
+                "method": "Network.requestWillBeSent",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Fetch",
+                    "request": {"url": "http://shop.test/checkout/cart", "method": "POST"},
+                },
+            },
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Fetch",
+                    "response": {
+                        "url": "http://shop.test/checkout/cart",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": "http://shop.test/_profiler/target"},
+                    },
+                },
+            },
+        ]
+    )
+
+    assert collector.profiler_hits[0]["request_id"] == "R1"
+    assert collector.profiler_hits[0]["method"] == "POST"
+    assert collector.profiler_hits[0]["resource_type"] == "fetch"
+
+
+def test_passive_collector_keeps_previous_request_metadata_for_redirect_hit():
+    collector = scenarios.PassiveCollector(orchestration())
+
+    collector._ingest(
+        [
+            {
+                "method": "Network.requestWillBeSent",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Document",
+                    "request": {"url": "http://shop.test/old", "method": "POST"},
+                },
+            },
+            {
+                "method": "Network.requestWillBeSent",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Document",
+                    "redirectResponse": {
+                        "url": "http://shop.test/old",
+                        "status": 302,
+                        "headers": {"X-Debug-Token": "redirect-token"},
+                    },
+                    "request": {"url": "http://shop.test/new", "method": "GET"},
+                },
+            },
+        ]
+    )
+
+    assert collector.profiler_hits[0]["url"] == "http://shop.test/old"
+    assert collector.profiler_hits[0]["method"] == "POST"
+    assert collector.profiler_hits[0]["resource_type"] == "document"
+    assert collector.requests["R1"]["url"] == "http://shop.test/new"
+    assert collector.requests["R1"]["method"] == "GET"
+
+
 def test_parse_scenario_with_step_capture():
     """The parser turns a complete declarative scenario into a typed object
     that preserves the emulation context and the captures attached to each step."""
@@ -76,7 +221,83 @@ def test_parse_scenario_with_step_capture():
     #: parsing with no loss and no overwriting default value
     assert scenario.name == "checkout_guest_add_to_cart"
     assert scenario.emulation == "mobile"
-    assert scenario.steps[0].capture == ["screenshot", "console"]
+    assert [capture.kind for capture in scenario.steps[0].capture] == ["screenshot", "console"]
+
+
+def test_parse_structured_profiler_capture_for_step_and_final_artifact():
+    scenario = scenarios.parse(
+        {
+            "name": "targeted-profiler",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [
+                {
+                    "goto": "/checkout",
+                    "capture": [
+                        {
+                            "profiler": {
+                                "panels": ["time", "db", "shopware_cart"],
+                                "request": {
+                                    "url_prefix": "/checkout/cart",
+                                    "resource_type": "fetch",
+                                    "method": "post",
+                                },
+                            }
+                        }
+                    ],
+                }
+            ],
+            "artifacts": [{"profiler": {"panels": []}}],
+        }
+    )
+
+    checkpoint = scenario.steps[0].capture[0]
+    assert checkpoint.kind == "profiler"
+    assert checkpoint.profiler == scenarios.ProfilerCapture(
+        panels=("time", "db", "shopware_cart"),
+        request=scenarios.ProfilerRequestSelector(
+            url_prefix="/checkout/cart",
+            resource_type="fetch",
+            method="POST",
+        ),
+    )
+    assert scenario.artifacts == [
+        scenarios.CaptureSpec("profiler", scenarios.ProfilerCapture(panels=()))
+    ]
+    assert scenarios.validation_result(scenario)["required_authority"] == "privileged"
+
+
+@pytest.mark.parametrize(
+    ("profiler_options", "message"),
+    [
+        ({"panels": ["db", "db"]}, "entries must be unique"),
+        ({"panels": ["unknown"]}, "unknown panel"),
+        ({"request": {}}, "at least one selector"),
+        ({"request": {"url_prefix": "https://shop.test/cart"}}, "absolute path prefix"),
+        ({"request": {"url_prefix": "/cart?token=secret"}}, "without query"),
+        ({"request": {"resource_type": "image"}}, "must be one of"),
+        ({"request": {"method": "BAD METHOD"}}, "valid HTTP method"),
+    ],
+)
+def test_parse_rejects_invalid_structured_profiler_capture(profiler_options, message):
+    with pytest.raises(scenarios.ScenarioUsageError, match=message):
+        scenarios.parse(
+            {
+                "name": "invalid-profiler",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"goto": "/", "capture": [{"profiler": profiler_options}]}],
+            }
+        )
+
+
+def test_parse_rejects_duplicate_profiler_capture():
+    with pytest.raises(scenarios.ScenarioUsageError, match="profiler capture must be unique"):
+        scenarios.parse(
+            {
+                "name": "duplicate-profiler",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"goto": "/", "capture": ["profiler", {"profiler": {}}]}],
+            }
+        )
 
 
 def test_parse_rejects_unknown_field():
@@ -794,16 +1015,28 @@ def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
     mock.script_network(
         [
             {
+                "method": "Network.requestWillBeSent",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Fetch",
+                    "request": {
+                        "url": "http://shop.test/checkout/cart",
+                        "method": "POST",
+                    },
+                },
+            },
+            {
                 "method": "Network.responseReceived",
                 "params": {
                     "requestId": "R1",
+                    "type": "Fetch",
                     "response": {
-                        "url": "http://shop.test/",
+                        "url": "http://shop.test/checkout/cart",
                         "status": 200,
                         "headers": {"X-Debug-Token-Link": "http://shop.test/_profiler/fixed-token"},
                     },
                 },
-            }
+            },
         ]
     )
     panel_fixtures = {
@@ -830,7 +1063,18 @@ def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
             "name": "profiler_capture",
             "context": {"base_url": "http://shop.test"},
             "steps": [{"goto": "/"}],
-            "artifacts": ["profiler"],
+            "artifacts": [
+                {
+                    "profiler": {
+                        "panels": ["time", "db", "shopware_cart"],
+                        "request": {
+                            "url_prefix": "/checkout/cart",
+                            "resource_type": "fetch",
+                            "method": "POST",
+                        },
+                    }
+                }
+            ],
         }
     )
 
@@ -845,6 +1089,16 @@ def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
     #: the proof attests that a token existed without ever writing its value
     assert data["token_present"] is True
     assert "token" not in data
+    assert data["panels"].keys() == {"time", "db", "shopware_cart"}
+    assert data["selection"] == {
+        "mode": "request_selector",
+        "criteria": {
+            "url_prefix": "/checkout/cart",
+            "resource_type": "fetch",
+            "method": "POST",
+        },
+        "matched": {"resource_type": "fetch", "method": "POST"},
+    }
     #: no out-of-contract field leaks into the persisted artifact
     assert "signals" not in data
     panel_calls = [
@@ -855,6 +1109,68 @@ def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
     #: the contract test proves that scenario collection emitted the panel
     #: fetch; the real Symfony suite proves what the collectors return
     assert len(panel_calls) == 1
+    expression = panel_calls[0]["expression"]
+    assert '"time",["time"]' in expression
+    assert '"db",["db","app.connection_collector"]' in expression
+    assert '"shopware_cart",["Shopware\\\\Core' in expression
+    assert '"twig"' not in expression
+
+
+def test_run_scenario_missing_profiler_request_is_error_without_fallback(mock, tmp_path):
+    mock.on_eval("window.location.href", "http://shop.test/")
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "type": "Document",
+                    "response": {
+                        "url": "http://shop.test/",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": "http://shop.test/_profiler/document"},
+                    },
+                },
+            }
+        ]
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "missing-targeted-profiler",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/"}],
+            "artifacts": [
+                {
+                    "profiler": {
+                        "request": {
+                            "url_prefix": "/checkout/cart",
+                            "resource_type": "fetch",
+                        }
+                    }
+                }
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
+        )
+
+    assert result["verdict"] == "fail"
+    assert result["artifacts"] == []
+    assert result["findings"] == [
+        {
+            "severity": "error",
+            "code": "profiler_request_not_found",
+            "message": (
+                "no observed profiler response matched request selector: "
+                "url_prefix=/checkout/cart, resource_type=fetch"
+            ),
+            "step": "final",
+        }
+    ]
+    assert len(mock.commands_for("Page.navigate")) == 1
 
 
 def test_run_scenario_failure_still_captures_checkpoint_and_final(mock, tmp_path):

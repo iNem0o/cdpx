@@ -29,7 +29,66 @@
     "capture": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/artifact"
+        "$ref": "#/$defs/captureItem"
+      }
+    },
+    "captureItem": {
+      "oneOf": [
+        {"$ref": "#/$defs/artifact"},
+        {"$ref": "#/$defs/profilerCapture"}
+      ]
+    },
+    "profilerCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profiler"],
+      "properties": {
+        "profiler": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "panels": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "router",
+                  "time",
+                  "db",
+                  "twig",
+                  "cache",
+                  "exception",
+                  "http_client",
+                  "messenger",
+                  "logger",
+                  "shopware_rules",
+                  "shopware_cache_tags",
+                  "shopware_feature_flags",
+                  "shopware_cart"
+                ]
+              }
+            },
+            "request": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "url_prefix": {
+                  "type": "string",
+                  "pattern": "^/(?!/)[^?#]*$"
+                },
+                "resource_type": {
+                  "enum": ["document", "xhr", "fetch"]
+                },
+                "method": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "label": {

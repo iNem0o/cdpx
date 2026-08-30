@@ -1396,12 +1396,13 @@ def test_render_html_size_stays_bounded():
         cast_entries=generated_casts(),
     )
     # Mermaid vendored ~3.5 MB; the cockpit shell/CSS/JS must stay marginal.
-    # The 17 KB feature/provenance/changelog margin covers the explicit Symfony
-    # and Shopware runtime scenarios, bounded profiler probing and documented
-    # maintenance fixes; these prevent broad test globs from being mistaken for
-    # runtime proof while keeping the public change record inside the cockpit.
+    # The feature/provenance/changelog margin covers the explicit Symfony and
+    # Shopware runtime scenarios, including targeted scenario profiler capture,
+    # bounded profiler probing and documented maintenance fixes. These prevent
+    # broad test globs from being mistaken for runtime proof while keeping the
+    # public change record inside the cockpit.
     #: beyond the ceiling, an asset grew without justification: the gate blocks it
-    assert len(proof.render_html(summary)) < 4_537_000
+    assert len(proof.render_html(summary)) < 4_545_000
 
 
 def test_cockpit_names_each_proof_kind_explicitly():

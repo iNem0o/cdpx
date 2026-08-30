@@ -5,7 +5,7 @@ status = "validated"
 summary = "Control network behavior around navigation or trusted clicks, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
 path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/inputs.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "src/cdpx/scenario_compiler.py", "schemas/scenario-*.json", "tests/fixtures/interactions-rich.html", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/fixtures/scenarios/fragments/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
-test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
+test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*", "tests/e2e/test_e2e_shopware.py::test_scenario_targets_real_shopware_fetch_profiler"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -107,6 +107,20 @@ target = "symfony"
 proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*"]
 expected_proofs = ["junit", "json", "screenshot"]
+
+[[scenarios]]
+id = "target-shopware-profiler-request"
+journey = "scenario-run"
+title = "Target one Shopware profiler request from a scenario"
+ui_text = "A structured profiler capture selects the Fetch that recalculated the real Shopware cart."
+report_text = "The blocking Shopware gate proves that a scenario can select one observed Fetch by path, resource type and method, then fetch only its requested profiler panels including Cart."
+given = "The real Shopware application exposes a document route and a distinct deterministic Cart route."
+when = "The scenario opens the document, performs a Fetch to the Cart route and captures that request's profiler token."
+then = "The artifact identifies the request selection and contains exactly the requested real Shopware panels without cart payload secrets."
+target = "shopware"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_shopware.py::test_scenario_targets_real_shopware_fetch_profiler"]
+expected_proofs = ["junit", "json"]
 
 [[scenarios]]
 id = "type-secret-into-cross-origin-frame"
@@ -454,7 +468,8 @@ Supported executable schema (`cdpx.scenario/v1`):
   Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
   `profiler`. These proofs are collected immediately after the step, even
-  if the step fails.
+  if the step fails. `profiler` also accepts the structured form documented
+  below; only one profiler capture is allowed at each checkpoint.
 - Assertions: `no_console_errors`, `network_errors_max`, `text_contains`.
 - `artifacts`: same types as `capture`, collected at the end of the
   scenario.
@@ -498,6 +513,30 @@ artifacts:
   - profiler
 ```
 
+A profiler capture may select panels and the last observed request matching
+its path, CDP resource type and HTTP method. `panels` omitted keeps the
+lightweight defaults; an empty list records token discovery only. The request
+object must contain at least one selector, `url_prefix` is a path without query
+or fragment, `resource_type` is `document`, `xhr` or `fetch`, and method names
+are normalized to uppercase. The same form is accepted in final `artifacts`:
+
+```yaml
+capture:
+  - profiler:
+      panels: [time, db, shopware_rules, shopware_cache_tags, shopware_cart]
+      request:
+        url_prefix: /checkout/cart
+        resource_type: fetch
+        method: POST
+```
+
+An explicit request selector fails the scenario with
+`profiler_request_not_found` when no observed profiler response matches. It
+never falls back to the current document or triggers a replacement navigation.
+The profiler artifact records safe `selection` criteria and matched method/type;
+its existing `url` remains redacted. A requested but unavailable panel remains
+the non-failing `available:false` diagnostic.
+
 `fragments/add_to_cart.yml`:
 
 ```yaml
@@ -535,10 +574,11 @@ The two machine-readable contracts are
 A scenario that runs but does not conform exits with code 1 with
 `verdict:"fail"` and structured `findings`. Assertions do not stop at the
 first failure: they accumulate findings and then the final proofs are
-collected. A `profiler` capture first uses the Symfony headers observed
-during the run (`X-Debug-Token-Link` or `X-Debug-Token`); if no header was
-seen, cdpx tries the last navigated URL, then adds a `profiler_unavailable`
-warning finding if no profiler is available. The collector performs one
+collected. An unconfigured `profiler` capture first uses the Symfony headers
+observed during the run (`X-Debug-Token-Link` or `X-Debug-Token`), preferring
+the current document; if no header was seen, cdpx tries the last navigated URL,
+then adds a `profiler_unavailable` warning finding if no profiler is available.
+An explicit request selector instead fails closed as described above. The collector performs one
 final console/network drain **before** the assertions, so a late error
 counts toward the verdict. Every origin is checked before the step and
 after stabilization; a redirect outside the allowlist blocks the following
