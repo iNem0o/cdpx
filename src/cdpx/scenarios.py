@@ -243,14 +243,21 @@ class PassiveCollector:
         if not self.profiler_hits:
             return None
         page_url = _current_url(client)
+        comparable_page_url = redact_url(
+            page_url,
+            context=self.redaction,
+            path="$.network.url",
+        )
         # Browser subresources (notably /favicon.ico) can also carry Symfony's
         # profiler headers. Prefer the hit for the document that is currently
-        # displayed instead of blindly taking the most recent response.
+        # displayed instead of blindly taking the most recent response. Hits
+        # are already redacted during ingestion, so compare against the same
+        # normalized representation of the current URL.
         hit = next(
             (
                 candidate
                 for candidate in reversed(self.profiler_hits)
-                if _same_page_url(candidate.get("url"), page_url)
+                if _same_page_url(candidate.get("url"), comparable_page_url)
             ),
             self.profiler_hits[-1],
         )

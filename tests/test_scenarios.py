@@ -28,7 +28,7 @@ def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch
     collector = scenarios.PassiveCollector(orchestration())
     collector.profiler_hits = [
         {
-            "url": "http://shop.test/scenario/profiler/baseline",
+            "url": "http://shop.test/scenario/profiler/baseline?variant=***",
             "link": "http://shop.test/_profiler/main",
         },
         {
@@ -39,7 +39,7 @@ def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch
     monkeypatch.setattr(
         scenarios,
         "_current_url",
-        lambda client: "http://shop.test/scenario/profiler/baseline#result",
+        lambda client: "http://shop.test/scenario/profiler/baseline?variant=baseline#result",
     )
     monkeypatch.setattr(
         profiler,
@@ -49,7 +49,7 @@ def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch
 
     result = collector.profiler(object(), 1.0)
 
-    assert result["url"] == "http://shop.test/scenario/profiler/baseline"
+    assert result["url"] == ("http://shop.test/scenario/profiler/baseline?variant=***")
 
 
 def test_parse_scenario_with_step_capture():
