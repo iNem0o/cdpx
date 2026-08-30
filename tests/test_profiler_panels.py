@@ -165,6 +165,173 @@ def test_parse_shopware_cache_tags():
     ]
 
 
+def test_parse_shopware_feature_flags_uses_icons_and_redacts_text():
+    res = profiler.parse_panel("shopware_feature_flags", 200, read("shopware-feature-flags.html"))
+
+    assert res == {
+        "available": True,
+        "count": 2,
+        "active": 1,
+        "truncated": False,
+        "list": [
+            {
+                "name": "example-feature",
+                "active": True,
+                "default": False,
+                "major": False,
+                "description": "Example feature",
+            },
+            {
+                "name": "next-major",
+                "active": False,
+                "default": True,
+                "major": True,
+                "description": "Bearer ***",
+            },
+        ],
+    }
+    assert "feature-description-secret" not in json.dumps(res)
+
+
+def test_parse_shopware_feature_flags_bounds_list_but_counts_all_rows():
+    html = read("shopware-feature-flags.html")
+    row = html[
+        html.index("    <tr>\n      <td>example-feature") : html.index(
+            "    </tr>", html.index("    <tr>\n      <td>example-feature")
+        )
+        + len("    </tr>")
+    ]
+    html = html.replace("  </tbody>", row * (LIST_LIMIT + 1) + "\n  </tbody>")
+
+    res = profiler.parse_panel("shopware_feature_flags", 200, html)
+
+    assert res["count"] == LIST_LIMIT + 3
+    assert res["active"] == LIST_LIMIT + 2
+    assert res["truncated"] is True
+    assert len(res["list"]) == LIST_LIMIT
+
+
+def test_parse_shopware_cart_absent_and_empty_are_distinct():
+    absent = profiler.parse_panel("shopware_cart", 200, read("shopware-cart-absent.html"))
+    empty = profiler.parse_panel("shopware_cart", 200, read("shopware-cart-empty.html"))
+
+    assert absent["available"] is True
+    assert absent["present"] is False
+    assert absent["item_count"] == 0
+    assert absent["line_items"] == {"total": 0, "truncated": False, "items": []}
+    assert empty["present"] is True
+    assert empty["item_count"] == 0
+    assert empty["totals"]["total_display"] == "0,00 €"
+
+
+def test_parse_shopware_cart_keeps_localized_totals_and_omits_dump():
+    res = profiler.parse_panel("shopware_cart", 200, read("shopware-cart.html"))
+
+    assert res["present"] is True
+    assert res["item_count"] == 1
+    assert res["totals"] == {
+        "subtotal_display": "40,00 €",
+        "shipping_display": "4,90 €",
+        "total_display": "44,90 €",
+        "taxes_total": 1,
+        "taxes_truncated": False,
+        "taxes": [{"rate": 20.0, "amount_display": "7,48 €"}],
+    }
+    assert res["line_items"] == {
+        "total": 1,
+        "truncated": False,
+        "items": [
+            {
+                "quantity": 2,
+                "label": "Example product",
+                "type": "product",
+                "unit_price_display": "20,00 €",
+                "total_price_display": "40,00 €",
+            }
+        ],
+    }
+    assert res["pipeline"]["collectors"]["items"] == [
+        {
+            "service_id": "example.cart.collector",
+            "priority": 100,
+            "decorated_by_total": 1,
+            "decorated_by_truncated": False,
+            "decorated_by": [{"service_id": "example.decorator", "priority": 200}],
+        }
+    ]
+    assert res["pipeline"]["processors"]["items"] == [
+        {
+            "service_id": "example.cart.processor",
+            "priority": -100,
+            "decorated_by_total": 0,
+            "decorated_by_truncated": False,
+            "decorated_by": [],
+        }
+    ]
+    serialized = json.dumps(res)
+    assert "CART-TOKEN-SECRET" not in serialized
+    assert "CART-PAYLOAD-SECRET" not in serialized
+    assert "CART-EXTENSION-SECRET" not in serialized
+
+
+def test_parse_shopware_cart_bounds_services_and_nested_decorators():
+    html = read("shopware-cart.html")
+    collector_row = (
+        "<tr><td>collector-{index}</td><td>{index}</td><td>"
+        '<span class="chip" title="priority: {index}">decorator-{index}</span>'
+        "</td></tr>"
+    )
+    extra_rows = "".join(collector_row.format(index=index) for index in range(LIST_LIMIT + 2))
+    html = html.replace(
+        '  </tbody>\n</table>\n<table class="processors-table',
+        extra_rows + '  </tbody>\n</table>\n<table class="processors-table',
+    )
+    decorators = "".join(
+        f'<span class="chip" title="priority: {index}">nested-{index}</span>'
+        for index in range(LIST_LIMIT + 2)
+    )
+    html = html.replace(
+        '<span class="chip" title="priority: 200">example.decorator</span>', decorators
+    )
+
+    res = profiler.parse_panel("shopware_cart", 200, html)
+
+    collectors = res["pipeline"]["collectors"]
+    assert collectors["total"] == LIST_LIMIT + 3
+    assert collectors["truncated"] is True
+    assert len(collectors["items"]) == LIST_LIMIT
+    first = collectors["items"][0]
+    assert first["decorated_by_total"] == LIST_LIMIT + 2
+    assert first["decorated_by_truncated"] is True
+    assert len(first["decorated_by"]) == LIST_LIMIT
+
+
+def test_parse_shopware_cart_bounds_lines_and_taxes():
+    html = read("shopware-cart.html")
+    line = "<tr><td>1</td><td>item-{index}</td><td>custom</td><td>1,00 €</td><td>1,00 €</td></tr>"
+    extra_lines = "".join(line.format(index=index) for index in range(LIST_LIMIT + 1))
+    html = html.replace(
+        '<tr class="code-block-row hidden" id="code-1">',
+        extra_lines + '<tr class="code-block-row hidden" id="code-1">',
+    ).replace(
+        '<span class="value">1</span><span class="label">Items in Cart</span>',
+        f'<span class="value">{LIST_LIMIT + 2}</span><span class="label">Items in Cart</span>',
+    )
+    tax = '<tr><td colspan="4">5% VAT</td><td>1,00 €</td></tr>'
+    html = html.replace(
+        '<tr class="status-success">', tax * (LIST_LIMIT + 1) + '<tr class="status-success">'
+    )
+
+    res = profiler.parse_panel("shopware_cart", 200, html)
+
+    assert res["line_items"]["total"] == LIST_LIMIT + 2
+    assert res["line_items"]["truncated"] is True
+    assert len(res["line_items"]["items"]) == LIST_LIMIT
+    assert res["totals"]["taxes_total"] == LIST_LIMIT + 2
+    assert res["totals"]["taxes_truncated"] is True
+    assert len(res["totals"]["taxes"]) == LIST_LIMIT
+
+
 def test_parse_db_bounds_rows_without_truncating_repetition_aggregation():
     rows = "".join(
         f"<tr><td>{index}</td><td>0.1 ms</td><td><pre>{sql}</pre></td></tr>"
@@ -462,14 +629,18 @@ def test_parse_panel_rejects_unknown_key():
 
 
 def test_normalize_panels_defaults_and_rejects():
-    """Normalizing the panel selection turns None into 'the whole
-    catalog', preserves a valid selection and rejects an unknown key before
-    any fetch."""
-    #: None expands into the full catalog and a valid selection passes
-    #: through intact, in the requested order
-    assert profiler.normalize_panels(None) == list(profiler.ALL_PANELS)
+    """Normalizing distinguishes light defaults from the complete catalog."""
+    defaults = profiler.normalize_panels(None)
+    assert "shopware_feature_flags" in defaults
+    assert "shopware_cart" not in defaults
+    assert profiler.normalize_panels(list(profiler.ALL_PANELS)) == list(profiler.ALL_PANELS)
     assert profiler.normalize_panels(["db", "twig"]) == ["db", "twig"]
-    assert {"shopware_rules", "shopware_cache_tags"} <= set(profiler.ALL_PANELS)
+    assert {
+        "shopware_rules",
+        "shopware_cache_tags",
+        "shopware_feature_flags",
+        "shopware_cart",
+    } <= set(profiler.ALL_PANELS)
     #: an unknown key fails validation, hence before any request to the
     #: profiler
     with pytest.raises(ValueError, match=r"unknown panel\(s\)"):
@@ -542,6 +713,42 @@ def test_fetch_panels_builds_urls_and_awaits_promise(mock, client):
     assert "AbortSignal.timeout(remaining)" in call["expression"]
     assert "panel fetch timeout" in call["expression"]
     assert "AbortSignal.timeout(7000)" not in call["expression"]
+
+
+def test_default_selection_never_targets_extended_cart(mock, client):
+    mock.on_eval("__cdpx_profiler_panels", json.dumps({"probe": {}, "panels": []}))
+
+    profiler.collect_profiler_report(client, HIT, context=PROFILER_CONTEXT)
+
+    (call,) = mock.commands_for("Runtime.evaluate")
+    assert '"shopware_feature_flags",["feature_flag"]' in call["expression"]
+    assert '"shopware_cart"' not in call["expression"]
+
+
+def test_explicit_cart_targets_only_advertised_real_collector(mock, client):
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps(
+            {
+                "probe": {"status": 200, "usable": True, "collectors": ["request"]},
+                "panels": [{"panel": "shopware_cart", "status": 0, "html": ""}],
+            }
+        ),
+    )
+
+    res = profiler.collect_profiler_report(
+        client, HIT, context=PROFILER_CONTEXT, panels=["shopware_cart"]
+    )
+
+    assert res["panels"]["shopware_cart"] == {"available": False, "status": 0}
+    (call,) = mock.commands_for("Runtime.evaluate")
+    expression = call["expression"]
+    assert (
+        '"shopware_cart",["Shopware\\\\Core\\\\Profiling\\\\Subscriber\\\\CartDataCollectorSubscriber"]'
+        in expression
+    )
+    assert "if (sources.length === 0) return {panel, status: 0, html: ''}" in expression
+    assert "panel=shopware_cart" not in expression
 
 
 def test_collect_assembles_contract(mock, client, evidence_case):

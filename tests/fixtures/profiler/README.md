@@ -15,9 +15,16 @@ and logger filter badges.
 
 The `shopware-*` files are normalized excerpts captured from the real Shopware
 6.7.13.1 gate. They retain the meaningful collector menu, DB metrics, titled
-DAL query and source frame, active-rule rows, cache tags and caller counts
-while removing tokens, interface assets and unrelated application data.
-`manifest.json` records their provenance and exact component versions.
+DAL query and source frame, active-rule rows, cache tags, feature-flag icons,
+Cart display values and service topology while removing tokens, interface
+assets and unrelated application data. `manifest.json` records their
+provenance and exact component versions.
+
+Feature Flags retain the real `icons-solid-checkmark`/`icons-solid-x` SVG
+references because these icons, rather than nearby text, are the boolean
+contract. Cart retains localized display amounts, line-item table structure,
+service priorities/decorators and deliberate hidden-dump canaries. The parser
+must never surface those dump values.
 
 Values are deliberately distinctive and asserted by
 `tests/test_profiler_panels.py`; update the tests with any fixture change.
@@ -29,8 +36,10 @@ text.
 To refresh Symfony markup, run the real Symfony gate, obtain its disposable
 token and download the requested panel. To refresh Shopware markup, run the
 real Shopware gate and download the `request`, `app.connection_collector`,
-Active Rules and Cache Tags collectors. Normalize the capture without changing
-meaningful labels or table structure.
+Active Rules, Cache Tags, `feature_flag` and advertised Cart collectors. Cart
+uses `Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber` and
+is captured only through an explicit extended-panel request. Normalize the
+capture without changing meaningful labels or table structure.
 
 After any refresh, run `./dev check` and update parsers only when a meaningful
 marker changed.

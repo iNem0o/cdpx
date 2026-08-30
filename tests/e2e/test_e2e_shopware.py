@@ -51,27 +51,27 @@ def runtime_session(tmp_path_factory):
     proves=[
         "Shopware 6.7 emits a real profiler token.",
         "The collector probe selects app.connection_collector without a speculative 404.",
-        "DAL titles, source locations, active rules and cache tags are structured.",
+        "DAL titles, source locations, active rules, cache tags and feature flags are structured.",
+        "The default selection skips Cart while an explicit request parses its real collector.",
+        "A real Shopware cart and tagged collector/processor expose bounded machine-readable data.",
     ],
 )
 def test_profiler_reads_real_shopware_connection_collector(runtime_session, evidence_case):
     assert SHOPWARE_URL is not None
     manifest, manifest_path = runtime_session
-    proc = run_cli(
+    default_proc = run_cli(
         manifest,
         manifest_path,
         "--timeout",
         "30",
         "profiler",
         f"{SHOPWARE_URL}/cdpx-profiler",
-        "--panels",
-        "db,router,shopware_rules,shopware_cache_tags",
         "--settle",
         "0.8",
         timeout=180,
     )
-    attach_cli_run(evidence_case, "Shopware profiler CLI", proc)
-    result = successful_json(proc)
+    attach_cli_run(evidence_case, "Shopware default profiler CLI", default_proc)
+    result = successful_json(default_proc)
     assert isinstance(result, dict)
     with CDPClient(manifest.websocket_url, timeout=30) as client:
         runtime_identity = json.loads(
@@ -83,7 +83,7 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
                 "})())",
             )
         )
-        requested_collectors = json.loads(
+        default_requested_collectors = json.loads(
             js.evaluate(
                 client,
                 "JSON.stringify(performance.getEntriesByType('resource')"
@@ -91,7 +91,34 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
                 ".filter(Boolean))",
             )
         )
-        attach_screenshot(evidence_case, client, "Real Shopware profiler target")
+        js.evaluate(client, "performance.clearResourceTimings()")
+
+    cart_proc = run_cli(
+        manifest,
+        manifest_path,
+        "--timeout",
+        "30",
+        "profiler",
+        f"{SHOPWARE_URL}/cdpx-cart-profiler",
+        "--panels",
+        "shopware_cart",
+        "--settle",
+        "0.8",
+        timeout=180,
+    )
+    attach_cli_run(evidence_case, "Shopware Cart profiler CLI", cart_proc)
+    cart_result = successful_json(cart_proc)
+    assert isinstance(cart_result, dict)
+    with CDPClient(manifest.websocket_url, timeout=30) as client:
+        cart_requested_collectors = json.loads(
+            js.evaluate(
+                client,
+                "JSON.stringify(performance.getEntriesByType('resource')"
+                ".map(entry => new URL(entry.name).searchParams.get('panel'))"
+                ".filter(Boolean))",
+            )
+        )
+        attach_screenshot(evidence_case, client, "Real Shopware Cart profiler target")
 
     panel = result["panels"]["db"]
     profile = result["profile"]
@@ -122,20 +149,81 @@ def test_profiler_reads_real_shopware_connection_collector(runtime_session, evid
     assert result["panels"]["router"]["route"] == "frontend.cdpx.profiler"
     assert result["panels"]["shopware_rules"]["count"] >= 1
     assert result["panels"]["shopware_cache_tags"]["tags"] >= 1
-    assert "db" not in requested_collectors
+    feature_flags = result["panels"]["shopware_feature_flags"]
+    deterministic_flag = next(
+        item for item in feature_flags["list"] if item["name"] == "CDPX_E2E_FEATURE"
+    )
+    assert deterministic_flag == {
+        "name": "CDPX_E2E_FEATURE",
+        "active": True,
+        "default": False,
+        "major": False,
+        "description": "Deterministic cdpx E2E feature flag",
+    }
+    assert "shopware_cart" not in result["panels"]
+    assert "db" not in default_requested_collectors
+    assert (
+        "Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber"
+        not in default_requested_collectors
+    )
     assert {
         "request",
         "app.connection_collector",
         "Shopware\\Core\\Profiling\\Subscriber\\ActiveRulesDataCollectorSubscriber",
         "Shopware\\Core\\Profiling\\Subscriber\\CacheTagCollectorSubscriber",
-    } <= set(requested_collectors)
+        "feature_flag",
+    } <= set(default_requested_collectors)
+
+    cart_collector = "Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber"
+    assert cart_result["token_present"] is True and "token" not in cart_result
+    assert cart_result["profile"]["probed"] is True
+    assert cart_result["panels"].keys() == {"shopware_cart"}
+    cart = cart_result["panels"]["shopware_cart"]
+    assert cart["available"] is True
+    assert cart["present"] is True
+    assert cart["item_count"] == 1
+    assert cart["line_items"]["total"] == 1
+    assert cart["line_items"]["items"] == [
+        {
+            "quantity": 2,
+            "label": "cdpx deterministic item",
+            "type": "custom",
+            "unit_price_display": cart["line_items"]["items"][0]["unit_price_display"],
+            "total_price_display": cart["line_items"]["items"][0]["total_price_display"],
+        }
+    ]
+    assert cart["line_items"]["items"][0]["unit_price_display"]
+    assert cart["line_items"]["items"][0]["total_price_display"]
+    assert cart["totals"]["subtotal_display"]
+    assert cart["totals"]["total_display"]
+    collector = next(
+        item
+        for item in cart["pipeline"]["collectors"]["items"]
+        if item["service_id"] == "cdpx.e2e.cart.collector"
+    )
+    processor = next(
+        item
+        for item in cart["pipeline"]["processors"]["items"]
+        if item["service_id"] == "cdpx.e2e.cart.processor"
+    )
+    assert collector["priority"] == 1234
+    assert processor["priority"] == 4321
+    assert cart_collector in cart_requested_collectors
+    assert "shopware_cart" not in cart_requested_collectors
+    serialized_cart = json.dumps(cart_result)
+    assert "CDPX-CART-PAYLOAD-MUST-NOT-LEAK" not in serialized_cart
+    assert "sf-dump" not in serialized_cart
 
     if evidence_case is not None:
         evidence_case.attach_json("Shopware profiler result", result, "shopware-profiler.json")
         evidence_case.attach_json(
+            "Shopware Cart profiler result", cart_result, "shopware-cart-profiler.json"
+        )
+        evidence_case.attach_json(
             "Shopware adaptive collector probe",
             {
-                "requested_collectors": requested_collectors,
+                "default_requested_collectors": default_requested_collectors,
+                "cart_requested_collectors": cart_requested_collectors,
                 "runtime_identity": runtime_identity,
             },
             "shopware-collector-probe.json",

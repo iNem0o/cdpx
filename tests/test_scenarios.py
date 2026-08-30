@@ -809,6 +809,8 @@ def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
     panel_fixtures = {
         "shopware_rules": "shopware-rules",
         "shopware_cache_tags": "shopware-cache-tags",
+        "shopware_feature_flags": "shopware-feature-flags",
+        "shopware_cart": "shopware-cart",
     }
     payload = json.dumps(
         [

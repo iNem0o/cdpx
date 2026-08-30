@@ -342,9 +342,49 @@ def test_profiler_reads_real_symfony_web_profiler(runtime_session, evidence_case
     assert isinstance(res, dict)
     with CDPClient(manifest.websocket_url, timeout=30) as connected:
         attach_screenshot(evidence_case, connected, "Symfony profiler target")
+        default_requested_collectors = json.loads(
+            js.evaluate(
+                connected,
+                "JSON.stringify(performance.getEntriesByType('resource')"
+                ".map(entry => new URL(entry.name).searchParams.get('panel'))"
+                ".filter(Boolean))",
+            )
+        )
+        js.evaluate(connected, "performance.clearResourceTimings()")
+
+    cart_proc = run_cli(
+        manifest,
+        manifest_path,
+        "--timeout",
+        "20",
+        "profiler",
+        f"{SYMFONY_URL}/profiler-target",
+        "--panels",
+        "shopware_cart",
+        "--settle",
+        "0.5",
+        timeout=120,
+    )
+    attach_cli_run(evidence_case, "Symfony unavailable Shopware Cart CLI", cart_proc)
+    cart_res = successful_json(cart_proc)
+    assert isinstance(cart_res, dict)
+    with CDPClient(manifest.websocket_url, timeout=30) as connected:
+        cart_requested_collectors = json.loads(
+            js.evaluate(
+                connected,
+                "JSON.stringify(performance.getEntriesByType('resource')"
+                ".map(entry => new URL(entry.name).searchParams.get('panel'))"
+                ".filter(Boolean))",
+            )
+        )
 
     if evidence_case is not None:
         evidence_case.attach_json("Symfony profiler result", res, "symfony-profiler-result.json")
+        evidence_case.attach_json(
+            "Symfony unavailable Shopware Cart",
+            cart_res,
+            "symfony-shopware-cart-unavailable.json",
+        )
         evidence_case.attach_text(
             "Symfony profiler URL",
             f"target={res['url']}\nprofiler={res['profiler_url']}\n"
@@ -366,6 +406,17 @@ def test_profiler_reads_real_symfony_web_profiler(runtime_session, evidence_case
     #: internal collection fields do not leak into the CLI contract
     assert "signals" not in res and "profiler_bytes" not in res
     panels = res["panels"]
+    assert {
+        "router",
+        "time",
+        "db",
+        "twig",
+        "cache",
+        "exception",
+        "http_client",
+        "messenger",
+        "logger",
+    } <= panels.keys()
     #: each real collector (routing, exception, time, Doctrine, logs) is
     #: parsed into metrics consistent with the route visited: correct
     #: route, no exception, typed durations and zero SQL query on this page
@@ -380,6 +431,14 @@ def test_profiler_reads_real_symfony_web_profiler(runtime_session, evidence_case
     assert panels["logger"]["available"] is True
     assert panels["shopware_rules"] == {"available": False, "status": 0}
     assert panels["shopware_cache_tags"] == {"available": False, "status": 0}
+    assert panels["shopware_feature_flags"] == {"available": False, "status": 0}
+    assert "shopware_cart" not in panels
+    cart_collector = "Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber"
+    assert cart_collector not in default_requested_collectors
+    assert "feature_flag" not in default_requested_collectors
+    assert cart_res["panels"] == {"shopware_cart": {"available": False, "status": 0}}
+    assert cart_collector not in cart_requested_collectors
+    assert "shopware_cart" not in cart_requested_collectors
 
 
 @pytest.mark.scenario(

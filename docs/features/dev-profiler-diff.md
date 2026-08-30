@@ -2,7 +2,7 @@
 id = "dev-profiler-diff"
 title = "Developer diagnostics"
 status = "validated"
-summary = "Probe and parse Symfony Web Profiler collectors, including Shopware DAL tags, active rules and cache tags, from a browser navigation, then compare the DOM before/after an action."
+summary = "Probe and parse Symfony Web Profiler collectors, including Shopware DAL tags, rules, feature flags, cache tags and opt-in Cart diagnostics, from a browser navigation, then compare the DOM before/after an action."
 entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev test-symfony-e2e", "./dev test-shopware-e2e", "./dev check"]
 path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "docker-compose.shopware-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/e2e/test_e2e_shopware.py", "tests/symfony-app/**", "tests/shopware-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
 test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*", "tests/e2e/test_e2e_shopware.py::*"]
@@ -70,11 +70,11 @@ expected_proofs = ["junit", "json", "screenshot"]
 id = "read-shopware-profiler"
 journey = "read-profiler"
 title = "Read Shopware's real profiler extensions"
-ui_text = "The agent probes a real Shopware profiler and reads its DAL, active-rules and cache-tag collectors."
-report_text = "The blocking Shopware Docker gate proves collector probing, direct `app.connection_collector` selection and the Shopware-specific panels against Shopware 6.7.13.1."
+ui_text = "The agent probes a real Shopware profiler and reads its DAL, rules, feature flags, cache tags and opt-in Cart collector."
+report_text = "The blocking Shopware Docker gate proves collector probing, direct `app.connection_collector` selection, the lightweight Feature Flags panel and the extended Cart panel against Shopware 6.7.13.1."
 given = "The Docker gate starts Shopware 6.7.13.1, MariaDB and Chrome in dev mode."
-when = "cdpx requests `db`, observes its absence, then fetches `app.connection_collector` with grouped queries."
-then = "The real Shopware collectors report repeated and tagged DAL queries with source locations, active rules and cache-tag emissions without exposing the profiler token."
+when = "cdpx runs its default lightweight selection, then explicitly requests `shopware_cart`."
+then = "The real Shopware collectors report repeated and tagged DAL queries, rules, cache tags, a deterministic feature flag and a real bounded cart/pipeline without exposing profiler or cart secrets."
 target = "shopware"
 proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_connection_collector"]
@@ -171,8 +171,10 @@ macros), `cache`
 (outgoing requests, statuses), `messenger` (messages dispatched per bus),
 `router` (route, controller, status, redirect), `time` (total/init time,
 best-effort timeline), `logger` (errors, warnings, deprecations),
-`shopware_rules` (active rules) and `shopware_cache_tags` (cache-tag emissions
-and callers).
+`shopware_rules` (Rule Builder rules active for the request),
+`shopware_cache_tags` (cache-tag emissions and callers),
+`shopware_feature_flags` (technical feature configuration) and
+`shopware_cart` (bounded cart totals, lines and pipeline topology).
 
 Logical panel names and their output stay stable across supported
 applications. The probe maps `db` directly to Symfony's standard `db`
@@ -187,17 +189,23 @@ Command-specific options:
 - `--settle S` — time window in seconds for collecting network events
   after load, giving the response carrying the token time to arrive
   (default: 0.2).
-- `--panels` — `all` (default, all 11 semantic panels), `none` (token discovery
-  only: no collector probe or panel fetch) or a CSV list
-  (`router,time,db,twig,cache,exception,http_client,messenger,logger,shopware_rules,shopware_cache_tags`);
-  an unknown name is a usage error (exit 2).
+- `--panels` — omitted selects the 12 lightweight/default panels, including
+  `shopware_feature_flags` but excluding `shopware_cart`; `all` selects all 13
+  panels; `none` performs token discovery without JavaScript, collector probe
+  or panel fetch; a CSV list targets only the named semantic panels. The
+  complete catalog is
+  `router,time,db,twig,cache,exception,http_client,messenger,logger,shopware_rules,shopware_cache_tags,shopware_feature_flags,shopware_cart`.
+  An unknown name is a usage error (exit 2).
 
 ```bash
-# Parse every panel for a local route
+# Parse the lightweight/default panels for a local route
 cdpx profiler http://127.0.0.1:8000/product/42
 
 # Focus on Doctrine and cache only
 cdpx profiler http://127.0.0.1:8000/product/42 --panels db,cache
+
+# Opt into the heavier Shopware Cart HTML
+cdpx profiler http://127.0.0.1:8000/checkout/cart --panels shopware_cart
 ```
 
 Output (realistic excerpt, truncated to the requested panels):
@@ -256,6 +264,17 @@ Output (realistic excerpt, truncated to the requested panels):
 Gotchas and error cases:
 
 - `panels` is a structured object per panel and never a raw envelope.
+- `shopware_rules` and `shopware_feature_flags` are deliberately distinct:
+  the former describes Rule Builder rules active for one request, while the
+  latter describes technical rollout flags. Feature flags expose total
+  `count`, total `active`, `truncated` and at most 20 rows; booleans come from
+  Shopware's checkmark/x SVGs.
+- `shopware_cart` is extended/opt-in because its HTML contains a potentially
+  large hidden VarDumper row per line. cdpx never returns those dumps, cart
+  tokens, payloads, serialized Cart objects or full extensions. Localized
+  prices remain `*_display` strings; no numeric amount or ISO currency is
+  invented. Lines, taxes, collectors, processors and nested decorators are
+  bounded to 20, with totals/truncation metadata where applicable.
 - `profile.engine` identifies the common profiler protocol, while
   `profile.extensions` reports detected adapters. Collector IDs are redacted,
   capped at 20, and accompanied by `total`/`truncated`. With `--panels none`,
@@ -366,8 +385,9 @@ exercise real Doctrine, cache, HTTP client, Messenger, Twig, exception,
 routing and timing collectors. The Shopware suite uses Shopware 6.7.13.1,
 MariaDB and a minimal plugin route to prove collector probing, direct
 `app.connection_collector` selection without a speculative `db` request,
-tagged DAL SQL/source extraction, active rules and cache-tag emissions. Both
-suites run the public `cdpx profiler` command through the same
+tagged DAL SQL/source extraction, active rules, cache-tag emissions, a real
+feature flag and a real Cart/pipeline that remains opt-in. Both suites run the
+public `cdpx profiler` command through the same
 supervised Chromium pinned in the CI image. The remaining mock coverage pins
 emitted CDP, redaction and deterministic failures only; it does not claim
 framework runtime compatibility.
@@ -427,7 +447,8 @@ verdict still comes from `./dev check`.
 - Take a stable DOM diff around a browser action.
 - Navigate to real Shopware, follow its profiler token, probe its collector
   menu, select `app.connection_collector` directly, and parse grouped/tagged
-  DAL queries plus active rules and cache-tag emissions.
+  DAL queries, active rules, cache tags, a deterministic technical feature
+  flag and a real opt-in Cart with pipeline priorities.
 
 ## Validation
 

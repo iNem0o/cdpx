@@ -1057,10 +1057,8 @@ def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
     # token-only probe: no panel fetch
     #: with no panel requested, no page-context fetch is even attempted
     assert res["panels"] == {} and res["profiler_status"] is None
-    assert not any(
-        "__cdpx_profiler_panels" in call["expression"]
-        for call in mock.commands_for("Runtime.evaluate")
-    )
+    assert mock.commands_for("Runtime.evaluate") == []
+    assert mock.commands_for("Page.getFrameTree") == [{}]
 
 
 def test_profiler_rejects_requested_origin_before_navigation(mock, client):

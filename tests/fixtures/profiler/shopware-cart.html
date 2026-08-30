@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<title>Shopware 6.7 cart collector contract excerpt</title>
+<body>
+<h2>Cart Information</h2>
+<div class="metrics">
+  <div class="metric"><span class="value">1</span><span class="label">Items in Cart</span></div>
+  <div class="metric"><span class="value">44,90 €</span><span class="label">Cart Total</span></div>
+</div>
+<h3>Line Items</h3>
+<table class="cart-line-item-table">
+  <thead>
+    <tr><th>Quantity</th><th>Item</th><th>Type</th><th>Unit Price</th><th>Total Price</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2</td><td><span class="expandable-block-title">Example product</span></td>
+      <td>product</td><td>20,00 €</td><td>40,00 €</td>
+    </tr>
+    <tr class="code-block-row hidden" id="code-1">
+      <td colspan="5"><pre>Cart token CART-TOKEN-SECRET payload CART-PAYLOAD-SECRET extensions CART-EXTENSION-SECRET</pre></td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr><th colspan="4">Subtotal</th><th>40,00 €</th></tr>
+    <tr><th colspan="4">Shipping</th><th>4,90 €</th></tr>
+    <tr><td colspan="4">20% VAT</td><td>7,48 €</td></tr>
+    <tr class="status-success"><th colspan="4">Total</th><th>44,90 €</th></tr>
+  </tfoot>
+</table>
+<h2>Cart Services</h2>
+<table class="collectors-table profiler-table">
+  <thead><tr><th>Service ID</th><th>Priority</th><th>Decoration</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>example.cart.collector</td><td>100</td>
+      <td><div class="decorator-chips"><span class="chip" title="priority: 200">example.decorator</span></div></td>
+    </tr>
+  </tbody>
+</table>
+<table class="processors-table profiler-table">
+  <thead><tr><th>Service ID</th><th>Priority</th><th>Decoration</th></tr></thead>
+  <tbody><tr><td>example.cart.processor</td><td>-100</td><td><span class="muted">—</span></td></tr></tbody>
+</table>
+</body>
+</html>

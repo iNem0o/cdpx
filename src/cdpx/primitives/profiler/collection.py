@@ -14,7 +14,13 @@ from cdpx.primitives import js
 from cdpx.security import RedactionContext, redact_headers, redact_text, redact_url
 
 from .adapters import detect_extensions
-from .catalog import ALL_PANELS, LIST_LIMIT, PANEL_SOURCE_CANDIDATES, PANEL_SOURCES
+from .catalog import (
+    ALL_PANELS,
+    DEFAULT_PANELS,
+    LIST_LIMIT,
+    PANEL_SOURCE_CANDIDATES,
+    PANEL_SOURCES,
+)
 from .parsers import parse_panel
 
 # The __cdpx_profiler_panels marker is used for scripting the mock CDP (on_eval).
@@ -82,9 +88,9 @@ PANEL_FETCH_JS = """
 
 
 def normalize_panels(panels: Sequence[str] | None) -> list[str]:
-    """Validates a list of requested panels (None -> all)."""
+    """Validates requested panels (None selects the lightweight defaults)."""
     if panels is None:
-        return list(ALL_PANELS)
+        return list(DEFAULT_PANELS)
     unknown = [p for p in panels if p not in PANEL_SOURCES]
     if unknown:
         raise ValueError(

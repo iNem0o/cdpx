@@ -11,6 +11,10 @@ cdpx uses semantic versioning.
   `profile` descriptor. A composable Shopware adapter selects the DAL
   collector directly and exposes active rules and cache-tag emissions through
   stable semantic panels.
+- `cdpx profiler` now exposes lightweight `shopware_feature_flags` by default
+  and bounded `shopware_cart` diagnostics only through an explicit panel or
+  `--panels all`. Cart keeps localized display strings and pipeline priorities
+  while deliberately omitting hidden dumps, payloads and serialized objects.
 - Database profiler output now extracts leading Shopware DAL query tags and
   their best-effort source location without changing the existing query and
   repetition lists.
@@ -30,6 +34,9 @@ cdpx uses semantic versioning.
 
 ### Changed
 
+- Profiler panel selection is now defined by reusable panel specs: an omitted
+  `--panels` selects lightweight defaults, while `--panels all` also fetches
+  extended panels whose collector IDs were advertised by the common probe.
 - Click interception now validates top-level document destinations before a
   rule can affect them, and short or zero `--settle` periods drain buffered
   requests without overrunning their quiet deadline.

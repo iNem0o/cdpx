@@ -6,7 +6,16 @@
         <service id="CdpxE2E\Controller\ProfilerController" public="true">
             <argument type="service" id="Doctrine\DBAL\Connection" />
             <argument type="service" id="rule.repository" />
+            <argument type="service" id="Shopware\Core\Checkout\Cart\SalesChannel\CartService" />
             <tag name="controller.service_arguments" />
+        </service>
+
+        <service id="cdpx.e2e.cart.collector" class="CdpxE2E\Cart\DeterministicCartCollector">
+            <tag name="shopware.cart.collector" priority="1234" />
+        </service>
+
+        <service id="cdpx.e2e.cart.processor" class="CdpxE2E\Cart\DeterministicCartProcessor">
+            <tag name="shopware.cart.processor" priority="4321" />
         </service>
     </services>
 </container>

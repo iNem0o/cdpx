@@ -1,5 +1,23 @@
 # Leverage log
 
+- Session-Key: next-release@952bd0d
+  - Symptom: the first real Shopware proof exposed 23 feature flags, so the
+    deterministic E2E flag was absent from cdpx's intentionally bounded first
+    20 rows; adding Cart work to the historical profiler route also made its
+    bounded DAL-tag assertion depend on query timings.
+  - Root cause (missing capability): the fixture compiler pass appended its
+    flag after Shopware's production flags, and the Cart fixture shared a route
+    with the existing DB/rules/cache proof despite adding many DAL queries.
+  - Fix encoded (doc/script/lint): the E2E compiler pass prepends the
+    deterministic flag before Shopware registers its profiler collector; the
+    runtime test also proves total/truncation metadata and exact collector
+    selection without relaxing the public bound. A dedicated Cart route keeps
+    the real pipeline separate from the historical DB proof.
+  - Verification (command/CI): `./dev test-shopware-e2e`,
+    `./dev test-symfony-e2e`, `./dev check-local` (963 tests; 89.95% line and
+    78.94% branch coverage) and `./dev check` (`ok: true`) completed
+    successfully.
+
 - Session-Key: next-release@106cb40
   - Symptom: Shopware 6.7 advertised 26 profiler collectors, but cdpx still
     learned its DB collector through a speculative `?panel=db` 404 and

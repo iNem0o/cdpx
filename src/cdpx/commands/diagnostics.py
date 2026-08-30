@@ -67,7 +67,10 @@ def cmd_profiler(args) -> None:
             panels=args.options.panels,
             context=_orchestration(args),
         )
-        _assert_session_current(args, c)
+        # The token-only mode already verifies the final frame URL through
+        # Page.getFrameTree and must not evaluate JavaScript at all.
+        if args.options.panels != []:
+            _assert_session_current(args, c)
         _out(args, result)
 
 
@@ -157,9 +160,9 @@ def cmd_frame(args) -> None:
 
 
 def _panels_arg(value: str) -> list[str] | None:
-    """--panels: all (default) -> all, none -> token probe only, otherwise CSV list."""
+    """--panels: all -> complete catalog, none -> no probe, otherwise CSV."""
     if value == "all":
-        return None
+        return list(profiler.ALL_PANELS)
     if value == "none":
         return []
     panels = [item.strip() for item in value.split(",") if item.strip()]
@@ -192,7 +195,7 @@ def register_commands(
     parser.add_argument(
         "--panels",
         type=_panels_arg,
-        default="all",
+        default=None,
         help=f"all | none | list: {','.join(profiler.ALL_PANELS)}",
     )
     parser.set_defaults(func=cmd_profiler)

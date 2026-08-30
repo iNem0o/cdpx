@@ -728,6 +728,113 @@ def test_profiler_cli_panels_flag(mock, capsys):
     assert "signals" not in data and "profiler_bytes" not in data
 
 
+def _script_profiler_navigation(mock) -> None:
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": "http://s.test/",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": "http://s.test/_profiler/tok"},
+                    },
+                },
+            }
+        ]
+    )
+
+
+def test_profiler_cli_default_and_all_select_different_catalogs(mock, capsys):
+    _script_profiler_navigation(mock)
+    mock.on_eval("window.location.href", "http://s.test/")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps({"probe": {"status": 200, "usable": True, "collectors": []}, "panels": []}),
+    )
+
+    code, _out, _err = run(mock, capsys, "profiler", "http://s.test/")
+
+    assert code == 0
+    panel_call = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in call["expression"]
+    )
+    assert '"shopware_feature_flags",["feature_flag"]' in panel_call["expression"]
+    assert '"shopware_cart"' not in panel_call["expression"]
+
+
+def test_profiler_cli_all_includes_extended_cart(mock, capsys):
+    _script_profiler_navigation(mock)
+    mock.on_eval("window.location.href", "http://s.test/")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps({"probe": {"status": 200, "usable": True, "collectors": []}, "panels": []}),
+    )
+
+    code, _out, _err = run(mock, capsys, "profiler", "http://s.test/", "--panels", "all")
+
+    assert code == 0
+    panel_call = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in call["expression"]
+    )
+    assert '"shopware_feature_flags",["feature_flag"]' in panel_call["expression"]
+    assert '"shopware_cart",["Shopware\\\\Core' in panel_call["expression"]
+
+
+def test_profiler_cli_none_uses_no_javascript(mock, capsys):
+    _script_profiler_navigation(mock)
+
+    code, out, _err = run(mock, capsys, "profiler", "http://s.test/", "--panels", "none")
+
+    assert code == 0
+    assert json.loads(out)["panels"] == {}
+    assert mock.commands_for("Runtime.evaluate") == []
+    assert mock.commands_for("Page.getFrameTree") == [{}]
+
+
+def test_profiler_cli_redacts_cart_fields_and_never_emits_hidden_dump(mock, capsys):
+    html = (
+        pathlib.Path(__file__).parent / "fixtures" / "profiler" / "shopware-cart.html"
+    ).read_text(encoding="utf-8")
+    html = (
+        html.replace("Example product", "Bearer cart-label-secret")
+        .replace("example.cart.collector", "Bearer cart-service-secret")
+        .replace("example.decorator", "Bearer cart-decorator-secret")
+    )
+    _script_profiler_navigation(mock)
+    mock.on_eval("window.location.href", "http://s.test/")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps(
+            {
+                "probe": {
+                    "status": 200,
+                    "usable": True,
+                    "collectors": [
+                        "Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber"
+                    ],
+                },
+                "panels": [{"panel": "shopware_cart", "status": 200, "html": html}],
+            }
+        ),
+    )
+
+    code, out, _err = run(mock, capsys, "profiler", "http://s.test/", "--panels", "shopware_cart")
+
+    assert code == 0
+    assert "cart-label-secret" not in out
+    assert "cart-service-secret" not in out
+    assert "cart-decorator-secret" not in out
+    assert "CART-TOKEN-SECRET" not in out
+    assert "CART-PAYLOAD-SECRET" not in out
+    assert "CART-EXTENSION-SECRET" not in out
+
+
 def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
     """A nonexistent profiler panel is rejected as a usage error with a
     message naming the problem, before any navigation."""

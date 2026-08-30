@@ -92,7 +92,7 @@ def profiler(
 ) -> dict:
     """Navigates, finds X-Debug-Token-Link and parses the Web Profiler panels.
 
-    `panels=None` = all known panels; `panels=[]` = token probe only.
+    `panels=None` = lightweight defaults; `panels=[]` = token discovery only.
     """
     timeout = validate_time_budget(timeout, "timeout profiler")
     settle = validate_time_budget(settle, "stabilisation profiler")
@@ -106,14 +106,21 @@ def profiler(
     client.wait_event("Page.loadEventFired", timeout=timeout)
     events = client.collect_events(settle, NET_EVENTS)
 
-    final_url = js.evaluate(client, "window.location.href")
-    if not isinstance(final_url, str):
-        raise ValueError("unable to determine the final profiler URL")
-    assert_url_allowed(final_url, policy.origins)
-
     hit = find_profiler_hit(events, url)
     if not hit:
         raise ValueError("X-Debug-Token-Link/X-Debug-Token header not found")
+    if keys:
+        final_url = js.evaluate(client, "window.location.href")
+        if not isinstance(final_url, str):
+            raise ValueError("unable to determine the final profiler URL")
+    else:
+        frame_tree = client.send("Page.getFrameTree").get("frameTree", {})
+        frame = frame_tree.get("frame", {}) if isinstance(frame_tree, dict) else {}
+        final_url = frame.get("url") if isinstance(frame, dict) else None
+        if not isinstance(final_url, str):
+            raise ValueError("unable to determine the final profiler URL")
+    assert_url_allowed(final_url, policy.origins)
+
     return profiler_api.collect_profiler_report(
         client,
         hit,

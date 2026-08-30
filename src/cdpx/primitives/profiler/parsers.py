@@ -7,11 +7,12 @@ import re
 import urllib.parse
 from collections import Counter
 from html import unescape
+from html.parser import HTMLParser
 from typing import Any
 
 from cdpx.security import redact_text, redact_url
 
-from .catalog import LIST_LIMIT, PANEL_SOURCES
+from .constants import LIST_LIMIT
 from .html import (
     _column,
     _find_table,
@@ -32,13 +33,15 @@ def parse_panel(key: str, status: int, html: str) -> dict[str, Any]:
     A key missing from the catalog remains a call error and raises
     ValueError.
     """
-    if key not in PANEL_SOURCES:
+    from .catalog import PANEL_SPECS_BY_KEY
+
+    spec = PANEL_SPECS_BY_KEY.get(key)
+    if spec is None:
         raise ValueError(f"unknown panel: {key}")
     if status != 200 or not html:
         return {"available": False, "status": status}
-    parser = _PARSERS[key]
     try:
-        parsed = parser(html)
+        parsed = spec.parser(html)
     except Exception as e:  # noqa: BLE001 - contract: never a parse exception
         return {
             "available": True,
@@ -265,6 +268,314 @@ def _parse_shopware_cache_tags(html: str) -> dict[str, Any]:
         "tags": tag_count,
         "emissions": emissions,
         "list": items,
+    }
+
+
+_SEMANTIC_TABLE_CLASSES = {
+    "feature-flags": "feature_flags",
+    "cart-line-item-table": "cart_line_items",
+    "collectors-table": "collectors",
+    "processors-table": "processors",
+}
+
+
+class _SemanticTableParser(HTMLParser):
+    """Reads only bounded-output Shopware tables and skips Cart dump rows."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tables: dict[str, list[dict[str, Any]]] = {}
+        self._depth = 0
+        self._ignored_at: int | None = None
+        self._table_at: int | None = None
+        self._table_role: str | None = None
+        self._row_at: int | None = None
+        self._skip_row_at: int | None = None
+        self._cell_at: int | None = None
+        self._cell_text: list[str] = []
+        self._cell_icon: bool | None = None
+        self._row_cells: list[str] = []
+        self._row_icons: list[bool | None] = []
+        self._row_decorators: list[dict[str, Any]] = []
+        self._row_is_header = True
+        self._section: str | None = None
+        self._row_section: str | None = None
+        self._chip_at: int | None = None
+        self._chip_text: list[str] = []
+        self._chip_priority: int | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._depth += 1
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
+        if tag in ("script", "style") and self._ignored_at is None:
+            self._ignored_at = self._depth
+            return
+        if self._ignored_at is not None:
+            return
+        if self._skip_row_at is not None:
+            return
+        if tag == "table" and self._table_at is None:
+            role = next(
+                (
+                    _SEMANTIC_TABLE_CLASSES[name]
+                    for name in classes
+                    if name in _SEMANTIC_TABLE_CLASSES
+                ),
+                None,
+            )
+            if role is not None:
+                self._table_at = self._depth
+                self._table_role = role
+                self.tables.setdefault(role, [])
+            return
+        if self._table_at is None:
+            return
+        if tag in ("thead", "tbody", "tfoot"):
+            self._section = tag
+            return
+        if tag == "tr" and self._row_at is None:
+            if "code-block-row" in classes:
+                self._skip_row_at = self._depth
+                return
+            self._row_at = self._depth
+            self._row_cells = []
+            self._row_icons = []
+            self._row_decorators = []
+            self._row_is_header = True
+            self._row_section = self._section
+            return
+        if self._row_at is None:
+            return
+        if tag in ("td", "th") and self._cell_at is None:
+            self._cell_at = self._depth
+            self._cell_text = []
+            self._cell_icon = None
+            if tag == "td":
+                self._row_is_header = False
+            return
+        if self._cell_at is None:
+            return
+        icon_ref = " ".join(
+            value
+            for name, value in attrs
+            if value is not None and name in ("id", "href", "xlink:href")
+        )
+        if "icons-solid-checkmark" in icon_ref:
+            self._cell_icon = True
+        elif "icons-solid-x" in icon_ref:
+            self._cell_icon = False
+        if tag == "span" and "chip" in classes and self._chip_at is None:
+            self._chip_at = self._depth
+            self._chip_text = []
+            self._chip_priority = _int(attributes.get("title"))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._ignored_at is not None:
+            if self._ignored_at == self._depth and tag in ("script", "style"):
+                self._ignored_at = None
+            self._depth = max(0, self._depth - 1)
+            return
+        if self._skip_row_at is not None:
+            if self._skip_row_at == self._depth and tag == "tr":
+                self._skip_row_at = None
+            self._depth = max(0, self._depth - 1)
+            return
+        if self._chip_at == self._depth and tag == "span":
+            service_id = _norm("".join(self._chip_text))
+            if service_id:
+                self._row_decorators.append(
+                    {"service_id": service_id, "priority": self._chip_priority}
+                )
+            self._chip_at = None
+        if self._cell_at == self._depth and tag in ("td", "th"):
+            self._row_cells.append(_norm("".join(self._cell_text)))
+            self._row_icons.append(self._cell_icon)
+            self._cell_at = None
+        if self._row_at == self._depth and tag == "tr":
+            if self._row_section != "thead" and self._table_role is not None:
+                self.tables[self._table_role].append(
+                    {
+                        "cells": self._row_cells,
+                        "icons": self._row_icons,
+                        "decorators": self._row_decorators,
+                    }
+                )
+            self._row_at = None
+            self._row_section = None
+        if tag in ("thead", "tbody", "tfoot"):
+            self._section = None
+        if self._table_at == self._depth and tag == "table":
+            self._table_at = None
+            self._table_role = None
+            self._section = None
+        self._depth = max(0, self._depth - 1)
+
+    def handle_data(self, data: str) -> None:
+        if self._ignored_at is not None or self._skip_row_at is not None:
+            return
+        if self._cell_at is not None:
+            self._cell_text.append(data)
+        if self._chip_at is not None:
+            self._chip_text.append(data)
+
+
+def _semantic_tables(html: str) -> dict[str, list[dict[str, Any]]]:
+    parser = _SemanticTableParser()
+    parser.feed(html)
+    return parser.tables
+
+
+def _parse_shopware_feature_flags(html: str) -> dict[str, Any]:
+    rows = _semantic_tables(html).get("feature_flags", [])
+    items: list[dict[str, Any]] = []
+    active = 0
+    for row in rows:
+        cells = row["cells"]
+        icons = row["icons"]
+        is_active = icons[3] if len(icons) > 3 else None
+        if is_active is True:
+            active += 1
+        if len(items) >= LIST_LIMIT or len(cells) < 5:
+            continue
+        items.append(
+            {
+                "name": redact_text(cells[0]),
+                "active": is_active,
+                "default": icons[2] if len(icons) > 2 else None,
+                "major": icons[1] if len(icons) > 1 else None,
+                "description": redact_text(cells[4]),
+            }
+        )
+    return {
+        "count": len(rows),
+        "active": active,
+        "truncated": len(rows) > len(items),
+        "list": items,
+    }
+
+
+def _redacted_display(value: str) -> str:
+    return redact_text(value)
+
+
+def _parse_shopware_cart(html: str) -> dict[str, Any]:
+    tables = _semantic_tables(html)
+    metrics = _metrics(html)
+    item_metric = _metric(metrics, "items", "cart")
+    total_metric = _metric(metrics, "cart total")
+    item_count = _int(item_metric["value"]) if item_metric else None
+    present = "no cart available" not in html.lower() and bool(
+        item_metric or "cart contains no items" in html.lower() or tables.get("cart_line_items")
+    )
+
+    line_rows: list[dict[str, Any]] = []
+    subtotal_display: str | None = None
+    shipping_display: str | None = None
+    total_display = _redacted_display(total_metric["value"]) if total_metric else None
+    taxes: list[dict[str, Any]] = []
+    taxes_total = 0
+    for row in tables.get("cart_line_items", []):
+        cells = row["cells"]
+        quantity = _int(cells[0]) if cells else None
+        if len(cells) >= 5 and quantity is not None:
+            line_rows.append(
+                {
+                    "quantity": quantity,
+                    "label": redact_text(cells[1]),
+                    "type": redact_text(cells[2]),
+                    "unit_price_display": _redacted_display(cells[3]),
+                    "total_price_display": _redacted_display(cells[4]),
+                }
+            )
+            continue
+        if len(cells) < 2:
+            continue
+        label = cells[0].strip().lower()
+        amount = _redacted_display(cells[-1])
+        if label == "subtotal":
+            subtotal_display = amount
+        elif label == "shipping":
+            shipping_display = amount
+        elif label == "total":
+            total_display = amount
+        else:
+            rate_match = re.search(r"(-?\d+(?:[.,]\d+)?)\s*%", cells[0])
+            if rate_match:
+                taxes_total += 1
+                if len(taxes) < LIST_LIMIT:
+                    taxes.append(
+                        {
+                            "rate": float(rate_match.group(1).replace(",", ".")),
+                            "amount_display": amount,
+                        }
+                    )
+
+    parsed_item_total = len(line_rows)
+    line_total = item_count if item_count is not None else parsed_item_total
+    safe_item_count = item_count if item_count is not None else parsed_item_total
+    totals: dict[str, Any] = {}
+    if subtotal_display is not None:
+        totals["subtotal_display"] = subtotal_display
+    if shipping_display is not None:
+        totals["shipping_display"] = shipping_display
+    if total_display is not None:
+        totals["total_display"] = total_display
+    totals.update(
+        {
+            "taxes_total": taxes_total,
+            "taxes_truncated": taxes_total > len(taxes),
+            "taxes": taxes,
+        }
+    )
+
+    return {
+        "present": present,
+        "item_count": safe_item_count if present else 0,
+        "totals": totals,
+        "line_items": {
+            "total": line_total if present else 0,
+            "truncated": bool(present and line_total > min(parsed_item_total, LIST_LIMIT)),
+            "items": line_rows[:LIST_LIMIT],
+        },
+        "pipeline": {
+            "collectors": _parse_cart_services(tables.get("collectors", [])),
+            "processors": _parse_cart_services(tables.get("processors", [])),
+        },
+    }
+
+
+def _parse_cart_services(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for row in rows[:LIST_LIMIT]:
+        cells = row["cells"]
+        if len(cells) < 2:
+            continue
+        decorators = row["decorators"]
+        cleaned_decorators = [
+            {
+                "service_id": redact_text(item["service_id"]),
+                "priority": item["priority"],
+            }
+            for item in decorators[:LIST_LIMIT]
+        ]
+        items.append(
+            {
+                "service_id": redact_text(cells[0]),
+                "priority": _int(cells[1]),
+                "decorated_by_total": len(decorators),
+                "decorated_by_truncated": len(decorators) > len(cleaned_decorators),
+                "decorated_by": cleaned_decorators,
+            }
+        )
+    return {
+        "total": len(rows),
+        "truncated": len(rows) > len(items),
+        "items": items,
     }
 
 
@@ -520,18 +831,3 @@ def _parse_logger(html: str) -> dict[str, Any]:
         if match:
             counts[key] = int(match.group(1))
     return counts
-
-
-_PARSERS = {
-    "db": _parse_db,
-    "twig": _parse_twig,
-    "cache": _parse_cache,
-    "exception": _parse_exception,
-    "http_client": _parse_http_client,
-    "messenger": _parse_messenger,
-    "router": _parse_router,
-    "time": _parse_time,
-    "logger": _parse_logger,
-    "shopware_rules": _parse_shopware_rules,
-    "shopware_cache_tags": _parse_shopware_cache_tags,
-}

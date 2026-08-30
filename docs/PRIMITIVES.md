@@ -118,11 +118,12 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 
 | CLI | Use case | Why |
 |---|---|---|
-| `cdpx profiler <url> [--settle s] [--panels ...]` | probe and parse the Web Profiler panels of the last request (Doctrine/DAL, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs, Shopware rules/cache tags) | Collector IDs select composable framework adapters before fetch; N+1s, tagged DAL SQL with source locations, SQL duplicates, and exceptions are returned in one bounded schema without opening the browser |
+| `cdpx profiler <url> [--settle s] [--panels ...]` | probe and parse the Web Profiler panels of the last request (Doctrine/DAL, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs, Shopware rules/cache tags/feature flags and opt-in Cart) | Collector IDs select composable panel specs before fetch; defaults stay lightweight, `--panels all` includes bounded Cart, and absent collectors cause no speculative request |
 | `cdpx dom-diff -- <action>` | before/after snapshot of an action → stable structural diff | see exactly what a click changed in the DOM |
 
 ```bash
 cdpx profiler http://app.localhost/api/cart
+cdpx profiler http://app.localhost/checkout/cart --panels shopware_cart
 cdpx dom-diff -- click "#submit-btn"
 ```
 
