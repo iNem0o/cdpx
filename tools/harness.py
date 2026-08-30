@@ -61,14 +61,19 @@ def check() -> None:
     run((sys.executable, "-m", "cdpx.proof"))
 
 
-def shopware_e2e() -> None:
+def framework_e2e(suite: str) -> None:
+    compose_files = {
+        "symfony": "docker-compose.symfony-e2e.yml",
+        "shopware": "docker-compose.shopware-e2e.yml",
+    }
+    compose_file = compose_files[suite]
     command = (
         "docker",
         "compose",
         "--project-name",
         compose_project_name(),
         "-f",
-        "docker-compose.shopware-e2e.yml",
+        compose_file,
     )
     down = (*command, "down", "--volumes", "--remove-orphans")
     run(down)
@@ -128,6 +133,7 @@ def parser() -> argparse.ArgumentParser:
             "fmt",
             "clean",
             "test-e2e",
+            "test-symfony-e2e",
             "test-shopware-e2e",
             "bump",
         ),
@@ -156,8 +162,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.version is None:
                 parser().error("bump requires a target version: bump X.Y.Z")
             bump(args.version)
-        elif args.command == "test-shopware-e2e":
-            shopware_e2e()
+        elif args.command in {"test-symfony-e2e", "test-shopware-e2e"}:
+            framework_e2e(args.command.removeprefix("test-").removesuffix("-e2e"))
         else:
             run(("pytest", "tests/e2e", "-v"))
     except subprocess.CalledProcessError as error:

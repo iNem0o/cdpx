@@ -73,6 +73,7 @@ target, origins, authority, or secrets.
 ./dev check-local         # deterministic short gate
 ./dev fmt                 # formatting and safe Ruff fixes
 ./dev test-e2e            # real Chrome E2E
+./dev test-symfony-e2e    # real Symfony profiler E2E
 ./dev test-shopware-e2e   # real Shopware 6.7 profiler E2E
 ./dev proof               # local proof report
 ./dev release             # full gate and internal package check

@@ -1,5 +1,20 @@
 # Leverage log
 
+- Session-Key: next-release@9706c80
+  - Symptom: mocked profiler scenarios stayed green while the real Symfony
+    browser selected a later `/favicon` profiler token, and the Shopware test
+    assumed a serial collector order although panel fetches run concurrently.
+  - Root cause (missing capability): Symfony and Shopware did not share a
+    dedicated supervised runtime harness, and functional profiler assertions
+    still lived partly in mocks or in brittle runtime-specific setup.
+  - Fix encoded (doc/script/lint): both suites use the shared pinned-Chromium
+    session and framework runner; the public `cdpx profiler` command drives the
+    primary assertions; passive collection selects the current document; mocks
+    retain deterministic protocol, schema and redaction contracts only.
+  - Verification (command/CI): `./dev check` completed with `ok: true`, 940
+    unit/contract tests, 49 real Chrome tests, 7 real Symfony tests and 1 real
+    Shopware 6.7 test.
+
 - Session-Key: next-release@f2d013c
   - Symptom: the first proof aggregation treated every test in an attested
     suite, and then every broad scenario glob match, as if it carried the

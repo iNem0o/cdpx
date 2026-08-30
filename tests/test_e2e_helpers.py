@@ -1,6 +1,7 @@
 """E2E helpers testable without Chrome: ephemeral proof banner."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -103,3 +104,86 @@ def test_attach_screenshot_without_banner_never_touches_the_page(tmp_path, monke
 
     #: the capture succeeds even though any evaluate would have raised: zero JS injected
     assert artifact["type"] == "screenshot"
+
+
+def test_wait_for_http_200_retries_the_controlled_endpoint(monkeypatch):
+    calls = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Opener:
+        def open(self, url, timeout):
+            calls.append((url, timeout))
+            if len(calls) == 1:
+                raise OSError("not ready")
+            return Response()
+
+    monkeypatch.setattr(e2e.urllib.request, "build_opener", lambda *_args: Opener())
+    monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
+
+    e2e.wait_for_http_200(
+        "http://app.test/ready",
+        label="Test app",
+        timeout=1,
+        request_timeout=0.2,
+        interval=0,
+    )
+
+    assert calls == [
+        ("http://app.test/ready", 0.2),
+        ("http://app.test/ready", 0.2),
+    ]
+
+
+def test_wait_for_http_200_reports_the_last_error(monkeypatch):
+    class Opener:
+        def open(self, _url, *, timeout):
+            assert timeout == 3.0
+            raise OSError("connection refused")
+
+    ticks = iter((0.0, 0.0, 2.0))
+    monkeypatch.setattr(e2e.urllib.request, "build_opener", lambda *_args: Opener())
+    monkeypatch.setattr(e2e.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
+
+    with pytest.raises(RuntimeError, match="Test app unavailable.*connection refused"):
+        e2e.wait_for_http_200("http://app.test/ready", label="Test app", timeout=1)
+
+
+def test_managed_runtime_session_always_stops_the_assigned_target(tmp_path, monkeypatch):
+    chromium = tmp_path / "chromium"
+    chromium.touch(mode=0o755)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.touch()
+    manifest = SimpleNamespace(run_id="runtime", target_id="target")
+    stopped = []
+
+    monkeypatch.setattr(e2e, "PINNED_CHROMIUM", chromium)
+    monkeypatch.setattr(
+        e2e,
+        "start_session",
+        lambda **_kwargs: (manifest, manifest_path),
+    )
+    monkeypatch.setattr(
+        e2e,
+        "stop_session",
+        lambda path, *, run_id, target_id: stopped.append((path, run_id, target_id)),
+    )
+
+    with pytest.raises(RuntimeError, match="test failure"):
+        with e2e.managed_runtime_session(
+            run_id="runtime",
+            origin="http://app.test",
+            root=tmp_path,
+        ) as assigned:
+            assert assigned == (manifest, manifest_path)
+            raise RuntimeError("test failure")
+
+    assert stopped == [(manifest_path, "runtime", "target")]

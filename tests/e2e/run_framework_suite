@@ -1,0 +1,45 @@
+#!/bin/sh
+set -u
+
+suite=${1:-}
+case "$suite" in
+    symfony|shopware) ;;
+    *)
+        printf 'run_framework_suite: expected symfony or shopware\n' >&2
+        exit 2
+        ;;
+esac
+
+cleanup() {
+    chown -R "${CDPX_E2E_UID}:${CDPX_E2E_GID}" .proof
+}
+
+pid=
+# Called indirectly by the signal traps below.
+# shellcheck disable=SC2317
+on_signal() {
+    if [ -n "$pid" ]; then
+        kill -TERM "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+    cleanup || true
+    exit 143
+}
+
+trap on_signal TERM INT
+
+.venv/bin/python -m pytest "tests/e2e/test_e2e_${suite}.py" -v \
+    --cdpx-evidence-dir=.proof/evidence \
+    --cdpx-evidence-suite="$suite" \
+    --cdpx-evidence-target="$suite" \
+    --cdpx-evidence-proof-level=runtime \
+    --junitxml=".proof/${suite}-e2e-junit.xml" &
+pid=$!
+wait "$pid"
+status=$?
+cleanup
+cleanup_status=$?
+if [ "$status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then
+    status=$cleanup_status
+fi
+exit "$status"

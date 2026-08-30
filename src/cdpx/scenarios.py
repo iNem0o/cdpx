@@ -242,12 +242,24 @@ class PassiveCollector:
     def profiler(self, client: CDPClient, timeout: float) -> dict[str, Any] | None:
         if not self.profiler_hits:
             return None
+        page_url = _current_url(client)
+        # Browser subresources (notably /favicon.ico) can also carry Symfony's
+        # profiler headers. Prefer the hit for the document that is currently
+        # displayed instead of blindly taking the most recent response.
+        hit = next(
+            (
+                candidate
+                for candidate in reversed(self.profiler_hits)
+                if _same_page_url(candidate.get("url"), page_url)
+            ),
+            self.profiler_hits[-1],
+        )
         return profiler.collect_profiler_report(
             client,
-            self.profiler_hits[-1],
+            hit,
             timeout=timeout,
             context=self.context,
-            page_url=_current_url(client),
+            page_url=page_url,
         )
 
     def _ingest(self, events: list[CDPEvent]) -> None:
@@ -310,6 +322,12 @@ _NET_EVENTS = (
     "Network.loadingFinished",
     "Network.loadingFailed",
 )
+
+
+def _same_page_url(candidate: Any, page_url: str) -> bool:
+    if not isinstance(candidate, str):
+        return False
+    return urllib.parse.urldefrag(candidate).url == urllib.parse.urldefrag(page_url).url
 
 
 def load(

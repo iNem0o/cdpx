@@ -24,6 +24,34 @@ def orchestration(origins: str = "http://*.test") -> OrchestrationContext:
     return OrchestrationContext.from_origins(origins)
 
 
+def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch):
+    collector = scenarios.PassiveCollector(orchestration())
+    collector.profiler_hits = [
+        {
+            "url": "http://shop.test/scenario/profiler/baseline",
+            "link": "http://shop.test/_profiler/main",
+        },
+        {
+            "url": "http://shop.test/favicon.ico",
+            "link": "http://shop.test/_profiler/favicon",
+        },
+    ]
+    monkeypatch.setattr(
+        scenarios,
+        "_current_url",
+        lambda client: "http://shop.test/scenario/profiler/baseline#result",
+    )
+    monkeypatch.setattr(
+        profiler,
+        "collect_profiler_report",
+        lambda client, hit, **kwargs: hit,
+    )
+
+    result = collector.profiler(object(), 1.0)
+
+    assert result["url"] == "http://shop.test/scenario/profiler/baseline"
+
+
 def test_parse_scenario_with_step_capture():
     """The parser turns a complete declarative scenario into a typed object
     that preserves the emulation context and the captures attached to each step."""
@@ -758,10 +786,9 @@ def test_scenario_wait_visible_uses_the_declared_run_timeout(mock, tmp_path, mon
     assert observed == [("iframe.payment-field", 30.0)]
 
 
-def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
-    """The profiler artifact follows the network's X-Debug-Token link,
-    reads the real Symfony panels (HTML fixtures) and persists only
-    structured metrics from them — never the token itself."""
+def test_run_scenario_profiler_artifact_obeys_contract(mock, tmp_path):
+    """The mock pins scenario orchestration, persistence and redaction;
+    framework compatibility remains owned by the Symfony runtime suite."""
     fixtures = Path(__file__).parent / "fixtures" / "profiler"
     mock.on_eval("window.location.href", "http://shop.test/")
     mock.script_network(
@@ -812,12 +839,16 @@ def test_run_scenario_profiler_artifact_parses_real_panels(mock, tmp_path):
     #: the proof attests that a token existed without ever writing its value
     assert data["token_present"] is True
     assert "token" not in data
-    #: the raw HTML panels are reduced to actionable metrics (SQL query
-    #: count, resolved route)
-    assert data["panels"]["db"]["queries"] == 6
-    assert data["panels"]["router"]["route"] == "scenario_profiler"
     #: no out-of-contract field leaks into the persisted artifact
     assert "signals" not in data
+    panel_calls = [
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in call["expression"]
+    ]
+    #: the contract test proves that scenario collection emitted the panel
+    #: fetch; the real Symfony suite proves what the collectors return
+    assert len(panel_calls) == 1
 
 
 def test_run_scenario_failure_still_captures_checkpoint_and_final(mock, tmp_path):

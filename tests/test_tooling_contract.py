@@ -90,6 +90,7 @@ def test_portable_scripts_are_posix_and_shellcheck_clean():
         Path("packaging/native-cdpx"),
         Path("packaging/embedded-install"),
         Path("tests/test_launcher.sh"),
+        Path("tests/e2e/run_framework_suite"),
     ]
     for script in scripts:
         assert script.read_text(encoding="utf-8").startswith("#!/bin/sh")
@@ -136,15 +137,21 @@ def test_dockerfile_uses_one_pinned_multistage_toolchain():
     assert "COPY --from=docker-cli" in dockerfile
 
 
-def test_shopware_gate_uses_only_the_ci_image_chromium():
-    test_source = Path("tests/e2e/test_e2e_shopware.py").read_text(encoding="utf-8")
+def test_framework_gates_use_only_the_supervised_ci_chromium():
+    helper_source = Path("src/cdpx/testing/e2e.py").read_text(encoding="utf-8")
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
-    assert 'PINNED_CHROMIUM = Path("/usr/bin/chromium")' in test_source
-    assert "chrome_bin=str(PINNED_CHROMIUM)" in test_source
-    assert "shutil.which" not in test_source
-    assert "CHROME_BIN" not in test_source
+    assert 'PINNED_CHROMIUM = Path("/usr/bin/chromium")' in helper_source
+    assert "chrome_bin=str(PINNED_CHROMIUM)" in helper_source
     assert '"chromium=' in dockerfile
+    for suite in ("symfony", "shopware"):
+        test_source = Path(f"tests/e2e/test_e2e_{suite}.py").read_text(encoding="utf-8")
+        compose_source = Path(f"docker-compose.{suite}-e2e.yml").read_text(encoding="utf-8")
+        assert "managed_runtime_session" in test_source
+        assert "tests/e2e/run_framework_suite" in compose_source
+        assert f'"{suite}"' in compose_source
+        for bypass in ("subprocess.Popen", "discovery.new_tab", "shutil.which", "CHROME_BIN"):
+            assert bypass not in test_source
 
 
 def test_release_promotes_candidate_digest_and_never_publishes_python_package():

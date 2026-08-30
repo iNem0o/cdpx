@@ -3,7 +3,7 @@ id = "dev-profiler-diff"
 title = "Developer diagnostics"
 status = "validated"
 summary = "Parse the Symfony Web Profiler panels (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) from a browser navigation, then compare the DOM before/after an action."
-entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev test-shopware-e2e", "./dev check"]
+entrypoints = ["cdpx profiler", "cdpx dom-diff", "./dev test-symfony-e2e", "./dev test-shopware-e2e", "./dev check"]
 path_globs = ["src/cdpx/primitives/dev.py", "src/cdpx/primitives/profiler/", "tests/fixtures/profiler/**", "tests/fixtures/form.html", "docker-compose.symfony-e2e.yml", "docker-compose.shopware-e2e.yml", "tests/e2e/test_e2e_symfony.py", "tests/e2e/test_e2e_shopware.py", "tests/symfony-app/**", "tests/shopware-app/**", "tests/test_profiler_panels.py", "src/cdpx/primitives/profiler/*.py"]
 test_globs = ["tests/test_profiler_panels.py::*", "tests/test_primitives.py::test_profiler*", "tests/test_primitives.py::test_dom_diff*", "tests/test_cli.py::test_profiler*", "tests/test_cli.py::test_dom_diff*", "tests/e2e/test_e2e_chrome.py::test_dom_diff*", "tests/e2e/test_e2e_symfony.py::*", "tests/e2e/test_e2e_shopware.py::*"]
 docs = ["docs/PRIMITIVES.md", "docs/VALIDATION.md"]
@@ -322,7 +322,7 @@ Gotchas and error cases:
 
 ### `./dev check`
 
-Synopsis: `./dev check` or `./dev test-shopware-e2e`
+Synopsis: `./dev check`, `./dev test-symfony-e2e` or `./dev test-shopware-e2e`
 
 The full gate runs two profiler suites. The Symfony suite uses
 `docker-compose.symfony-e2e.yml` and `tests/symfony-app/`: its controllers
@@ -330,7 +330,10 @@ exercise real Doctrine, cache, HTTP client, Messenger, Twig, exception,
 routing and timing collectors. The Shopware suite uses Shopware 6.7.13.1,
 MariaDB and a minimal plugin route to prove the real
 `app.connection_collector` fallback after the standard `db` collector returns
-404. Both suites run cdpx through the Chromium pinned in the CI image.
+404. Both suites run the public `cdpx profiler` command through the same
+supervised Chromium pinned in the CI image. The remaining mock coverage pins
+emitted CDP, redaction and deterministic failures only; it does not claim
+framework runtime compatibility.
 
 These runtime suites prove the named integrations. The committed Symfony and
 Shopware HTML excerpts prove only the parser contract, while Chrome against
@@ -341,6 +344,8 @@ Docker Compose must be installed and startable).
 
 ```bash
 ./dev check
+# Symfony gate alone
+./dev test-symfony-e2e
 # Shopware gate alone, still with the pinned CI image and Chromium
 ./dev test-shopware-e2e
 ```
@@ -365,6 +370,13 @@ Gotchas and error cases:
 Runs only the blocking Shopware runtime described above. It is useful while
 iterating on the collector integration; the release verdict still comes from
 the complete `./dev check` gate.
+
+### `./dev test-symfony-e2e`
+
+Runs only the blocking Symfony runtime described above, using the same pinned
+supervised Chromium and evidence entrypoint as Shopware. It is the short loop
+for profiler collectors and Symfony-backed browser scenarios; the release
+verdict still comes from `./dev check`.
 
 ## User journeys
 

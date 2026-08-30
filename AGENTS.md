@@ -17,6 +17,7 @@ development Chrome. See `docs/PRIMITIVES.md` for the public catalog.
 ./dev check-local        # short loop: lint + format + mypy + unit/coverage
 ./dev check              # GATE: Docker + Chrome + Symfony + Shopware + proof
 ./dev test-e2e           # real Chrome — its absence is an error
+./dev test-symfony-e2e   # real Symfony profiler gate
 ./dev test-shopware-e2e  # real Shopware 6.7 profiler gate
 ./dev proof              # private proof report under .proof/
 ./dev release            # gate + internal wheel verification

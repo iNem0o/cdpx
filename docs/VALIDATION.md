@@ -10,6 +10,7 @@ and only the manifested `.proof/shareable/` subset may be uploaded.
 | --- | --- |
 | `./dev check-local` | Ruff, format, mypy, deterministic unit and branch coverage |
 | `./dev test-e2e` | real Chrome against the reference fixtures |
+| `./dev test-symfony-e2e` | real Symfony profiler panels with pinned supervised Chromium |
 | `./dev test-shopware-e2e` | real Shopware 6.7 profiler fallback with pinned CI Chromium |
 | `./dev check` | blocking Chrome, Symfony, Shopware and proof gate |
 | `./dev proof` | the same full gate with private cockpit and shareable staging |
@@ -76,7 +77,7 @@ the validation JSON, cockpit, JUnit and bounded text logs.
 | --- | --- |
 | CLI and mock foundation | `./dev check-local`; mock output, method, parameter and ordering assertions |
 | Real browser behavior | `./dev test-e2e` and the full proof |
-| Symfony diagnostics | `./dev check` with real profiler panels |
+| Symfony diagnostics | `./dev test-symfony-e2e` and `./dev check` with real profiler panels |
 | Shopware diagnostics | `./dev test-shopware-e2e` and `./dev check` with the real `app.connection_collector` |
 | Interception and emulation | Fetch-domain and emulation unit plus Chrome scenarios |
 | SEO, performance and accessibility | rendered SEO cases, vitals interaction, AX tree and coverage |
@@ -113,3 +114,6 @@ A feature that names Symfony or Shopware cannot become `validated` unless an
 explicit scenario for that exact target produced a passed runtime JUnit case.
 Fixtures remain useful parser contracts, and Chrome against reference pages
 remains browser-runtime proof, but neither can validate an external framework.
+The two framework suites use the same supervised Chromium helper and Compose
+test entrypoint; mocks remain responsible only for deterministic CDP, security,
+redaction and failure contracts.

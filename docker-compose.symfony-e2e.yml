@@ -28,12 +28,6 @@ services:
     depends_on:
       symfony:
         condition: service_healthy
-    # pytest runs in the background of the PID 1 shell so the TERM/INT trap
-    # stays responsive: even a `compose down` during the run hands the volume
-    # files back to the host UID (otherwise the staging purge fails as root).
-    command:
-      [
-        "/bin/sh",
-        "-lc",
-        "cleanup() { chown -R $${CDPX_E2E_UID}:$${CDPX_E2E_GID} .proof; }; trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; cleanup; exit 143' TERM INT; .venv/bin/python -m pytest tests/e2e/test_e2e_symfony.py -v --cdpx-evidence-dir=.proof/evidence --cdpx-evidence-suite=symfony --cdpx-evidence-target=symfony --cdpx-evidence-proof-level=runtime --junitxml=.proof/symfony-e2e-junit.xml & pid=$$!; wait $$pid; status=$$?; cleanup; exit $$status",
-      ]
+    # The shared entrypoint keeps signal handling, evidence arguments and
+    # ownership cleanup identical across both framework runtimes.
+    command: ["tests/e2e/run_framework_suite", "symfony"]

@@ -100,7 +100,7 @@ case "$command" in
         build dev
         build runtime
         ;;
-    check-local|check|proof|release|fmt|clean|test-e2e|test-shopware-e2e)
+    check-local|check|proof|release|fmt|clean|test-e2e|test-symfony-e2e|test-shopware-e2e)
         [ "$#" -eq 0 ] || die "usage: ./dev $command"
         build dev
         run_dev /workspace/.venv/bin/python -m tools.harness "$command"
@@ -177,6 +177,7 @@ case "$command" in
             '  bump         move every release version pin to X.Y.Z' \
             '  fmt          apply Ruff formatting and safe fixes' \
             '  test-e2e     run real Chrome tests' \
+            '  test-symfony-e2e  run the real Symfony profiler gate' \
             '  test-shopware-e2e  run the real Shopware 6.7 profiler gate' \
             '  image        build the production runtime target' \
             '  shell        open a shell in the development image' \

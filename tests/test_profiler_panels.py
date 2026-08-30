@@ -71,7 +71,7 @@ def test_parse_grouped_db_exposes_statement_repetition_bursts():
     assert "FROM author" in res["repeated"][0]["sql"]
 
 
-def test_parse_real_shopware_grouped_connection_collector_excerpt():
+def test_parse_shopware_grouped_connection_collector_fixture():
     res = profiler.parse_panel("db", 200, read("shopware-db-grouped.html"))
 
     assert res["queries"] == 37

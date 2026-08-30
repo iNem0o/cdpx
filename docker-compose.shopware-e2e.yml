@@ -46,9 +46,4 @@ services:
       CDPX_PROOF_RETENTION_DAYS: "${CDPX_PROOF_RETENTION_DAYS:-14}"
     depends_on:
       - shopware
-    command:
-      [
-        "/bin/sh",
-        "-lc",
-        "cleanup() { chown -R $${CDPX_E2E_UID}:$${CDPX_E2E_GID} .proof; }; trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; cleanup; exit 143' TERM INT; .venv/bin/python -m pytest tests/e2e/test_e2e_shopware.py -v --cdpx-evidence-dir=.proof/evidence --cdpx-evidence-suite=shopware --cdpx-evidence-target=shopware --cdpx-evidence-proof-level=runtime --junitxml=.proof/shopware-e2e-junit.xml & pid=$$!; wait $$pid; status=$$?; cleanup; exit $$status",
-      ]
+    command: ["tests/e2e/run_framework_suite", "shopware"]

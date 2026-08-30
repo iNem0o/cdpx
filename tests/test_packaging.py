@@ -178,6 +178,8 @@ def test_release_portal_and_ci_require_all_runtime_proofs():
     makefile = Path("Makefile").read_text(encoding="utf-8")
     assert "python -m tools.harness" in dev
     assert "def check_local()" in harness and "def check()" in harness
+    assert '"test-symfony-e2e"' in harness and '"test-shopware-e2e"' in harness
+    assert "test-symfony-e2e" in dev and "test-shopware-e2e" in dev
     assert "build_internal()" in harness
     assert "$(HARNESS)" in makefile
 
