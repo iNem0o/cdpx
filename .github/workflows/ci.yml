@@ -51,7 +51,7 @@ jobs:
           docker run --rm --entrypoint /opt/cdpx/bin/native-cdpx cdpx-runtime:dev --version
 
   full:
-    name: Full Chrome / Symfony / proof gate
+    name: Full Chrome / Symfony / Shopware / proof gate
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:

@@ -42,6 +42,16 @@
   <label for="controlled-input">Controlled field</label>
   <input id="controlled-input" value="initial">
   <output id="controlled-mirror">initial</output>
+  <fieldset id="segmented-code">
+    <legend>Segmented code</legend>
+    <input class="code-digit" inputmode="numeric" maxlength="1" aria-label="Code digit 1">
+    <input class="code-digit" inputmode="numeric" maxlength="1" aria-label="Code digit 2">
+    <input class="code-digit" inputmode="numeric" maxlength="1" aria-label="Code digit 3">
+    <input class="code-digit" inputmode="numeric" maxlength="1" aria-label="Code digit 4">
+    <input class="code-digit" inputmode="numeric" maxlength="1" aria-label="Code digit 5">
+    <input class="code-digit" inputmode="numeric" maxlength="1" aria-label="Code digit 6">
+  </fieldset>
+  <output id="segmented-code-result"></output>
   <output id="interaction-state"></output>
 
   <script>
@@ -59,6 +69,8 @@
       const state = document.querySelector('#interaction-state');
       const input = document.querySelector('#controlled-input');
       const mirror = document.querySelector('#controlled-mirror');
+      const codeDigits = [...document.querySelectorAll('.code-digit')];
+      const codeResult = document.querySelector('#segmented-code-result');
 
       const render = () => {
         state.textContent = JSON.stringify({ clicks, inputEvents });
@@ -85,6 +97,14 @@
           render();
         });
       }
+      codeDigits.forEach((field, index) => {
+        field.addEventListener('input', event => {
+          if (!event.isTrusted || !/^\d$/.test(field.value)) return;
+          if (index < codeDigits.length - 1) codeDigits[index + 1].focus();
+          const code = codeDigits.map(digit => digit.value).join('');
+          codeResult.textContent = code.length === codeDigits.length ? 'complete' : '';
+        });
+      });
 
       window.interactionFixture = {
         snapshot: () => ({
@@ -92,6 +112,8 @@
           input: input.value,
           mirror: mirror.textContent,
           inputEvents: inputEvents.map(event => ({ ...event })),
+          segmentedCode: codeDigits.map(digit => digit.value).join(''),
+          segmentedComplete: codeResult.textContent,
         }),
       };
       render();

@@ -1,3 +1,5 @@
+import json
+
 from cdpx.security.redaction import (
     MASK,
     RedactionContext,
@@ -192,6 +194,45 @@ def test_redact_text_avoids_aggressive_email_and_number_masking():
 
     #: ordinary text comes out strictly identical — zero false positives
     assert redact_text(value) == value
+
+
+def test_redact_text_masks_shopware_access_keys_and_serialized_sensitive_headers():
+    """Shopware installation tables and Caddy JSON logs cannot expose
+    sales-channel keys or authentication headers through free text."""
+    access_key = "SWSC0123456789SHOPWAREACCESSKEY"
+    context_token = "shopware-context-token-value"
+    header_access_key = "SWSCHEADERACCESSKEY"
+    cookie = "session=shopware-cookie-value"
+    value = (
+        f"shopware-1 | | Access key | {access_key} |\n"
+        "shopware-1 | "
+        + json.dumps(
+            {
+                "request": {
+                    "headers": {
+                        "Sw-Context-Token": [context_token],
+                        "Sw-Access-Key": [header_access_key],
+                        "Cookie": [cookie],
+                        "X-Tokenizer-Version": ["ordinary"],
+                    }
+                }
+            },
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
+
+    redacted = redact_text(value)
+
+    assert access_key not in redacted
+    assert context_token not in redacted
+    assert header_access_key not in redacted
+    assert cookie not in redacted
+    assert "| Access key | *** |" in redacted
+    assert '"Sw-Context-Token":["***"]' in redacted
+    assert '"Sw-Access-Key":["***"]' in redacted
+    assert '"Cookie":["***"]' in redacted
+    assert '"X-Tokenizer-Version":["ordinary"]' in redacted
 
 
 def test_redact_text_distinguishes_javascript_data_properties_from_data_urls():

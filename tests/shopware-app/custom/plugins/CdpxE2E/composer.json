@@ -1,0 +1,21 @@
+{
+  "name": "cdpx/shopware-e2e",
+  "description": "Minimal real Shopware profiler target for the cdpx runtime gate",
+  "type": "shopware-platform-plugin",
+  "license": "MIT",
+  "version": "1.0.0",
+  "require": {
+    "shopware/core": "6.7.13.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "CdpxE2E\\": "src/"
+    }
+  },
+  "extra": {
+    "shopware-plugin-class": "CdpxE2E\\CdpxE2E",
+    "label": {
+      "en-GB": "cdpx E2E"
+    }
+  }
+}

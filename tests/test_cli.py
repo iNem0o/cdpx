@@ -142,7 +142,9 @@ def test_goto(mock, capsys):
 @pytest.mark.scenario(
     feature="browser-navigation",
     journey="open-page",
-    scenario_id="browser-navigation.open-page-success",
+    scenario_id="browser-navigation.handle-navigation-errors-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A CDP navigation error is surfaced as runtime exit 1."],
 )
 def test_goto_error_result_exits_1(mock, capsys, monkeypatch):
@@ -323,6 +325,8 @@ def test_seo_with_navigation(mock, capsys):
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The cookie value is redacted by default: no session secret leaks."],
 )
 def test_cookies_masked_output(mock, capsys, evidence_case):
@@ -353,7 +357,9 @@ def test_cookies_masked_output(mock, capsys, evidence_case):
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Invalid conditional arguments fail with usage exit 2 before CDP."],
 )
 def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
@@ -369,7 +375,9 @@ def test_conditional_cli_arguments_exit_2_before_discovery(mock, capsys, argv):
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Mutating command variants cannot bypass the configured origin guard."],
 )
 def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkeypatch):
@@ -399,6 +407,8 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
     feature="orchestration-control",
     journey="intercept-network",
     scenario_id="orchestration-control.intercept-network-request",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The origin guard judges the destination of the composed goto, not the initial tab."],
 )
 def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monkeypatch):
@@ -424,10 +434,32 @@ def test_intercept_checks_destination_origin_not_initial_tab(mock, capsys, monke
     assert mock.commands == []
 
 
+def test_intercept_click_checks_current_origin_before_fetch(mock, capsys):
+    """A click wrapper cannot arm Fetch on a page outside the allowlist."""
+    target = next(iter(mock.targets))
+    mock.targets[target]["url"] = "https://prod.example/"
+
+    code, _, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "* => block",
+        "click",
+        "#request-button",
+    )
+
+    assert code == 1 and "origin rejected" in err
+    assert mock.commands_for("Fetch.enable") == []
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["A mutating click on a disallowed origin is refused before the input protocol."],
 )
 def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
@@ -441,6 +473,34 @@ def test_origin_guard_blocks_cli_mutation(mock, capsys, monkeypatch):
     assert "origin rejected" in err
     #: no mouse event was dispatched to the page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
+
+
+def test_type_key_events_rechecks_origin_between_secret_bearing_events(mock, capsys, monkeypatch):
+    """A navigation caused by an early key event blocks the rest of the
+    secret before its character event or any later key reaches the new page."""
+    monkeypatch.setenv("CLI_SECRET", "12")
+    mock.on_eval("focus", True)
+    mock.on_eval(
+        "window.location.href",
+        "http://demo.test/form",
+        "http://demo.test/form",
+        "https://prod.example/redirected",
+    )
+
+    code, _, err = run(
+        mock,
+        capsys,
+        "type",
+        "#otp",
+        "--secret-env",
+        "CLI_SECRET",
+        "--key-events",
+    )
+
+    assert code == 1 and "origin rejected" in err
+    events = mock.commands_for("Input.dispatchKeyEvent")
+    assert [event["type"] for event in events] == ["rawKeyDown"]
+    assert all(event.get("text") is None for event in events)
 
 
 def test_origin_guard_blocks_dom_diff(mock, capsys, monkeypatch):
@@ -592,7 +652,9 @@ DISPATCH_CASES = [
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
-    scenario_id="harness-proof-cockpit.run-local-quality-gate",
+    scenario_id="harness-proof-cockpit.run-local-quality-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Each catalog subcommand reaches its primitive and emits its signature CDP command."],
 )
 def test_cli_dispatch_emits_protocol_and_json(
@@ -694,6 +756,113 @@ def test_profiler_cli_panels_flag(mock, capsys):
     assert "signals" not in data and "profiler_bytes" not in data
 
 
+def _script_profiler_navigation(mock) -> None:
+    mock.script_network(
+        [
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "R1",
+                    "response": {
+                        "url": "http://s.test/",
+                        "status": 200,
+                        "headers": {"X-Debug-Token-Link": "http://s.test/_profiler/tok"},
+                    },
+                },
+            }
+        ]
+    )
+
+
+def test_profiler_cli_default_and_all_select_different_catalogs(mock, capsys):
+    _script_profiler_navigation(mock)
+    mock.on_eval("window.location.href", "http://s.test/")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps({"probe": {"status": 200, "usable": True, "collectors": []}, "panels": []}),
+    )
+
+    code, _out, _err = run(mock, capsys, "profiler", "http://s.test/")
+
+    assert code == 0
+    panel_call = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in call["expression"]
+    )
+    assert '"shopware_feature_flags",["feature_flag"]' in panel_call["expression"]
+    assert '"shopware_cart"' not in panel_call["expression"]
+
+
+def test_profiler_cli_all_includes_extended_cart(mock, capsys):
+    _script_profiler_navigation(mock)
+    mock.on_eval("window.location.href", "http://s.test/")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps({"probe": {"status": 200, "usable": True, "collectors": []}, "panels": []}),
+    )
+
+    code, _out, _err = run(mock, capsys, "profiler", "http://s.test/", "--panels", "all")
+
+    assert code == 0
+    panel_call = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_profiler_panels" in call["expression"]
+    )
+    assert '"shopware_feature_flags",["feature_flag"]' in panel_call["expression"]
+    assert '"shopware_cart",["Shopware\\\\Core' in panel_call["expression"]
+
+
+def test_profiler_cli_none_uses_no_javascript(mock, capsys):
+    _script_profiler_navigation(mock)
+
+    code, out, _err = run(mock, capsys, "profiler", "http://s.test/", "--panels", "none")
+
+    assert code == 0
+    assert json.loads(out)["panels"] == {}
+    assert mock.commands_for("Runtime.evaluate") == []
+    assert mock.commands_for("Page.getFrameTree") == [{}]
+
+
+def test_profiler_cli_redacts_cart_fields_and_never_emits_hidden_dump(mock, capsys):
+    html = (
+        pathlib.Path(__file__).parent / "fixtures" / "profiler" / "shopware-cart.html"
+    ).read_text(encoding="utf-8")
+    html = (
+        html.replace("Example product", "Bearer cart-label-secret")
+        .replace("example.cart.collector", "Bearer cart-service-secret")
+        .replace("example.decorator", "Bearer cart-decorator-secret")
+    )
+    _script_profiler_navigation(mock)
+    mock.on_eval("window.location.href", "http://s.test/")
+    mock.on_eval(
+        "__cdpx_profiler_panels",
+        json.dumps(
+            {
+                "probe": {
+                    "status": 200,
+                    "usable": True,
+                    "collectors": [
+                        "Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber"
+                    ],
+                },
+                "panels": [{"panel": "shopware_cart", "status": 200, "html": html}],
+            }
+        ),
+    )
+
+    code, out, _err = run(mock, capsys, "profiler", "http://s.test/", "--panels", "shopware_cart")
+
+    assert code == 0
+    assert "cart-label-secret" not in out
+    assert "cart-service-secret" not in out
+    assert "cart-decorator-secret" not in out
+    assert "CART-TOKEN-SECRET" not in out
+    assert "CART-PAYLOAD-SECRET" not in out
+    assert "CART-EXTENSION-SECRET" not in out
+
+
 def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
     """A nonexistent profiler panel is rejected as a usage error with a
     message naming the problem, before any navigation."""
@@ -706,9 +875,7 @@ def test_profiler_cli_unknown_panel_is_usage_error(mock, capsys):
 
 
 def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
-    """intercept applies several simultaneous rules (the matching rule
-    responds) and refuses any composed action other than goto before
-    arming the slightest interception."""
+    """intercept applies simultaneous rules and rejects unsupported actions."""
     mock.script_network(
         [
             {
@@ -739,11 +906,180 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
     #: received the promised 503 via the Fetch protocol
     assert code == 0 and len(data["rules"]) == 2
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
-    # non-goto action: usage error BEFORE any Fetch command
+    assert set(data) == {"url", "rules", "hits", "count", "settle", "_cdpx"}
+    # unsupported action: execution error BEFORE any Fetch command
     mock.commands.clear()
-    code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "click", "#x")
+    code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "key", "Enter")
     #: the unsupported action is refused without emitting a command
     assert code == 1 and "intercept supports" in err and mock.commands == []
+
+
+def test_intercept_click_cli_json_and_protocol(mock, capsys):
+    """CLI composition exposes the click result and effective request hit."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "C1",
+                    "request": {"url": "http://s.test/api/echo", "method": "DELETE"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*api/echo* => 503",
+        "--settle",
+        "0.01",
+        "click",
+        "#request-button",
+    )
+    data = json.loads(out)
+
+    assert code == 0 and not err
+    assert data["action"]["argv"] == ["click", "#request-button"]
+    assert data["action"]["result"]["clicked"] == "#request-button"
+    assert data["matched_count"] == 1 and data["effective_count"] == 1
+    assert data["hits"] == [{"url": "http://s.test/api/echo", "action": "503"}]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_click_rejects_forbidden_top_level_navigation_before_rule(mock, capsys):
+    """A click cannot apply a Fetch rule to a forbidden main document."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "FORBIDDEN-DOCUMENT",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "https://prod.example/landing", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#external-link",
+    )
+
+    assert code == 1 and not out and "origin rejected" in err
+    assert mock.commands_for("Fetch.fulfillRequest") == []
+    assert mock.commands_for("Fetch.failRequest") == []
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "FORBIDDEN-DOCUMENT"}]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+@pytest.mark.parametrize("resource_type", ["XHR", "Fetch"])
+def test_intercept_click_does_not_apply_page_allowlist_to_subrequests(mock, capsys, resource_type):
+    """The origin boundary guards top-level navigation, not page subrequests."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": f"CROSS-ORIGIN-{resource_type}",
+                    "frameId": "FRAME1",
+                    "resourceType": resource_type,
+                    "request": {"url": "https://api.example/request", "method": "POST"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*api.example* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#request-button",
+    )
+
+    result = json.loads(out)
+    assert code == 0 and not err and result["effective_count"] == 1
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == (
+        f"CROSS-ORIGIN-{resource_type}"
+    )
+
+
+def test_intercept_click_can_apply_rule_to_allowed_top_level_navigation(mock, capsys):
+    """An allowlisted main document remains eligible for interception."""
+    mock.on_eval("__cdpx_actionability", RECT)
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "ALLOWED-DOCUMENT",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "http://next.test/page", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    code, out, err = run(
+        mock,
+        capsys,
+        "intercept",
+        "--rule",
+        "*next.test* => 503",
+        "--settle",
+        "0",
+        "click",
+        "#allowed-link",
+    )
+
+    result = json.loads(out)
+    assert code == 0 and not err and result["effective_count"] == 1
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == "ALLOWED-DOCUMENT"
+
+
+def test_intercept_help_names_supported_actions(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["intercept", "--help"])
+
+    help_text = capsys.readouterr().out
+    assert exc.value.code == 0
+    assert "goto <url> | click <selector>" in help_text
+
+
+def test_intercept_invalid_rule_is_usage_error_before_cdp(mock, capsys):
+    with pytest.raises(SystemExit) as exc:
+        run(
+            mock,
+            capsys,
+            "intercept",
+            "--rule",
+            "*api/echo* => typo",
+            "click",
+            "#request-button",
+        )
+
+    assert exc.value.code == 2
+    assert mock.commands == []
 
 
 def test_emulate_requires_preset_or_reset(mock, capsys):

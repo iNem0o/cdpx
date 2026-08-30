@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from cdpx import proof
-from cdpx.artifacts import ArtifactClassification, ArtifactError
+from cdpx.artifacts import REDACTION_POLICY_VERSION, ArtifactClassification, ArtifactError
 from cdpx.cli import build_parser
 from cdpx.proofing import cast as proof_cast
 from cdpx.proofing.suites import compose_project_name
@@ -51,7 +51,7 @@ def _manifest_entry(path, classification, upload_allowed):
         "mime": "text/plain",
         "classification": classification,
         "upload_allowed": upload_allowed,
-        "redaction_policy": "1",
+        "redaction_policy": REDACTION_POLICY_VERSION,
         "created_at": "2026-07-15T00:00:00+00:00",
     }
 
@@ -62,7 +62,7 @@ def _write_evidence_manifest(
     *,
     name="evidence-manifest-unit.json",
     schema="cdpx.evidence/v2",
-    redaction_policy="1",
+    redaction_policy=REDACTION_POLICY_VERSION,
 ):
     payload = {
         "schema": schema,
@@ -222,6 +222,34 @@ def test_build_shareable_proof_fails_closed_on_canary(tmp_path):
     assert not (proof_dir / "shareable").exists()
 
 
+def test_build_shareable_proof_masks_shopware_credentials_in_published_log(tmp_path):
+    """The newly allowlisted Shopware log is sanitized again at the
+    publication boundary, including credentials generated inside Docker."""
+    proof_dir = tmp_path / ".proof"
+    access_key = "SWSC0123456789SHOPWAREACCESSKEY"
+    context_token = "shopware-context-token-value"
+    proof._write_private_text(
+        proof_dir / "shopware-e2e.log",
+        (
+            f"shopware-1 | | Access key | {access_key} |\n"
+            "shopware-1 | "
+            + json.dumps(
+                {"resp_headers": {"Sw-Context-Token": [context_token]}},
+                separators=(",", ":"),
+            )
+            + "\n"
+        ),
+    )
+
+    staging = proof.build_shareable_proof(proof_dir, ttl=3600)
+
+    published = (staging / ".proof" / "shopware-e2e.log").read_text(encoding="utf-8")
+    assert access_key not in published
+    assert context_token not in published
+    assert "| Access key | *** |" in published
+    assert '"Sw-Context-Token":["***"]' in published
+
+
 def test_pre_redacted_report_still_fails_closed_on_canary(tmp_path):
     """Declaring a pre-redacted file does not exempt it from the canary
     check: the anti-leak verification stays systematic."""
@@ -340,7 +368,7 @@ def test_evidence_manifests_with_mixed_redaction_policies_fail_closed(tmp_path):
     proof_dir = tmp_path / ".proof"
     proof._write_private_text(proof_dir / "proof-report.html", "<p>safe</p>")
     _write_evidence_manifest(proof_dir, [], name="evidence-manifest-unit.json")
-    _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="2")
+    _write_evidence_manifest(proof_dir, [], name="evidence-manifest-e2e.json", redaction_policy="3")
 
     #: heterogeneous redaction policies is a named error, not a silent merge
     with pytest.raises(ArtifactError, match="heterogeneous redaction policies"):
@@ -514,19 +542,25 @@ def _fake_run_evidence(
     )
 
 
-def _fake_symfony_evidence(*, proof_dir, **_kwargs):
-    # Fake green Symfony gate: log written into the target tree (staging), ok.
-    log_path = proof_dir / "symfony-e2e.log"
-    proof._write_private_text(log_path, "docker compose ok\n")
-    return proof.CommandEvidence(
-        id="symfony-e2e",
-        label="Symfony E2E Docker",
-        argv=["docker", "compose", "up"],
-        log=str(log_path),
-        exit_code=0,
-        duration_s=0.01,
-        status="ok",
-    )
+def _fake_external_evidence(suite):
+    def fake(*, proof_dir, **_kwargs):
+        log_path = proof_dir / f"{suite}-e2e.log"
+        proof._write_private_text(log_path, "docker compose ok\n")
+        return proof.CommandEvidence(
+            id=f"{suite}-e2e",
+            label=f"{suite.title()} E2E Docker",
+            argv=["docker", "compose", "up"],
+            log=str(log_path),
+            exit_code=0,
+            duration_s=0.01,
+            status="ok",
+        )
+
+    return fake
+
+
+_fake_symfony_evidence = _fake_external_evidence("symfony")
+_fake_shopware_evidence = _fake_external_evidence("shopware")
 
 
 def _fake_cast_entries(root, **_kwargs):
@@ -551,7 +585,15 @@ def _fake_git_context(**_kwargs):
     }
 
 
-def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony=None, casts=None):
+def _install_generate_fakes(
+    monkeypatch,
+    tmp_path,
+    *,
+    run_evidence=None,
+    symfony=None,
+    shopware=None,
+    casts=None,
+):
     # Wires the _generate() pipeline to deterministic fakes (no external
     # process) and returns the target .proof; each test replaces the brick
     # in which it wants to inject the failure. The runtime evidence store is
@@ -563,6 +605,7 @@ def _install_generate_fakes(monkeypatch, tmp_path, *, run_evidence=None, symfony
     monkeypatch.setattr(proof, "EVIDENCE_STORE_DIR", tmp_path / ".cdpx-evidence")
     monkeypatch.setattr(proof, "run_evidence", run_evidence or _fake_run_evidence)
     monkeypatch.setattr(proof, "run_symfony_evidence", symfony or _fake_symfony_evidence)
+    monkeypatch.setattr(proof, "run_shopware_evidence", shopware or _fake_shopware_evidence)
     monkeypatch.setattr(proof, "collect_cast_evidence", casts or _fake_cast_entries)
     monkeypatch.setattr(proof, "collect_git_context", _fake_git_context)
     return proof_dir
@@ -1353,8 +1396,20 @@ def test_render_html_size_stays_bounded():
         cast_entries=generated_casts(),
     )
     # Mermaid vendored ~3.5 MB; the cockpit shell/CSS/JS must stay marginal.
+    # The feature/provenance/changelog margin covers the explicit Symfony and
+    # Shopware runtime scenarios, including targeted scenario profiler capture,
+    # bounded profiler probing and documented maintenance fixes. These prevent
+    # broad test globs from being mistaken for runtime proof while keeping the
+    # public change record inside the cockpit.
     #: beyond the ceiling, an asset grew without justification: the gate blocks it
-    assert len(proof.render_html(summary)) < 4_500_000
+    assert len(proof.render_html(summary)) < 4_545_000
+
+
+def test_cockpit_names_each_proof_kind_explicitly():
+    javascript = proof.cockpit_javascript()
+
+    for label in ("mock", "fixture contract", "real Chrome", "real Symfony", "real Shopware"):
+        assert label in javascript
 
 
 def test_load_scenario_evidence_accepts_schema_v1_payloads(tmp_path):
@@ -1414,6 +1469,61 @@ def test_load_scenario_evidence_rejects_unknown_schema_version(tmp_path):
     assert str(path) in message
     assert "cdpx.scenarios/v2" in message
     assert "cdpx.scenarios/v3" in message
+
+
+def test_suite_attestation_allows_unattested_auxiliary_scenarios(tmp_path):
+    """A suite-level runtime label describes the environment, while an
+    auxiliary case without its own proof kind remains deliberately neutral."""
+    path = tmp_path / "e2e-scenarios.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "cdpx.scenarios/v2",
+                "suite": "e2e",
+                "target": "chrome",
+                "proof_level": "runtime",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/e2e/test_demo.py::test_auxiliary",
+                        "status": "passed",
+                        "artifacts": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    evidence = proof.load_scenario_evidence(tmp_path)
+
+    auxiliary = evidence["suites"]["e2e"][0]
+    assert "target" not in auxiliary
+    assert "proof_level" not in auxiliary
+
+
+def test_suite_attestation_rejects_conflicting_scenario_proof_kind(tmp_path):
+    path = tmp_path / "e2e-scenarios.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "cdpx.scenarios/v2",
+                "suite": "e2e",
+                "target": "chrome",
+                "proof_level": "runtime",
+                "scenarios": [
+                    {
+                        "nodeid": "tests/e2e/test_demo.py::test_wrong_runtime",
+                        "target": "fixture",
+                        "proof_level": "contract",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactError, match="proof kind does not match suite attestation"):
+        proof.load_scenario_evidence(tmp_path)
 
 
 def test_load_scenario_evidence_rejects_structurally_invalid_payloads(tmp_path):
@@ -1803,40 +1913,53 @@ def test_build_summary_includes_symfony_suite_and_catalog():
     assert any(item["name"] == "Symfony E2E JUnit" for item in summary["evidence_catalog"])
 
 
-def test_write_symfony_unavailable_evidence_is_explicit(tmp_path, monkeypatch):
-    """Symfony unavailability leaves explicit evidence on disk (suite,
-    status, reason) instead of a silent absence."""
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_write_external_unavailable_evidence_is_explicit_and_rerunnable(
+    suite, tmp_path, monkeypatch
+):
+    """Each framework records an explicit unavailable scenario whose node
+    ID still points to a real, directly rerunnable runtime test."""
     proof_dir = tmp_path / ".proof"
     monkeypatch.setattr(proof, "PROOF_DIR", proof_dir)
     monkeypatch.setattr(proof, "EVIDENCE_DIR", proof_dir / "evidence")
-    monkeypatch.setattr(proof, "SYMFONY_LOG", proof_dir / "symfony-e2e.log")
-    proof.SYMFONY_LOG.parent.mkdir(parents=True)
-    proof.SYMFONY_LOG.write_text("docker unavailable\n", encoding="utf-8")
+    log_attr = f"{suite.upper()}_LOG"
+    log_path = proof_dir / f"{suite}-e2e.log"
+    monkeypatch.setattr(proof, log_attr, log_path)
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("docker unavailable\n", encoding="utf-8")
 
-    proof.write_symfony_unavailable_evidence("Docker daemon unavailable")
+    getattr(proof, f"write_{suite}_unavailable_evidence")("Docker daemon unavailable")
 
-    payload = (proof.EVIDENCE_DIR / "symfony-scenarios.json").read_text(encoding="utf-8")
+    payload = json.loads(
+        (proof.EVIDENCE_DIR / f"{suite}-scenarios.json").read_text(encoding="utf-8")
+    )
     #: the written JSON names the suite, the unavailable status, and the
-    #: reason, readable by the cockpit
-    assert '"suite": "symfony"' in payload
-    assert '"status": "unavailable"' in payload
-    assert "Docker daemon unavailable" in payload
+    #: reason, readable by the cockpit, and its source test still exists
+    assert payload["suite"] == suite
+    assert payload["scenarios"][0]["status"] == "unavailable"
+    assert payload["scenarios"][0]["message"] == "Docker daemon unavailable"
+    nodeid = payload["scenarios"][0]["nodeid"]
+    path_text = Path(nodeid.partition("::")[0]).read_text(encoding="utf-8")
+    assert f"def {nodeid.partition('::')[2]}(" in path_text
 
 
-def test_run_symfony_evidence_fails_when_docker_is_missing(tmp_path, monkeypatch):
-    """Without the docker binary, Symfony collection fails outright: status
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_run_external_evidence_fails_when_docker_is_missing(suite, tmp_path, monkeypatch):
+    """Without the docker binary, framework collection fails outright: status
     unavailable, non-zero exit code, and a log recalling the release
     requirement."""
     monkeypatch.setattr(proof, "EVIDENCE_DIR", tmp_path / "evidence")
-    monkeypatch.setattr(proof, "SYMFONY_LOG", tmp_path / "symfony.log")
+    log_attr = f"{suite.upper()}_LOG"
+    log_path = tmp_path / f"{suite}.log"
+    monkeypatch.setattr(proof, log_attr, log_path)
     monkeypatch.setattr(proof.shutil, "which", lambda _name: None)
 
-    command = proof.run_symfony_evidence()
+    command = getattr(proof, f"run_{suite}_evidence")()
 
     #: the absence of Docker is a traced failure that the release gate can judge, not a skip
     assert command.exit_code == 1
     assert command.status == "unavailable"
-    assert "required for release proof" in proof.SYMFONY_LOG.read_text(encoding="utf-8")
+    assert "required for release proof" in log_path.read_text(encoding="utf-8")
 
 
 def _minimal_suite(path, tests=1, cases=None):
@@ -1881,7 +2004,14 @@ def test_spa_renders_every_summary_key():
         cast_entries=generated_casts(),
     )
     shell_keys = {"ok", "generated_at", "git"}  # rendered directly by render_html
-    meta_keys = {"artifact_dir", "report_html", "unit_log", "e2e_log", "symfony_log"}
+    meta_keys = {
+        "artifact_dir",
+        "report_html",
+        "unit_log",
+        "e2e_log",
+        "symfony_log",
+        "shopware_log",
+    }
     meta_keys.add("scenario_evidence")  # raw duplicate of feature_inventory/matched_scenarios
     #: a key computed but never read by the SPA fails here: dead work is a bug
     for key in summary:
@@ -2262,15 +2392,18 @@ def test_build_summary_embeds_cases_focus_and_log_tails(tmp_path):
     assert "log_tail" in summary["commands"][0]
 
 
-def test_symfony_unavailable_is_always_blocking(monkeypatch):
-    """An unavailable Symfony scenario blocks the verdict even without a
-    Symfony JUnit suite: the unavailability is counted and named."""
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_external_runtime_unavailable_is_always_blocking(suite, monkeypatch):
+    """An unavailable framework scenario blocks the verdict even without
+    its JUnit suite: the unavailability is counted and named."""
     suites = {
         "unit": [],
         "integration": [],
         "e2e": [],
-        "symfony": [{"nodeid": "tests/e2e/test_e2e_symfony.py::test_x", "status": "unavailable"}],
+        "symfony": [],
+        "shopware": [],
     }
+    suites[suite] = [{"nodeid": f"tests/e2e/test_e2e_{suite}.py::test_x", "status": "unavailable"}]
     evidence = {"suites": suites, "files": [], "totals": proof.scenario_totals(suites)}
 
     summary = proof.build_summary(
@@ -2282,24 +2415,29 @@ def test_symfony_unavailable_is_always_blocking(monkeypatch):
     #: the unavailability appears in the totals, turns the verdict red, and names its cause
     assert summary["totals"]["unavailable"] == 1  # visible in the hero
     assert summary["ok"] is False
-    assert any("symfony evidence unavailable" in failure for failure in summary["proof_failures"])
+    assert any(f"{suite} evidence unavailable" in failure for failure in summary["proof_failures"])
 
 
-def test_symfony_skips_are_release_blocking():
-    """A single skip in the Symfony suite fails the release proof: no
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_external_runtime_skips_are_release_blocking(suite):
+    """A single skip in either framework suite fails the release proof: no
     dodged test is tolerated on this gate."""
+    skipped = _minimal_suite(f".proof/{suite}-e2e-junit.xml", tests=2) | {
+        "passed": 1,
+        "skipped": 1,
+    }
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
         _minimal_suite(".proof/e2e-junit.xml"),
-        _minimal_suite(".proof/symfony-e2e-junit.xml", tests=2) | {"passed": 1, "skipped": 1},
+        **{suite: skipped},
         scenario_evidence=empty_scenario_evidence(),
         cast_entries=generated_casts(),
     )
 
-    #: the Symfony skip turns the verdict red and the failure names it explicitly
+    #: the framework skip turns the verdict red and the failure names it explicitly
     assert summary["ok"] is False
-    assert any("symfony tests skipped" in failure for failure in summary["proof_failures"])
+    assert any(f"{suite} tests skipped" in failure for failure in summary["proof_failures"])
 
 
 def test_chrome_skips_and_missing_junit_are_release_blocking():
@@ -2596,7 +2734,7 @@ def test_collect_git_context_never_parses_failed_git_output_as_porcelain(tmp_pat
     assert diff_stat_path.read_text(encoding="utf-8") == ""
 
 
-def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_codes=None):
+def _mock_external_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_codes=None):
     # Docker fully simulated: which present, checks/downs via _run_text, up
     # streamed via _stream_to_private_file. No real container.
     calls = {"down": 0, "argv": []}
@@ -2625,13 +2763,14 @@ def _mock_symfony_docker(monkeypatch, *, up=(0, False), post_down_code=0, check_
     return calls
 
 
-def test_run_symfony_evidence_composes_and_tears_down(tmp_path, monkeypatch):
-    """Docker present and healthy: Symfony collection chains checks,
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_run_external_evidence_composes_and_tears_down(suite, tmp_path, monkeypatch):
+    """Docker present and healthy: framework collection chains checks,
     preventive down, streamed up, then final down, and publishes a green
     exit-0 log."""
-    calls = _mock_symfony_docker(monkeypatch)
+    calls = _mock_external_docker(monkeypatch)
 
-    command = proof.run_symfony_evidence(proof_dir=tmp_path)
+    command = getattr(proof, f"run_{suite}_evidence")(proof_dir=tmp_path)
 
     #: the healthy run is an ok exit 0, judged as such by the verdict
     assert command.exit_code == 0
@@ -2647,55 +2786,58 @@ def test_run_symfony_evidence_composes_and_tears_down(tmp_path, monkeypatch):
     for argv in calls["argv"]:
         if "down" in argv:
             assert "--remove-orphans" in argv and "--volumes" in argv
-    log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
+    log = (tmp_path / f"{suite}-e2e.log").read_text(encoding="utf-8")
     #: the log aggregates the streamed up transcript and the exit verdict
     assert "compose up transcript" in log
     assert "exit_code: 0" in log
 
 
-def test_run_symfony_evidence_fails_when_final_teardown_fails(tmp_path, monkeypatch):
-    """A failing final down turns the Symfony run red even if the up is
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_run_external_evidence_fails_when_final_teardown_fails(suite, tmp_path, monkeypatch):
+    """A failing final down turns the framework run red even if the up is
     green: leaving containers behind is a proof failure."""
-    _mock_symfony_docker(monkeypatch, post_down_code=1)
+    _mock_external_docker(monkeypatch, post_down_code=1)
 
-    command = proof.run_symfony_evidence(proof_dir=tmp_path)
+    command = getattr(proof, f"run_{suite}_evidence")(proof_dir=tmp_path)
 
     #: the final teardown failure becomes the run's exit code
     assert command.exit_code == 1
     assert command.status == "failed"
 
 
-def test_run_symfony_evidence_converts_deadline_into_exit_124(tmp_path, monkeypatch):
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_run_external_evidence_converts_deadline_into_exit_124(suite, tmp_path, monkeypatch):
     """A compose up that exceeds its deadline is converted into exit 124
     with the timeout mentioned in the log, and teardown still happens."""
-    calls = _mock_symfony_docker(monkeypatch, up=(124, True))
+    calls = _mock_external_docker(monkeypatch, up=(124, True))
 
-    command = proof.run_symfony_evidence(proof_dir=tmp_path, timeout=5)
+    command = getattr(proof, f"run_{suite}_evidence")(proof_dir=tmp_path, timeout=5)
 
     #: the deadline becomes a conventional exit-124 failure
     assert command.exit_code == 124
     assert command.status == "failed"
     #: even killed by deadline, the run returns control with containers removed
     assert calls["down"] == 2
-    log = (tmp_path / "symfony-e2e.log").read_text(encoding="utf-8")
+    log = (tmp_path / f"{suite}-e2e.log").read_text(encoding="utf-8")
     #: the log names the interruption and its deadline
     assert "docker compose up interrupted after 5s" in log
 
 
-def test_run_symfony_evidence_reports_unavailable_docker_daemon(tmp_path, monkeypatch):
+@pytest.mark.parametrize("suite", ["symfony", "shopware"])
+def test_run_external_evidence_reports_unavailable_docker_daemon(suite, tmp_path, monkeypatch):
     """Docker installed but daemon unreachable: collection stops at the
     checks, declares the gate unavailable, and writes the explicit
     evidence — without ever attempting the up."""
-    calls = _mock_symfony_docker(monkeypatch, check_codes={"info": 1})
+    calls = _mock_external_docker(monkeypatch, check_codes={"info": 1})
 
-    command = proof.run_symfony_evidence(proof_dir=tmp_path)
+    command = getattr(proof, f"run_{suite}_evidence")(proof_dir=tmp_path)
 
     #: the unreachable daemon is an unavailable failure, not a silent skip
     assert command.exit_code == 1
     assert command.status == "unavailable"
     #: neither down nor up were attempted after the failed check
     assert calls["down"] == 0
-    payload = (tmp_path / "evidence" / "symfony-scenarios.json").read_text(encoding="utf-8")
+    payload = (tmp_path / "evidence" / f"{suite}-scenarios.json").read_text(encoding="utf-8")
     #: the unavailability evidence is written for the cockpit and the verdict
     assert '"status": "unavailable"' in payload
 

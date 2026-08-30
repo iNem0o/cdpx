@@ -27,7 +27,7 @@ No host Python environment is read or modified.
 | --- | --- |
 | `./dev setup` | build the development and production targets |
 | `./dev check-local` | Ruff, format, mypy, unit, 85% line and 75% branch coverage |
-| `./dev check` | blocking real Chrome, Symfony and proof gate |
+| `./dev check` | blocking real Chrome, Symfony, Shopware and proof gate |
 | `./dev proof` | regenerate the private proof cockpit |
 | `./dev release` | full gate plus internal wheel build |
 | `./dev bump X.Y.Z` | move every release version pin and stamp the changelog |

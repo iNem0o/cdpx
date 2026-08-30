@@ -4,7 +4,18 @@
 <body>
   <h1>Interception Fetch</h1>
   <pre id="intercept-result">pending</pre>
+  <button id="request-button" type="button">Send request</button>
+  <button id="chained-request-button" type="button">Send redirected request</button>
+  <a id="forbidden-navigation" href="#">Leave supervised origin</a>
+  <pre id="click-result">idle</pre>
+  <pre id="chained-click-result">idle</pre>
   <script>
+    const forbiddenUrl = new URL('/index.html', window.location.href);
+    forbiddenUrl.hostname = window.location.hostname === '127.0.0.1'
+      ? 'localhost'
+      : '127.0.0.1';
+    document.getElementById('forbidden-navigation').href = forbiddenUrl.href;
+
     async function statusOf(path) {
       try {
         const response = await fetch(path, {method: path.includes('echo') ? 'POST' : 'GET'});
@@ -20,6 +31,28 @@
       statusOf('/api/echo')
     ]).then(items => {
       document.getElementById('intercept-result').textContent = items.join('|');
+    });
+
+    document.getElementById('request-button').addEventListener('click', async () => {
+      const result = document.getElementById('click-result');
+      result.textContent = 'pending';
+      try {
+        const response = await fetch('/api/echo', {method: 'DELETE'});
+        result.textContent = `DELETE /api/echo:${response.status}`;
+      } catch (error) {
+        result.textContent = 'DELETE /api/echo:ERR';
+      }
+    });
+
+    document.getElementById('chained-request-button').addEventListener('click', async () => {
+      const result = document.getElementById('chained-click-result');
+      result.textContent = 'pending';
+      try {
+        const response = await fetch('/api/redirect-echo');
+        result.textContent = `GET /api/redirect-echo:${response.status}`;
+      } catch (error) {
+        result.textContent = 'GET /api/redirect-echo:ERR';
+      }
     });
   </script>
 </body>

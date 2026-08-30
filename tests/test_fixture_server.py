@@ -27,7 +27,17 @@ PAGES_MARKERS = {
     "/iframe.html": ['src="/child.html"'],
     "/child.html": ['id="child-marker"'],
     "/long.html": ['id="long-title"', 'id="long-bottom"', "Bottom-of-page marker"],
-    "/intercept.html": ['id="intercept-result"', "/api/status/500", "/api/echo"],
+    "/intercept.html": [
+        'id="intercept-result"',
+        'id="request-button"',
+        'id="chained-request-button"',
+        'id="forbidden-navigation"',
+        'id="click-result"',
+        "/api/status/500",
+        "/api/echo",
+        "/api/redirect-echo",
+        "DELETE",
+    ],
     "/interactions-rich.html": [
         'id="hidden-button"',
         'id="disabled-button"',
@@ -96,6 +106,13 @@ def test_api_status_codes(fixtures_http):
         assert status == code
 
 
+def test_api_redirect_echo(fixtures_http):
+    status, body, _ = _get(fixtures_http.base_url, "/api/redirect-echo")
+
+    assert status == 200
+    assert json.loads(body) == {"method": "GET", "path": "/api/echo", "body": ""}
+
+
 def test_api_slow_actually_waits(fixtures_http):
     """/api/slow imposes a real, measurable latency, not merely a declared
     one: essential for exercising timeouts on the browser side."""
@@ -124,73 +141,21 @@ def test_api_echo_post(fixtures_http):
     assert data == {"method": "POST", "path": "/api/echo", "body": "payload"}
 
 
+def test_api_echo_delete(fixtures_http):
+    """The click-interception fixture can prove its normal post-cleanup path."""
+    req = urllib.request.Request(fixtures_http.base_url + "/api/echo", method="DELETE")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        data = json.loads(response.read())
+
+    assert data == {"method": "DELETE", "path": "/api/echo", "body": ""}
+
+
 def test_api_set_cookie(fixtures_http):
     """The reference server can set a cookie via the HTTP header, raw
     material for state and sensitive-value redaction scenarios."""
     _, _, headers = _get(fixtures_http.base_url, "/api/set-cookie")
     #: the deterministic Set-Cookie expected by state scenarios is emitted
     assert "fixture=on" in headers.get("Set-Cookie", "")
-
-
-def test_api_profiler_sim(fixtures_http):
-    """The Symfony profiler simulation exposes the X-Debug-Token-Link
-    header, the entry point the audit primitive follows to find the panels."""
-    status, body, headers = _get(fixtures_http.base_url, "/api/profiler-sim")
-    #: the response identifies itself as a simulation and its header points
-    #: to the fixed token, exactly as a real Symfony dev app would
-    assert status == 200 and json.loads(body)["profiler"] == "sim"
-    assert headers["X-Debug-Token-Link"].endswith("/_profiler/fixed-token")
-
-
-def test_api_profiler_sim_never_reflects_the_request_host(fixtures_http):
-    """The simulated profiler link is derived from the loopback server,
-    never from an untrusted Host header that could split the response."""
-    req = urllib.request.Request(fixtures_http.base_url + "/api/profiler-sim")
-    req.add_header("Host", "attacker.example")
-    with urllib.request.urlopen(req, timeout=5) as response:
-        token_link = response.headers["X-Debug-Token-Link"]
-
-    assert token_link == f"{fixtures_http.base_url}/_profiler/fixed-token"
-    assert "attacker.example" not in token_link
-
-
-PROFILER_PANEL_MARKERS = {
-    "db": ["Database Queries", "Different statements"],
-    "twig": ["Template Calls", "Rendered Templates"],
-    "cache": ["Total hits", "app.scenario_pool"],
-    "exception": ["No exception was thrown"],
-    "http_client": ["Total requests"],
-    "messenger": ["messenger.bus.default"],
-    "request": ["_route", "status-response-status-code"],
-    "time": ["Total execution time"],
-    "logger": ["Deprecations"],
-}
-
-
-def test_profiler_serves_panel_html(fixtures_http):
-    """Every simulated profiler panel is served in HTML with the labels
-    the audit primitive extracts; with no parameter we fall back to the
-    request panel, and an unknown panel fails plainly."""
-    for panel, markers in PROFILER_PANEL_MARKERS.items():
-        status, body, headers = _get(
-            fixtures_http.base_url, f"/_profiler/fixed-token?panel={panel}"
-        )
-        #: the panel is served in HTML, like the real Symfony profiler
-        assert status == 200, f"panel {panel} -> {status}"
-        assert headers["Content-Type"].startswith("text/html"), panel
-        for marker in markers:
-            #: the labels the audit primitive spots are present in the
-            #: panel's HTML
-            assert marker in body, f"marker '{marker}' missing from panel {panel}"
-    # with no parameter: request panel; unknown panel: 404
-    status, body, _ = _get(fixtures_http.base_url, "/_profiler/fixed-token")
-    #: the absence of a parameter falls back to the request panel by
-    #: default, aligned with the real profiler's behavior
-    assert status == 200 and "_route" in body
-    status, _, _ = _get(fixtures_http.base_url, "/_profiler/fixed-token?panel=nope")
-    #: a nonexistent panel responds 404 instead of serving empty HTML that
-    #: would mask a typo on the audit side
-    assert status == 404
 
 
 def test_path_traversal_blocked(fixtures_http):

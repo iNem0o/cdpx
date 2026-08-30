@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from cdpx import discovery, proof
+from cdpx import discovery, proof, scenarios
 from cdpx.action_model import ClickAction, GotoAction, TypeAction
 from cdpx.client import CDPClient
 from cdpx.orchestration import OrchestrationContext
@@ -52,6 +52,7 @@ from cdpx.testing.e2e import (
     wait_for_chrome,
 )
 from cdpx.testing.evidence import ARTIFACT_TYPES
+from cdpx.testing.fixture_server import FixtureServer
 
 SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
 
@@ -209,6 +210,96 @@ def test_cli_dom_and_keyboard_black_box(cli_page, evidence_case, monkeypatch):
     assert 'data-state="submitted"' in html["html"]
     assert "OK:Keyboard E2E" in html["html"]
     attach_cli_screenshot(evidence_case, session)
+
+
+@pytest.mark.scenario(
+    feature="orchestration-control",
+    journey="scenario-run",
+    scenario_id="orchestration-control.type-secret-into-cross-origin-frame",
+    proves=["A real cross-origin field receives a referenced secret without a screenshot."],
+)
+def test_declarative_scenario_types_secret_into_cross_origin_frame(
+    chrome, tmp_path, monkeypatch, evidence_case
+):
+    """The scenario runner focuses a real cross-origin iframe through the
+    browser input pipeline and inserts the secret into its sole card-like
+    field without producing a screenshot after the sensitive step."""
+    outer_root = tmp_path / "outer"
+    frame_root = tmp_path / "frame"
+    outer_root.mkdir()
+    frame_root.mkdir()
+    (frame_root / "field.html").write_text(
+        "<!doctype html><style>"
+        "html,body,input{box-sizing:border-box;width:100%;height:100%;margin:0}"
+        '</style><input id="card-number" autocomplete="cc-number" autofocus>',
+        encoding="utf-8",
+    )
+    with FixtureServer(frame_root) as frame_server:
+        (outer_root / "checkout.html").write_text(
+            f"""<!doctype html><iframe class="card-number"
+            src="{frame_server.base_url}/field.html"
+            style="width:320px;height:56px;border:0"></iframe>""",
+            encoding="utf-8",
+        )
+        with FixtureServer(outer_root) as outer_server:
+            secret = "4242424242424242"
+            monkeypatch.setenv("E2E_CARD_NUMBER", secret)
+            scenario = scenarios.parse(
+                {
+                    "name": "cross_origin_card",
+                    "context": {"base_url": outer_server.base_url},
+                    "steps": [
+                        {"goto": "/checkout.html"},
+                        {"wait_visible": "iframe.card-number"},
+                        {
+                            "frame_type": {
+                                "selector": "iframe.card-number",
+                                "frame_origin": frame_server.base_url,
+                                "secret_ref": "E2E_CARD_NUMBER",
+                            }
+                        },
+                    ],
+                    "artifacts": [],
+                }
+            )
+            target = discovery.new_tab("127.0.0.1", chrome, "about:blank")
+            try:
+                with CDPClient(target["webSocketDebuggerUrl"], timeout=15) as client:
+                    result = scenarios.run(
+                        client,
+                        scenario,
+                        evidence_root=tmp_path / "evidence",
+                        context=OrchestrationContext.from_origins("http://127.0.0.1:*"),
+                        settle=0,
+                    )
+                    frame_tree = client.send("Page.getFrameTree")["frameTree"]
+                    child_frame = frame_tree["childFrames"][0]["frame"]["id"]
+                    world = client.send(
+                        "Page.createIsolatedWorld",
+                        {"frameId": child_frame, "worldName": "cdpx-e2e-verification"},
+                    )
+                    observed = client.send(
+                        "Runtime.evaluate",
+                        {
+                            "expression": "document.querySelector('#card-number').value",
+                            "contextId": world["executionContextId"],
+                            "returnByValue": True,
+                        },
+                    )["result"]["value"]
+            finally:
+                discovery.close_tab("127.0.0.1", chrome, target["id"])
+
+    assert result["verdict"] == "pass"
+    assert result["artifacts"] == []
+    assert observed == secret
+    if evidence_case is not None:
+        evidence_case.attach_command_output(
+            "frame-type-result",
+            ["cdpx", "scenario", "run", "cross-origin-card.yml"],
+            json.dumps(result, ensure_ascii=False),
+            "",
+            0,
+        )
 
 
 @pytest.mark.scenario(
@@ -1835,7 +1926,13 @@ def test_navigate_and_read_title(page):
     assert js.evaluate(c, "document.title") == "cdpx fixtures — home"
 
 
-def test_wait_for_late_spa_content(page):
+@pytest.mark.scenario(
+    feature="browser-navigation",
+    journey="wait-spa-content",
+    scenario_id="browser-navigation.wait-for-rendered-state",
+    proves=["Real Chrome waits for DOM content injected after the initial page load."],
+)
+def test_wait_for_late_spa_content(page, evidence_case):
     """wait_for genuinely waits for content injected late by an SPA instead
     of concluding on the first pass."""
     c, base = page
@@ -1844,6 +1941,7 @@ def test_wait_for_late_spa_content(page):
     #: the element is found and the measured delay proves a real wait
     #: (the fixture only injects the content after ~250 ms)
     assert res["found"] and res["elapsed_ms"] >= 250
+    attach_screenshot(evidence_case, c, "late-spa-content")
 
 
 def test_form_click_and_type(page):
@@ -1929,6 +2027,19 @@ def test_rich_interactions_enforce_hit_test_and_clear_with_input_events(page):
     assert snapshot["mirror"] == "resh "
 
 
+def test_key_events_complete_a_segmented_code_widget_in_real_chrome(page):
+    """Discrete trusted key events drive focus across a six-field OTP control."""
+    c, base = page
+    nav.navigate(c, f"{base}/interactions-rich.html")
+
+    result = inputs.type_text(c, ".code-digit", "012345", mode="key_events")
+
+    assert result["mode"] == "key_events"
+    snapshot = js.evaluate(c, "window.interactionFixture.snapshot()")
+    assert snapshot["segmentedCode"] == "012345"
+    assert snapshot["segmentedComplete"] == "complete"
+
+
 def test_console_capture_real(page):
     """The windowed console capture observes both the logs AND the
     exceptions emitted by a real page, with an aggregated error count."""
@@ -1954,29 +2065,13 @@ def test_network_capture_real(page):
     assert any("/api/json" in u for u in urls)
 
 
-def test_profiler_fixture_real(page):
-    """The Symfony profiler reader extracts panel metrics via a real
-    page-context fetch, without ever leaking the profiler's token into the
-    output."""
-    # real page-context fetch: Chrome goes and fetches the fixture server's
-    # HTML panels and the parsers extract the fixed values from them.
-    c, base = page
-    res = dev.profiler(c, f"{base}/api/profiler-sim")
-    #: the token's presence is reported but its value appears nowhere
-    assert res["token_present"] is True
-    assert "token" not in res and "fixed-token" not in json.dumps(res)
-    #: each panel (db, cache, router, exception, logger) is parsed with the
-    #: fixed values served by the fixture
-    assert res["profiler_status"] == 200
-    assert res["panels"]["db"]["queries"] == 6
-    assert res["panels"]["db"]["duplicates"] == 4
-    assert res["panels"]["cache"]["hits"] == 3
-    assert res["panels"]["router"]["route"] == "scenario_profiler"
-    assert res["panels"]["exception"]["raised"] is False
-    assert res["panels"]["logger"]["deprecations"] == 2
-
-
-def test_dom_diff_real(page):
+@pytest.mark.scenario(
+    feature="dev-profiler-diff",
+    journey="diff-dom-action",
+    scenario_id="dev-profiler-diff.diff-dom-after-action",
+    proves=["A real Chrome action produces a readable DOM diff and screenshot."],
+)
+def test_dom_diff_real(page, evidence_case):
     """dom-diff executes the enclosed action and makes the DOM change it
     triggers readable."""
     c, base = page
@@ -1986,6 +2081,7 @@ def test_dom_diff_real(page):
     #: the diff materializes the mutation triggered by the click (transition to submitted state)
     assert res["changed"] is True
     assert any("submitted" in line for line in res["diff"])
+    attach_screenshot(evidence_case, c, "dom-diff-after-action")
 
 
 def test_a11y_and_frame_real(page):
@@ -2042,6 +2138,117 @@ def test_intercept_real_fulfill_block_continue(page):
     assert "/api/json:200" in text
     assert "/api/status/500:204" in text
     assert "/api/slow?ms=120:ERR" in text
+
+
+def test_intercept_click_real_cli_and_cleanup_isolation(cli_page, evidence_case):
+    """A trusted click receives the forced response, then Fetch is gone."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    intercepted = cli_json(
+        session,
+        "intercept",
+        "--rule",
+        "*api/echo* => 503",
+        "--settle",
+        "0.5",
+        "click",
+        "#request-button",
+    )
+
+    assert intercepted["action"]["argv"] == ["click", "#request-button"]
+    assert intercepted["matched_count"] >= 1 and intercepted["effective_count"] >= 1
+    assert any(hit["action"] == "503" and "/api/echo" in hit["url"] for hit in intercepted["hits"])
+    assert cli_json(session, "text", "#click-result")["text"] == "DELETE /api/echo:503"
+
+    cli_json(session, "click", "#request-button")
+    deadline = time.monotonic() + 3
+    normal_text = ""
+    while time.monotonic() < deadline:
+        normal_text = cli_json(session, "text", "#click-result")["text"] or ""
+        if normal_text.endswith(":200"):
+            break
+        time.sleep(0.05)
+
+    assert normal_text == "DELETE /api/echo:200"
+    attach_cli_screenshot(evidence_case, session, "intercept-click-cleanup")
+
+
+def test_intercept_click_zero_settle_releases_redirect_pause_real(cli_page, evidence_case):
+    """A redirect paused while resolving the snapshot is continued during cleanup."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    intercepted = cli_json(
+        session,
+        "intercept",
+        "--rule",
+        "*redirect-echo* => continue",
+        "--settle",
+        "0",
+        "click",
+        "#chained-request-button",
+    )
+
+    # A zero settle window includes only events synchronously buffered by the
+    # click response; Chrome may deliver this pause just before or after that
+    # snapshot, so cleanup correctness is proved by the completed request.
+    assert intercepted["matched_count"] in {0, 1}
+    assert intercepted["effective_count"] == 0
+    deadline = time.monotonic() + 3
+    text = ""
+    while time.monotonic() < deadline:
+        text = cli_json(session, "text", "#chained-click-result")["text"] or ""
+        if text.endswith(":200"):
+            break
+        time.sleep(0.05)
+
+    assert text == "GET /api/redirect-echo:200"
+    attach_cli_screenshot(evidence_case, session, "intercept-zero-settle-cleanup")
+
+
+def test_intercept_click_real_leaves_forbidden_document_untouched(cli_page, evidence_case):
+    """A forbidden top-level document passes unchanged before origin denial."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    proc = run_cli(
+        manifest,
+        path,
+        "intercept",
+        "--rule",
+        "* => 503",
+        "--settle",
+        "0.5",
+        "click",
+        "#forbidden-navigation",
+    )
+    attach_cli_run(evidence_case, "intercept-click-forbidden-origin", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            main_title = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
+                    break
+                time.sleep(0.05)
+            assert current_url.startswith("http://localhost:")
+            assert main_title == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "intercept-forbidden-document-continued")
+    finally:
+        # Navigation itself is the page's natural click effect. Restore the
+        # shared supervised target to its allowed origin for following tests.
+        cli_json(session, "goto", f"{base}/intercept.html")
 
 
 def test_vitals_real_with_interaction(page):
@@ -2241,6 +2448,9 @@ def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
     src = SCENARIO_FIXTURES / template
     dest = tmp_path / template
     dest.write_text(src.read_text(encoding="utf-8").replace("__BASE_URL__", base_url), "utf-8")
+    fragment_source = SCENARIO_FIXTURES / "fragments"
+    if fragment_source.is_dir():
+        shutil.copytree(fragment_source, tmp_path / "fragments", dirs_exist_ok=True)
     return dest
 
 
@@ -2284,7 +2494,7 @@ def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
-    scenario_id="orchestration-control.run-declarative-business-scenario",
+    scenario_id="orchestration-control.run-declarative-business-scenario-in-chrome",
     proves=[
         "A YAML scenario drives a real browser through form navigation and interaction.",
         "Checkpoint and final artifacts are collected as proof files.",
@@ -2304,6 +2514,13 @@ def test_declarative_scenario_static_form_real(
     #: the business scenario ends with the expected verdict, with diagnostics attached on failure
     assert code == 0, f"stderr={err}\nresult={json.dumps(result, ensure_ascii=False, indent=2)}"
     assert result["verdict"] == "pass"
+    #: the real-browser journey was compiled from the reusable interaction
+    #: fragment, and its qualified labels survive into the evidence result
+    assert any(step["label"] == "form.submit" for step in result["steps"])
+    assert any(
+        dependency["path"] == "fragments/static_form_interaction.yml"
+        for dependency in result["composition"]["dependencies"]
+    )
     #: the checkpoint and end-of-flow visual proofs are indeed collected
     assert any(artifact["label"] == "form_page" for artifact in result["artifacts"])
     assert any(artifact["label"] == "final" for artifact in result["artifacts"])
@@ -2312,7 +2529,7 @@ def test_declarative_scenario_static_form_real(
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
-    scenario_id="orchestration-control.run-declarative-business-scenario",
+    scenario_id="orchestration-control.run-declarative-business-scenario-in-chrome",
     proves=[
         "A YAML scenario returns one fail verdict when console and network assertions fail.",
         "Failure evidence still includes checkpoint and final artifacts.",

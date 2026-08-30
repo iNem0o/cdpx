@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from html.parser import HTMLParser
 from typing import Any
 
@@ -157,6 +158,7 @@ class _TablesParser(HTMLParser):
         self._head: list[str] = []
         self.heading = ""
         self._table_at: int | None = None
+        self._nested_table_at: int | None = None
         self._cell_at: int | None = None
         self._cell: list[str] = []
         self._row: list[str] = []
@@ -173,12 +175,18 @@ class _TablesParser(HTMLParser):
             return
         if self._skip_at is not None:
             return
+        if self._nested_table_at is not None:
+            return
         if tag in ("h2", "h3", "h4") and self._heading_at is None:
             self._heading_at = self._depth
             self._head = []
-        if tag == "table" and self._table_at is None:
-            self._table_at = self._depth
-            self._current = {"heading": self.heading, "headers": [], "rows": []}
+        if tag == "table":
+            if self._table_at is None:
+                self._table_at = self._depth
+                self._current = {"heading": self.heading, "headers": [], "rows": []}
+            else:
+                self._nested_table_at = self._depth
+                return
         if self._table_at is None:
             return
         if tag == "tr":
@@ -201,6 +209,11 @@ class _TablesParser(HTMLParser):
                 self._skip_at = None
                 self._depth = max(0, self._depth - 1)
             return
+        if self._nested_table_at is not None:
+            if self._nested_table_at == self._depth and tag == "table":
+                self._nested_table_at = None
+            self._depth = max(0, self._depth - 1)
+            return
         if self._heading_at == self._depth:
             self.heading = _norm("".join(self._head))
             self._heading_at = None
@@ -222,7 +235,7 @@ class _TablesParser(HTMLParser):
         self._depth = max(0, self._depth - 1)
 
     def handle_data(self, data: str) -> None:
-        if self._skip_at is not None:
+        if self._skip_at is not None or self._nested_table_at is not None:
             return
         if self._heading_at is not None:
             self._head.append(data)
@@ -242,9 +255,34 @@ def _tables(html: str) -> list[dict[str, Any]]:
     return parser.tables
 
 
+class _MenuParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.items: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        href = dict(attrs).get("href")
+        if not href:
+            return
+        query = urllib.parse.urlsplit(href).query
+        values = urllib.parse.parse_qs(query).get("panel", [])
+        for value in values:
+            if value and value not in self.items:
+                self.items.append(value)
+
+
+def _menu_items(html: str) -> list[str]:
+    """Ordered, decoded collector IDs advertised by profiler links."""
+    parser = _MenuParser()
+    parser.feed(html)
+    return parser.items
+
+
 def _menu(html: str) -> set[str]:
-    """Panels advertised by the sidebar (?panel=X links). Best-effort cross-check."""
-    return set(re.findall(r'href="[^"]*[?&](?:amp;)?panel=([a-zA-Z_]+)"', html))
+    """Collector set advertised by the sidebar; kept for parser cross-checks."""
+    return set(_menu_items(html))
 
 
 def _metric(

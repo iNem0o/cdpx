@@ -4,13 +4,13 @@ cdpx is supervised browser automation for coding agents and the developers
 steering them: it turns a disposable development Chrome into a scriptable,
 measurable and policy-bound interface. Focused Chrome DevTools Protocol
 actions cover rendered-page inspection, trusted user input, audits, state
-control and reproducible browser evidence — proven on Symfony development,
-e-commerce journeys and SEO work.
+control and reproducible browser evidence — proven on Symfony and Shopware
+development, e-commerce journeys and SEO work.
 
 One command performs one browser action. stdout contains one JSON object,
 stderr carries diagnostics, and exit codes remain stable. The same commands
-run against the deterministic mock, a real Chrome and the Dockerized Symfony
-reference application.
+run against the deterministic mock, a real Chrome and Dockerized Symfony and
+Shopware reference applications.
 
 > **Version 0.1.4 — pre-1.0 beta.** The supported surface is documented and
 > tested end to end. Contract changes remain possible before 1.0 and are
@@ -165,8 +165,9 @@ workflows:
 - `--limit`, `--full` and `--max-actions` make volume and action budgets
   explicit.
 - `--timeout` bounds browser and lifecycle waits.
-- `--session`, `--run-id` and `--target`, or their matching environment
-  variables, must identify the complete supervised assignment.
+- Browser commands require `--session`, `--run-id` and `--target`, or their
+  matching environment variables, to identify the complete supervised
+  assignment. `cdpx scenario validate FILE` is deliberately browser-free.
 - `CDPX_TRUST_CA_DIR` and `CDPX_IGNORE_TLS_ERRORS` bridge the
   `runtime.trust_ca` and `session.ignore_tls_errors` configuration into the
   container, so a session can reach local HTTPS served behind a development
@@ -176,6 +177,11 @@ Authorities are cumulative: `observation` permits bounded reads,
 `interaction` adds trusted input, and `privileged` covers JavaScript,
 cookies, storage, profiler access, interception and emulation. Composed
 commands are checked before the first browser effect.
+
+Versioned `cdpx.scenario/v1` journeys may include reusable local
+`cdpx.scenario-fragment/v1` step files. Run `cdpx scenario validate FILE`
+without a browser session to inspect the flattened order, qualified labels,
+authority, secret references, dependency hashes and composition digest.
 
 Sensitive input stays out of argv and journals through `--secret-env`,
 `--value-env`, `@env:NAME` and scenario `secret_ref` references. Cookie and
@@ -227,6 +233,7 @@ Developing cdpx:
 - [Release procedure](docs/RELEASING.md)
 - [Release architecture](docs/RELEASE-ARCHITECTURE.md)
 - [OCI runtime architecture decision](docs/architecture/decisions/0001-oci-runtime-and-digest-promotion.md)
+- [Typed scenario composition decision](docs/architecture/decisions/0002-compose-scenarios-with-typed-fragments.md)
 - [Contribution guide](CONTRIBUTING.md)
 
 The proof cockpit renders this curated documentation offline. Usage questions

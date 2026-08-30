@@ -277,7 +277,9 @@ def _all_documented_examples() -> list[tuple[str, str]]:
 @pytest.mark.scenario(
     feature="harness-proof-cockpit",
     journey="publish-proof",
-    scenario_id="harness-proof-cockpit.publish-feature-proof",
+    scenario_id="harness-proof-cockpit.publish-proof-contract",
+    target="fixture",
+    proof_level="contract",
     proves=["Every documented `cdpx ...` example is accepted by the real CLI parser."],
 )
 @pytest.mark.parametrize(

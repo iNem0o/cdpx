@@ -369,6 +369,8 @@ def test_session_start_export_prints_evalable_identity_lines(
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.mark-page-content-untrusted",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "Page content read under observation authority is labelled untrusted.",
         "An in-page instruction injection is returned as data, never obeyed.",
@@ -448,6 +450,27 @@ def test_session_authority_refuses_eval_before_any_cdp_command(mock, capsys, tmp
     #: the diagnostic explains what authority level would have been necessary
     assert code == 1 and "requires privileged" in err
     #: not a single CDP message: the authority check precedes the connection
+    assert mock.commands == []
+
+
+@pytest.mark.parametrize("authority", ["observation", "interaction"])
+def test_session_intercept_click_requires_privileged_before_any_cdp_command(
+    mock, capsys, tmp_path, authority
+):
+    manifest, _ = session_manifest(mock, tmp_path, authority=authority)
+
+    code, _, err = run_session(
+        mock,
+        capsys,
+        manifest,
+        "intercept",
+        "--rule",
+        "*api/echo* => 503",
+        "click",
+        "#request-button",
+    )
+
+    assert code == 1 and "requires privileged" in err
     assert mock.commands == []
 
 
@@ -719,6 +742,38 @@ steps:
     #: refusal is a usage error at YAML validation, localized to the step,
     #: before a single CDP message: no scenario step ran
     assert code == 2 and "secret_ref" in err and "steps[0]" in err
+    assert mock.commands == []
+
+
+def test_session_scenario_candidate_frame_type_requires_interaction_before_cdp(
+    mock, capsys, tmp_path, monkeypatch
+):
+    manifest, _ = session_manifest(
+        mock,
+        tmp_path,
+        authority="observation",
+        origins="http://*.test,https://*.test",
+    )
+    monkeypatch.setenv("CHECKOUT_CARD", "card-secret")
+    path = tmp_path / "candidate-frame.yml"
+    path.write_text(
+        """
+name: candidate-frame
+context:
+  base_url: http://demo.test
+steps:
+  - frame_type:
+      candidates:
+        - selector: iframe.card-number
+          frame_origin: https://frames.checkout.test
+          secret_ref: CHECKOUT_CARD
+""",
+        encoding="utf-8",
+    )
+
+    code, _, err = run_session(mock, capsys, manifest, "scenario", "run", str(path))
+
+    assert code == 1 and "requires interaction" in err
     assert mock.commands == []
 
 

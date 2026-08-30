@@ -8,7 +8,7 @@ FROM ${UV_IMAGE} AS uv
 FROM ${DOCKER_CLI_IMAGE} AS docker-cli
 
 FROM ${PYTHON_IMAGE} AS browser-base
-ARG CHROMIUM_VERSION=150.0.7871.181-1~deb12u1
+ARG CHROMIUM_VERSION=151.0.7922.173-1~deb12u1
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     CHROME_BIN=/usr/bin/chromium
@@ -93,7 +93,7 @@ COPY .github ./.github
 COPY AGENTS.md CLAUDE.md HARNESS.md CHANGELOG.md CONTRIBUTING.md CODE_OF_CONDUCT.md ./
 COPY SECURITY.md SUPPORT.md THIRD_PARTY_NOTICES.md MANIFEST.in ./
 COPY Dockerfile docker-bake.hcl Makefile dev cdpx ./
-COPY docker-compose.symfony-e2e.yml ./
+COPY docker-compose.symfony-e2e.yml docker-compose.shopware-e2e.yml ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     PYTHONPATH="/workspace/src:/workspace" \

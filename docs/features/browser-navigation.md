@@ -20,6 +20,20 @@ title = "Wait for content injected after the initial load"
 entrypoint = "cdpx wait"
 
 [[scenarios]]
+id = "handle-navigation-errors-contract"
+journey = "open-page"
+title = "Handle navigation errors through the CLI contract"
+ui_text = "A scripted CDP navigation failure becomes a diagnosed runtime error."
+report_text = "This contract scenario proves the CLI mapping from a CDP navigation error to stderr and exit 1; it does not claim that Chrome produced the error."
+given = "The protocol mock returns a navigation errorText."
+when = "cdpx goto handles the scripted response."
+then = "The CLI exits 1 and surfaces the reason without a success payload."
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_cli.py::test_goto*", "tests/test_primitives.py::test_navigate*"]
+expected_proofs = ["junit"]
+
+[[scenarios]]
 id = "open-page-success"
 journey = "open-page"
 title = "Successfully open a target page"
@@ -28,7 +42,9 @@ report_text = "This scenario proves that a user can request a navigation and obt
 given = "A local fixture page is available and Chrome exposes a debuggable target."
 when = "cdpx goto opens the URL and waits for the end of the page lifecycle."
 then = "The command returns a compact success payload and the page can be captured by the proof run."
-tests = ["tests/test_cli.py::test_goto", "tests/test_primitives.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_navigate*"]
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_navigate*", "tests/e2e/test_e2e_chrome.py::test_cli_browser_lifecycle*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -40,6 +56,8 @@ report_text = "This scenario proves the synchronization between the assigned tar
 given = "A target tab exists and a fixture can inject content after the initial load."
 when = "cdpx waits for a selector or inspects the target assigned to the session."
 then = "The target is assigned and the expected selector is attached to the DOM for the following primitives."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/test_discovery_and_client.py::*", "tests/test_cli.py::test_tabs*", "tests/test_primitives.py::test_wait*", "tests/e2e/test_e2e_chrome.py::test_wait*"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -52,6 +70,8 @@ report_text = "This scenario proves that CDP transport failures exit with a diag
 given = "A CDP transport scripted to fail at connection, at send, or during collection, and negative time budgets."
 when = "The CLI runs a browser command and the primitives validate their budget before emitting."
 then = "Every transport failure returns exit 1 with its reason on stderr and no CDP message is emitted for an invalid budget."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_cli.py::test_connection_failure_exits_1*", "tests/test_cli.py::test_send_failure_exits_1*", "tests/test_cli.py::test_transport_failure_exits_1*", "tests/test_primitives.py::test_event_primitives_reject_negative_budgets*"]
 expected_proofs = ["junit"]
 

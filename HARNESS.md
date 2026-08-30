@@ -163,7 +163,7 @@ continues.
 
 - Short loop: `./dev check-local` (Ruff, format, mypy, unit tests).
   Mandatory gate: `./dev check`, which adds Docker, real Chrome and real
-  Symfony.
+  Symfony and Shopware runtimes.
 - Unit tests: loopback, deterministic, no external network, no browser.
 - The mock records the emitted protocol: a test validates JSON output
   **and** CDP sequence. Security tests add canaries and check stdout,
@@ -171,6 +171,12 @@ continues.
 - Real-Chrome E2E are blocking. The sessions scenario launches several
   simultaneous profiles and proves cookies/storage isolation, grants,
   lease and teardown.
+- Every documented proof scenario declares exactly one supported
+  `target`/`proof_level` pair: `cdp-mock/contract`, `fixture/contract`,
+  `chrome/runtime`, `symfony/runtime` or `shopware/runtime`. A named external
+  compatibility may be `validated` only when its exact runtime scenario
+  passed; a mock, fixture or browser in front of a fixture server cannot
+  satisfy that guard.
 
 ## 6. Supervision and human steering
 

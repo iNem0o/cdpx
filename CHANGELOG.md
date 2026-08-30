@@ -3,6 +3,77 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Scenario `profiler` captures now accept explicit panels and an optional
+  request selector over path prefix, Document/XHR/Fetch type and HTTP method.
+  Explicit selectors fail closed instead of silently profiling the current
+  document, while artifacts record safe selection metadata.
+- `cdpx profiler` now probes advertised collector IDs and reports a bounded
+  `profile` descriptor. A composable Shopware adapter selects the DAL
+  collector directly and exposes active rules and cache-tag emissions through
+  stable semantic panels.
+- `cdpx profiler` now exposes lightweight `shopware_feature_flags` by default
+  and bounded `shopware_cart` diagnostics only through an explicit panel or
+  `--panels all`. Cart keeps localized display strings and pipeline priorities
+  while deliberately omitting hidden dumps, payloads and serialized objects.
+- Database profiler output now extracts leading Shopware DAL query tags and
+  their best-effort source location without changing the existing query and
+  repetition lists.
+- Versioned `cdpx.scenario/v1` journeys can compose nested local
+  `cdpx.scenario-fragment/v1` step files through explicit `include` nodes.
+  Expansion is deterministic, workspace-confined and cycle/budget guarded;
+  run results carry qualified labels, source provenance, dependency hashes
+  and a composition digest.
+- `cdpx scenario validate <file.yml>` compiles and inspects a complete
+  scenario without a browser session or secret materialization, reporting
+  its ordered plan, required authority and referenced environment names.
+- Public JSON Schemas describe executable scenarios and reusable fragments.
+- `cdpx intercept` can compose a trusted `click <selector>` as well as
+  `goto <url>`, report matched and effective request counts, and explicitly
+  disable Fetch after success or failure so interception cannot leak into the
+  next action.
+
+### Changed
+
+- Profiler panel selection is now defined by reusable panel specs: an omitted
+  `--panels` selects lightweight defaults, while `--panels all` also fetches
+  extended panels whose collector IDs were advertised by the common probe.
+- Click interception now validates top-level document destinations before a
+  rule can affect them, and short or zero `--settle` periods drain buffered
+  requests without overrunning their quiet deadline.
+- Runtime and development images now pin Chromium 151.0.7922.173 from Debian
+  Bookworm security after the previous pinned package left the repository.
+
+### Fixed
+
+- Composed `type` actions now consume one timeout across actionability,
+  preparation, optional clearing and trusted key events, so a long referenced
+  secret cannot continue dispatching characters after its action budget. The
+  same deadline also bounds the current-origin checks between key events.
+- Scenario validation now reports non-string keys inside `frame_type`
+  candidates as exit-2 usage errors instead of leaking an internal traceback.
+- Direct Symfony and Shopware gates now pass the invoking UID/GID into Compose,
+  preserving ownership of their bind-mounted proof artifacts on Linux hosts.
+- Paced `frame_type` input now consumes the scenario timeout across frame
+  discovery, focus, origin guards, keyboard events and delays, and invalid
+  typing options fail before the hosted frame receives a click. Declared frame
+  origins must be concrete HTTP(S) origins, and printable punctuation now emits
+  its physical US-key metadata and modifiers.
+- Click interception now explicitly continues paused requests buffered after a
+  zero-settle snapshot, including events delivered while Fetch is being
+  disabled, preventing cleanup from leaving an observed request without a
+  protocol decision.
+- Declarative scenarios now expand `${NAME}`, `${NAME:-default}` and `$$` in
+  `context.base_url` before strict HTTP(S) origin preflight. Missing variables
+  fail as usage errors without exposing their values; scenario secrets remain
+  on the existing `secret_ref` path.
+- The embedded installer now resolves its public `/opt/cdpx/install` symlink
+  before locating the bundle, so it links `cdpx` to the bundled native entry
+  point instead of the nonexistent `/opt/bin/native-cdpx` path.
+
 ## [0.1.4] — 2026-07-23
 
 ### Added

@@ -14,11 +14,9 @@ API endpoints (in addition to the static files in tests/fixtures/):
   GET /api/json          -> fixed JSON payload
   GET /api/slow?ms=N     -> JSON payload after N milliseconds (default 200)
   GET /api/status/CODE   -> responds with the requested HTTP code
+  GET /api/redirect-echo -> redirects to /api/echo
   ANY /api/echo          -> returns method, path, body received
   GET /api/set-cookie    -> sets Set-Cookie: fixture=on
-  GET /api/profiler-sim  -> sets X-Debug-Token-Link to the fake Web Profiler
-  GET /_profiler/TOKEN?panel=X -> fixed panel HTML (tests/fixtures/profiler/X.html,
-                            real WebProfilerBundle markup trimmed down; default: request)
 """
 
 from __future__ import annotations
@@ -26,11 +24,9 @@ from __future__ import annotations
 import http.server
 import json
 import pathlib
-import re
 import threading
 import time
 import urllib.parse
-from typing import cast
 
 DEFAULT_FIXTURES = pathlib.Path(__file__).resolve().parents[3] / "tests" / "fixtures"
 
@@ -78,6 +74,9 @@ def _make_handler(root: pathlib.Path):
                 code = int(path.rsplit("/", 1)[1])
                 self._send(json.dumps({"status": code}).encode(), status=code)
                 return True
+            if path == "/api/redirect-echo":
+                self._send(b"", status=302, extra={"Location": "/api/echo"})
+                return True
             if path == "/api/echo":
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length).decode("utf-8", "replace") if length else ""
@@ -91,18 +90,6 @@ def _make_handler(root: pathlib.Path):
                     extra={"Set-Cookie": "fixture=on; Path=/"},
                 )
                 return True
-            if path == "/api/profiler-sim":
-                # The server is deliberately bound to loopback. Never reflect
-                # the request's Host header into a response header: besides
-                # making the fixture nondeterministic, that permits response
-                # splitting when a raw client supplies control characters.
-                server = cast(http.server.ThreadingHTTPServer, self.server)
-                port = server.server_port
-                self._send(
-                    json.dumps({"ok": True, "profiler": "sim"}).encode(),
-                    extra={"X-Debug-Token-Link": f"http://127.0.0.1:{port}/_profiler/fixed-token"},
-                )
-                return True
             return False
 
         def _serve(self):
@@ -110,15 +97,6 @@ def _make_handler(root: pathlib.Path):
             if parsed.path.startswith("/api/"):
                 if not self._api(parsed):
                     self._send(b'{"error": "unknown api"}', status=404)
-                return
-            if parsed.path.startswith("/_profiler/"):
-                qs = urllib.parse.parse_qs(parsed.query)
-                panel = qs.get("panel", ["request"])[0]
-                target = root / "profiler" / f"{panel}.html"
-                if not re.fullmatch(r"[a-z_]+", panel) or not target.is_file():
-                    self._send(b'{"error": "unknown panel"}', status=404)
-                    return
-                self._send(target.read_bytes(), ctype="text/html; charset=utf-8")
                 return
             rel = parsed.path.lstrip("/") or "index.html"
             target = (root / rel).resolve()
@@ -133,6 +111,7 @@ def _make_handler(root: pathlib.Path):
 
         do_GET = _serve
         do_POST = _serve
+        do_DELETE = _serve
 
     return Handler
 

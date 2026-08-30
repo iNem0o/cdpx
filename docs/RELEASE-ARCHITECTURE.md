@@ -1,7 +1,7 @@
 # Release architecture
 
 Every push to `main` that passes the amd64, arm64, macOS-launcher and full
-browser/Symfony gates produces an immutable GHCR candidate:
+browser/Symfony/Shopware gates produces an immutable GHCR candidate:
 `sha-COMMIT`, assembled from architecture-specific images. The workflow also
 exports embedded archives from those same candidate images.
 

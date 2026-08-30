@@ -1,3 +1,4 @@
+schema: cdpx.scenario/v1
 name: static_form_pass
 context:
   base_url: __BASE_URL__
@@ -5,17 +6,9 @@ steps:
   - label: form_page
     goto: /form.html
     capture: [screenshot, console, network]
-  - label: fill_name
-    type:
-      selector: "#name"
-      secret_ref: E2E_FORM_NAME
-      clear: true
-    capture: [console]
-  - label: submit
-    click: "#submit-btn"
-    capture: [screenshot, console]
-  - label: result
-    wait_text: ["#result", "OK:Leo"]
+  - include:
+      path: fragments/static_form_interaction.yml
+      as: form
 assertions:
   - no_console_errors: true
   - network_errors_max: 0

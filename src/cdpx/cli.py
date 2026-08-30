@@ -82,6 +82,8 @@ def _require_session_values(values: tuple[tuple[str, str | None], ...]) -> None:
 
 
 def _prepare_args(args: CommandInvocation) -> CommandInvocation:
+    if args.options.command == "scenario" and args.options.scenario_action == "validate":
+        return args
     if args.options.command == "session":
         if (
             args.options.session is not None

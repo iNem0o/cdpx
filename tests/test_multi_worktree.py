@@ -74,6 +74,8 @@ def _make_worktree_id(root: Path) -> str:
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
     scenario_id="harness-proof-cockpit.isolate-parallel-worktrees",
+    target="fixture",
+    proof_level="contract",
     proves=["Distinct worktrees emit disjoint Docker and artifact namespaces."],
 )
 def test_two_worktrees_emit_disjoint_docker_and_artifact_namespaces(tmp_path):
@@ -148,6 +150,8 @@ def test_two_worktrees_emit_disjoint_docker_and_artifact_namespaces(tmp_path):
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
     scenario_id="harness-proof-cockpit.isolate-parallel-worktrees",
+    target="fixture",
+    proof_level="contract",
     proves=["Distinct worktrees emit disjoint Docker and artifact namespaces."],
 )
 def test_proof_lock_refuses_two_writers_in_one_worktree(tmp_path, monkeypatch):
@@ -163,6 +167,8 @@ def test_proof_lock_refuses_two_writers_in_one_worktree(tmp_path, monkeypatch):
     feature="harness-proof-cockpit",
     journey="run-quality-gate",
     scenario_id="harness-proof-cockpit.isolate-parallel-worktrees",
+    target="fixture",
+    proof_level="contract",
     proves=["Distinct worktrees emit disjoint Docker and artifact namespaces."],
 )
 def test_proof_locks_of_distinct_worktrees_coexist(tmp_path, monkeypatch):

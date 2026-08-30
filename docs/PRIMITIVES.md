@@ -50,11 +50,12 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx count <selector>` | cheap assertion ("there really are 12 products") | quick check loop after an action |
 | `cdpx eval <js> [--await]` | root primitive: everything else | universal escape hatch; last resort (fragile, untyped) |
 | `cdpx click <selector>` | click via the Input domain (trusted) | requires attached, visible, enabled, stable, a non-zero box, and a center hit-test |
-| `cdpx type <selector> --secret-env NAME [--clear]` | fill a field from an environment reference | avoids the secret in argv; requires a visible/editable control, then IME-safe `Input.insertText` |
+| `cdpx type <selector> --secret-env NAME [--clear] [--key-events]` | fill a field from an environment reference | defaults to IME-safe `Input.insertText`; `--key-events` emits one trusted key sequence per printable ASCII character for segmented controls and rechecks the allowed origin between events |
 | `cdpx key <key>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
 
 ```bash
 cdpx type "#name" --secret-env CUSTOMER_NAME --clear
+cdpx type ".code-digit" --secret-env CHECKOUT_OTP --key-events
 cdpx key Enter
 cdpx text "#result"
 ```
@@ -117,11 +118,12 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 
 | CLI | Use case | Why |
 |---|---|---|
-| `cdpx profiler <url> [--settle s] [--panels ...]` | parse the Web Profiler panels of the last request (Doctrine, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs) | N+1s, SQL duplicates, and exceptions quantified by the agent without opening the browser; `X-Debug-Token-Link` + `X-Debug-Token` fallback, panel HTML parsed (no JSON API on the Symfony side) |
+| `cdpx profiler <url> [--settle s] [--panels ...]` | probe and parse the Web Profiler panels of the last request (Doctrine/DAL, Twig, cache, exceptions, HTTP client, Messenger, routing, time, logs, Shopware rules/cache tags/feature flags and opt-in Cart) | Collector IDs select composable panel specs before fetch; defaults stay lightweight, cache-tag rows and caller lists expose totals/truncation metadata, `--panels all` includes bounded Cart, and absent collectors cause no speculative request |
 | `cdpx dom-diff -- <action>` | before/after snapshot of an action → stable structural diff | see exactly what a click changed in the DOM |
 
 ```bash
 cdpx profiler http://app.localhost/api/cart
+cdpx profiler http://app.localhost/checkout/cart --panels shopware_cart
 cdpx dom-diff -- click "#submit-btn"
 ```
 
@@ -129,27 +131,67 @@ cdpx dom-diff -- click "#submit-btn"
 
 | CLI | Use case | Why |
 |---|---|---|
-| `cdpx intercept --rule "PATTERN => 503\|block\|continue" -- goto <url>` | mock/block requests during a navigation | composed command: `Fetch.enable` dies with the connection |
+| `cdpx intercept --rule "PATTERN => 503\|block\|continue" [--] goto <url>\|click <selector>` | mock/block requests during a navigation or trusted click | interception is armed before the composed action and explicitly removed afterward |
 | `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | mobile device, network/CPU throttling | composed form mandatory to act under emulation: overrides die with the connection |
 | `cdpx frame <selector>` | read inside a same-origin iframe — the selector targets an element **inside** the iframe's document, not the `<iframe>` tag | embedded content (payment, consent) |
 | `cdpx record [-o j.ndjson] -- <action>` | run ONE action and write a redacted `cdpx.record/v2` log | `type` replayable via `@env:NAME`; eval/sensitive literals not replayable |
 | `cdpx replay <j.ndjson>` | pre-validate then replay, stop at first divergence | rereads the actual URL after navigation and before mutation; `--max-actions` budget |
-| `cdpx scenario run <file.yml>` | run a declarative business journey | single pass/fail verdict, findings, and proof bundle |
+| `cdpx scenario validate <file.yml>` | compile a versioned scenario and its local fragments without Chrome | ordered plan, sources, authority, secret references, dependency hashes and digest |
+| `cdpx scenario run <file.yml>` | run a declarative business journey after expanding local step fragments | single verdict and proof bundle; structured profiler captures select panels and the last observed document/XHR/Fetch matching path, type and method |
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
+cdpx intercept --rule "*api/echo* => 503" --settle 1 click "#request-button"
 cdpx emulate mobile -- goto http://shop.localhost/
 cdpx record -o journey.ndjson -- click "#add-to-cart"
 cdpx --max-actions 20 replay journey.ndjson
+cdpx --max-actions 20 scenario validate checkout_guest_add_to_cart.yml
 cdpx scenario run checkout_guest_add_to_cart.yml
 ```
 
 An interception rule accepts only `continue`, `block`, or a `200..599`
-status; any typo is rejected at parse time. In a scenario, `wait_visible`
-genuinely checks attachment, display/visibility, and a non-zero box, and a
-`type` step requires `secret_ref` (the plain `[selector, text]` form is
-rejected at validation). The final console/network drain precedes the
-assertions.
+status; any typo is rejected at parse time. `intercept` composes only with
+`goto` and `click`, always requires `privileged`, resolves every paused
+request, and disables Fetch in cleanup even when the action fails. With
+`--settle 0`, events already buffered by the completed action are resolved,
+but CDPX does not wait for new traffic. A click-triggered top-level navigation
+is checked against the session origin allowlist before a rule can affect its
+document; a forbidden document continues untouched and the command fails.
+Subrequests remain eligible for interception independently of their origin.
+In a scenario, `wait_visible` genuinely checks attachment,
+display/visibility, and a non-zero box. Its deadline follows the bounded
+scenario `--timeout`, allowing supervised third-party widgets to opt into a
+longer wait. A `type` step requires `secret_ref`
+(the plain `[selector, text]` form is rejected at validation). `frame_type`
+types a referenced secret into a single-field cross-origin iframe only after
+the child frame's current document URL, read through CDP, matches the declared
+allowlisted origin. The URL is rechecked after focus and around secret input;
+paced key events stop if the frame navigates between characters. A `candidates`
+list can declare several selector/origin/secret-reference triples when the page
+chooses its PSP at runtime; exactly one must resolve and only its secret is
+typed. `mode: key_events` is available for PSP validation that requires trusted
+printable-ASCII keyboard events; `key_delay_ms` can pace those events from 0 to
+250 ms when a supervised widget needs human-like processing time. Every
+`frame_origin` is one exact HTTP(S) origin without wildcard, path or credentials;
+the session origin allowlist may remain broader. Frame lookup,
+focus, origin guards, input events and pacing share the scenario `--timeout`;
+expiration prevents any later character from being dispatched. Screenshots at
+or after that sensitive step, including final screenshots, are refused. The
+final console/network drain precedes the assertions. `context.base_url`
+accepts the
+same `${NAME}`, `${NAME:-default}` and `$$` interpolation grammar as
+`cdpx.yaml`; it is expanded during compilation and the result remains subject
+to the session's strict HTTP(S) origin allowlist. A missing variable fails as
+an exit-2 usage error naming only the variable; scenario secrets continue to
+use `secret_ref`. A structured profiler request requires at least one selector,
+refuses every explicit null selector value, and each step or final artifact list
+accepts at most one profiler capture across its short and structured forms.
+`cdpx.scenario/v1` files can
+place `{include: {path, as?}}` in `steps`; the referenced
+`cdpx.scenario-fragment/v1` file contributes steps at that exact position and
+inherits the root context. Paths are static, relative to the including file,
+workspace-confined and browser-free validation rejects cycles, duplicate
+aliases and expanded action budgets before opening CDP.
 
 Limits: `network` is not a HAR (no body or complete timeline), and `replay`
 only compares recorded non-volatile fields. A green replay only proves a

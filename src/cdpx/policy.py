@@ -157,7 +157,7 @@ COMMAND_SEMANTICS = {
     "intercept": _fixed(
         Authority.PRIVILEGED,
         destination_source="action-goto",
-        current_origin="never",
+        current_origin="action-non-navigation",
     ),
     "emulate": _fixed(
         Authority.PRIVILEGED,
@@ -323,6 +323,15 @@ def origin_from_url(url: str) -> str:
         port = None
     rendered_host = f"[{host}]" if ":" in host else host
     return f"{scheme}://{rendered_host}" + (f":{port}" if port is not None else "")
+
+
+def parse_exact_origin(value: str) -> str:
+    """Canonicalize one concrete HTTP(S) origin, never an allowlist pattern."""
+    origin = _canonical_origin_pattern(value)
+    _scheme, host, port = _origin_parts(origin)
+    if "*" in host or port == "*":
+        raise PolicyError(f"concrete origin without wildcards required: {value}")
+    return origin
 
 
 def assert_url_allowed(url: str, origins: tuple[str, ...]) -> None:

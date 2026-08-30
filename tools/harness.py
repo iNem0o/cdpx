@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from cdpx.proofing.suites import compose_project_name
 from tools.bump import bump
 
 
@@ -43,10 +45,14 @@ LOCAL_GATES = (
 )
 
 
-def run(command: tuple[str, ...] | list[str]) -> None:
+def run(
+    command: tuple[str, ...] | list[str],
+    *,
+    env: dict[str, str] | None = None,
+) -> None:
     rendered = " ".join(command)
     print(f"==> {rendered}", file=sys.stderr, flush=True)
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, env=env)
 
 
 def check_local() -> None:
@@ -56,8 +62,36 @@ def check_local() -> None:
 
 def check() -> None:
     # The proof pipeline is the full gate and already collects Ruff, mypy,
-    # unit, real Chrome and Symfony evidence exactly once.
+    # unit, real Chrome, Symfony and Shopware evidence exactly once.
     run((sys.executable, "-m", "cdpx.proof"))
+
+
+def framework_e2e(suite: str) -> None:
+    compose_files = {
+        "symfony": "docker-compose.symfony-e2e.yml",
+        "shopware": "docker-compose.shopware-e2e.yml",
+    }
+    compose_file = compose_files[suite]
+    command = (
+        "docker",
+        "compose",
+        "--project-name",
+        compose_project_name(),
+        "-f",
+        compose_file,
+    )
+    down = (*command, "down", "--volumes", "--remove-orphans")
+    compose_env = os.environ.copy()
+    compose_env["CDPX_E2E_UID"] = str(os.getuid())
+    compose_env["CDPX_E2E_GID"] = str(os.getgid())
+    run(down, env=compose_env)
+    try:
+        run(
+            (*command, "up", "--build", "--abort-on-container-exit", "--exit-code-from", "cdpx"),
+            env=compose_env,
+        )
+    finally:
+        run(down, env=compose_env)
 
 
 def format_sources() -> None:
@@ -102,7 +136,18 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="python -m tools.harness")
     root.add_argument(
         "command",
-        choices=("check-local", "check", "proof", "release", "fmt", "clean", "test-e2e", "bump"),
+        choices=(
+            "check-local",
+            "check",
+            "proof",
+            "release",
+            "fmt",
+            "clean",
+            "test-e2e",
+            "test-symfony-e2e",
+            "test-shopware-e2e",
+            "bump",
+        ),
     )
     root.add_argument("version", nargs="?", help="target X.Y.Z, required by bump")
     return root
@@ -128,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.version is None:
                 parser().error("bump requires a target version: bump X.Y.Z")
             bump(args.version)
+        elif args.command in {"test-symfony-e2e", "test-shopware-e2e"}:
+            framework_e2e(args.command.removeprefix("test-").removesuffix("-e2e"))
         else:
             run(("pytest", "tests/e2e", "-v"))
     except subprocess.CalledProcessError as error:

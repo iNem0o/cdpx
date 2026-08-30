@@ -33,6 +33,9 @@ from cdpx.proofing.private_io import _now, _secure_dir, _write_private_text
 from cdpx.security.redaction import RedactionContext, redact_text, redact_tree
 
 SYMFONY_NODEID = "tests/e2e/test_e2e_symfony.py::test_profiler_reads_real_symfony_web_profiler"
+SHOPWARE_NODEID = (
+    "tests/e2e/test_e2e_shopware.py::test_profiler_reads_real_shopware_connection_collector"
+)
 
 StreamAndCollect = Callable[..., tuple[int, bool, str]]
 RunText = Callable[..., tuple[int, str]]
@@ -125,39 +128,49 @@ def _write_command_log(
     )
 
 
-def write_symfony_unavailable_evidence(
+def _write_external_unavailable_evidence(
     reason: str,
     *,
+    suite: str,
+    nodeid: str,
+    title: str,
+    scenario_id: str,
+    target: str,
+    log_label: str,
     redaction_context: RedactionContext | None = None,
     proof_dir: Path | None = None,
-    symfony_log: Path,
+    suite_log: Path,
     evidence_dir: Path,
 ) -> None:
     context = redaction_context or redaction_context_from_environment()
     # Same derivation rule as run_symfony_evidence: without proof_dir, the
     # paths resolved by the facade (monkeypatchable) are authoritative; the
     # pipeline passes the staging.
-    log_path = symfony_log if proof_dir is None else proof_dir / symfony_log.name
+    log_path = suite_log if proof_dir is None else proof_dir / suite_log.name
     evidence_root = evidence_dir if proof_dir is None else proof_dir / evidence_dir.name
     _secure_dir(evidence_root)
-    safe_reason = redact_text(reason, context=context, path="$.symfony.reason")
+    safe_reason = redact_text(reason, context=context, path=f"$.{suite}.reason")
     payload = {
         "schema": SCENARIOS_SCHEMA,
-        "suite": "symfony",
+        "suite": suite,
+        "target": target,
+        "proof_level": "runtime",
         "generated_at": _now(),
         "count": 1,
         "scenarios": [
             {
-                "nodeid": SYMFONY_NODEID,
-                "suite": "symfony",
-                "title": "Symfony Docker portal unavailable",
+                "nodeid": nodeid,
+                "suite": suite,
+                "target": target,
+                "proof_level": "runtime",
+                "title": title,
                 "area": "developer diagnostics",
                 "feature": "dev-profiler-diff",
                 "journey": "read-profiler",
-                "scenario_id": "dev-profiler-diff.read-symfony-profiler",
+                "scenario_id": scenario_id,
                 "proves": [
-                    "Symfony Docker e2e was requested by proof generation.",
-                    "Docker was unavailable, so the real Symfony scenario did not run.",
+                    f"{target.title()} Docker e2e was requested by proof generation.",
+                    f"Docker was unavailable, so the real {target.title()} scenario did not run.",
                 ],
                 "intent": "",
                 "intent_line": 0,
@@ -173,7 +186,7 @@ def write_symfony_unavailable_evidence(
                 "artifacts": [
                     {
                         "type": "logs",
-                        "label": "Symfony e2e availability log",
+                        "label": log_label,
                         "path": str(log_path),
                         "bytes": log_path.stat().st_size if log_path.exists() else 0,
                         "mime": "text/plain",
@@ -184,13 +197,64 @@ def write_symfony_unavailable_evidence(
         ],
     }
     _write_private_text(
-        evidence_root / "symfony-scenarios.json",
+        evidence_root / f"{suite}-scenarios.json",
         json.dumps(redact_tree(payload, context=context), ensure_ascii=False, indent=2) + "\n",
     )
 
 
-def run_symfony_evidence(
+def write_symfony_unavailable_evidence(
+    reason: str,
     *,
+    redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+    symfony_log: Path,
+    evidence_dir: Path,
+) -> None:
+    _write_external_unavailable_evidence(
+        reason,
+        suite="symfony",
+        nodeid=SYMFONY_NODEID,
+        title="Symfony Docker portal unavailable",
+        scenario_id="dev-profiler-diff.read-symfony-profiler",
+        target="symfony",
+        log_label="Symfony e2e availability log",
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        suite_log=symfony_log,
+        evidence_dir=evidence_dir,
+    )
+
+
+def write_shopware_unavailable_evidence(
+    reason: str,
+    *,
+    redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+    shopware_log: Path,
+    evidence_dir: Path,
+) -> None:
+    _write_external_unavailable_evidence(
+        reason,
+        suite="shopware",
+        nodeid=SHOPWARE_NODEID,
+        title="Shopware Docker portal unavailable",
+        scenario_id="dev-profiler-diff.read-shopware-profiler",
+        target="shopware",
+        log_label="Shopware e2e availability log",
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        suite_log=shopware_log,
+        evidence_dir=evidence_dir,
+    )
+
+
+def _run_external_evidence(
+    *,
+    suite: str,
+    label: str,
+    compose_file: str,
+    suite_log: Path,
+    unavailable_writer: Callable[..., None],
     redaction_context: RedactionContext | None = None,
     proof_dir: Path | None = None,
     timeout: float | None = None,
@@ -198,7 +262,6 @@ def run_symfony_evidence(
     run_text: RunText,
     stream_and_collect: StreamAndCollect,
     which: Callable[[str], str | None],
-    symfony_log: Path,
     evidence_dir: Path,
     default_proof_dir: Path,
 ) -> CommandEvidence:
@@ -206,7 +269,7 @@ def run_symfony_evidence(
     # Resolution at call time (facade side): without an explicit proof_dir,
     # the paths patched by the tests are authoritative; the pipeline passes
     # the staging.
-    log_path = symfony_log if proof_dir is None else proof_dir / symfony_log.name
+    log_path = suite_log if proof_dir is None else proof_dir / suite_log.name
     evidence_root = evidence_dir if proof_dir is None else proof_dir / evidence_dir.name
     project_name = compose_project_name()
     argv = [
@@ -215,7 +278,7 @@ def run_symfony_evidence(
         "--project-name",
         project_name,
         "-f",
-        "docker-compose.symfony-e2e.yml",
+        compose_file,
         "up",
         "--build",
         "--abort-on-container-exit",
@@ -236,7 +299,7 @@ def run_symfony_evidence(
 
     checks: list[str] = []
     if which("docker") is None:
-        reason = "Docker CLI not found; Symfony e2e is required for release proof."
+        reason = f"Docker CLI not found; {label} is required for release proof."
         _write_command_log(
             log_path,
             argv,
@@ -245,16 +308,16 @@ def run_symfony_evidence(
             "status: unavailable\nexit_code: 1",
             redaction_context=context,
         )
-        write_symfony_unavailable_evidence(
+        unavailable_writer(
             reason,
             redaction_context=context,
             proof_dir=proof_dir,
-            symfony_log=symfony_log,
+            **{f"{suite}_log": suite_log},
             evidence_dir=evidence_dir,
         )
         return CommandEvidence(
-            id="symfony-e2e",
-            label="Symfony E2E Docker",
+            id=f"{suite}-e2e",
+            label=label,
             argv=argv,
             log=str(log_path),
             exit_code=1,
@@ -266,9 +329,7 @@ def run_symfony_evidence(
         code, output = run_text(check_argv, timeout=15, env=compose_env)
         checks.append(f"$ {' '.join(check_argv)}\n{output.rstrip()}\nexit_code: {code}")
         if code != 0:
-            reason = (
-                "Docker is installed but unavailable; Symfony e2e is required for release proof."
-            )
+            reason = f"Docker is installed but unavailable; {label} is required for release proof."
             body = "\n\n".join(checks + [reason])
             _write_command_log(
                 log_path,
@@ -278,16 +339,16 @@ def run_symfony_evidence(
                 "status: unavailable\nexit_code: 1",
                 redaction_context=context,
             )
-            write_symfony_unavailable_evidence(
+            unavailable_writer(
                 reason,
                 redaction_context=context,
                 proof_dir=proof_dir,
-                symfony_log=symfony_log,
+                **{f"{suite}_log": suite_log},
                 evidence_dir=evidence_dir,
             )
             return CommandEvidence(
-                id="symfony-e2e",
-                label="Symfony E2E Docker",
+                id=f"{suite}-e2e",
+                label=label,
                 argv=argv,
                 log=str(log_path),
                 exit_code=1,
@@ -301,7 +362,7 @@ def run_symfony_evidence(
         "--project-name",
         project_name,
         "-f",
-        "docker-compose.symfony-e2e.yml",
+        compose_file,
         "down",
         "--remove-orphans",
         # --volumes: no volume declared today, but if a base image adds a
@@ -342,11 +403,73 @@ def run_symfony_evidence(
         redaction_context=context,
     )
     return CommandEvidence(
-        id="symfony-e2e",
-        label="Symfony E2E Docker",
+        id=f"{suite}-e2e",
+        label=label,
         argv=argv,
         log=str(log_path),
         exit_code=result_code,
         duration_s=round(duration, 3),
         status="ok" if result_code == 0 else "failed",
+    )
+
+
+def run_symfony_evidence(
+    *,
+    redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+    timeout: float | None = None,
+    path_rewrites: Sequence[tuple[str, str]] = (),
+    run_text: RunText,
+    stream_and_collect: StreamAndCollect,
+    which: Callable[[str], str | None],
+    symfony_log: Path,
+    evidence_dir: Path,
+    default_proof_dir: Path,
+) -> CommandEvidence:
+    return _run_external_evidence(
+        suite="symfony",
+        label="Symfony E2E Docker",
+        compose_file="docker-compose.symfony-e2e.yml",
+        suite_log=symfony_log,
+        unavailable_writer=write_symfony_unavailable_evidence,
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        timeout=timeout,
+        path_rewrites=path_rewrites,
+        run_text=run_text,
+        stream_and_collect=stream_and_collect,
+        which=which,
+        evidence_dir=evidence_dir,
+        default_proof_dir=default_proof_dir,
+    )
+
+
+def run_shopware_evidence(
+    *,
+    redaction_context: RedactionContext | None = None,
+    proof_dir: Path | None = None,
+    timeout: float | None = None,
+    path_rewrites: Sequence[tuple[str, str]] = (),
+    run_text: RunText,
+    stream_and_collect: StreamAndCollect,
+    which: Callable[[str], str | None],
+    shopware_log: Path,
+    evidence_dir: Path,
+    default_proof_dir: Path,
+) -> CommandEvidence:
+    return _run_external_evidence(
+        suite="shopware",
+        label="Shopware E2E Docker",
+        compose_file="docker-compose.shopware-e2e.yml",
+        suite_log=shopware_log,
+        unavailable_writer=write_shopware_unavailable_evidence,
+        redaction_context=redaction_context,
+        proof_dir=proof_dir,
+        timeout=timeout,
+        path_rewrites=path_rewrites,
+        run_text=run_text,
+        stream_and_collect=stream_and_collect,
+        which=which,
+        evidence_dir=evidence_dir,
+        default_proof_dir=default_proof_dir,
     )

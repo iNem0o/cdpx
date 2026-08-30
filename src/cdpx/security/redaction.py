@@ -32,6 +32,14 @@ _DATA_URL_RE = re.compile(
     r"[^\s<>'\"]*",
     flags=re.IGNORECASE,
 )
+_JSON_STRING_ARRAY_FIELD_RE = re.compile(
+    r'(?P<prefix>"(?P<name>(?:\\.|[^"\\])*)"\s*:\s*)'
+    r'\[(?P<values>\s*"(?:\\.|[^"\\])*"(?:\s*,\s*"(?:\\.|[^"\\])*")*\s*)\]'
+)
+_SHOPWARE_ACCESS_KEY_ROW_RE = re.compile(
+    r"(?P<prefix>\|\s*Access\s+key\s*\|\s*)(?P<value>[^|\r\n]+?)(?P<suffix>\s*\|)",
+    flags=re.IGNORECASE,
+)
 _TRAILING_URL_PUNCTUATION = ".,;:!?)]}"
 _INVALID_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _URL_CONTROL_RE = re.compile(r"[\x00-\x20\x7f]")
@@ -46,7 +54,7 @@ _SENSITIVE_HEADER_NAMES = {
 }
 _API_KEY_HEADER_RE = re.compile(r"(?:^|[-_])api[-_]?key(?:$|[-_])", flags=re.IGNORECASE)
 _SENSITIVE_HEADER_PART_RE = re.compile(
-    r"(?:^|[-_])(?:csrf|xsrf|token|secret)(?:$|[-_])",
+    r"(?:^|[-_])(?:access[-_]?key|csrf|xsrf|token|secret)(?:$|[-_])",
     flags=re.IGNORECASE,
 )
 
@@ -299,6 +307,10 @@ def redact_text(
     redacted = _JWT_RE.sub(MASK, redacted)
     redacted = _DATA_URL_RE.sub(_embedded_url_replacer, redacted)
     redacted = _HTTP_URL_RE.sub(_embedded_url_replacer, redacted)
+    redacted = _JSON_STRING_ARRAY_FIELD_RE.sub(_sensitive_json_header_replacer, redacted)
+    redacted = _SHOPWARE_ACCESS_KEY_ROW_RE.sub(
+        lambda match: f"{match.group('prefix')}{MASK}{match.group('suffix')}", redacted
+    )
     if redacted != value:
         ctx.mark(path)
     return redacted
@@ -406,6 +418,14 @@ def _is_sensitive_header(name: str) -> bool:
         or bool(_API_KEY_HEADER_RE.search(compact))
         or bool(_SENSITIVE_HEADER_PART_RE.search(compact))
     )
+
+
+def _sensitive_json_header_replacer(match: re.Match[str]) -> str:
+    """Mask serialized header arrays embedded in otherwise free-form logs."""
+
+    if not _is_sensitive_header(match.group("name")):
+        return match.group(0)
+    return f'{match.group("prefix")}["{MASK}"]'
 
 
 def _is_sensitive_tree_key(normalized: str) -> bool:

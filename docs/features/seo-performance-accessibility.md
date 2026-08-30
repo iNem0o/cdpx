@@ -33,6 +33,8 @@ report_text = "This scenario proves that browser-rendered audit primitives valid
 given = "The SEO, edge-case, and iframe fixtures are available in a real browser."
 when = "cdpx runs the SEO audit, accessibility tree, or coverage primitives."
 then = "The resulting checks are attached to the feature with JUnit and browser screenshots."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/test_cli.py::test_seo*", "tests/test_primitives.py::test_seo*", "tests/test_primitives.py::test_a11y*", "tests/test_primitives.py::test_coverage*", "tests/e2e/test_e2e_chrome.py::test_seo*", "tests/e2e/test_e2e_chrome.py::test_a11y*", "tests/e2e/test_e2e_chrome.py::test_coverage*"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -45,6 +47,8 @@ report_text = "This scenario proves that browser performance measurements are av
 given = "A vitals fixture is loaded in Chrome."
 when = "cdpx vitals collects the supported browser performance signals."
 then = "The result is reported with its test coverage and an e2e scenario backed by a screenshot."
+target = "cdp-mock"
+proof_level = "contract"
 tests = ["tests/test_primitives.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_vitals*"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -57,6 +61,8 @@ report_text = "This scenario proves that Web Vitals, Performance metrics, and sc
 given = "The Symfony scenario engine exposes `/scenario/vitals/baseline` and `/scenario/vitals/degraded`."
 when = "cdpx collects the vitals, browser metrics, scenario metadata, and screenshots for both variants."
 then = "The report shows the deltas between variants and links the JSON, JUnit, logs, and screenshot proofs."
+target = "symfony"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_vitals_compare_baseline_degraded"]
 expected_proofs = ["junit", "json", "screenshot"]
 
@@ -69,6 +75,8 @@ report_text = "This scenario proves that the Symfony routes for LCP image/text, 
 given = "The Symfony scenario engine exposes `/scenario/vitals/lcp-image`, `/scenario/vitals/lcp-text`, `/scenario/vitals/cls-injected-banner`, `/scenario/vitals/inp-long-task`, and `/scenario/vitals/resource-blocking`."
 when = "cdpx collects the Web Vitals, deterministic attribution metadata, and screenshots for each route."
 then = "The proof cockpit links JUnit, JSON diagnostics, Docker logs, and screenshots without turning attribution gaps into hidden successes."
+target = "symfony"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_vitals_diagnostics_cover_attribution_routes"]
 expected_proofs = ["junit", "json", "screenshot"]
 
@@ -81,6 +89,8 @@ report_text = "This scenario proves that automated RGAA-themed checks can be gro
 given = "The Symfony scenario engine exposes accessible and regressed pages under `/scenario/rgaa/{case}`."
 when = "cdpx reads the accessibility tree and deterministic DOM checks for both variants."
 then = "The report includes JSON checks per theme with criteria, automated scope, status, limitations, JUnit, logs, and screenshots as proofs."
+target = "symfony"
+proof_level = "runtime"
 tests = ["tests/e2e/test_e2e_symfony.py::test_symfony_rgaa_subset_checks_are_deterministic"]
 expected_proofs = ["junit", "json", "screenshot"]
 +++

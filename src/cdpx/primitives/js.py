@@ -23,14 +23,18 @@ def evaluate(
     expression: str,
     await_promise: bool = False,
     return_by_value: bool = True,
+    *,
+    timeout: float | None = None,
 ) -> Any:
-    res = client.send(
-        "Runtime.evaluate",
-        {
-            "expression": expression,
-            "returnByValue": return_by_value,
-            "awaitPromise": await_promise,
-        },
+    params = {
+        "expression": expression,
+        "returnByValue": return_by_value,
+        "awaitPromise": await_promise,
+    }
+    res = (
+        client.send("Runtime.evaluate", params)
+        if timeout is None
+        else client.send("Runtime.evaluate", params, timeout=timeout)
     )
     if "exceptionDetails" in res:
         details = res["exceptionDetails"]

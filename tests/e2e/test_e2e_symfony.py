@@ -10,74 +10,40 @@ collectors.
 import json
 import os
 import shutil
-import subprocess
-import sys
-import tempfile
-import time
-import urllib.request
 from pathlib import Path
 
 import pytest
 
-from cdpx import discovery
 from cdpx.action_model import ClickAction
 from cdpx.client import CDPClient
-from cdpx.primitives import audit, capture, dev, diagnostics, emulation, js, nav
-from cdpx.session import SessionManifest, start_session, stop_session
-
-CHROME_BIN = next(
-    (b for b in ("chromium", "chromium-browser", "google-chrome", "chrome") if shutil.which(b)),
-    None,
+from cdpx.primitives import audit, dev, diagnostics, emulation, js, nav
+from cdpx.session import SessionManifest
+from cdpx.testing.e2e import (
+    attach_cli_run,
+    attach_screenshot,
+    managed_runtime_session,
+    run_cli,
+    successful_json,
+    wait_for_http_200,
 )
-SYMFONY_URL = os.environ.get("SYMFONY_E2E_URL")
 
-if CHROME_BIN is None:
-    pytest.fail("Chrome/Chromium required for cdpx Symfony e2e", pytrace=False)
+SYMFONY_URL = os.environ.get("SYMFONY_E2E_URL")
 
 pytestmark = pytest.mark.skipif(
     not SYMFONY_URL,
     reason="SYMFONY_E2E_URL missing (run ./dev check)",
 )
 
-E2E_PORT = 9778
 SCENARIO_FIXTURES = Path(__file__).parents[1] / "fixtures" / "scenarios"
-
-
-def wait_for_symfony(url: str, timeout: float = 30.0) -> None:
-    deadline = time.monotonic() + timeout
-    last_error = ""
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(f"{url}/profiler-target", timeout=2) as response:
-                if response.status == 200:
-                    return
-                last_error = f"HTTP {response.status}"
-        except Exception as exc:
-            last_error = str(exc)
-        time.sleep(0.5)
-    pytest.fail(f"Symfony app unavailable after {timeout:.0f}s: {last_error}", pytrace=False)
-
-
-def open_tab(chrome: int):
-    target = discovery.new_tab("127.0.0.1", chrome, "about:blank")
-    return target, CDPClient(target["webSocketDebuggerUrl"], timeout=20)
-
-
-def close_tab(chrome: int, target: dict) -> None:
-    discovery.close_tab("127.0.0.1", chrome, target["id"])
-
-
-def screenshot(c: CDPClient, tmp_path: Path, filename: str, evidence_case, label: str) -> None:
-    path = tmp_path / filename
-    capture.screenshot(c, str(path))
-    if evidence_case is not None:
-        evidence_case.attach_screenshot(path, label)
 
 
 def materialize_scenario(template: str, base_url: str, tmp_path: Path) -> Path:
     src = SCENARIO_FIXTURES / template
     dest = tmp_path / template
     dest.write_text(src.read_text(encoding="utf-8").replace("__BASE_URL__", base_url), "utf-8")
+    fragment_source = SCENARIO_FIXTURES / "fragments"
+    if fragment_source.is_dir():
+        shutil.copytree(fragment_source, tmp_path / "fragments", dirs_exist_ok=True)
     return dest
 
 
@@ -88,28 +54,16 @@ def run_scenario_cli(
     timeout: float = 12.0,
 ) -> tuple[int, dict, str]:
     manifest, manifest_path = session
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "cdpx.cli",
-            "--session",
-            str(manifest_path),
-            "--run-id",
-            manifest.run_id,
-            "--target",
-            manifest.target_id,
-            "--timeout",
-            str(timeout),
-            "scenario",
-            "run",
-            str(scenario),
-            "--settle",
-            "0.5",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
+    proc = run_cli(
+        manifest,
+        manifest_path,
+        "--timeout",
+        str(timeout),
+        "scenario",
+        "run",
+        str(scenario),
+        "--settle",
+        "0.5",
         timeout=max(timeout * 8, 30),
     )
     payload = json.loads(proc.stdout) if proc.stdout else {}
@@ -327,97 +281,116 @@ JSON.stringify((() => {
 
 
 @pytest.fixture(scope="module")
-def chrome():
-    profile = tempfile.mkdtemp(prefix="cdpx-symfony-e2e-")
-    chrome_log = Path(profile) / "chrome-stderr.log"
-    stderr = chrome_log.open("w", encoding="utf-8")
-    proc = subprocess.Popen(
-        [
-            CHROME_BIN,
-            "--headless=new",
-            "--remote-debugging-address=127.0.0.1",
-            f"--remote-debugging-port={E2E_PORT}",
-            f"--user-data-dir={profile}",
-            "--no-first-run",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-features=HttpsFirstBalancedModeAutoEnable,HttpsUpgrades",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=stderr,
-    )
-    ready = False
-    for _ in range(150):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{E2E_PORT}/json/version", timeout=1)
-            ready = True
-            break
-        except Exception:
-            if proc.poll() is not None:
-                break
-            time.sleep(0.2)
-    if not ready:
-        proc.terminate()
-        stderr.close()
-        details = chrome_log.read_text(encoding="utf-8", errors="replace")[-2000:]
-        pytest.fail(f"Chrome/Chromium did not expose CDP on {E2E_PORT}:\n{details}", pytrace=False)
-    yield E2E_PORT
-    proc.terminate()
-    stderr.close()
-
-
-@pytest.fixture(scope="module")
-def managed_cli_session(tmp_path_factory):
+def runtime_session(tmp_path_factory):
     assert SYMFONY_URL is not None
-    runtime = tmp_path_factory.mktemp("cdpx-symfony-managed")
-    manifest, path = start_session(
-        run_id="symfony-cli",
-        authority="privileged",
-        origins=SYMFONY_URL,
-        ttl=900,
-        owner_pid=os.getpid(),
-        chrome_bin=CHROME_BIN,
-        root=runtime,
+    wait_for_http_200(
+        f"{SYMFONY_URL}/profiler-target",
+        label="Symfony app",
+        timeout=30,
+        request_timeout=2,
     )
-    try:
-        yield manifest, path
-    finally:
-        if path.exists():
-            stop_session(path, run_id=manifest.run_id, target_id=manifest.target_id)
+    runtime = tmp_path_factory.mktemp("cdpx-symfony-runtime")
+    with managed_runtime_session(
+        run_id="symfony-cli",
+        origin=SYMFONY_URL,
+        root=runtime,
+    ) as session:
+        yield session
+
+
+@pytest.fixture()
+def client(runtime_session):
+    manifest, _manifest_path = runtime_session
+    with CDPClient(manifest.websocket_url, timeout=30) as connected:
+        emulation.emulate(connected, reset=True)
+        try:
+            yield connected
+        finally:
+            emulation.emulate(connected, reset=True)
 
 
 @pytest.mark.scenario(
     feature="dev-profiler-diff",
     journey="read-profiler",
     scenario_id="dev-profiler-diff.read-symfony-profiler",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "Real Symfony WebProfilerBundle emits a token reachable from browser navigation.",
         "cdpx profiler parses the real profiler panels into structured metrics.",
     ],
 )
-def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_case):
+def test_profiler_reads_real_symfony_web_profiler(runtime_session, evidence_case):
     """Against the real Symfony app, `cdpx profiler` follows the
     X-Debug-Token-Link header emitted by WebProfilerBundle and delivers
     panels parsed into metrics, without ever exposing the token itself."""
-    wait_for_symfony(SYMFONY_URL)
-    target, client = open_tab(chrome)
-    try:
-        with client as c:
-            res = dev.profiler(c, f"{SYMFONY_URL}/profiler-target", timeout=20, settle=0.5)
-            shot = Path(tmp_path) / "symfony-profiler-target.png"
-            capture.screenshot(c, str(shot))
-    finally:
-        close_tab(chrome, target)
+    assert SYMFONY_URL is not None
+    manifest, manifest_path = runtime_session
+    proc = run_cli(
+        manifest,
+        manifest_path,
+        "--timeout",
+        "20",
+        "profiler",
+        f"{SYMFONY_URL}/profiler-target",
+        "--settle",
+        "0.5",
+        timeout=120,
+    )
+    attach_cli_run(evidence_case, "Symfony profiler CLI", proc)
+    res = successful_json(proc)
+    assert isinstance(res, dict)
+    with CDPClient(manifest.websocket_url, timeout=30) as connected:
+        attach_screenshot(evidence_case, connected, "Symfony profiler target")
+        default_requested_collectors = json.loads(
+            js.evaluate(
+                connected,
+                "JSON.stringify(performance.getEntriesByType('resource')"
+                ".map(entry => new URL(entry.name).searchParams.get('panel'))"
+                ".filter(Boolean))",
+            )
+        )
+        js.evaluate(connected, "performance.clearResourceTimings()")
+
+    cart_proc = run_cli(
+        manifest,
+        manifest_path,
+        "--timeout",
+        "20",
+        "profiler",
+        f"{SYMFONY_URL}/profiler-target",
+        "--panels",
+        "shopware_cart",
+        "--settle",
+        "0.5",
+        timeout=120,
+    )
+    attach_cli_run(evidence_case, "Symfony unavailable Shopware Cart CLI", cart_proc)
+    cart_res = successful_json(cart_proc)
+    assert isinstance(cart_res, dict)
+    with CDPClient(manifest.websocket_url, timeout=30) as connected:
+        cart_requested_collectors = json.loads(
+            js.evaluate(
+                connected,
+                "JSON.stringify(performance.getEntriesByType('resource')"
+                ".map(entry => new URL(entry.name).searchParams.get('panel'))"
+                ".filter(Boolean))",
+            )
+        )
 
     if evidence_case is not None:
         evidence_case.attach_json("Symfony profiler result", res, "symfony-profiler-result.json")
+        evidence_case.attach_json(
+            "Symfony unavailable Shopware Cart",
+            cart_res,
+            "symfony-shopware-cart-unavailable.json",
+        )
         evidence_case.attach_text(
             "Symfony profiler URL",
             f"target={res['url']}\nprofiler={res['profiler_url']}\n"
             f"token_present={res['token_present']}\n",
             "symfony-profiler-url.log",
         )
-        evidence_case.attach_screenshot(shot, "Symfony profiler target")
 
     #: the real navigation landed on the profiled route, with a 200
     assert res["url"].endswith("/profiler-target")
@@ -427,9 +400,23 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
     assert res["token_present"] is True and "token" not in res
     assert res["profiler_url"].startswith(f"{SYMFONY_URL}/_profiler/")
     assert res["profiler_status"] == 200
+    assert res["profile"]["engine"] == "symfony_web_profiler"
+    assert res["profile"]["probed"] is True
+    assert res["profile"]["extensions"] == []
     #: internal collection fields do not leak into the CLI contract
     assert "signals" not in res and "profiler_bytes" not in res
     panels = res["panels"]
+    assert {
+        "router",
+        "time",
+        "db",
+        "twig",
+        "cache",
+        "exception",
+        "http_client",
+        "messenger",
+        "logger",
+    } <= panels.keys()
     #: each real collector (routing, exception, time, Doctrine, logs) is
     #: parsed into metrics consistent with the route visited: correct
     #: route, no exception, typed durations and zero SQL query on this page
@@ -442,24 +429,35 @@ def test_profiler_reads_real_symfony_web_profiler(chrome, tmp_path, evidence_cas
     assert panels["db"]["available"] is True
     assert panels["db"]["queries"] == 0  # this route does not touch the database
     assert panels["logger"]["available"] is True
+    assert panels["shopware_rules"] == {"available": False, "status": 0}
+    assert panels["shopware_cache_tags"] == {"available": False, "status": 0}
+    assert panels["shopware_feature_flags"] == {"available": False, "status": 0}
+    assert "shopware_cart" not in panels
+    cart_collector = "Shopware\\Core\\Profiling\\Subscriber\\CartDataCollectorSubscriber"
+    assert cart_collector not in default_requested_collectors
+    assert "feature_flag" not in default_requested_collectors
+    assert cart_res["panels"] == {"shopware_cart": {"available": False, "status": 0}}
+    assert cart_collector not in cart_requested_collectors
+    assert "shopware_cart" not in cart_requested_collectors
 
 
 @pytest.mark.scenario(
     feature="dev-profiler-diff",
     journey="compare-profiler-variants",
     scenario_id="dev-profiler-diff.compare-symfony-profiler-variants",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "Symfony scenario routes drive real collectors (Doctrine, cache, HTTP client, Messenger).",
         "cdpx reads N+1, duplicate bursts and cache hit/miss from the real profiler panels.",
     ],
 )
-def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evidence_case):
+def test_profiler_compares_deterministic_symfony_variants(client, evidence_case):
     """Twenty scenario routes drive the real Symfony collectors and cdpx
     finds their expected signatures in the panels (N+1, duplicates,
     cache hit/miss, HTTP client errors, exceptions, headers) — in counts,
     classes and statuses, never in milliseconds."""
-    wait_for_symfony(SYMFONY_URL)
-    target, client = open_tab(chrome)
+    assert SYMFONY_URL is not None
     cases = [
         "baseline",
         "degraded",
@@ -486,26 +484,16 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     # is displayed (right after its profiler navigation), instead of a
     # single final capture that would only show the last route.
     captured_variants = ("doctrine-n-plus-one", "routing-404", "routing-500")
-    try:
-        with client as c:
-            results = {}
-            for case in cases:
-                results[case] = dev.profiler(
-                    c,
-                    f"{SYMFONY_URL}/scenario/profiler/{case}",
-                    timeout=20,
-                    settle=0.5,
-                )
-                if case in captured_variants:
-                    screenshot(
-                        c,
-                        tmp_path,
-                        f"symfony-profiler-{case}.png",
-                        evidence_case,
-                        f"Profiler variant {case}",
-                    )
-    finally:
-        close_tab(chrome, target)
+    results = {}
+    for case in cases:
+        results[case] = dev.profiler(
+            client,
+            f"{SYMFONY_URL}/scenario/profiler/{case}",
+            timeout=20,
+            settle=0.5,
+        )
+        if case in captured_variants:
+            attach_screenshot(evidence_case, client, f"Profiler variant {case}")
 
     panels = {case: result["panels"] for case, result in results.items()}
     if evidence_case is not None:
@@ -607,47 +595,38 @@ def test_profiler_compares_deterministic_symfony_variants(chrome, tmp_path, evid
     feature="seo-performance-accessibility",
     journey="measure-vitals",
     scenario_id="seo-performance-accessibility.compare-symfony-vitals",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "Symfony renders deterministic baseline and degraded vitals pages.",
         "cdpx vitals, metrics and screenshots are orchestrated into comparable evidence.",
     ],
 )
-def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_case):
+def test_symfony_vitals_compare_baseline_degraded(client, evidence_case):
     """The baseline/degraded vitals pages rendered by Symfony produce
     comparable measurements: cdpx orchestrates vitals, metrics and
     diagnostics, and the expected contrast between the two variants is
     observable."""
-    wait_for_symfony(SYMFONY_URL)
-    target, client = open_tab(chrome)
-    try:
-        with client as c:
-            baseline = diagnostics.vitals(
-                c,
-                f"{SYMFONY_URL}/scenario/vitals/baseline",
-                click_selector="#inp-button",
-                settle=1.0,
-            )
-            baseline_metrics = audit.metrics(c)
-            baseline_expected = expected_from_page(c)
-            baseline_diagnostics = vitals_diagnostics(c)
-            degraded = diagnostics.vitals(
-                c,
-                f"{SYMFONY_URL}/scenario/vitals/degraded",
-                click_selector="#inp-button",
-                settle=1.0,
-            )
-            degraded_metrics = audit.metrics(c)
-            degraded_expected = expected_from_page(c)
-            degraded_diagnostics = vitals_diagnostics(c)
-            screenshot(
-                c,
-                tmp_path,
-                "symfony-vitals-degraded.png",
-                evidence_case,
-                "Symfony vitals degraded",
-            )
-    finally:
-        close_tab(chrome, target)
+    assert SYMFONY_URL is not None
+    baseline = diagnostics.vitals(
+        client,
+        f"{SYMFONY_URL}/scenario/vitals/baseline",
+        click_selector="#inp-button",
+        settle=1.0,
+    )
+    baseline_metrics = audit.metrics(client)
+    baseline_expected = expected_from_page(client)
+    baseline_diagnostics = vitals_diagnostics(client)
+    degraded = diagnostics.vitals(
+        client,
+        f"{SYMFONY_URL}/scenario/vitals/degraded",
+        click_selector="#inp-button",
+        settle=1.0,
+    )
+    degraded_metrics = audit.metrics(client)
+    degraded_expected = expected_from_page(client)
+    degraded_diagnostics = vitals_diagnostics(client)
+    attach_screenshot(evidence_case, client, "Symfony vitals degraded")
 
     evidence = {
         "baseline": {
@@ -696,18 +675,19 @@ def test_symfony_vitals_compare_baseline_degraded(chrome, tmp_path, evidence_cas
     feature="seo-performance-accessibility",
     journey="measure-vitals",
     scenario_id="seo-performance-accessibility.symfony-vitals-diagnostic-attribution",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "Symfony exposes deterministic LCP, CLS, INP and resource timing diagnostic routes.",
         "Core Web Vitals remain primary while attribution and emulation metadata are explicit.",
     ],
 )
-def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, evidence_case):
+def test_symfony_vitals_diagnostics_cover_attribution_routes(client, evidence_case):
     """Each diagnostic route (LCP image/text, injected CLS, INP under
     throttled CPU, blocking resources under slow-3g) exposes a
     deterministic attribution that cdpx reads after applying then lifting
     emulation."""
-    wait_for_symfony(SYMFONY_URL)
-    target, client = open_tab(chrome)
+    assert SYMFONY_URL is not None
     cases = [
         "lcp-image",
         "lcp-text",
@@ -717,37 +697,27 @@ def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, e
     ]
     evidence = {}
     applied_emulation = {}
-    try:
-        with client as c:
-            for case in cases:
-                if case == "inp-long-task":
-                    applied_emulation[case] = emulation.emulate(c, "cpu-4x")
-                elif case == "resource-blocking":
-                    applied_emulation[case] = emulation.emulate(c, "slow-3g")
-                result = diagnostics.vitals(
-                    c,
-                    f"{SYMFONY_URL}/scenario/vitals/{case}",
-                    click_selector="#inp-button",
-                    settle=1.0,
-                )
-                diagnostic_details = vitals_diagnostics(c)
-                expected = expected_from_page(c)
-                evidence[case] = {
-                    "vitals": result,
-                    "diagnostics": diagnostic_details,
-                    "expected": expected,
-                    "applied_emulation": applied_emulation.get(case),
-                }
-                emulation.emulate(c, reset=True)
-            screenshot(
-                c,
-                tmp_path,
-                "symfony-vitals-diagnostics.png",
-                evidence_case,
-                "Symfony vitals diagnostics",
-            )
-    finally:
-        close_tab(chrome, target)
+    for case in cases:
+        if case == "inp-long-task":
+            applied_emulation[case] = emulation.emulate(client, "cpu-4x")
+        elif case == "resource-blocking":
+            applied_emulation[case] = emulation.emulate(client, "slow-3g")
+        result = diagnostics.vitals(
+            client,
+            f"{SYMFONY_URL}/scenario/vitals/{case}",
+            click_selector="#inp-button",
+            settle=1.0,
+        )
+        diagnostic_details = vitals_diagnostics(client)
+        expected = expected_from_page(client)
+        evidence[case] = {
+            "vitals": result,
+            "diagnostics": diagnostic_details,
+            "expected": expected,
+            "applied_emulation": applied_emulation.get(case),
+        }
+        emulation.emulate(client, reset=True)
+    attach_screenshot(evidence_case, client, "Symfony vitals diagnostics")
 
     if evidence_case is not None:
         evidence_case.attach_json(
@@ -782,36 +752,27 @@ def test_symfony_vitals_diagnostics_cover_attribution_routes(chrome, tmp_path, e
     feature="seo-performance-accessibility",
     journey="audit-front-accessibility",
     scenario_id="seo-performance-accessibility.audit-symfony-rgaa-subset",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "Symfony exposes deterministic accessible and regressed front states.",
         "Automated RGAA-like checks are reported as a limited subset, not full RGAA coverage.",
     ],
 )
-def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence_case):
+def test_symfony_rgaa_subset_checks_are_deterministic(client, evidence_case):
     """The accessible and regressed states rendered by Symfony are
     discriminated by the automated RGAA-like probes, and each themed report
     declares its limited scope: never a claim of complete RGAA audit."""
-    wait_for_symfony(SYMFONY_URL)
-    target, client = open_tab(chrome)
-    try:
-        with client as c:
-            nav.navigate(c, f"{SYMFONY_URL}/scenario/rgaa/baseline", timeout=20)
-            baseline_tree = diagnostics.a11y(c)
-            baseline = rgaa_checks(c)
-            baseline_expected = expected_from_page(c)
-            nav.navigate(c, f"{SYMFONY_URL}/scenario/rgaa/regression", timeout=20)
-            regression_tree = diagnostics.a11y(c)
-            regression = rgaa_checks(c)
-            regression_expected = expected_from_page(c)
-            screenshot(
-                c,
-                tmp_path,
-                "symfony-rgaa-regression.png",
-                evidence_case,
-                "Symfony RGAA regression",
-            )
-    finally:
-        close_tab(chrome, target)
+    assert SYMFONY_URL is not None
+    nav.navigate(client, f"{SYMFONY_URL}/scenario/rgaa/baseline", timeout=20)
+    baseline_tree = diagnostics.a11y(client)
+    baseline = rgaa_checks(client)
+    baseline_expected = expected_from_page(client)
+    nav.navigate(client, f"{SYMFONY_URL}/scenario/rgaa/regression", timeout=20)
+    regression_tree = diagnostics.a11y(client)
+    regression = rgaa_checks(client)
+    regression_expected = expected_from_page(client)
+    attach_screenshot(evidence_case, client, "Symfony RGAA regression")
 
     evidence = {
         "baseline": {
@@ -882,43 +843,28 @@ def test_symfony_rgaa_subset_checks_are_deterministic(chrome, tmp_path, evidence
     feature="dev-profiler-diff",
     journey="diff-dom-action",
     scenario_id="dev-profiler-diff.symfony-front-state-regression",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "A Symfony route exposes deterministic front before/after state.",
         "cdpx DOM diff captures the state transition as structured evidence.",
     ],
 )
-def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
+def test_symfony_front_state_dom_diff(client, evidence_case):
     """cdpx's DOM diff captures the state transition triggered by a click on
     a real Symfony page and renders it as a structured diff usable as
     evidence."""
-    wait_for_symfony(SYMFONY_URL)
-    target, client = open_tab(chrome)
-    try:
-        with client as c:
-            nav.navigate(c, f"{SYMFONY_URL}/scenario/front/states", timeout=20)
-            expected = expected_from_page(c)
-            # Capture before click (idle state): taken after reading the
-            # initial state and with no banner, it does not touch the DOM
-            # compared by dom_diff, whose baseline stays intact.
-            screenshot(
-                c,
-                tmp_path,
-                "symfony-front-state-before.png",
-                evidence_case,
-                "Symfony front state (idle, before click)",
-            )
-            diff = dev.dom_diff(c, ClickAction("#submit-btn"))
-            # Capture after click (submitted state): materializes the target
-            # of the transition that the DOM diff proves.
-            screenshot(
-                c,
-                tmp_path,
-                "symfony-front-state-after.png",
-                evidence_case,
-                "Symfony front state (submitted, after click)",
-            )
-    finally:
-        close_tab(chrome, target)
+    assert SYMFONY_URL is not None
+    nav.navigate(client, f"{SYMFONY_URL}/scenario/front/states", timeout=20)
+    expected = expected_from_page(client)
+    # Capture before click (idle state): taken after reading the initial
+    # state and with no banner, it does not touch the DOM compared by
+    # dom_diff, whose baseline stays intact.
+    attach_screenshot(evidence_case, client, "Symfony front state (idle, before click)")
+    diff = dev.dom_diff(client, ClickAction("#submit-btn"))
+    # Capture after click (submitted state): materializes the target of the
+    # transition that the DOM diff proves.
+    attach_screenshot(evidence_case, client, "Symfony front state (submitted, after click)")
 
     if evidence_case is not None:
         evidence_case.attach_json(
@@ -940,14 +886,16 @@ def test_symfony_front_state_dom_diff(chrome, tmp_path, evidence_case):
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="scenario-run",
-    scenario_id="orchestration-control.run-declarative-business-scenario",
+    scenario_id="orchestration-control.run-declarative-business-scenario-on-symfony",
+    target="symfony",
+    proof_level="runtime",
     proves=[
         "Declarative YAML scenarios execute against the real Symfony test application.",
         "Pass, controlled fail, and profiler/vitals evidence runs all produce reports.",
     ],
 )
 def test_declarative_scenarios_run_against_real_symfony(
-    managed_cli_session,
+    runtime_session,
     tmp_path,
     evidence_case,
 ):
@@ -955,7 +903,7 @@ def test_declarative_scenarios_run_against_real_symfony(
     supervised session: pass, controlled failure and profiler/vitals
     collection each produce a report with a verdict, artifacts and
     findings."""
-    wait_for_symfony(SYMFONY_URL)
+    assert SYMFONY_URL is not None
     cases = [
         ("symfony_front_pass.yml", 0, "pass", 12.0),
         ("symfony_front_fail.yml", 1, "fail", 1.0),
@@ -965,7 +913,7 @@ def test_declarative_scenarios_run_against_real_symfony(
     for template, expected_code, expected_verdict, timeout in cases:
         scenario = materialize_scenario(template, SYMFONY_URL, tmp_path)
         code, result, err = run_scenario_cli(
-            managed_cli_session,
+            runtime_session,
             scenario,
             timeout=timeout,
         )
@@ -983,9 +931,16 @@ def test_declarative_scenarios_run_against_real_symfony(
         for artifact in results["symfony_profiler_vitals.yml"]["artifacts"]
         if artifact["type"] == "profiler"
     ]
-    #: the collection scenario does deliver a profiler artifact: the
-    #: business proof is attached to the report, not just the verdict
+    #: the real collection scenario delivers structured profiler data, not
+    #: merely an artifact placeholder or a mocked HTML payload
     assert profiler_artifacts
+    baseline_artifact = next(
+        artifact for artifact in profiler_artifacts if "profiler_baseline" in artifact["label"]
+    )
+    profiler_data = json.loads(Path(baseline_artifact["path"]).read_text(encoding="utf-8"))
+    assert profiler_data["token_present"] is True and "token" not in profiler_data
+    assert profiler_data["panels"]["db"]["available"] is True
+    assert profiler_data["panels"]["router"]["route"] == "scenario_profiler"
     #: the controlled failure is attributed to the faulty step in the
     #: findings, which makes the report diagnosable without rereading logs
     assert any(

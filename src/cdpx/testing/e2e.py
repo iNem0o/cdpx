@@ -2,20 +2,81 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
 import subprocess
 import sys
 import time
+import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
 
 from cdpx.client import CDPClient
 from cdpx.primitives import capture, js
-from cdpx.session import SessionManifest
+from cdpx.session import SessionManifest, start_session, stop_session
 from cdpx.testing.evidence import EvidenceCase, slugify
 
 PROOF_BANNER_ID = "cdpx-proof-banner"
+PINNED_CHROMIUM = Path("/usr/bin/chromium")
+
+
+def wait_for_http_200(
+    url: str,
+    *,
+    label: str,
+    timeout: float,
+    request_timeout: float = 3.0,
+    interval: float = 0.5,
+) -> None:
+    """Wait for one controlled runtime URL without consulting proxy settings."""
+
+    deadline = time.monotonic() + timeout
+    last_error = "endpoint unavailable"
+    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while time.monotonic() < deadline:
+        try:
+            with direct_opener.open(url, timeout=request_timeout) as response:
+                if response.status == 200:
+                    return
+                last_error = f"HTTP {response.status}"
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(interval)
+    raise RuntimeError(f"{label} unavailable after {timeout:.0f}s: {last_error}")
+
+
+@contextlib.contextmanager
+def managed_runtime_session(
+    *,
+    run_id: str,
+    origin: str,
+    root: str | Path,
+    ttl: float = 900,
+) -> Iterator[tuple[SessionManifest, Path]]:
+    """Run one framework E2E module in the pinned supervised Chromium."""
+
+    if not PINNED_CHROMIUM.is_file() or not os.access(PINNED_CHROMIUM, os.X_OK):
+        raise RuntimeError(f"Pinned CI Chromium required for framework e2e: {PINNED_CHROMIUM}")
+    manifest, manifest_path = start_session(
+        run_id=run_id,
+        authority="privileged",
+        origins=origin,
+        ttl=ttl,
+        owner_pid=os.getpid(),
+        chrome_bin=str(PINNED_CHROMIUM),
+        root=root,
+    )
+    try:
+        yield manifest, manifest_path
+    finally:
+        if manifest_path.exists():
+            stop_session(
+                manifest_path,
+                run_id=manifest.run_id,
+                target_id=manifest.target_id,
+            )
 
 
 def banner_inject_script(text: str) -> str:

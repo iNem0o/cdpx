@@ -24,7 +24,7 @@ def pytest_configure(config):
         "markers",
         (
             "scenario(title=None, area=None, feature=None, journey=None, "
-            "scenario_id=None, proves=None): "
+            "scenario_id=None, target=None, proof_level=None, proves=None): "
             "proof report scenario metadata"
         ),
     )
@@ -35,7 +35,18 @@ def pytest_configure(config):
         suite = config.getoption("--cdpx-evidence-suite", default=None) or os.environ.get(
             "CDPX_EVIDENCE_SUITE"
         )
-        config._cdpx_evidence = EvidenceSession(evidence_dir, suite_override=suite)
+        target = config.getoption("--cdpx-evidence-target", default=None) or os.environ.get(
+            "CDPX_EVIDENCE_TARGET"
+        )
+        proof_level = config.getoption(
+            "--cdpx-evidence-proof-level", default=None
+        ) or os.environ.get("CDPX_EVIDENCE_PROOF_LEVEL")
+        config._cdpx_evidence = EvidenceSession(
+            evidence_dir,
+            suite_override=suite,
+            target_override=target,
+            proof_level_override=proof_level,
+        )
     else:
         config._cdpx_evidence = None
 
@@ -52,6 +63,18 @@ def pytest_addoption(parser):
         action="store",
         default=None,
         help="override the proof evidence suite name for this pytest run",
+    )
+    parser.addoption(
+        "--cdpx-evidence-target",
+        action="store",
+        default=None,
+        help="attest the system exercised by this pytest run",
+    )
+    parser.addoption(
+        "--cdpx-evidence-proof-level",
+        action="store",
+        default=None,
+        help="attest the proof level exercised by this pytest run",
     )
 
 

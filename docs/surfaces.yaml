@@ -12,6 +12,10 @@ surfaces:
     implementation: src/cdpx/runtime_config.py
     user: docs/CONFIGURATION.md
     integrator: schemas/cdpx.schema.json
+  - id: scenario-composition
+    implementation: src/cdpx/scenario_compiler.py
+    user: docs/features/orchestration-control.md
+    integrator: schemas/scenario-v1.json
   - id: persistent-runtime
     implementation: src/cdpx/runtime.py
     user: docs/INTEGRATION.md

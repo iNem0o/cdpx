@@ -59,6 +59,7 @@ def build_summary(
     unit: dict,
     e2e: dict,
     symfony: dict | None = None,
+    shopware: dict | None = None,
     *,
     git_context: dict | None = None,
     help_commands: list[dict[str, str]] | None = None,
@@ -68,6 +69,7 @@ def build_summary(
     paths: ProofPaths,
 ) -> dict:
     symfony = symfony or _empty_suite(paths.symfony_junit)
+    shopware = shopware or _empty_suite(paths.shopware_junit)
     git_context = git_context or {
         "branch": "unknown",
         "sha": "unknown",
@@ -81,7 +83,7 @@ def build_summary(
     help_commands = help_commands or []
     project = collect_project_inventory(help_commands)
     validation_matrix = parse_validation_matrix()
-    coverage_groups = group_cases_by_module(unit, e2e, symfony)
+    coverage_groups = group_cases_by_module(unit, e2e, symfony, shopware)
     scenario_evidence = scenario_evidence or load_scenario_evidence(
         paths.evidence_dir if proof_dir is None else proof_dir / paths.evidence_dir.name
     )
@@ -100,13 +102,20 @@ def build_summary(
         + e2e["errors"]
         + symfony["failures"]
         + symfony["errors"]
+        + shopware["failures"]
+        + shopware["errors"]
     )
     command_failures = [
         f"command failed: {command.label} ({command.log})"
         for command in commands
         if command.exit_code != 0
     ]
-    suite_by_command = {"unit": unit, "e2e": e2e, "symfony-e2e": symfony}
+    suite_by_command = {
+        "unit": unit,
+        "e2e": e2e,
+        "symfony-e2e": symfony,
+        "shopware-e2e": shopware,
+    }
     command_ids = {command.id for command in commands}
     suite_failures = []
     for command_id, suite in suite_by_command.items():
@@ -121,7 +130,7 @@ def build_summary(
             )
         elif suite.get("tests", 0) == 0:
             suite_failures.append(f"required JUnit empty: {suite.get('path', command_id)}")
-        if command_id in {"e2e", "symfony-e2e"} and suite.get("skipped", 0):
+        if command_id in {"e2e", "symfony-e2e", "shopware-e2e"} and suite.get("skipped", 0):
             suite_failures.append(f"{command_id} tests skipped ({suite['skipped']})")
     if "cli-help" in command_ids and project["cli_command_count"] != 31:
         suite_failures.append(
@@ -133,11 +142,20 @@ def build_summary(
         for scenario in suite
         if scenario.get("status") == "unavailable"
     )
-    symfony_failures = []
-    if unavailable:
-        symfony_failures.append(f"symfony evidence unavailable ({unavailable} scenarios)")
+    external_runtime_failures = []
+    unavailable_by_suite = {
+        suite_name: sum(1 for scenario in scenarios if scenario.get("status") == "unavailable")
+        for suite_name, scenarios in scenario_evidence.get("suites", {}).items()
+    }
+    for suite_name in ("symfony", "shopware"):
+        if count := unavailable_by_suite.get(suite_name, 0):
+            external_runtime_failures.append(
+                f"{suite_name} evidence unavailable ({count} scenarios)"
+            )
     if symfony["skipped"]:
-        symfony_failures.append(f"symfony tests skipped ({symfony['skipped']})")
+        external_runtime_failures.append(f"symfony tests skipped ({symfony['skipped']})")
+    if shopware["skipped"]:
+        external_runtime_failures.append(f"shopware tests skipped ({shopware['skipped']})")
     cast_gate_failures = cast_failures_from_entries(cast_entries)
     ok = (
         all(command.exit_code == 0 for command in commands)
@@ -145,7 +163,7 @@ def build_summary(
         and not scenario_failures
         and not feature_inventory_failures
         and not documentation_catalog_failures
-        and not symfony_failures
+        and not external_runtime_failures
         and not suite_failures
         and not cast_gate_failures
     )
@@ -157,6 +175,7 @@ def build_summary(
         "unit_log": str(paths.unit_log),
         "e2e_log": str(paths.e2e_log),
         "symfony_log": str(paths.symfony_log),
+        "shopware_log": str(paths.shopware_log),
         "cli_help": str(paths.cli_help),
         "environment": {
             "python": sys.version.split()[0],
@@ -175,11 +194,14 @@ def build_summary(
             "unit": _suite_for_summary(unit),
             "e2e": _suite_for_summary(e2e),
             "symfony": _suite_for_summary(symfony),
+            "shopware": _suite_for_summary(shopware),
         },
         "totals": {
-            "tests": unit["tests"] + e2e["tests"] + symfony["tests"],
-            "passed": unit["passed"] + e2e["passed"] + symfony["passed"],
-            "skipped": unit["skipped"] + e2e["skipped"] + symfony["skipped"],
+            "tests": unit["tests"] + e2e["tests"] + symfony["tests"] + shopware["tests"],
+            "passed": (unit["passed"] + e2e["passed"] + symfony["passed"] + shopware["passed"]),
+            "skipped": (
+                unit["skipped"] + e2e["skipped"] + symfony["skipped"] + shopware["skipped"]
+            ),
             "failed": failed_tests,
             "unavailable": unavailable,
         },
@@ -196,13 +218,13 @@ def build_summary(
         + feature_inventory_failures
         + documentation_catalog_failures
         + command_failures
-        + symfony_failures
+        + external_runtime_failures
         + suite_failures
         + cast_gate_failures,
         "risks": risk_packet["risks"],
         "unknowns": risk_packet["unknowns"],
     }
     summary["evidence_catalog"] = build_evidence_catalog(
-        summary, unit, e2e, symfony, paths=paths, proof_dir=proof_dir
+        summary, unit, e2e, symfony, shopware, paths=paths, proof_dir=proof_dir
     )
     return summary

@@ -98,6 +98,8 @@ def test_manifest_is_private_and_builds_execution_context(tmp_path):
     feature="state-session",
     journey="exercise-session-without-chrome",
     scenario_id="state-session.run-supervised-mock-session",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "The packaged mock uses the same attested manifest and loopback endpoint contract.",
         "Stopping the mock session removes its private runtime tree.",
@@ -236,6 +238,8 @@ def test_session_lease_reattests_fresh_manifest_by_default(tmp_path, monkeypatch
     feature="state-session",
     journey="isolate-session-runs",
     scenario_id="state-session.public-manifest-hides-control-levers",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "The public manifest view keeps run/target identity readable.",
         "The websocket endpoint, profile path and browser PID never leak by default.",
@@ -588,6 +592,8 @@ def test_start_session_fails_closed_on_bootstrap_error_and_timeout(tmp_path, mon
     feature="state-session",
     journey="exercise-session-without-chrome",
     scenario_id="state-session.report-redacted-startup-diagnostics",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "A stalled startup names both log tails and the readiness stage reached.",
         "The environment secret is redacted before it can reach the diagnostic.",
@@ -774,6 +780,8 @@ def test_start_session_cleans_private_tree_when_supervisor_spawn_fails(tmp_path,
     feature="state-session",
     journey="exercise-session-without-chrome",
     scenario_id="state-session.supervise-lifecycle-without-chrome",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "An invalid attestation fails the supervisor without touching the session.",
         "The supervisor writes a reloadable manifest, closes extra targets and tears down on stop.",
@@ -1331,6 +1339,8 @@ def test_ignore_tls_errors_changes_the_policy_attestation(tmp_path):
     feature="state-session",
     journey="exercise-session-without-chrome",
     scenario_id="state-session.record-tls-bypass-option",
+    target="cdp-mock",
+    proof_level="contract",
     proves=[
         "The TLS-bypass option is recorded in the manifest and its public view.",
         "The public view never leaks the raw trust store path.",

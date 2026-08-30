@@ -59,16 +59,21 @@ def orchestration(args: CommandInvocation) -> OrchestrationContext:
     return OrchestrationContext(execution(args).origins, args.redaction)
 
 
-def current_http_url(client: CDPClient) -> str:
-    current = js.evaluate(client, "window.location.href")
+def current_http_url(client: CDPClient, *, timeout: float | None = None) -> str:
+    current = js.evaluate(client, "window.location.href", timeout=timeout)
     if not isinstance(current, str):
         raise PolicyError("session: current URL undeterminable")
     return current
 
 
-def assert_session_current(args: CommandInvocation, client: CDPClient) -> None:
+def assert_session_current(
+    args: CommandInvocation,
+    client: CDPClient,
+    *,
+    timeout: float | None = None,
+) -> None:
     context = execution(args)
-    assert_url_allowed(current_http_url(client), context.origins)
+    assert_url_allowed(current_http_url(client, timeout=timeout), context.origins)
 
 
 def artifact_path(
@@ -166,9 +171,8 @@ def build_redaction_context(args: CommandOptions) -> RedactionContext:
 
 def safe_output(args: CommandInvocation, data: Any) -> Any:
     safe = redact_tree(data, context=args.redaction)
-    context = execution(args)
-    if isinstance(safe, dict):
-        safe = {**safe, "_cdpx": context.metadata()}
+    if isinstance(safe, dict) and args.execution is not None:
+        safe = {**safe, "_cdpx": args.execution.metadata()}
     return safe
 
 
@@ -246,8 +250,8 @@ def preflight_scenario(args: CommandInvocation, prepared: scenarios.PreparedScen
     required = preflight_actions(args, scenario_actions)
     if (
         scenario_spec.emulation
-        or "profiler" in scenario_spec.artifacts
-        or any("profiler" in step.capture for step in scenario_spec.steps)
+        or scenarios.has_capture(scenario_spec.artifacts, "profiler")
+        or any(scenarios.has_capture(step.capture, "profiler") for step in scenario_spec.steps)
     ):
         required = Authority.PRIVILEGED
         assert_grant(context, required, "scenario")

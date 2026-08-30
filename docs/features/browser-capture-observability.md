@@ -28,8 +28,24 @@ report_text = "This scenario proves that the visual proof is not an orphan file:
 given = "A browser page is rendered from local fixtures."
 when = "cdpx captures a normal, full-page, or printable output of that page."
 then = "The report exposes the generated artifact next to the scenario and the test result."
+target = "chrome"
+proof_level = "runtime"
 tests = ["tests/test_cli.py::test_screenshot", "tests/test_cli.py::test_screenshot*", "tests/test_cli.py::test_pdf*", "tests/test_primitives.py::test_screenshot*", "tests/test_primitives.py::test_pdf*", "tests/e2e/test_e2e_chrome.py::test_screenshot*", "tests/e2e/test_e2e_chrome.py::test_full_page*", "tests/e2e/test_e2e_chrome.py::test_pdf_real"]
 expected_proofs = ["junit", "screenshot"]
+
+[[scenarios]]
+id = "collect-observability-protocol-contract"
+journey = "inspect-runtime"
+title = "Assemble observable signals from CDP events"
+ui_text = "The contract correlates scripted console and network events into stable output."
+report_text = "This contract scenario proves the event correlation, output shape and redaction against the protocol mock; it does not claim browser runtime behavior."
+given = "The CDP mock emits deterministic request, response and completion events."
+when = "cdpx assembles the network observation."
+then = "Requests, failures, byte counts and masked URLs follow the documented contract."
+target = "cdp-mock"
+proof_level = "contract"
+tests = ["tests/test_cli.py::test_console*", "tests/test_primitives.py::test_console*", "tests/test_primitives.py::test_network*", "tests/test_primitives.py::test_metrics"]
+expected_proofs = ["junit"]
 
 [[scenarios]]
 id = "inspect-runtime-failures"
@@ -40,7 +56,9 @@ report_text = "This scenario proves that console entries, network observations, 
 given = "The fixture pages emit deterministic console, network, and metrics signals."
 when = "cdpx collects console, network, or metrics data around the browser state."
 then = "The run produces a structured proof that can be linked to the feature."
-tests = ["tests/test_cli.py::test_console*", "tests/test_primitives.py::test_console*", "tests/test_primitives.py::test_network*", "tests/test_primitives.py::test_metrics", "tests/e2e/test_e2e_chrome.py::test_console*", "tests/e2e/test_e2e_chrome.py::test_network*", "tests/e2e/test_e2e_chrome.py::test_metrics_real"]
+target = "chrome"
+proof_level = "runtime"
+tests = ["tests/e2e/test_e2e_chrome.py::test_console*", "tests/e2e/test_e2e_chrome.py::test_network*", "tests/e2e/test_e2e_chrome.py::test_metrics_real", "tests/e2e/test_e2e_chrome.py::test_cli_console_follow*"]
 expected_proofs = ["junit", "screenshot"]
 +++
 

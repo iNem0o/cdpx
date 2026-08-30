@@ -190,9 +190,19 @@ def _interpolate_text(text: str, label: str, environ: Mapping[str, str]) -> str:
     return "".join(pieces)
 
 
+def interpolate_environment_text(
+    text: str,
+    label: str,
+    environ: Mapping[str, str],
+) -> str:
+    """Expand one string with the strict workspace placeholder grammar."""
+
+    return _interpolate_text(text, label, environ)
+
+
 def _interpolate(value: Any, label: str, environ: Mapping[str, str]) -> Any:
     if isinstance(value, str):
-        return _interpolate_text(value, label, environ)
+        return interpolate_environment_text(value, label, environ)
     if isinstance(value, list):
         return [
             _interpolate(item, f"{label}[{index}]", environ) for index, item in enumerate(value)

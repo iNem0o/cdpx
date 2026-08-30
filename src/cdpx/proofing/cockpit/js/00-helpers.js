@@ -68,3 +68,10 @@
     return sep + (item.href ? `<a href="${item.href}">${esc(item.label)}</a>` : `<span>${esc(item.label)}</span>`);
   }).join('') + '</div>';
   const statusPill = (status) => `<span class="pill ${esc(status)}">${esc(status)}</span>`;
+  const proofKindLabel = (item) => ({
+    'cdp-mock/contract': 'mock',
+    'fixture/contract': 'fixture contract',
+    'chrome/runtime': 'real Chrome',
+    'symfony/runtime': 'real Symfony',
+    'shopware/runtime': 'real Shopware'
+  }[`${item?.target || ''}/${item?.proof_level || ''}`] || 'unattested');

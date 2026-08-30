@@ -67,30 +67,51 @@ def cmd_profiler(args) -> None:
             panels=args.options.panels,
             context=_orchestration(args),
         )
-        _assert_session_current(args, c)
+        # The token-only mode already verifies the final frame URL through
+        # Page.getFrameTree and must not evaluate JavaScript at all.
+        if args.options.panels != []:
+            _assert_session_current(args, c)
         _out(args, result)
 
 
 def cmd_dom_diff(args) -> None:
     action = _require_action(args)
     with _client(args, required_authority=action_authority(action)) as c:
-        result = dev.dom_diff(c, action)
+        result = dev.dom_diff(
+            c,
+            action,
+            origin_guard=lambda remaining: _assert_session_current(
+                args,
+                c,
+                timeout=remaining() if remaining is not None else None,
+            ),
+        )
         _assert_session_current(args, c)
         _out(args, result)
 
 
 def cmd_intercept(args) -> None:
     action = _require_action(args)
-    if not isinstance(action, GotoAction):
-        raise ValueError("intercept supports: -- goto <url>")
+    if not isinstance(action, GotoAction | ClickAction):
+        raise ValueError("intercept supports: goto <url> | click <selector>")
     with _client(args) as c:
-        result = interception.intercept_goto(
-            c,
-            action.url,
-            rules=args.options.rule,
-            timeout=args.options.timeout,
-            settle=args.options.settle,
-        )
+        if isinstance(action, GotoAction):
+            result = interception.intercept_goto(
+                c,
+                action.url,
+                rules=args.options.rule,
+                timeout=args.options.timeout,
+                settle=args.options.settle,
+            )
+        else:
+            result = interception.intercept_click(
+                c,
+                action.selector,
+                rules=args.options.rule,
+                allowed_origins=_orchestration(args).origins,
+                timeout=args.options.timeout,
+                settle=args.options.settle,
+            )
         _assert_session_current(args, c)
         _out(args, result)
 
@@ -104,7 +125,16 @@ def cmd_emulate(args) -> None:
             # requires running the action WITHIN this connection (see e2e).
             res["action"] = {
                 "argv": action_argv(action),
-                "result": actions.run_action(c, action, timeout=args.options.timeout),
+                "result": actions.run_action(
+                    c,
+                    action,
+                    timeout=args.options.timeout,
+                    origin_guard=lambda remaining: _assert_session_current(
+                        args,
+                        c,
+                        timeout=remaining() if remaining is not None else None,
+                    ),
+                ),
             }
             _assert_session_current(args, c)
         _out(args, res)
@@ -147,9 +177,9 @@ def cmd_frame(args) -> None:
 
 
 def _panels_arg(value: str) -> list[str] | None:
-    """--panels: all (default) -> all, none -> token probe only, otherwise CSV list."""
+    """--panels: all -> complete catalog, none -> no probe, otherwise CSV."""
     if value == "all":
-        return None
+        return list(profiler.ALL_PANELS)
     if value == "none":
         return []
     panels = [item.strip() for item in value.split(",") if item.strip()]
@@ -182,7 +212,7 @@ def register_commands(
     parser.add_argument(
         "--panels",
         type=_panels_arg,
-        default="all",
+        default=None,
         help=f"all | none | list: {','.join(profiler.ALL_PANELS)}",
     )
     parser.set_defaults(func=cmd_profiler)
@@ -191,7 +221,11 @@ def register_commands(
     parser.add_argument("action", nargs=argparse.REMAINDER)
     parser.set_defaults(func=cmd_dom_diff)
 
-    parser = sub.add_parser("intercept", help="intercept requests during a command")
+    parser = sub.add_parser(
+        "intercept",
+        help="intercept requests during a goto or trusted click",
+        description="Intercept requests while running goto <url> or click <selector>.",
+    )
     parser.add_argument(
         "--rule",
         action="append",
@@ -199,8 +233,17 @@ def register_commands(
         type=_intercept_rule_arg,
         help="PATTERN => 200..599|block|continue",
     )
-    parser.add_argument("--settle", type=float, default=0.5)
-    parser.add_argument("action", nargs=argparse.REMAINDER)
+    parser.add_argument(
+        "--settle",
+        type=float,
+        default=0.5,
+        help="quiet period after load (goto) or action completion (click)",
+    )
+    parser.add_argument(
+        "action",
+        nargs=argparse.REMAINDER,
+        help="goto <url> | click <selector> (optional leading --)",
+    )
     parser.set_defaults(func=cmd_intercept)
 
     parser = sub.add_parser("emulate", help="mobile/network/CPU emulation (+ composed action)")

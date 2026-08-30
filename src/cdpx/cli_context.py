@@ -41,6 +41,7 @@ class CommandOptions:
     await_promise: bool = False
     secret_env: str | None = None
     clear: bool = False
+    key_events: bool = False
     key: str | None = None
     output: str | None = None
     full_page: bool = False
@@ -100,6 +101,7 @@ class CommandOptions:
             await_promise=bool(values.get("await_promise", False)),
             secret_env=cast(str | None, values.get("secret_env")),
             clear=bool(values.get("clear", False)),
+            key_events=bool(values.get("key_events", False)),
             key=cast(str | None, values.get("key")),
             output=cast(str | None, values.get("output")),
             full_page=bool(values.get("full_page", False)),

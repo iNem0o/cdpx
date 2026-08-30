@@ -4,13 +4,16 @@
 import json
 import pathlib
 import stat
+import time
+from typing import cast
 
 import pytest
 
 from cdpx import discovery
-from cdpx.action_model import ClickAction, EvalAction, GotoAction
-from cdpx.client import CDPClient, CDPTimeout
+from cdpx.action_model import ClickAction, EvalAction, GotoAction, TypeAction
+from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
+from cdpx.policy import PolicyError
 from cdpx.primitives import (
     actions,
     audit,
@@ -188,7 +191,9 @@ ACTIONABLE = {
 @pytest.mark.scenario(
     feature="dom-interaction",
     journey="submit-form",
-    scenario_id="dom-interaction.submit-form-like-user",
+    scenario_id="dom-interaction.dispatch-input-protocol-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The click emits the moved/pressed/released mouse sequence at the element's center."],
 )
 def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
@@ -251,6 +256,128 @@ def test_click_dispatches_mouse_events_at_center(mock, client, evidence_case):
                 "mouse_events": mock.commands_for("Input.dispatchMouseEvent"),
             },
         )
+
+
+def test_click_applies_remaining_budget_to_probe_and_mouse_sequence(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    original_send = client.send
+    observed_timeouts: list[float | None] = []
+    budgets = iter((4.0, 3.0, 2.0, 1.0))
+
+    def send(method, params=None, timeout=None):
+        observed_timeouts.append(timeout)
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    inputs.click(client, "#submit-btn", remaining=lambda: next(budgets))
+
+    assert observed_timeouts == [4.0, 3.0, 2.0, 1.0]
+
+
+def test_click_stops_before_command_when_remaining_budget_is_exhausted(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    calls = 0
+
+    def remaining() -> float:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise CDPTimeout("interception timeout")
+        return 1.0
+
+    with pytest.raises(CDPTimeout, match="interception timeout"):
+        inputs.click(client, "#submit-btn", remaining=remaining)
+
+    assert [call["type"] for call in mock.commands_for("Input.dispatchMouseEvent")] == [
+        "mouseMoved"
+    ]
+
+
+def test_type_text_applies_remaining_budget_to_probe_clear_and_key_sequence(
+    mock, client, monkeypatch
+):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+    original_send = client.send
+    observed_timeouts: list[float | None] = []
+    budgets = iter((7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0))
+
+    def send(method, params=None, timeout=None):
+        observed_timeouts.append(timeout)
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    inputs.type_text(
+        client,
+        "#otp",
+        "7",
+        clear=True,
+        mode="key_events",
+        remaining=lambda: next(budgets),
+    )
+
+    assert observed_timeouts == [7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
+
+
+def test_type_text_applies_remaining_budget_to_origin_guards(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+    original_send = client.send
+    command_timeouts: list[float | None] = []
+    guard_timeouts: list[float | None] = []
+    budgets = iter((9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0))
+
+    def send(method, params=None, timeout=None):
+        command_timeouts.append(timeout)
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    def guard(remaining):
+        guard_timeouts.append(remaining() if remaining is not None else None)
+
+    inputs.type_text(
+        client,
+        "#otp",
+        "7",
+        mode="key_events",
+        origin_guard=guard,
+        remaining=lambda: next(budgets),
+    )
+
+    assert command_timeouts == [9.0, 8.0, 6.0, 4.0, 2.0]
+    assert guard_timeouts == [7.0, 5.0, 3.0, 1.0]
+
+
+def test_type_text_stops_before_next_character_when_budget_expires(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+    calls = 0
+
+    def remaining() -> float:
+        nonlocal calls
+        calls += 1
+        if calls == 6:
+            raise CDPTimeout("typed action timeout")
+        return 1.0
+
+    with pytest.raises(CDPTimeout, match="typed action timeout"):
+        inputs.type_text(
+            client,
+            "#otp",
+            "72",
+            mode="key_events",
+            remaining=remaining,
+        )
+
+    typed = [
+        event["text"]
+        for event in mock.commands_for("Input.dispatchKeyEvent")
+        if event["type"] == "char"
+    ]
+    assert typed == ["7"]
 
 
 def test_click_element_not_found(mock, client):
@@ -341,6 +468,193 @@ def test_type_text_clear_selects_then_deletes_through_input_domain(mock, client)
         "Input.dispatchKeyEvent",
         "Input.insertText",
     ]
+
+
+def test_type_text_key_events_emits_each_character_without_leaking(mock, client):
+    """key_events reproduces a physical digit sequence for segmented OTP widgets."""
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+
+    result = inputs.type_text(client, "#otp", "07", mode="key_events")
+
+    assert result == {
+        "typed": True,
+        "value_masked": True,
+        "selector": "#otp",
+        "cleared": False,
+        "mode": "key_events",
+    }
+    assert "07" not in json.dumps(result)
+    assert mock.commands_for("Input.insertText") == []
+    events = mock.commands_for("Input.dispatchKeyEvent")
+    assert [event["type"] for event in events] == [
+        "rawKeyDown",
+        "char",
+        "keyUp",
+        "rawKeyDown",
+        "char",
+        "keyUp",
+    ]
+    assert [event.get("text") for event in events if event["type"] == "char"] == ["0", "7"]
+    assert [event["code"] for event in events if event["type"] == "rawKeyDown"] == [
+        "Digit0",
+        "Digit7",
+    ]
+
+
+def test_type_text_key_events_rejects_non_ascii_before_browser_effect(mock, client):
+    with pytest.raises(ValueError, match="printable ASCII"):
+        inputs.type_text(client, "#otp", "é", mode="key_events")
+
+    assert mock.commands == []
+
+
+def test_type_text_key_events_maps_punctuation_to_physical_us_keys(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.on_eval("__cdpx_prepare_text", True)
+
+    inputs.type_text(client, "#code", "-./!_?", mode="key_events")
+
+    downs = [
+        event
+        for event in mock.commands_for("Input.dispatchKeyEvent")
+        if event["type"] == "rawKeyDown"
+    ]
+    assert [
+        (event["key"], event["code"], event["windowsVirtualKeyCode"], event.get("modifiers", 0))
+        for event in downs
+    ] == [
+        ("-", "Minus", 189, 0),
+        (".", "Period", 190, 0),
+        ("/", "Slash", 191, 0),
+        ("!", "Digit1", 49, 8),
+        ("_", "Minus", 189, 8),
+        ("?", "Slash", 191, 8),
+    ]
+    chars = [
+        event for event in mock.commands_for("Input.dispatchKeyEvent") if event["type"] == "char"
+    ]
+    assert [event["unmodifiedText"] for event in chars] == ["-", ".", "/", "1", "-", "/"]
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_delay_ms", "message"),
+    [
+        ("key_events", 0, "printable ASCII"),
+        ("insert_text", 10, "requires key_events"),
+    ],
+)
+def test_frame_type_validates_text_and_options_before_browser_effect(
+    mock, client, mode, key_delay_ms, message
+):
+    with pytest.raises(ValueError, match=message):
+        inputs.type_text_in_frame(
+            client,
+            "iframe.card",
+            "é" if mode == "key_events" else "secret",
+            frame_origin="https://frames.test",
+            mode=mode,
+            key_delay_ms=key_delay_ms,
+        )
+
+    assert mock.commands == []
+
+
+@pytest.mark.parametrize(
+    "frame_origin",
+    ["https://*.frames.test", "https://frames.test/card", "https://user@frames.test"],
+)
+def test_frame_type_requires_an_exact_origin_before_browser_effect(mock, client, frame_origin):
+    with pytest.raises(PolicyError, match="origin|credentials"):
+        inputs.type_text_in_frame(
+            client,
+            "iframe.card",
+            "secret",
+            frame_origin=frame_origin,
+        )
+
+    assert mock.commands == []
+
+
+def test_frame_candidate_origins_are_all_validated_before_browser_effect(mock, client):
+    with pytest.raises(PolicyError, match="concrete origin"):
+        inputs.type_text_in_candidate_frame(
+            client,
+            (
+                ("iframe.valid", "http://local-frame.test", "one"),
+                ("iframe.wildcard", "https://*.frames.test", "two"),
+            ),
+        )
+
+    assert mock.commands == []
+
+
+def test_frame_type_timeout_stops_paced_input_before_next_character(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.script_frame("iframe.card", "https://frames.test/card")
+    slept = False
+
+    def sleep(_delay):
+        nonlocal slept
+        slept = True
+
+    def remaining():
+        if slept:
+            raise CDPTimeout("scenario frame_type timeout")
+        return 1.0
+
+    monkeypatch.setattr(inputs.time, "sleep", sleep)
+
+    with pytest.raises(CDPTimeout, match="frame_type timeout"):
+        inputs.type_text_in_frame(
+            client,
+            "iframe.card",
+            "12",
+            frame_origin="https://frames.test",
+            mode="key_events",
+            key_delay_ms=250,
+            remaining=remaining,
+        )
+
+    typed = [
+        event["text"]
+        for event in mock.commands_for("Input.dispatchKeyEvent")
+        if event["type"] == "char"
+    ]
+    assert typed == ["1"]
+
+
+def test_frame_candidate_type_rejects_zero_matches_without_input(mock, client):
+    with pytest.raises(inputs.ElementNotInteractable, match="none of the declared"):
+        inputs.type_text_in_candidate_frame(
+            client,
+            (
+                ("iframe.adyen", "https://adyen.test", "one"),
+                ("iframe.checkout", "https://checkout.test", "two"),
+            ),
+        )
+
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert mock.commands_for("Input.insertText") == []
+
+
+def test_frame_candidate_type_rejects_multiple_matches_without_input(mock, client):
+    mock.script_frame("iframe.adyen", "https://adyen.test/card")
+    mock.script_frame("iframe.checkout", "https://checkout.test/card")
+
+    with pytest.raises(inputs.ElementNotInteractable, match="multiple declared"):
+        inputs.type_text_in_candidate_frame(
+            client,
+            (
+                ("iframe.adyen", "https://adyen.test", "one"),
+                ("iframe.checkout", "https://checkout.test", "two"),
+            ),
+        )
+
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert mock.commands_for("Input.insertText") == []
 
 
 @pytest.mark.parametrize(
@@ -503,6 +817,8 @@ def test_console_follow_yields_ndjson_ready_entries(mock, client):
     feature="state-session",
     journey="read-session",
     scenario_id="state-session.redact-sensitive-session-data",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["Secret, Bearer, JWT and URL credentials are absent from console output."],
 )
 def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_case):
@@ -562,7 +878,9 @@ def test_console_entries_redact_credentials_tokens_and_sensitive_urls(evidence_c
 @pytest.mark.scenario(
     feature="browser-capture-observability",
     journey="inspect-runtime",
-    scenario_id="browser-capture-observability.inspect-runtime-failures",
+    scenario_id="browser-capture-observability.collect-observability-protocol-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The network capture summarizes total/failures/errors/bytes with masked URLs."],
 )
 def test_network_capture_assembles_requests(mock, client, evidence_case):
@@ -707,7 +1025,9 @@ def _profiler_network_script(base_url: str, headers: dict) -> list[dict]:
 @pytest.mark.scenario(
     feature="dev-profiler-diff",
     journey="read-profiler",
-    scenario_id="dev-profiler-diff.read-symfony-profiler",
+    scenario_id="dev-profiler-diff.exercise-profiler-protocol-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The profiler exposes a masked token and SQL metrics parsed from the db panel."],
 )
 def test_profiler_reads_debug_token_link_and_parses_panels(
@@ -747,9 +1067,11 @@ def test_profiler_reads_debug_token_link_and_parses_panels(
         for item in mock.commands_for("Runtime.evaluate")
         if "__cdpx_profiler_panels" in item["expression"]
     ]
-    #: the panel fetch is an awaited promise, targeting the token URL + panel
+    #: the awaited browser program receives the trusted token URL as its base,
+    #: probes request, then selects the advertised DB collector.
     assert call["awaitPromise"] is True
-    assert f'"{link}?panel=db"' in call["expression"]
+    assert f'const base = "{link}"' in call["expression"]
+    assert '["db",["db","app.connection_collector"]]' in call["expression"]
 
     # Secondary evidence: the profiler output (masked token, parsed SQL metrics).
     if evidence_case is not None:
@@ -821,10 +1143,8 @@ def test_profiler_falls_back_to_debug_token(mock, client, fixtures_http):
     # token-only probe: no panel fetch
     #: with no panel requested, no page-context fetch is even attempted
     assert res["panels"] == {} and res["profiler_status"] is None
-    assert not any(
-        "__cdpx_profiler_panels" in call["expression"]
-        for call in mock.commands_for("Runtime.evaluate")
-    )
+    assert mock.commands_for("Runtime.evaluate") == []
+    assert mock.commands_for("Page.getFrameTree") == [{}]
 
 
 def test_profiler_rejects_requested_origin_before_navigation(mock, client):
@@ -1301,6 +1621,425 @@ def test_intercept_accepts_explicit_continue(mock, client):
     assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "I1"}]
 
 
+@pytest.mark.parametrize(
+    ("rule", "method"),
+    [
+        (None, "Fetch.continueRequest"),
+        ("* => block", "Fetch.failRequest"),
+        ("* => 503", "Fetch.fulfillRequest"),
+    ],
+)
+def test_intercept_fetch_decisions_use_remaining_budget(mock, client, monkeypatch, rule, method):
+    original_send = client.send
+    observed_timeout = None
+
+    def send(cdp_method, params=None, timeout=None):
+        nonlocal observed_timeout
+        if cdp_method == method:
+            observed_timeout = timeout
+        return original_send(cdp_method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    rules = [] if rule is None else [interception.parse_intercept_rule(rule)]
+    event = {
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": "DECISION",
+            "request": {"url": "http://s.test/api/decision"},
+        },
+    }
+
+    interception._resolve_paused_request(
+        client,
+        rules,
+        event,
+        [],
+        remaining=lambda: 0.75,
+    )
+
+    assert observed_timeout == 0.75
+
+
+def test_intercept_forbidden_document_release_uses_remaining_budget(mock, client, monkeypatch):
+    original_send = client.send
+    observed_timeout = None
+
+    def send(method, params=None, timeout=None):
+        nonlocal observed_timeout
+        if method == "Fetch.continueRequest":
+            observed_timeout = timeout
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    event = {
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": "FORBIDDEN-DOCUMENT",
+            "frameId": "MAIN",
+            "resourceType": "Document",
+            "request": {"url": "https://forbidden.example/redirected"},
+        },
+    }
+
+    with pytest.raises(ValueError, match="origin rejected"):
+        interception._guard_main_document_origin(
+            client,
+            event,
+            main_frame_id="MAIN",
+            allowed_origins=("http://s.test",),
+            remaining=lambda: 0.5,
+        )
+
+    assert observed_timeout == 0.5
+
+
+def test_intercept_click_fulfills_request_and_cleans_up(mock, client):
+    """The trusted click runs between Fetch.enable and an explicit disable."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "CLICK1",
+                    "request": {"url": "http://s.test/api/echo", "method": "DELETE"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api/echo* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0.01,
+    )
+
+    assert result == {
+        "action": {
+            "argv": ["click", "#request-button"],
+            "result": {"clicked": "#request-button", "x": 25.0, "y": 40.0},
+        },
+        "rules": ["*api/echo* => 503"],
+        "hits": [{"url": "http://s.test/api/echo", "action": "503"}],
+        "count": 1,
+        "matched_count": 1,
+        "effective_count": 1,
+        "settle": 0.01,
+    }
+    methods = [method for (_target, method, _params) in mock.commands]
+    assert methods.index("Fetch.enable") < methods.index("Input.dispatchMouseEvent")
+    assert methods.index("Input.dispatchMouseEvent") < methods.index("Fetch.fulfillRequest")
+    assert methods[-1] == "Fetch.disable"
+
+
+def test_intercept_click_zero_settle_drains_events_buffered_by_click(mock, client):
+    """settle=0 still resolves Fetch events buffered by mouseReleased."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "CLICK-ZERO",
+                    "request": {"url": "http://s.test/api/echo", "method": "DELETE"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api/echo* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+
+    assert result["effective_count"] == 1
+    assert result["hits"] == [{"url": "http://s.test/api/echo", "action": "503"}]
+    assert mock.commands_for("Fetch.fulfillRequest")[0]["requestId"] == "CLICK-ZERO"
+
+
+def test_intercept_click_cleanup_stops_mock_fetch_events(mock, client):
+    """The protocol-faithful mock stops pausing requests after Fetch.disable."""
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    paused_event = {
+        "method": "Fetch.requestPaused",
+        "params": {
+            "requestId": "CLEANUP",
+            "request": {"url": "http://s.test/api/cleanup", "method": "POST"},
+        },
+    }
+    network_event = {
+        "method": "Network.requestWillBeSent",
+        "params": {"requestId": "VISIBLE-AFTER-CLEANUP"},
+    }
+    mock.script_click_network([paused_event, network_event])
+
+    interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+    inputs.click(client, "#request-button")
+
+    assert client.drain_events() == [network_event]
+    assert [call["requestId"] for call in mock.commands_for("Fetch.fulfillRequest")] == ["CLEANUP"]
+
+
+def test_intercept_click_zero_settle_releases_traffic_after_snapshot(mock, client):
+    """settle=0 applies rules once, then continues newly buffered pauses untouched."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "SNAPSHOT",
+                    "request": {"url": "http://s.test/api/snapshot", "method": "POST"},
+                },
+            }
+        ]
+    )
+    mock.script_fetch_resolution(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "AFTER-SNAPSHOT",
+                    "request": {"url": "http://s.test/api/later", "method": "POST"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+
+    assert result["hits"] == [{"url": "http://s.test/api/snapshot", "action": "503"}]
+    assert result["matched_count"] == 1 and result["effective_count"] == 1
+    assert [call["requestId"] for call in mock.commands_for("Fetch.fulfillRequest")] == ["SNAPSHOT"]
+    assert [call["requestId"] for call in mock.commands_for("Fetch.continueRequest")] == [
+        "AFTER-SNAPSHOT"
+    ]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_click_cleanup_releases_pause_delivered_after_disable_response(mock, client):
+    """Cleanup observes a pause that races with the Fetch.disable response."""
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.script_fetch_disable(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "DISABLE-RACE",
+                    "request": {"url": "http://s.test/api/later", "method": "GET"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+
+    assert result["matched_count"] == 0 and result["effective_count"] == 0
+    methods = [method for (_target, method, _params) in mock.commands]
+    assert methods.index("Fetch.disable") < methods.index("Fetch.continueRequest")
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "DISABLE-RACE"}]
+    assert mock.commands_for("Fetch.enable") == [
+        {"patterns": [{"urlPattern": "*"}]},
+        {"patterns": [{"urlPattern": "*"}]},
+    ]
+    assert mock.commands_for("Fetch.disable") == [{}, {}]
+
+
+def test_intercept_click_poll_is_capped_by_remaining_quiet_period():
+    """A short settle never inherits the collector's 250 ms polling cap."""
+
+    class QuietClient:
+        def __init__(self):
+            self.timeouts: list[float] = []
+
+        def drain_events(self):
+            return []
+
+        def next_event(self, timeout):
+            self.timeouts.append(timeout)
+            time.sleep(timeout)
+            raise CDPTimeout("quiet")
+
+    quiet_client = QuietClient()
+    interception._collect_until_quiet(
+        cast(CDPClient, quiet_client),
+        [],
+        [],
+        settle=0.01,
+        remaining=lambda: 1.0,
+        wait_for_load=False,
+    )
+
+    assert quiet_client.timeouts
+    assert max(quiet_client.timeouts) <= 0.01
+
+
+def test_intercept_click_no_matching_rule_is_explicit_success(mock, client):
+    """Unmatched traffic continues while the result records a zero match count."""
+    mock.on_eval("__cdpx_actionability", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "CLICK2",
+                    "request": {"url": "http://s.test/api/other"},
+                },
+            }
+        ]
+    )
+
+    result = interception.intercept_click(
+        client,
+        "#request-button",
+        rules=["*api/echo* => 503"],
+        allowed_origins=("http://s.test",),
+        settle=0.01,
+    )
+
+    assert result["hits"] == [{"url": "http://s.test/api/other", "action": "continue"}]
+    assert result["matched_count"] == 0 and result["effective_count"] == 0
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "CLICK2"}]
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+@pytest.mark.parametrize(
+    ("state", "message"),
+    [
+        ({"attached": False}, "selector not found"),
+        ({"attached": True, "visible": False}, "element not visible"),
+    ],
+)
+def test_intercept_click_action_errors_still_disable_fetch(mock, client, state, message):
+    mock.on_eval("__cdpx_actionability", json.dumps(state))
+
+    with pytest.raises(inputs.ElementNotFound, match=message):
+        interception.intercept_click(
+            client,
+            "#missing",
+            rules=["* => block"],
+            allowed_origins=("http://s.test",),
+            settle=0.01,
+        )
+
+    assert mock.commands_for("Input.dispatchMouseEvent") == []
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_click_action_timeout_still_disables_fetch(mock, client, monkeypatch):
+    def exhausted_click(_client, selector, button="left", *, remaining=None):
+        del selector, button
+        assert remaining is not None
+        raise CDPTimeout("interception timeout after 0.01s")
+
+    monkeypatch.setattr(inputs, "click", exhausted_click)
+
+    with pytest.raises(CDPTimeout, match="interception timeout"):
+        interception.intercept_click(
+            client,
+            "#slow",
+            rules=["* => block"],
+            allowed_origins=("http://s.test",),
+            timeout=0.01,
+            settle=0.01,
+        )
+
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_fetch_decision_timeout_still_uses_separate_cleanup_budget(
+    mock, client, monkeypatch
+):
+    mock.on_eval("__cdpx_actionability", json.dumps(ACTIONABLE))
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "SLOW-DECISION",
+                    "request": {"url": "http://s.test/api/slow"},
+                },
+            }
+        ]
+    )
+    original_send = client.send
+    observed_timeouts: dict[str, float | None] = {}
+
+    def send(method, params=None, timeout=None):
+        if method == "Fetch.failRequest":
+            observed_timeouts[method] = timeout
+            raise CDPTimeout("response to Fetch.failRequest")
+        if method == "Fetch.disable":
+            observed_timeouts[method] = timeout
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", send)
+
+    with pytest.raises(CDPTimeout, match=r"Fetch\.failRequest"):
+        interception.intercept_click(
+            client,
+            "#request-button",
+            rules=["*slow* => block"],
+            allowed_origins=("http://s.test",),
+            timeout=1.0,
+            settle=0,
+        )
+
+    assert observed_timeouts["Fetch.failRequest"] is not None
+    assert 0 < cast(float, observed_timeouts["Fetch.failRequest"]) <= 1.0
+    assert observed_timeouts["Fetch.disable"] is not None
+    assert 0 < cast(float, observed_timeouts["Fetch.disable"]) <= 2.0
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
+def test_intercept_click_cleanup_failure_is_an_execution_error(mock, client):
+    mock.on_eval("__cdpx_actionability", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    mock.fail_on("Fetch.disable")
+
+    with pytest.raises(CDPError, match=r"Fetch\.disable"):
+        interception.intercept_click(
+            client,
+            "#request-button",
+            rules=["*api/echo* => 503"],
+            allowed_origins=("http://s.test",),
+            settle=0.01,
+        )
+
+    assert mock.commands_for("Fetch.disable") == [{}]
+
+
 def test_emulate_mobile_and_reset(mock, client):
     """Mobile emulation applies the device override, and the reset restores
     every dimension, including the UA, via the complete protocol sequence."""
@@ -1543,7 +2282,9 @@ def test_replay_rejects_v1_type_without_exposing_text(client, tmp_path, monkeypa
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="replay-flow",
-    scenario_id="orchestration-control.orchestrate-replay-and-emulation",
+    scenario_id="orchestration-control.enforce-replay-contract",
+    target="cdp-mock",
+    proof_level="contract",
     proves=["The replay stops dead at the first divergence, without replaying what follows."],
 )
 def test_replay_stops_at_first_divergence(mock, client, tmp_path, evidence_case):
@@ -1809,3 +2550,41 @@ def test_run_action_dispatches_and_rejects_unknown(mock, client):
         actions.run_action_argv(client, ["shell", "rm -rf /"])
     with pytest.raises(ValueError):
         actions.run_action_argv(client, [])
+
+
+def test_run_action_passes_one_remaining_budget_to_type(monkeypatch, client):
+    observed: dict[str, object] = {}
+
+    def type_text(
+        _client,
+        selector,
+        text,
+        clear=False,
+        *,
+        mode="insert_text",
+        origin_guard=None,
+        remaining=None,
+    ):
+        observed.update(
+            selector=selector,
+            text=text,
+            clear=clear,
+            mode=mode,
+            origin_guard=origin_guard,
+            remaining=remaining,
+        )
+        return {"typed": True, "value_masked": True}
+
+    monkeypatch.setattr(inputs, "type_text", type_text)
+
+    result = actions.run_action(
+        client,
+        TypeAction("#otp", "secret", clear=True, mode="key_events"),
+        timeout=1.0,
+    )
+
+    assert result == {"typed": True, "value_masked": True}
+    assert observed["text"] == "secret"
+    remaining = observed["remaining"]
+    assert callable(remaining)
+    assert 0 < remaining() <= 1.0
