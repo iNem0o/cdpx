@@ -156,9 +156,8 @@ FOCUS_RESET_PROBE = r"""
 (() => {
   let active = document.activeElement;
   while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-  const token = active && active !== document.body && active !== document.documentElement
-    ? {id: active.id || null, tag: active.localName || null, name: active.getAttribute?.("name") || null}
-    : null;
+  const token = active && active !== document.body && active !== document.documentElement ? {stored: true} : null;
+  globalThis.__cdpxRgaaFocusTarget = token ? active : null;
   if (active && typeof active.blur === "function") active.blur();
   return JSON.stringify(token);
 })()
@@ -169,18 +168,19 @@ FOCUS_RESTORE_PROBE = r"""
 (() => {
   const token = __CDPX_FOCUS_TOKEN__;
   if (!token) {
+    delete globalThis.__cdpxRgaaFocusTarget;
     let active = document.activeElement;
     while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
     if (active && typeof active.blur === "function") active.blur();
     return document.activeElement === document.body || document.activeElement === document.documentElement;
   }
-  let target = token.id ? document.getElementById(token.id) : null;
-  if (!target && token.name && token.tag) {
-    target = [...document.getElementsByTagName(token.tag)].find((item) => item.getAttribute("name") === token.name) || null;
-  }
-  if (!target || typeof target.focus !== "function") return false;
+  const target = globalThis.__cdpxRgaaFocusTarget;
+  delete globalThis.__cdpxRgaaFocusTarget;
+  if (!target || !target.isConnected || typeof target.focus !== "function") return false;
   target.focus({preventScroll: true});
-  return document.activeElement === target;
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active === target;
 })()
 """
 

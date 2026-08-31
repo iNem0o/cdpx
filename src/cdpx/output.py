@@ -28,11 +28,15 @@ def bound_rgaa(data: Any, *, full: bool = False, limit: int = DEFAULT_LIMIT) -> 
 
 
 def _bound_rgaa_value(value: Any, *, limit: int) -> Any:
-    structural = {"themes", "criteria", "tests", "pages"}
+    structural = {"themes", "criteria", "tests", "pages", "providers", "limitations"}
     if isinstance(value, dict):
+        schema_document = value.get("schema") in {
+            "cdpx.rgaa.result/v1",
+            "cdpx.rgaa.sample-result/v1",
+        }
         out: dict[str, Any] = {}
         for key, item in value.items():
-            if isinstance(item, str) and len(item) > DEFAULT_MAX_CHARS:
+            if isinstance(item, str) and len(item) > DEFAULT_MAX_CHARS and not schema_document:
                 out[key] = item[:DEFAULT_MAX_CHARS]
                 out[f"{key}_truncated"] = True
                 out[f"{key}_chars"] = len(item)

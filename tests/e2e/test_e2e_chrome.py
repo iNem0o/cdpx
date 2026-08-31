@@ -23,7 +23,7 @@ import pytest
 
 from cdpx import discovery, proof, scenarios
 from cdpx.action_model import ClickAction, GotoAction, TypeAction
-from cdpx.client import CDPClient
+from cdpx.client import CDPClient, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.primitives import (
     actions,
@@ -41,6 +41,8 @@ from cdpx.primitives import (
     recording,
     state,
 )
+from cdpx.rgaa import scanner as rgaa_scanner
+from cdpx.rgaa.plan import ExecutionBudget
 from cdpx.rgaa.sample import compile_sample as compile_rgaa_sample
 from cdpx.rgaa.sample import run_sample as run_rgaa_sample
 from cdpx.rgaa.scanner import scan as rgaa_scan
@@ -94,6 +96,7 @@ def chrome():
             "--no-first-run",
             "--no-sandbox",
             "--disable-gpu",
+            "--host-resolver-rules=MAP app.test 127.0.0.1",
         ],
         stdout=subprocess.DEVNULL,
         stderr=stderr,
@@ -2163,6 +2166,88 @@ def test_rgaa_native_probe_walks_nested_open_shadow_roots(page):
         for test in report["tests"]
         if test["id"] in {"2.1.1", "3.2.1", "6.1.1", "11.1.1", "11.9.1"}
     )
+
+
+def test_rgaa_environment_hash_works_on_non_secure_http_origin(page):
+    c, base = page
+    port = base.rsplit(":", 1)[1]
+    url = f"http://app.test:{port}/rgaa.html"
+    nav.navigate(c, url)
+
+    assert js.evaluate(c, "globalThis.isSecureContext") is False
+    report = rgaa_scan(c, selected_tests=("8.1.1",))
+
+    assert report["execution_status"] == "complete"
+    assert report["collector_status"]["environment"]["status"] == "ok"
+    assert len(report["environment"]["page"]["dom_sha256"]) == 64
+
+
+def test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(c, "globalThis.__cdpxMainTicks = 0; setInterval(() => __cdpxMainTicks++, 10)")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    with pytest.raises(CDPTimeout):
+        rgaa_scanner._load_probe(
+            c,
+            context_id,
+            "new Promise(() => {})",
+            ExecutionBudget.start(0.2),
+        )
+
+    time.sleep(0.1)
+    assert js.evaluate(c, "globalThis.__cdpxMainTicks") > 0
+
+
+def test_rgaa_focus_restores_idless_control_in_nested_shadow_root(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+    report = rgaa_scan(c, scope="interactive", selected_tests=("10.7.1",), timeout=10)
+
+    assert report["collector_status"]["focus"]["focus_restoration"] == "completed"
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+
+def test_rgaa_cli_navigation_error_text_keeps_full_report(managed_cli_session, evidence_case):
+    manifest, path = managed_cli_session
+    unavailable = free_loopback_port()
+
+    proc = run_cli(
+        manifest,
+        path,
+        "--timeout",
+        "5",
+        "rgaa",
+        "scan",
+        f"http://127.0.0.1:{unavailable}/unreachable",
+        "--tests",
+        "8.1.1",
+    )
+    attach_cli_run(evidence_case, "RGAA navigation errorText report", proc)
+
+    assert proc.returncode == 1 and proc.stderr == ""
+    report = json.loads(proc.stdout)
+    assert report["execution_status"] == "error"
+    assert report["collector_status"]["page-navigation"]["status"] == "error"
+    assert len(report["tests"]) == 258
 
 
 def test_rgaa_installed_cli_covers_catalog_scopes_and_samples(cli_page, tmp_path, evidence_case):

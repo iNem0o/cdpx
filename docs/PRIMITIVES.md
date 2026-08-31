@@ -126,9 +126,12 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 All 258 official tests remain in each result. The native engine owns RGAA
 semantics; optional axe-core observations are offline, isolated and advisory.
 Every aggregation publishes `certification_claim: false`. Page and sample
-results also publish `execution_status: complete|partial|error`; operational
-failure still writes the full JSON report on stdout but exits `1`. Proven
-non-conformance after a completed audit remains exit `0`.
+results also publish `execution_status: complete|partial|error` and
+`audit_findings_present`; operational failure, including
+`Page.navigate.errorText`, still writes the full JSON report on stdout but
+exits `1`. Proven non-conformance after a completed audit remains exit `0`.
+DOM fingerprints are hashed by cdpx from bounded page material, so the
+documented plain-HTTP `.test` workflow does not require a secure context.
 
 ```bash
 cdpx rgaa catalog --tests 2.1.1,8.3.1

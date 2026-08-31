@@ -19,7 +19,7 @@ import yaml
 from cdpx.client import CDPClient, CDPError, CDPTimeout, CDPTransportError
 from cdpx.policy import Authority, PolicyError, origin_from_url
 from cdpx.primitives import nav
-from cdpx.rgaa.catalog import EXPECTED_COUNTS, RGAA_VERSION, parse_test_selection, test_index
+from cdpx.rgaa.catalog import EXPECTED_COUNTS, RGAA_VERSION, test_index
 from cdpx.rgaa.plan import ExecutionBudget, build_scan_plan
 from cdpx.rgaa.scanner import (
     VERDICTS,
@@ -132,9 +132,17 @@ def _page_tests(value: Any, *, label: str) -> tuple[str, ...] | None:
         raise ValueError(f"RGAA sample: {label}.tests must be a list of test IDs")
     if not value:
         raise ValueError(f"RGAA sample: {label}.tests must not be empty")
-    if len(value) != len(set(value)):
+    normalized = tuple(item.strip() for item in value)
+    if any(not item for item in normalized):
+        raise ValueError(f"RGAA sample: {label}.tests must not contain blank test IDs")
+    if any("," in item for item in normalized):
+        raise ValueError(f"RGAA sample: {label}.tests requires one ID per item")
+    if len(normalized) != len(set(normalized)):
         raise ValueError(f"RGAA sample: {label}.tests contains duplicate test IDs")
-    return parse_test_selection(",".join(value))
+    unknown = sorted(set(normalized) - set(test_index()))
+    if unknown:
+        raise ValueError(f"RGAA sample: unknown RGAA test id(s): {', '.join(unknown)}")
+    return normalized
 
 
 def _read_manifest(source: Path) -> bytes:
@@ -288,6 +296,7 @@ def run_sample(
     active_budget = budget or ExecutionBudget.start(timeout)
     page_reports: list[dict[str, Any]] = []
     for page in compiled.pages:
+        page_actions_start = active_budget.actions_used
         try:
             active_budget.consume(f"navigation to sample page {page.id}")
             nav.navigate(client, page.url, wait="load", timeout=active_budget.remaining())
@@ -301,18 +310,28 @@ def run_sample(
                 timeout=timeout,
                 budget=active_budget,
                 origin_guard=origin_guard,
+                planned_navigations=1,
+                actions_start=page_actions_start,
             )
             if origin_guard is not None:
                 origin_guard()
         except PolicyError:
             raise
-        except (CDPError, CDPTimeout, CDPTransportError, TimeoutError) as error:
+        except (
+            nav.NavigationError,
+            CDPError,
+            CDPTimeout,
+            CDPTransportError,
+            TimeoutError,
+        ) as error:
             report = scan_error_report(
                 scope=compiled.scope,
                 engine=compiled.engine,
                 selected_tests=page.tests,
                 error=error,
                 budget=active_budget,
+                planned_navigations=1,
+                actions_start=page_actions_start,
             )
         page_reports.append({"page_id": page.id, "url": page.url, "report": report})
     tests, summary = _aggregate(page_reports)
@@ -326,6 +345,9 @@ def run_sample(
     return {
         "schema": "cdpx.rgaa.sample-result/v1",
         "execution_status": execution_status,
+        "audit_findings_present": any(
+            item["report"]["audit_findings_present"] for item in page_reports
+        ),
         "rgaa_version": RGAA_VERSION,
         "sample": compiled.public_plan(),
         "summary": summary,
@@ -333,6 +355,7 @@ def run_sample(
         "criteria": criteria,
         "tests": tests,
         "pages": page_reports,
+        "actions_used": active_budget.actions_used,
         "limitations": [
             "The declared sample is auditable evidence, not proof that the sample "
             "is representative.",

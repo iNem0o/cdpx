@@ -6,6 +6,11 @@ A page result carries catalog provenance, scope/engine/URL, full-count summary,
 
 Every test records its official ID, criterion/theme, verdict, automation
 class, confidence, bounded findings/evidence/advisory observations and
-limitations. Default output bounding may truncate the `tests` list but adds
-`tests_total`, `tests_limit`, and `tests_truncated`; summary totals always
-cover the complete in-memory result.
+limitations. Summary totals always cover the complete in-memory result.
+
+Normative `themes`, `criteria`, `tests`, `pages`, `providers`, and
+`limitations` arrays keep their published shape for every `--limit` value and
+for `--full`. Variable evidence nested inside those records may still be
+bounded. Page and sample documents expose `execution_status`,
+`audit_findings_present`, and action use; sample page reports use page-local
+counts while the sample top level carries the cumulative count.

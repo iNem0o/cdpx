@@ -1,5 +1,20 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@05533db
+  - Symptom: the first complete gate passed all 1,132 functional tests but the
+    proof inventory rejected four new RGAA Chromium cases as undocumented and
+    the navigation `errorText` CLI case as lacking a command transcript.
+  - Root cause (missing capability): the RGAA feature scenario uses an exact
+    runtime-test allowlist, and a successful test invocation does not itself
+    create the command evidence required for an installed-CLI proof.
+  - Fix encoded (doc/script/lint): the feature sheet now maps all four
+    adversarial Chromium tests explicitly, and the CLI navigation-error test
+    attaches its captured stdout/stderr/exit result through the evidence
+    fixture.
+  - Verification (command/CI): the repeated `./dev check` returned `ok: true`
+    for 1,061 unit/contract, 62 Chrome, 7 Symfony and 2 Shopware tests, with
+    zero proof failures.
+
 - Session-Key: feat/rgaa-audit-engine@30dd6b4
   - Symptom: the first complete gate passed every functional suite but the
     proof cockpit rejected the new installed-CLI RGAA scenario because it had

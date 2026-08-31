@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 from collections import Counter
 from collections.abc import Callable
@@ -224,20 +227,13 @@ def _load_probe(
     *,
     await_promise: bool = True,
 ) -> dict[str, Any]:
-    try:
-        raw = js.evaluate(
-            client,
-            expression,
-            await_promise=await_promise,
-            timeout=budget.remaining(),
-            context_id=context_id,
-        )
-    except CDPTimeout:
-        try:
-            client.send("Runtime.terminateExecution", timeout=1.0)
-        except CDPError, CDPTimeout, CDPTransportError:
-            pass
-        raise
+    raw = js.evaluate(
+        client,
+        expression,
+        await_promise=await_promise,
+        timeout=budget.remaining(),
+        context_id=context_id,
+    )
     if not isinstance(raw, str):
         raise CollectorExecutionError("RGAA page probe returned no value")
     try:
@@ -450,16 +446,23 @@ def _apply_passive(
             evidence_complete=title_present,
         )
     if "8.6.1" in selected:
+        empty_title = title_present and not title_value
         _set_result(
             by_id["8.6.1"],
-            "needs_review" if title_value else "fail",
-            confidence="medium" if title_value else "high",
+            "fail" if empty_title else "needs_review",
+            confidence="high" if empty_title else "medium",
             findings=[]
-            if title_value
+            if not empty_title
             else [
                 _finding("document-title-relevance", "Document title is empty.", status="proven")
             ],
-            evidence=[{"collector": "isolated-dom", "title": title_value}],
+            evidence=[
+                {
+                    "collector": "isolated-dom",
+                    "title_present": title_present,
+                    "title": title_value,
+                }
+            ],
             limitations=["A non-empty title still requires a relevance judgment."],
         )
 
@@ -535,13 +538,26 @@ def _apply_passive(
 
 def _collect_accessibility(client: CDPClient, budget: ExecutionBudget) -> dict[str, Any]:
     client.send("Accessibility.enable", timeout=budget.remaining())
-    response = client.send("Accessibility.getFullAXTree", timeout=budget.remaining())
+    document = client.send(
+        "DOM.getDocument",
+        {"depth": 0, "pierce": False},
+        timeout=budget.remaining(),
+    )
+    root = document.get("root", {})
+    backend_node_id = root.get("backendNodeId") if isinstance(root, dict) else None
+    if not isinstance(backend_node_id, int):
+        raise CollectorExecutionError("RGAA accessibility root unavailable")
+    response = client.send(
+        "Accessibility.getPartialAXTree",
+        {"backendNodeId": backend_node_id, "fetchRelatives": False},
+        timeout=budget.remaining(),
+    )
     nodes = response.get("nodes", [])
     if not isinstance(nodes, list):
         raise CollectorExecutionError("RGAA accessibility tree unavailable")
     return {
         "nodes": len(nodes),
-        "ax_tree_collected": True,
+        "ax_tree_collected": "bounded-root",
         "evidence_complete": False,
         "exposed_values": False,
     }
@@ -724,26 +740,39 @@ def _environment(
         environment["browser_error"] = str(error)
     expression = r"""
     // __cdpx_rgaa_environment_v2
-    (async () => {
+    (() => {
       const NODE_LIMIT = 5000, BYTE_LIMIT = 262144, encoder = new TextEncoder();
       const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
       const chunks = []; let nodes = 0, bytes = 0, clipped = false, node = walker.currentNode;
       while (node && nodes < NODE_LIMIT && bytes < BYTE_LIMIT) {
         const value = node.nodeType === Node.TEXT_NODE ? String(node.nodeValue || "") : `<${node.localName}>`;
-        const raw = encoder.encode(value), remaining = BYTE_LIMIT - bytes;
+        const remaining = BYTE_LIMIT - bytes, boundedValue = value.slice(0, remaining);
+        const raw = encoder.encode(boundedValue);
+        if (boundedValue.length < value.length) clipped = true;
         if (raw.byteLength > remaining) clipped = true;
         const encoded = raw.slice(0, remaining);
         chunks.push(encoded); bytes += encoded.byteLength; nodes += 1; node = walker.nextNode();
       }
       const material = new Uint8Array(bytes); let offset = 0;
       for (const chunk of chunks) { material.set(chunk, offset); offset += chunk.byteLength; }
-      const digest = await crypto.subtle.digest("SHA-256", material);
-      const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-      return JSON.stringify({user_agent: navigator.userAgent, locale: navigator.language, viewport: {width: innerWidth, height: innerHeight, device_pixel_ratio: devicePixelRatio, visual_scale: visualViewport?.scale || 1}, media: {forced_colors: matchMedia("(forced-colors: active)").matches, prefers_contrast_more: matchMedia("(prefers-contrast: more)").matches, prefers_dark: matchMedia("(prefers-color-scheme: dark)").matches}, dom_sha256: hex, nodes_examined: nodes, bytes_examined: bytes, truncated: clipped || Boolean(node), hash_complete: !clipped && !node});
+      let binary = "";
+      for (let start = 0; start < material.length; start += 32768) binary += String.fromCharCode(...material.subarray(start, start + 32768));
+      return JSON.stringify({user_agent: navigator.userAgent, locale: navigator.language, viewport: {width: innerWidth, height: innerHeight, device_pixel_ratio: devicePixelRatio, visual_scale: visualViewport?.scale || 1}, media: {forced_colors: matchMedia("(forced-colors: active)").matches, prefers_contrast_more: matchMedia("(prefers-contrast: more)").matches, prefers_dark: matchMedia("(prefers-color-scheme: dark)").matches}, dom_material_base64: btoa(binary), nodes_examined: nodes, bytes_examined: bytes, truncated: clipped || Boolean(node), hash_complete: !clipped && !node});
     })()
     """
     try:
-        environment["page"] = _load_probe(client, context_id, expression, budget)
+        page = _load_probe(client, context_id, expression, budget)
+        encoded_material = page.pop("dom_material_base64", None)
+        if not isinstance(encoded_material, str):
+            raise CollectorExecutionError("RGAA DOM fingerprint material unavailable")
+        try:
+            material = base64.b64decode(encoded_material, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise CollectorExecutionError("RGAA DOM fingerprint material invalid") from error
+        if len(material) > 262144 or page.get("bytes_examined") != len(material):
+            raise CollectorExecutionError("RGAA DOM fingerprint material exceeded its bound")
+        page["dom_sha256"] = hashlib.sha256(material).hexdigest()
+        environment["page"] = page
     except _COLLECTOR_ERRORS as error:
         environment["page_error"] = str(error)
     return environment
@@ -803,6 +832,8 @@ def _finish(
     providers: list[dict[str, Any]],
     environment: dict[str, Any],
     budget: ExecutionBudget,
+    planned_navigations: int = 0,
+    actions_start: int = 0,
 ) -> dict[str, Any]:
     for result in results:
         result.pop("_capabilities", None)
@@ -854,7 +885,7 @@ def _finish(
             "catalog_sha256": catalog_sha256(),
         },
         "scope": {"mode": scope, "engine": engine, "url": url},
-        "execution_plan": plan.public(),
+        "execution_plan": plan.public(navigations=planned_navigations),
         "environment": environment,
         "generated_at": datetime.now(UTC).isoformat(),
         "summary": summary,
@@ -863,7 +894,7 @@ def _finish(
         "collector_status": collectors,
         "providers": providers,
         "tests": results,
-        "actions_used": budget.actions_used,
+        "actions_used": budget.actions_used - actions_start,
         "limitations": [
             "This is an automated/assisted evidence report, never an RGAA certification.",
             "Partial evidence and unresolved human/AT work are never counted as passes.",
@@ -879,6 +910,8 @@ def scan_error_report(
     selected_tests: tuple[str, ...] | None,
     error: Exception,
     budget: ExecutionBudget,
+    planned_navigations: int = 0,
+    actions_start: int = 0,
 ) -> dict[str, Any]:
     all_ids = {test["id"] for test in load_catalog()["tests"]}
     selected = set(selected_tests) if selected_tests is not None else all_ids
@@ -896,6 +929,8 @@ def scan_error_report(
         providers=[],
         environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
         budget=budget,
+        planned_navigations=planned_navigations,
+        actions_start=actions_start,
     )
 
 
@@ -908,6 +943,8 @@ def scan(
     timeout: float = 15.0,
     budget: ExecutionBudget | None = None,
     origin_guard: OriginGuard | None = None,
+    planned_navigations: int = 0,
+    actions_start: int = 0,
 ) -> dict[str, Any]:
     if scope not in {"passive", "interactive", "privileged"} or engine not in {"native", "hybrid"}:
         raise ValueError("unknown RGAA scope or engine")
@@ -935,6 +972,8 @@ def scan(
             providers=providers,
             environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
             budget=active_budget,
+            planned_navigations=planned_navigations,
+            actions_start=actions_start,
         )
     try:
         if origin_guard:
@@ -972,6 +1011,8 @@ def scan(
                 "state_drift": True,
             },
             budget=active_budget,
+            planned_navigations=planned_navigations,
+            actions_start=actions_start,
         )
     except _COLLECTOR_ERRORS as error:
         _mark_error(by_id, selected, selected, "isolated-world")
@@ -986,6 +1027,8 @@ def scan(
             providers=providers,
             environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
             budget=active_budget,
+            planned_navigations=planned_navigations,
+            actions_start=actions_start,
         )
 
     def state_drift_report(error: DocumentStateDrift) -> dict[str, Any]:
@@ -1003,6 +1046,8 @@ def scan(
             providers=providers,
             environment=environment,
             budget=active_budget,
+            planned_navigations=planned_navigations,
+            actions_start=actions_start,
         )
 
     if plan.passive:
@@ -1149,4 +1194,6 @@ def scan(
         providers=providers,
         environment=environment,
         budget=active_budget,
+        planned_navigations=planned_navigations,
+        actions_start=actions_start,
     )

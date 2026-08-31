@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://inem0o.github.io/cdpx/schema/rgaa-sample-result-v1.json",
   "type": "object",
-  "required": ["schema", "execution_status", "rgaa_version", "sample", "summary", "themes", "criteria", "tests", "pages", "limitations"],
+  "required": ["schema", "execution_status", "audit_findings_present", "rgaa_version", "sample", "summary", "themes", "criteria", "tests", "pages", "actions_used", "limitations"],
   "properties": {
     "schema": {"const": "cdpx.rgaa.sample-result/v1"},
     "execution_status": {"enum": ["complete", "partial", "error"]},
+    "audit_findings_present": {"type": "boolean"},
     "rgaa_version": {"const": "4.1.2"},
     "sample": {"$ref": "rgaa-sample-plan-v1.json"},
     "summary": {"type": "object"},
@@ -13,6 +14,7 @@
     "criteria": {"type": "array", "minItems": 106, "maxItems": 106},
     "tests": {"type": "array", "minItems": 258, "maxItems": 258},
     "pages": {"type": "array", "minItems": 1, "maxItems": 50},
+    "actions_used": {"type": "integer", "minimum": 0},
     "limitations": {"type": "array", "items": {"type": "string"}},
     "_cdpx": {"type": "object"}
   }

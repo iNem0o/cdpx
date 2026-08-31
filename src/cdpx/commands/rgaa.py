@@ -54,7 +54,7 @@ def cmd_scan(args) -> int:
             budget.consume("RGAA navigation")
             try:
                 nav.navigate(client, args.options.url, wait="load", timeout=budget.remaining())
-            except (CDPError, CDPTimeout, CDPTransportError) as error:
+            except (nav.NavigationError, CDPError, CDPTimeout, CDPTransportError) as error:
                 emit_rgaa_json(
                     args,
                     scan_error_report(
@@ -63,6 +63,7 @@ def cmd_scan(args) -> int:
                         selected_tests=selected,
                         error=error,
                         budget=budget,
+                        planned_navigations=1,
                     ),
                 )
                 return 1
@@ -75,6 +76,7 @@ def cmd_scan(args) -> int:
             timeout=args.options.timeout,
             budget=budget,
             origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
+            planned_navigations=1 if args.options.url else 0,
         )
         assert_session_current(args, client, timeout=budget.remaining())
         emit_rgaa_json(args, result)

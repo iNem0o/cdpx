@@ -46,6 +46,7 @@ Changelog = "https://github.com/inem0o/cdpx/blob/HEAD/CHANGELOG.md"
 [dependency-groups]
 dev = [
     "build",
+    "jsonschema",
     "mypy",
     "packaging>=24.2",
     "pytest",

@@ -15,6 +15,7 @@
     outer.innerHTML = '<a href="#target">Action shadow</a><input aria-label="Recherche"><div id="nested"></div><iframe title="Aide shadow"></iframe>';
     const nested = outer.querySelector("#nested").attachShadow({mode: "open"});
     nested.innerHTML = '<button type="button">Action imbriquée</button><span style="color:#111;background:#fff">Texte imbriqué</span>';
+    nested.querySelector("button").focus();
   </script>
 </body>
 </html>

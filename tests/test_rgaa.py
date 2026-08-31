@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 from tools.generate_rgaa_catalog import build
 
 from cdpx import discovery
@@ -193,6 +194,19 @@ def test_passive_scan_emits_exact_probe_and_prudent_verdicts(mock, client):
     )
     assert probe["awaitPromise"] is True and probe["returnByValue"] is True
     assert probe["contextId"] == 42
+    environment_probe = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_rgaa_environment" in call["expression"]
+    )
+    assert "crypto.subtle" not in environment_probe["expression"]
+    assert "value.slice(0, remaining)" in environment_probe["expression"]
+    assert report["environment"]["page"]["dom_sha256"] == hashlib_sha256(b"<html>")
+    assert "dom_material_base64" not in report["environment"]["page"]
+    assert mock.commands_for("Accessibility.getFullAXTree") == []
+    assert mock.commands_for("Accessibility.getPartialAXTree") == [
+        {"backendNodeId": 1, "fetchRelatives": False}
+    ]
 
 
 def test_passive_scan_proves_clear_structural_failures(mock, client):
@@ -201,9 +215,11 @@ def test_passive_scan_proves_clear_structural_failures(mock, client):
     report = scan(client)
     results = {test["id"]: test for test in report["tests"]}
 
-    for test_id in ("2.1.1", "8.1.1", "8.5.1", "8.6.1"):
+    for test_id in ("2.1.1", "8.1.1", "8.5.1"):
         assert results[test_id]["verdict"] == "fail", test_id
         assert results[test_id]["findings"], test_id
+    assert results["8.6.1"]["verdict"] == "needs_review"
+    assert results["8.6.1"]["findings"] == []
     assert results["8.3.1"]["verdict"] == "needs_review"
     for test_id in ("3.2.1", "6.1.1", "11.1.1", "11.9.1"):
         assert results[test_id]["verdict"] == "needs_review", test_id
@@ -225,6 +241,18 @@ def test_doctype_presence_is_independent_from_doctype_validity(mock, client):
 
     assert result["verdict"] == "pass"
     assert result["evidence_complete"] is True
+
+
+def test_title_relevance_distinguishes_missing_and_present_empty_title(mock, client):
+    observation = passive_observation()
+    observation["title"] = {"present": True, "value": "   ", "evidence_complete": True}
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(observation))
+
+    report = scan(client, selected_tests=("8.6.1",))
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+
+    assert result["verdict"] == "fail"
+    assert result["findings"][0]["rule_id"] == "document-title-relevance"
 
 
 def test_origin_policy_breach_is_never_a_collector_error(mock, client):
@@ -506,6 +534,26 @@ def test_sample_manifest_rejects_ambiguous_yaml_and_test_traps(tmp_path, payload
         compile_sample(path)
 
 
+@pytest.mark.parametrize(
+    ("tests", "message"),
+    [
+        ('["   "]', "must not contain blank"),
+        ('["2.1.1,8.3.1"]', "one ID per item"),
+        ('["2.1.1", " 2.1.1 "]', "duplicate test IDs"),
+    ],
+)
+def test_sample_manifest_validates_each_yaml_test_id_individually(tmp_path, tests, message):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        "schema: cdpx.rgaa.sample/v1\npages:\n"
+        f"  - id: home\n    url: https://site.test\n    tests: {tests}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        compile_sample(path)
+
+
 def test_sample_manifest_rejects_fifo_without_blocking(tmp_path):
     fifo = tmp_path / "sample.pipe"
     os.mkfifo(fifo)
@@ -611,6 +659,43 @@ pages:
     assert len(result["criteria"]) == 106
     assert result["summary"]["pages"] == 2
     assert result["summary"]["certification_claim"] is False
+    assert result["actions_used"] == 2
+    assert all(page["report"]["actions_used"] == 1 for page in result["pages"])
+    assert all(
+        page["report"]["execution_plan"]["planned_actions"]["navigations"] == 1
+        for page in result["pages"]
+    )
+    assert result["audit_findings_present"] is True
+
+
+def test_sample_navigation_error_text_preserves_prior_and_failed_page_reports(
+    mock, client, tmp_path
+):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        """schema: cdpx.rgaa.sample/v1
+pages:
+  - id: reachable
+    url: http://site.test/reachable
+    tests: [8.1.1]
+  - id: unreachable
+    url: http://site.test/unreachable
+    tests: [8.1.1]
+""",
+        encoding="utf-8",
+    )
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    mock.script_navigation_error_text(None, "net::ERR_CONNECTION_REFUSED")
+
+    result = run_sample(client, compile_sample(path), timeout=5)
+
+    assert result["execution_status"] == "partial"
+    assert [page["page_id"] for page in result["pages"]] == ["reachable", "unreachable"]
+    assert result["pages"][0]["report"]["execution_status"] == "complete"
+    failed = result["pages"][1]["report"]
+    assert failed["execution_status"] == "error"
+    assert failed["collector_status"]["page-navigation"]["status"] == "error"
+    assert len(failed["tests"]) == 258
 
 
 def test_sample_partial_coverage_cannot_aggregate_to_pass(mock, client, tmp_path):
@@ -760,6 +845,28 @@ def test_scan_cli_navigation_failure_returns_complete_error_report(mock, cli_man
     assert selected["8.3.1"]["verdict"] == "error"
     assert report["collector_status"]["page-navigation"]["status"] == "error"
     assert report["execution_status"] == "error"
+    assert report["execution_plan"]["maximum_actions"] == 1
+    assert report["actions_used"] == 1
+
+
+def test_scan_cli_navigation_error_text_returns_complete_error_report(mock, cli_manifest, capsys):
+    mock.navigate_error_text = "net::ERR_NAME_NOT_RESOLVED"
+
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "rgaa",
+        "scan",
+        "http://site.test/unreachable",
+        "--tests",
+        "8.1.1",
+    )
+
+    assert code == 1 and err == ""
+    report = json.loads(out)
+    assert report["execution_status"] == "error"
+    assert report["collector_status"]["page-navigation"]["status"] == "error"
+    assert len(report["tests"]) == 258
 
 
 def test_passive_collector_failure_is_explicit_and_preserves_catalog(mock, client):
@@ -774,7 +881,7 @@ def test_passive_collector_failure_is_explicit_and_preserves_catalog(mock, clien
     assert report["collector_status"]["passive-dom-css"]["status"] == "error"
 
 
-def test_timed_out_runtime_probe_is_explicitly_terminated(mock, client, monkeypatch):
+def test_timed_out_runtime_probe_never_terminates_target_execution(mock, client, monkeypatch):
     monkeypatch.setattr(
         "cdpx.rgaa.scanner.js.evaluate",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(CDPTimeout("probe timeout")),
@@ -783,7 +890,46 @@ def test_timed_out_runtime_probe_is_explicitly_terminated(mock, client, monkeypa
     report = scan(client, selected_tests=("8.1.1",))
 
     assert report["execution_status"] == "error"
-    assert len(mock.commands_for("Runtime.terminateExecution")) >= 1
+    assert mock.commands_for("Runtime.terminateExecution") == []
+
+
+@pytest.mark.parametrize("mode", ["complete", "partial", "error"])
+@pytest.mark.parametrize(("limit", "full"), [(1, False), (2, False), (50, False), (1, True)])
+def test_bounded_scan_stdout_validates_against_published_schema(
+    mock, cli_manifest, capsys, limit, full, mode
+):
+    url = []
+    expected_code = 0
+    if mode == "complete":
+        mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    elif mode == "partial":
+        mock.on_eval("__cdpx_rgaa_passive", {"error": "probe unavailable"})
+        expected_code = 1
+    else:
+        mock.navigate_error_text = "net::ERR_CONNECTION_REFUSED"
+        url = ["http://site.test/unreachable"]
+        expected_code = 1
+    arguments = ["--limit", str(limit)]
+    if full:
+        arguments.append("--full")
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        *arguments,
+        "rgaa",
+        "scan",
+        *url,
+        "--tests",
+        "8.1.1",
+    )
+
+    assert code == expected_code and err == ""
+    payload = json.loads(out)
+    assert payload["execution_status"] == mode
+    schema = json.loads(Path("schemas/rgaa-result-v1.json").read_text(encoding="utf-8"))
+    Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER).validate(
+        payload
+    )
 
 
 def test_native_isolation_failure_still_returns_complete_error_report(mock, client):

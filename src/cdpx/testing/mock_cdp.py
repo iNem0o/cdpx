@@ -82,6 +82,8 @@ class MockCDP:
         # leak from a disconnected client to the next client for the same target.
         self._fetch_enabled_sessions: set[tuple[str, object]] = set()
         self.error_methods: set[str] = set()  # methods that respond with a CDP error
+        self.navigate_error_text: str | None = None
+        self.navigate_error_texts: deque[str | None] = deque()
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._server: Server | None = None
         self._requested_port = port
@@ -111,6 +113,10 @@ class MockCDP:
 
     def script_network(self, events: list[dict]) -> None:
         self.network_script = events
+
+    def script_navigation_error_text(self, *values: str | None) -> None:
+        """Return valid Page.navigate results whose optional errorText is scripted."""
+        self.navigate_error_texts = deque(values)
 
     def script_click_network(self, events: list[dict]) -> None:
         self.click_network_script = events
@@ -277,9 +283,9 @@ class MockCDP:
                         "locale": "en",
                         "viewport": {"width": 800, "height": 600},
                         "media": {},
-                        "dom_sha256": "0" * 64,
+                        "dom_material_base64": "PGh0bWw+",
                         "nodes_examined": 1,
-                        "bytes_examined": 1,
+                        "bytes_examined": 6,
                         "truncated": False,
                         "hash_complete": True,
                     }
@@ -296,6 +302,23 @@ class MockCDP:
             url = params.get("url", "")
             if tid in self.targets:
                 self.targets[tid]["url"] = url
+            error_text = self.navigate_error_text
+            if self.navigate_error_texts:
+                error_text = (
+                    self.navigate_error_texts.popleft()
+                    if len(self.navigate_error_texts) > 1
+                    else self.navigate_error_texts[0]
+                )
+            if error_text is not None:
+                return (
+                    {
+                        "frameId": "FRAME1",
+                        "loaderId": "LOADER1",
+                        "errorText": error_text,
+                    },
+                    None,
+                    events,
+                )
             events.extend(self.network_script)
             events.append({"method": "Page.domContentEventFired", "params": {"timestamp": 1.0}})
             events.append({"method": "Page.loadEventFired", "params": {"timestamp": 1.2}})
@@ -332,7 +355,7 @@ class MockCDP:
             return {"executionContextId": 42}, None, events
 
         if method == "DOM.getDocument":
-            return {"root": {"nodeId": 1}}, None, events
+            return {"root": {"nodeId": 1, "backendNodeId": 1}}, None, events
 
         if method == "DOM.querySelector":
             selector = params.get("selector")
@@ -389,6 +412,12 @@ class MockCDP:
                         {"role": {"value": "button"}, "name": {"value": "Envoyer"}},
                     ]
                 },
+                None,
+                events,
+            )
+        if method == "Accessibility.getPartialAXTree":
+            return (
+                {"nodes": [{"role": {"value": "RootWebArea"}, "name": {"value": "Fixture"}}]},
                 None,
                 events,
             )

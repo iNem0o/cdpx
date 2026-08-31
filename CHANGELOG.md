@@ -80,6 +80,14 @@ cdpx uses semantic versioning.
   for 8.3.1 stays under review. Partial sample coverage cannot aggregate to a
   pass, normative catalog/sample plans ignore generic list truncation, and
   non-text YAML keys fail as clean usage errors.
+- RGAA environment fingerprints are now hashed outside the page and work on
+  non-secure HTTP development origins. Navigation `errorText` responses keep
+  complete direct/sample reports, absent and empty titles are distinguished
+  for 8.6.1, and YAML sample test IDs are normalized one item at a time.
+- RGAA probe timeouts no longer terminate target-wide JavaScript, focus
+  restoration retains id-less controls inside nested open shadow roots, AX
+  evidence uses a bounded root query, action plans include navigation, and all
+  bounded result variants remain valid against their published schemas.
 
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced

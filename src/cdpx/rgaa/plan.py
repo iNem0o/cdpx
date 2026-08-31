@@ -56,7 +56,8 @@ class ScanPlan:
             return Authority.INTERACTION
         return Authority.OBSERVATION
 
-    def public(self) -> dict[str, object]:
+    def public(self, *, navigations: int = 0) -> dict[str, object]:
+        total_actions = navigations + self.maximum_actions
         return {
             "collectors": [
                 name
@@ -70,7 +71,12 @@ class ScanPlan:
                 if enabled
             ],
             "environment": self.environment,
-            "maximum_actions": self.maximum_actions,
+            "planned_actions": {
+                "navigations": navigations,
+                "interactions": self.maximum_actions,
+                "total": total_actions,
+            },
+            "maximum_actions": total_actions,
             "required_authority": self.required_authority.value,
         }
 
