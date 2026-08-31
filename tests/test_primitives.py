@@ -63,6 +63,32 @@ def test_navigate_waits_load(mock, client):
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/page"}]
 
 
+def test_navigate_shares_one_deadline_across_protocol_calls(monkeypatch):
+    """Page.enable, Page.navigate and the lifecycle wait consume one budget."""
+
+    class TimedClient:
+        def __init__(self):
+            self.timeouts = []
+
+        def send(self, method, params=None, timeout=30.0):
+            self.timeouts.append(timeout)
+            if method == "Page.navigate":
+                return {"frameId": "FRAME1", "loaderId": "LOADER1"}
+            return {}
+
+        def wait_event(self, name, timeout=30.0):
+            self.timeouts.append(timeout)
+            return {"method": name}
+
+    ticks = iter((0.0, 1.0, 2.0, 3.0, 4.0))
+    monkeypatch.setattr(nav.time, "monotonic", lambda: next(ticks))
+    timed = TimedClient()
+
+    nav.navigate(cast(CDPClient, timed), "http://site.test/page", timeout=10.0)
+
+    assert timed.timeouts == [9.0, 8.0, 7.0]
+
+
 def test_navigate_raises_typed_error_with_failed_result(client, monkeypatch):
     real_send = client.send
 

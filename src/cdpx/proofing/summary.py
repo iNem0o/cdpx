@@ -132,9 +132,9 @@ def build_summary(
             suite_failures.append(f"required JUnit empty: {suite.get('path', command_id)}")
         if command_id in {"e2e", "symfony-e2e", "shopware-e2e"} and suite.get("skipped", 0):
             suite_failures.append(f"{command_id} tests skipped ({suite['skipped']})")
-    if "cli-help" in command_ids and project["cli_command_count"] != 31:
+    if "cli-help" in command_ids and project["cli_command_count"] != 32:
         suite_failures.append(
-            f"CLI contract expected 31 commands, found {project['cli_command_count']}"
+            f"CLI contract expected 32 commands, found {project['cli_command_count']}"
         )
     unavailable = sum(
         1

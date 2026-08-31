@@ -60,9 +60,17 @@ def navigate(
     """Navigates and waits for the requested lifecycle event (load|domcontentloaded|none)."""
     if wait not in {*WAIT_EVENTS, "none"}:
         raise ValueError(f"unknown navigation wait: {wait}")
-    client.send("Page.enable")
     started = time.monotonic()
-    res = client.send("Page.navigate", {"url": url}, timeout=timeout)
+    deadline = started + timeout
+
+    def remaining() -> float:
+        available = deadline - time.monotonic()
+        if available <= 0:
+            raise CDPTimeout(f"navigation deadline exceeded after {timeout}s: {url}")
+        return available
+
+    client.send("Page.enable", timeout=remaining())
+    res = client.send("Page.navigate", {"url": url}, timeout=remaining())
     out = {
         "url": url,
         "frameId": res.get("frameId"),
@@ -72,7 +80,7 @@ def navigate(
     }
     raise_for_navigation_error(res, url, wait=wait)
     if wait in WAIT_EVENTS:
-        client.wait_event(WAIT_EVENTS[wait], timeout=timeout)
+        client.wait_event(WAIT_EVENTS[wait], timeout=remaining())
     out["ok"] = True
     out["elapsed_ms"] = round((time.monotonic() - started) * 1000, 1)
     return out

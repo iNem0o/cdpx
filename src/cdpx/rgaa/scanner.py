@@ -911,7 +911,7 @@ def scan(
         try:
             if origin_guard:
                 origin_guard()
-            axe = provider.run_axe(client, timeout=active_budget.remaining())
+            axe = provider.run_axe(client, remaining=active_budget.remaining)
             if origin_guard:
                 origin_guard()
             providers.append(

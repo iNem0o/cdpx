@@ -30,7 +30,7 @@ when = "cdpx runs its fixed DOM/CSS collector against both fixtures."
 then = "The result contains 258 test records, local evidence for resolved tests, and certification_claim=false."
 target = "chrome"
 proof_level = "runtime"
-tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real"]
+tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
 expected_proofs = ["junit", "json"]
 +++
 
@@ -68,6 +68,10 @@ cdpx rgaa scan [URL] \
 
 When `URL` is omitted, the current assigned page is scanned. The complete
 session/run/target identity and origin allowlist remain mandatory.
+Navigation and all following collection share one deadline. If navigation
+fails, the command still emits the full normative skeleton and marks every
+selected test `error`; the trustworthy final page URL remains unknown rather
+than being copied from the requested URL.
 
 | Scope/engine | Required authority | Additional effect |
 |---|---|---|
@@ -151,9 +155,11 @@ provider requires new provenance, hashes, generated outputs, mappings, tests,
 and an explicit catalog/version change.
 
 The deterministic mock proves the exact Runtime/Input/isolated-world protocol.
-Real Chromium proves accessible and deliberately regressed fixtures. The
-repository-wide gate still requires Chrome, Symfony, Shopware, packaging,
-documentation, coverage, and the proof inventory.
+Real Chromium proves accessible and deliberately regressed fixtures, hostile
+main-world isolation, focus traversal, temporary text-spacing mutation, the
+isolated axe provider, and multi-page aggregation. The repository-wide gate
+still requires Chrome, Symfony, Shopware, packaging, documentation, coverage,
+and the proof inventory.
 
 ## Proofs
 

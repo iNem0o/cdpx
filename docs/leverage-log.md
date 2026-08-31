@@ -1,5 +1,24 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@54fd352
+  - Symptom: the protocol mock accepted invalid asynchronous focus and
+    text-spacing JavaScript that real Chromium rejected; the first complete
+    proof then passed every test but stayed red because the hostile RGAA
+    runtime case was attached only through a broad feature glob.
+  - Root cause (missing capability): the mock validates CDP shape rather than
+    JavaScript syntax, the interactive/privileged RGAA paths had no direct
+    Chromium scenario, and the hostile-world test lacked an exact documented
+    scenario attachment.
+  - Fix encoded (doc/script/lint): real-Chromium tests now execute passive,
+    hostile, interactive, privileged, hybrid and multi-page RGAA flows; the
+    feature sheet maps each runtime case explicitly, while focused regressions
+    cover global deadlines, complete navigation/collector error reports,
+    explicit empty selections and non-blocking special-file rejection.
+  - Verification (command/CI): `./dev check-local` passed 1,028 tests before
+    the final CLI addition; the subsequent `./dev check` passed all 1,094 tests
+    (1,029 unit, 56 Chrome, 7 Symfony and 2 Shopware), with zero skips/failures,
+    89.91% line coverage, 79.06% branch coverage and zero proof violation.
+
 - Session-Key: next-release@643eea8
   - Symptom: invoking host `pytest` failed during collection on the project's
     Python 3.14 multiple-exception syntax because the host interpreter is 3.12.

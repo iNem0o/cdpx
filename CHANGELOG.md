@@ -65,6 +65,12 @@ cdpx uses semantic versioning.
 - RGAA sample parsing rejects YAML ambiguity, symlink traversal, empty or
   duplicate test selections, while public result bounding preserves every
   normative test/criterion/theme/page array and publishes all RGAA schemas.
+- RGAA qualification now exercises passive, interactive, privileged, hybrid,
+  and multi-page flows in real Chromium. It fixes invalid focus/text-spacing
+  probe syntax, makes direct navigation failures return complete error reports,
+  shares navigation and axe work across the global deadline, rejects explicit
+  empty CLI selections and non-regular manifest inputs without blocking, and
+  keeps the 32-command proof/site inventory synchronized.
 
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced

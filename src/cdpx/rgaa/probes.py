@@ -159,7 +159,7 @@ FOCUS_RESET_PROBE = r"""
 FOCUS_STATE_PROBE = r"""
 // __cdpx_rgaa_focus_state_v2
 (async () => {
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   let element = document.activeElement;
   while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
   if (!element || element === document.body || element === document.documentElement) return null;
@@ -193,7 +193,7 @@ TEXT_SPACING_PROBE = r"""
   const baseline = new Map(candidates.map((element) => [element, state(element)]));
   const style = document.createElement("style"); style.setAttribute("data-cdpx-rgaa-spacing", TOKEN); style.textContent = "*{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important}p{margin-bottom:2em!important}"; globalThis.__cdpxRgaaSpacingStyle = style; document.head.appendChild(style);
   try {
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const clipped = [], potential_overflow = [];
     for (const element of candidates) {
       const prior = baseline.get(element), after = state(element), newHorizontal = after.horizontal && !prior.horizontal, newVertical = after.vertical && !prior.vertical;

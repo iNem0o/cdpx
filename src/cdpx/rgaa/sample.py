@@ -130,7 +130,12 @@ def _read_manifest(source: Path) -> bytes:
         if current.is_symlink():
             raise ValueError("RGAA sample: symbolic path component forbidden")
         current = current.parent
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     try:
         descriptor = os.open(source, flags)
     except OSError as error:

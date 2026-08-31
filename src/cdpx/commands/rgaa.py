@@ -18,14 +18,17 @@ from cdpx.primitives import nav
 from cdpx.rgaa.catalog import CatalogError, describe_catalog, parse_test_selection, test_index
 from cdpx.rgaa.plan import ExecutionBudget, build_scan_plan
 from cdpx.rgaa.sample import compile_sample, run_sample
-from cdpx.rgaa.scanner import Engine, Scope, scan
+from cdpx.rgaa.scanner import Engine, Scope, scan, scan_error_report
 
 
 def _tests_arg(value: str) -> tuple[str, ...]:
     try:
-        return parse_test_selection(value) or ()
+        selected = parse_test_selection(value)
     except CatalogError as error:
         raise argparse.ArgumentTypeError(str(error)) from error
+    if not selected:
+        raise argparse.ArgumentTypeError("RGAA test selection must not be empty")
+    return selected
 
 
 def _required_authority(scope: str, engine: str) -> Authority:
@@ -57,7 +60,20 @@ def cmd_scan(args) -> None:
     with browser_client(args, required_authority=required) as client:
         if args.options.url:
             budget.consume("RGAA navigation")
-            nav.navigate(client, args.options.url, wait="load", timeout=budget.remaining())
+            try:
+                nav.navigate(client, args.options.url, wait="load", timeout=budget.remaining())
+            except Exception as error:
+                emit_rgaa_json(
+                    args,
+                    scan_error_report(
+                        scope=cast(Scope, args.options.scope),
+                        engine=cast(Engine, args.options.engine),
+                        selected_tests=selected,
+                        error=error,
+                        budget=budget,
+                    ),
+                )
+                return
         assert_session_current(args, client, timeout=budget.remaining())
         result = scan(
             client,

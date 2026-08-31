@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -46,16 +47,16 @@ def _bundle() -> str:
     return payload.decode("utf-8")
 
 
-def _main_frame_id(client: CDPClient, timeout: float) -> str:
-    tree = client.send("Page.getFrameTree", timeout=timeout).get("frameTree", {})
+def _main_frame_id(client: CDPClient, remaining: Callable[[], float]) -> str:
+    tree = client.send("Page.getFrameTree", timeout=remaining()).get("frameTree", {})
     frame_id = tree.get("frame", {}).get("id") if isinstance(tree, dict) else None
     if not isinstance(frame_id, str) or not frame_id:
         raise ValueError("axe-core advisory provider: main frame unavailable")
     return frame_id
 
 
-def run_axe(client: CDPClient, *, timeout: float) -> dict[str, Any]:
-    frame_id = _main_frame_id(client, timeout)
+def run_axe(client: CDPClient, *, remaining: Callable[[], float]) -> dict[str, Any]:
+    frame_id = _main_frame_id(client, remaining)
     world = client.send(
         "Page.createIsolatedWorld",
         {
@@ -63,7 +64,7 @@ def run_axe(client: CDPClient, *, timeout: float) -> dict[str, Any]:
             "worldName": "__cdpx_rgaa_axe",
             "grantUniveralAccess": False,
         },
-        timeout=timeout,
+        timeout=remaining(),
     )
     context_id = world.get("executionContextId")
     if not isinstance(context_id, int):
@@ -101,7 +102,7 @@ globalThis.axe.run(document, {
             "returnByValue": True,
             "awaitPromise": True,
         },
-        timeout=timeout,
+        timeout=remaining(),
     )
     if "exceptionDetails" in response:
         details = response["exceptionDetails"]

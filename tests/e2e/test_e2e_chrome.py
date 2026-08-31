@@ -41,6 +41,8 @@ from cdpx.primitives import (
     recording,
     state,
 )
+from cdpx.rgaa.sample import compile_sample as compile_rgaa_sample
+from cdpx.rgaa.sample import run_sample as run_rgaa_sample
 from cdpx.rgaa.scanner import scan as rgaa_scan
 from cdpx.session import SessionManifest, start_session, stop_session
 from cdpx.testing.e2e import (
@@ -1809,7 +1811,7 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
     proves=["CLI surface and validation matrix render from the embedded payload."],
 )
 def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
-    """The CLI view lists the 31 real subcommands with their feature
+    """The CLI view lists the 32 real subcommands with their feature
     attachment, and the Validation view renders the capability matrix,
     coverage by module, risks and accepted unknowns."""
     client, _base = page
@@ -1826,10 +1828,10 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
         " body: document.querySelector('#app tbody').textContent,"
         " mapped: !!document.querySelector('#app tbody a[href=\"#/features/demo-checkout\"]')})",
     )
-    #: the CLI contract (31 real subcommands, extracted from the real
+    #: the CLI contract (32 real subcommands, extracted from the real
     #: binary's help) is visible as-is in the cockpit
-    assert cli_view["rows"] == 31
-    assert "31 cdpx subcommands" in cli_view["intro"]
+    assert cli_view["rows"] == 32
+    assert "32 cdpx subcommands" in cli_view["intro"]
     assert "cdpx goto" in cli_view["body"] and "cdpx tabs" in cli_view["body"]
     #: each entrypoint shows its attachment: link to the feature when it
     #: exists, explicit mention otherwise
@@ -2143,6 +2145,74 @@ def test_rgaa_native_probe_isolated_from_hostile_main_world(page):
     result = next(test for test in report["tests"] if test["id"] == "2.1.1")
     assert result["verdict"] == "fail"
     assert report["collector_status"]["passive-dom-css"]["isolated_world"] is True
+
+
+def test_rgaa_interactive_privileged_and_hybrid_scopes_real(page):
+    """Every RGAA scope and the advisory provider execute in real Chromium."""
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+
+    interactive = rgaa_scan(
+        c,
+        scope="interactive",
+        selected_tests=("10.7.1", "12.8.1"),
+        timeout=10,
+    )
+    interactive_tests = {test["id"]: test for test in interactive["tests"]}
+    assert interactive["collector_status"]["focus"]["status"] == "ok", interactive[
+        "collector_status"
+    ]["focus"]
+    assert interactive["actions_used"] > 0
+    assert interactive_tests["10.7.1"]["verdict"] == "needs_review"
+    assert interactive_tests["12.8.1"]["verdict"] == "needs_review"
+
+    privileged = rgaa_scan(
+        c,
+        scope="privileged",
+        selected_tests=("10.12.1",),
+        timeout=10,
+    )
+    spacing = next(test for test in privileged["tests"] if test["id"] == "10.12.1")
+    assert privileged["collector_status"]["text-spacing"]["status"] == "ok"
+    assert spacing["verdict"] == "needs_review"
+
+    hybrid = rgaa_scan(c, engine="hybrid", selected_tests=("1.1.1",), timeout=15)
+    image_alt = next(test for test in hybrid["tests"] if test["id"] == "1.1.1")
+    assert hybrid["providers"][0]["name"] == "axe-core"
+    assert hybrid["providers"][0]["status"] == "ok"
+    assert hybrid["providers"][0]["authority"] == "advisory"
+    assert image_alt["verdict"] == "needs_review"
+
+
+def test_rgaa_declared_sample_runs_multiple_real_pages(page, tmp_path):
+    c, base = page
+    manifest = tmp_path / "rgaa-sample.yml"
+    manifest.write_text(
+        f"""schema: cdpx.rgaa.sample/v1
+scope: passive
+engine: native
+pages:
+  - id: baseline
+    url: {base}/rgaa.html
+    tests: [2.1.1, 8.3.1]
+  - id: regression
+    url: {base}/rgaa-broken.html
+    tests: [2.1.1, 8.3.1]
+""",
+        encoding="utf-8",
+    )
+
+    result = run_rgaa_sample(c, compile_rgaa_sample(manifest), timeout=15)
+    tests = {test["id"]: test for test in result["tests"]}
+
+    assert [page_result["page_id"] for page_result in result["pages"]] == [
+        "baseline",
+        "regression",
+    ]
+    assert all(len(page_result["report"]["tests"]) == 258 for page_result in result["pages"])
+    assert tests["2.1.1"]["verdict"] == "fail"
+    assert tests["8.3.1"]["verdict"] == "fail"
+    assert result["summary"]["certification_claim"] is False
 
 
 def test_coverage_real(page):

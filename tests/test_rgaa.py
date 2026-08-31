@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -265,6 +268,38 @@ def test_hybrid_axe_observations_are_isolated_bounded_and_never_oracle_verdicts(
     assert hashlib_sha256(Path(provider.AXE_PATH).read_bytes()) == provider.AXE_HASH
 
 
+def test_axe_provider_shares_the_scan_deadline_across_protocol_calls():
+    class TimedClient:
+        def __init__(self):
+            self.timeouts = []
+
+        def send(self, method, params=None, timeout=30.0):
+            self.timeouts.append(timeout)
+            if method == "Page.getFrameTree":
+                return {"frameTree": {"frame": {"id": "FRAME1"}}}
+            if method == "Page.createIsolatedWorld":
+                return {"executionContextId": 42}
+            return {
+                "result": {
+                    "value": json.dumps(
+                        {
+                            "violations": [],
+                            "incomplete": [],
+                            "passes": [],
+                            "inapplicable": [],
+                        }
+                    )
+                }
+            }
+
+    remaining = iter((9.0, 8.0, 7.0))
+    timed = TimedClient()
+
+    provider.run_axe(timed, remaining=lambda: next(remaining))
+
+    assert timed.timeouts == [9.0, 8.0, 7.0]
+
+
 def hashlib_sha256(payload: bytes) -> str:
     import hashlib
 
@@ -348,6 +383,54 @@ def test_sample_manifest_rejects_ambiguous_yaml_and_test_traps(tmp_path, payload
         compile_sample(path)
 
 
+def test_sample_manifest_rejects_fifo_without_blocking(tmp_path):
+    fifo = tmp_path / "sample.pipe"
+    os.mkfifo(fifo)
+    program = """
+import sys
+from cdpx.rgaa.sample import compile_sample
+try:
+    compile_sample(sys.argv[1])
+except ValueError as error:
+    print(error)
+    raise SystemExit(0)
+raise SystemExit("FIFO manifest unexpectedly accepted")
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", program, str(fifo)],
+        capture_output=True,
+        text=True,
+        timeout=1,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "manifest must be a regular file" in completed.stdout
+
+
+def test_sample_manifest_rejects_empty_oversized_and_symbolic_inputs(tmp_path):
+    empty = tmp_path / "empty.yml"
+    empty.write_bytes(b"")
+    with pytest.raises(ValueError, match="root object required"):
+        compile_sample(empty)
+
+    oversized = tmp_path / "oversized.yml"
+    oversized.write_bytes(b"x" * (1024 * 1024 + 1))
+    with pytest.raises(ValueError, match="manifest exceeds 1 MiB"):
+        compile_sample(oversized)
+
+    valid = tmp_path / "valid.yml"
+    valid.write_text(
+        "schema: cdpx.rgaa.sample/v1\npages:\n  - id: home\n    url: https://site.test/\n",
+        encoding="utf-8",
+    )
+    symbolic = tmp_path / "symbolic.yml"
+    symbolic.symlink_to(valid)
+    with pytest.raises(ValueError, match="unreadable manifest"):
+        compile_sample(symbolic)
+
+
 def test_manual_only_selection_skips_all_page_collectors(mock, client):
     report = scan(client, selected_tests=("1.1.2",))
     result = next(test for test in report["tests"] if test["id"] == "1.1.2")
@@ -416,6 +499,16 @@ def test_catalog_cli_is_browser_free_and_keeps_single_json_output(capsys):
     assert payload["tests"][0]["id"] == "2.1.1"
 
 
+def test_catalog_cli_rejects_an_explicitly_empty_test_selection(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        main(["rgaa", "catalog", "--tests", " , "])
+    captured = capsys.readouterr()
+
+    assert excinfo.value.code == 2
+    assert captured.out == ""
+    assert "RGAA test selection must not be empty" in captured.err
+
+
 def test_scan_cli_uses_supervised_session_and_bounds_full_catalog(mock, cli_manifest, capsys):
     mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
 
@@ -462,6 +555,40 @@ def test_scan_cli_rejects_insufficient_action_budget_before_browser_effects(
     assert mock.commands_for("Page.createIsolatedWorld") == []
 
 
+def test_scan_cli_navigation_failure_returns_complete_error_report(mock, cli_manifest, capsys):
+    mock.error_methods.add("Page.navigate")
+
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "rgaa",
+        "scan",
+        "http://site.test/unreachable",
+        "--tests",
+        "2.1.1,8.3.1",
+    )
+
+    assert code == 0 and err == ""
+    report = json.loads(out)
+    selected = {test["id"]: test for test in report["tests"]}
+    assert len(report["tests"]) == 258
+    assert selected["2.1.1"]["verdict"] == "error"
+    assert selected["8.3.1"]["verdict"] == "error"
+    assert report["collector_status"]["page-navigation"]["status"] == "error"
+
+
+def test_passive_collector_failure_is_explicit_and_preserves_catalog(mock, client):
+    mock.error_methods.add("Runtime.evaluate")
+
+    report = scan(client, selected_tests=("2.1.1", "8.3.1"))
+    selected = {test["id"]: test for test in report["tests"]}
+
+    assert len(report["tests"]) == 258
+    assert selected["2.1.1"]["verdict"] == "error"
+    assert selected["8.3.1"]["verdict"] == "error"
+    assert report["collector_status"]["passive-dom-css"]["status"] == "error"
+
+
 def test_native_isolation_failure_still_returns_complete_error_report(mock, client):
     mock.error_methods.add("Page.createIsolatedWorld")
     report = scan(client, selected_tests=("2.1.1", "8.3.1"))
@@ -494,3 +621,43 @@ pages:
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "schema must be cdpx.rgaa.sample/v1" in captured.err
+
+
+def test_sample_run_cli_emits_one_bounded_json_result(mock, cli_manifest, tmp_path, capsys):
+    manifest = tmp_path / "sample.yml"
+    manifest.write_text(
+        """schema: cdpx.rgaa.sample/v1
+pages:
+  - id: baseline
+    url: http://site.test/baseline
+    tests: [2.1.1, 8.3.1]
+  - id: regression
+    url: http://site.test/regression
+    tests: [2.1.1, 8.3.1]
+""",
+        encoding="utf-8",
+    )
+    mock.on_eval(
+        "__cdpx_rgaa_passive",
+        json.dumps(passive_observation()),
+        json.dumps(passive_observation(broken=True)),
+    )
+
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "--limit",
+        "20",
+        "rgaa",
+        "sample",
+        "run",
+        str(manifest),
+    )
+    result = json.loads(out)
+
+    assert code == 0 and err == ""
+    assert result["schema"] == "cdpx.rgaa.sample-result/v1"
+    assert result["summary"]["pages"] == 2
+    assert len(result["pages"]) == 2
+    assert len(result["tests"]) == 258
+    assert result["summary"]["certification_claim"] is False
