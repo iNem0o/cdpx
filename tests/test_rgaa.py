@@ -150,20 +150,24 @@ def test_passive_scan_emits_exact_probe_and_prudent_verdicts(mock, client):
     assert report["summary"]["official_tests"] == 258
     assert report["summary"]["selected"] == 5
     assert report["summary"]["certification_claim"] is False
-    assert results["2.1.1"]["verdict"] == "pass"
-    assert results["3.2.1"]["verdict"] == "pass"
+    assert results["2.1.1"]["verdict"] == "needs_review"
+    assert results["3.2.1"]["verdict"] == "needs_review"
     assert results["6.1.1"]["verdict"] == "needs_review"
     assert results["8.3.1"]["verdict"] == "pass"
-    assert results["11.1.1"]["verdict"] == "pass"
+    assert results["11.1.1"]["verdict"] == "needs_review"
     assert results["1.1.1"]["verdict"] == "not_tested"
     assert len(report["themes"]) == 13
     assert len(report["criteria"]) == 106
     assert next(item for item in report["criteria"] if item["id"] == "3.2")["verdict"] == (
-        "not_tested"
+        "needs_review"
     )
-    (probe,) = mock.commands_for("Runtime.evaluate")
-    assert "__cdpx_rgaa_passive" in probe["expression"]
+    probe = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_rgaa_passive" in call["expression"]
+    )
     assert probe["awaitPromise"] is True and probe["returnByValue"] is True
+    assert probe["contextId"] == 42
 
 
 def test_passive_scan_proves_clear_structural_failures(mock, client):
@@ -172,26 +176,17 @@ def test_passive_scan_proves_clear_structural_failures(mock, client):
     report = scan(client)
     results = {test["id"]: test for test in report["tests"]}
 
-    for test_id in (
-        "2.1.1",
-        "3.2.1",
-        "6.1.1",
-        "8.1.1",
-        "8.3.1",
-        "8.5.1",
-        "8.6.1",
-        "11.1.1",
-        "11.9.1",
-    ):
+    for test_id in ("2.1.1", "8.1.1", "8.3.1", "8.5.1", "8.6.1"):
         assert results[test_id]["verdict"] == "fail", test_id
         assert results[test_id]["findings"], test_id
-    assert report["summary"]["fail"] >= 9
+    for test_id in ("3.2.1", "6.1.1", "11.1.1", "11.9.1"):
+        assert results[test_id]["verdict"] == "needs_review", test_id
 
 
 def test_interactive_scan_uses_trusted_tab_input_and_keeps_order_unresolved(mock, client):
     mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
     focus = {
-        "selector": "#account",
+        "target": "#account",
         "tag": "a",
         "role": None,
         "outline_style": "none",
@@ -206,7 +201,7 @@ def test_interactive_scan_uses_trusted_tab_input_and_keeps_order_unresolved(mock
     report = scan(client, scope="interactive", selected_tests=("10.7.1", "12.8.1"))
     results = {test["id"]: test for test in report["tests"]}
 
-    assert results["10.7.1"]["verdict"] == "fail"
+    assert results["10.7.1"]["verdict"] == "needs_review"
     assert results["12.8.1"]["verdict"] == "needs_review"
     assert len(mock.commands_for("Input.dispatchKeyEvent")) == 4
     assert all(call["key"] == "Tab" for call in mock.commands_for("Input.dispatchKeyEvent"))
@@ -220,7 +215,7 @@ def test_privileged_spacing_probe_reports_new_clipping(mock, client):
         json.dumps(
             {
                 "candidates": 12,
-                "clipped": [{"selector": "#card", "horizontal": True, "vertical": False}],
+                "clipped": [{"target": "#card", "horizontal": True, "vertical": False}],
                 "clipped_total": 1,
             }
         ),
@@ -229,7 +224,7 @@ def test_privileged_spacing_probe_reports_new_clipping(mock, client):
     report = scan(client, scope="privileged", selected_tests=("10.12.1",))
     result = next(test for test in report["tests"] if test["id"] == "10.12.1")
 
-    assert result["verdict"] == "fail"
+    assert result["verdict"] == "needs_review"
     assert result["findings"][0]["target"] == "#card"
     assert "__cdpx_rgaa_text_spacing" in mock.commands_for("Runtime.evaluate")[-1]["expression"]
 
@@ -261,8 +256,9 @@ def test_hybrid_axe_observations_are_isolated_bounded_and_never_oracle_verdicts(
     assert result["advisory"][0]["provider_outcome"] == "violations"
     assert result["advisory"][0]["verdict_authority"] == "advisory_only"
     assert report["providers"][0]["isolated_world"] is True
-    assert mock.commands_for("Page.createIsolatedWorld") == [
-        {"frameId": "FRAME1", "worldName": "__cdpx_rgaa_axe", "grantUniveralAccess": False}
+    assert [call["worldName"] for call in mock.commands_for("Page.createIsolatedWorld")] == [
+        "__cdpx_rgaa_native",
+        "__cdpx_rgaa_axe",
     ]
     axe_call = mock.commands_for("Runtime.evaluate")[-1]
     assert axe_call["contextId"] == 42
@@ -326,6 +322,52 @@ pages:
     )
     with pytest.raises(ValueError, match="must be a list"):
         compile_sample(path)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ("schema: cdpx.rgaa.sample/v1\nschema: duplicate\npages: []\n", "duplicate key"),
+        (
+            "schema: cdpx.rgaa.sample/v1\npages:\n"
+            "  - id: home\n    url: https://site.test\n    tests: []\n",
+            "must not be empty",
+        ),
+        (
+            "schema: cdpx.rgaa.sample/v1\npages:\n"
+            "  - id: home\n    url: https://site.test\n"
+            "    tests: [2.1.1, 2.1.1]\n",
+            "duplicate test IDs",
+        ),
+    ],
+)
+def test_sample_manifest_rejects_ambiguous_yaml_and_test_traps(tmp_path, payload, message):
+    path = tmp_path / "sample.yml"
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        compile_sample(path)
+
+
+def test_manual_only_selection_skips_all_page_collectors(mock, client):
+    report = scan(client, selected_tests=("1.1.2",))
+    result = next(test for test in report["tests"] if test["id"] == "1.1.2")
+    assert result["verdict"] in {"manual_only", "needs_review"}
+    assert not any(
+        "__cdpx_rgaa_passive" in call["expression"]
+        for call in mock.commands_for("Runtime.evaluate")
+    )
+
+
+def test_truncated_contrast_never_becomes_an_automatic_verdict(mock, client):
+    observation = passive_observation()
+    observation["contrast"]["truncated"] = True
+    observation["contrast"]["total"] = 201
+    observation["contrast"]["examined"] = 200
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(observation))
+    report = scan(client, selected_tests=("3.2.1",))
+    result = next(test for test in report["tests"] if test["id"] == "3.2.1")
+    assert result["verdict"] == "needs_review"
+    assert result["evidence"][0]["truncated"] is True
 
 
 def test_sample_run_navigates_declared_pages_and_aggregates_failures(mock, client, tmp_path):
@@ -392,13 +434,42 @@ def test_scan_cli_uses_supervised_session_and_bounds_full_catalog(mock, cli_mani
     assert code == 0 and err == ""
     assert payload["summary"]["official_tests"] == 258
     assert payload["summary"]["selected"] == 2
-    assert payload["tests_truncated"] is True
-    assert payload["tests_total"] == 258
+    assert len(payload["tests"]) == 258
     assert payload["_cdpx"]["content_trust"] == "untrusted"
     assert any(
         "__cdpx_rgaa_passive" in call["expression"]
         for call in mock.commands_for("Runtime.evaluate")
     )
+
+
+def test_scan_cli_rejects_insufficient_action_budget_before_browser_effects(
+    mock, cli_manifest, capsys
+):
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "--max-actions",
+        "19",
+        "rgaa",
+        "scan",
+        "--scope",
+        "interactive",
+        "--tests",
+        "10.7.1",
+    )
+    assert code == 2 and out == ""
+    assert "20 required" in err
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+
+
+def test_native_isolation_failure_still_returns_complete_error_report(mock, client):
+    mock.error_methods.add("Page.createIsolatedWorld")
+    report = scan(client, selected_tests=("2.1.1", "8.3.1"))
+    assert len(report["tests"]) == 258
+    selected = {test["id"]: test for test in report["tests"]}
+    assert selected["2.1.1"]["verdict"] == "error"
+    assert selected["8.3.1"]["verdict"] == "error"
+    assert report["collector_status"]["isolated-world"]["status"] == "error"
 
 
 def test_sample_validate_cli_is_browser_free_and_reports_usage_errors(tmp_path, capsys):

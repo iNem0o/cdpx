@@ -58,6 +58,14 @@ cdpx uses semantic versioning.
 
 ### Fixed
 
+- RGAA native probes now run in an isolated execution world, preserve incomplete
+  and truncated coverage as review work, use one deadline/action budget, retain
+  reports after collector or page errors, and avoid automatic contrast, focus,
+  spacing, accessible-name, and applicability conclusions from partial evidence.
+- RGAA sample parsing rejects YAML ambiguity, symlink traversal, empty or
+  duplicate test selections, while public result bounding preserves every
+  normative test/criterion/theme/page array and publishes all RGAA schemas.
+
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced
   secret cannot continue dispatching characters after its action budget. The

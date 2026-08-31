@@ -7,6 +7,7 @@ generator.  Any cardinality or join drift fails closed.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import io
@@ -27,54 +28,54 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "class": "deterministic",
         "rules": ["frame-title"],
         "collectors": ["dom"],
-        "auto_pass": True,
+        "auto_pass": False,
         "auto_fail": True,
-        "auto_not_applicable": True,
+        "auto_not_applicable": False,
         "confidence": "high",
     },
     "3.2.1": {
         "class": "deterministic_partial",
         "rules": ["text-contrast-solid"],
         "collectors": ["dom", "css"],
-        "auto_pass": True,
-        "auto_fail": True,
-        "auto_not_applicable": True,
-        "confidence": "high",
+        "auto_pass": False,
+        "auto_fail": False,
+        "auto_not_applicable": False,
+        "confidence": "medium",
     },
     "3.2.2": {
         "class": "deterministic_partial",
         "rules": ["text-contrast-solid"],
         "collectors": ["dom", "css"],
-        "auto_pass": True,
-        "auto_fail": True,
-        "auto_not_applicable": True,
-        "confidence": "high",
+        "auto_pass": False,
+        "auto_fail": False,
+        "auto_not_applicable": False,
+        "confidence": "medium",
     },
     "3.2.3": {
         "class": "deterministic_partial",
         "rules": ["text-contrast-solid"],
         "collectors": ["dom", "css"],
-        "auto_pass": True,
-        "auto_fail": True,
-        "auto_not_applicable": True,
-        "confidence": "high",
+        "auto_pass": False,
+        "auto_fail": False,
+        "auto_not_applicable": False,
+        "confidence": "medium",
     },
     "3.2.4": {
         "class": "deterministic_partial",
         "rules": ["text-contrast-solid"],
         "collectors": ["dom", "css"],
-        "auto_pass": True,
-        "auto_fail": True,
-        "auto_not_applicable": True,
-        "confidence": "high",
+        "auto_pass": False,
+        "auto_fail": False,
+        "auto_not_applicable": False,
+        "confidence": "medium",
     },
     "6.1.1": {
         "class": "assisted",
         "rules": ["link-accessible-name"],
         "collectors": ["dom", "accessibility"],
         "auto_pass": False,
-        "auto_fail": True,
-        "auto_not_applicable": True,
+        "auto_fail": False,
+        "auto_not_applicable": False,
         "confidence": "medium",
     },
     "8.1.1": {
@@ -100,7 +101,7 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "rules": ["default-language-validity"],
         "collectors": ["dom"],
         "auto_pass": False,
-        "auto_fail": True,
+        "auto_fail": False,
         "auto_not_applicable": False,
         "confidence": "medium",
     },
@@ -127,8 +128,8 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "rules": ["focus-indicator"],
         "collectors": ["input", "dom", "css"],
         "auto_pass": False,
-        "auto_fail": True,
-        "auto_not_applicable": True,
+        "auto_fail": False,
+        "auto_not_applicable": False,
         "confidence": "medium",
     },
     "10.12.1": {
@@ -136,26 +137,26 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "rules": ["text-spacing"],
         "collectors": ["dom", "css", "runtime"],
         "auto_pass": False,
-        "auto_fail": True,
-        "auto_not_applicable": True,
+        "auto_fail": False,
+        "auto_not_applicable": False,
         "confidence": "medium",
     },
     "11.1.1": {
-        "class": "deterministic",
+        "class": "assisted",
         "rules": ["form-label"],
         "collectors": ["dom", "accessibility"],
-        "auto_pass": True,
-        "auto_fail": True,
-        "auto_not_applicable": True,
-        "confidence": "high",
+        "auto_pass": False,
+        "auto_fail": False,
+        "auto_not_applicable": False,
+        "confidence": "medium",
     },
     "11.9.1": {
         "class": "assisted",
         "rules": ["button-accessible-name"],
         "collectors": ["dom", "accessibility"],
         "auto_pass": False,
-        "auto_fail": True,
-        "auto_not_applicable": True,
+        "auto_fail": False,
+        "auto_not_applicable": False,
         "confidence": "medium",
     },
     "12.8.1": {
@@ -164,7 +165,7 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "collectors": ["input", "dom", "accessibility"],
         "auto_pass": False,
         "auto_fail": False,
-        "auto_not_applicable": True,
+        "auto_not_applicable": False,
         "confidence": "medium",
     },
     "13.1.1": {
@@ -173,7 +174,7 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "collectors": ["dom"],
         "auto_pass": False,
         "auto_fail": False,
-        "auto_not_applicable": True,
+        "auto_not_applicable": False,
         "confidence": "medium",
     },
 }
@@ -460,11 +461,27 @@ def _matrix_csv(matrix: list[dict[str, Any]]) -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="fail if generated files drift")
+    args = parser.parse_args()
     catalog, matrix, manifest = build()
-    (DATA / "catalog.json").write_bytes(_json_bytes(catalog))
-    (DATA / "automation-matrix.json").write_bytes(_json_bytes(matrix))
-    (DATA / "source-manifest.json").write_bytes(_json_bytes(manifest))
-    DOC_MATRIX.write_text(_matrix_csv(matrix), encoding="utf-8")
+    outputs = {
+        DATA / "catalog.json": _json_bytes(catalog),
+        DATA / "automation-matrix.json": _json_bytes(matrix),
+        DATA / "source-manifest.json": _json_bytes(manifest),
+        DOC_MATRIX: _matrix_csv(matrix).encode(),
+    }
+    if args.check:
+        drift = [
+            str(path.relative_to(ROOT))
+            for path, payload in outputs.items()
+            if not path.is_file() or path.read_bytes() != payload
+        ]
+        if drift:
+            raise SystemExit(f"generated RGAA artifact drift: {', '.join(drift)}")
+        return
+    for path, payload in outputs.items():
+        path.write_bytes(payload)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,17 @@
-"""Prudent test-level RGAA resolver over bounded CDP observations."""
+"""Prudent test-level RGAA resolver over integrity-isolated observations."""
+
+# ruff: noqa: E501 -- audit messages and embedded JavaScript stay readable verbatim.
 
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from cdpx.client import CDPClient, CDPError, CDPTimeout
+from cdpx import __version__
+from cdpx.client import CDPClient, CDPError, CDPTimeout, CDPTransportError
 from cdpx.primitives import inputs, js
 from cdpx.primitives.js import JSException
 from cdpx.rgaa import provider
@@ -19,10 +23,28 @@ from cdpx.rgaa.catalog import (
     catalog_sha256,
     load_catalog,
 )
-from cdpx.rgaa.probes import FOCUS_STATE_PROBE, PASSIVE_PROBE, TEXT_SPACING_PROBE
+from cdpx.rgaa.plan import (
+    ACCESSIBILITY_TESTS,
+    FOCUS_STEP_LIMIT,
+    FOCUS_TESTS,
+    PASSIVE_TESTS,
+    SPACING_TESTS,
+    ExecutionBudget,
+    ScanPlan,
+    build_scan_plan,
+)
+from cdpx.rgaa.probes import (
+    FOCUS_RESET_PROBE,
+    FOCUS_STATE_PROBE,
+    PASSIVE_PROBE,
+    TEXT_SPACING_CLEANUP,
+    TEXT_SPACING_PROBE,
+)
 
 Scope = Literal["passive", "interactive", "privileged"]
 Engine = Literal["native", "hybrid"]
+OriginGuard = Callable[[], None]
+RULE_VERSION = 2
 VERDICTS = (
     "pass",
     "fail",
@@ -32,6 +54,12 @@ VERDICTS = (
     "error",
     "not_tested",
 )
+_AUTO_FLAG = {
+    "pass": "auto_pass",
+    "fail": "auto_fail",
+    "not_applicable": "auto_not_applicable",
+}
+_COLLECTOR_ERRORS = (CDPError, CDPTimeout, CDPTransportError, JSException, ValueError)
 
 
 def _finding(
@@ -41,8 +69,14 @@ def _finding(
     target: str | None = None,
     observed: Any = None,
     severity: str = "serious",
+    status: str = "potential",
 ) -> dict[str, Any]:
-    finding = {"rule_id": rule_id, "severity": severity, "message": message}
+    finding = {
+        "rule_id": rule_id,
+        "severity": severity,
+        "status": status,
+        "message": message,
+    }
     if target:
         finding["target"] = target
     if observed is not None:
@@ -58,11 +92,19 @@ def _set_result(
     findings: list[dict[str, Any]] | None = None,
     evidence: list[dict[str, Any]] | None = None,
     limitations: list[str] | None = None,
+    evidence_complete: bool = False,
 ) -> None:
     if verdict not in VERDICTS:
         raise ValueError(f"unknown RGAA verdict: {verdict}")
+    flag = _AUTO_FLAG.get(verdict)
+    capabilities = result.get("_capabilities", {})
+    if flag and not capabilities.get(flag, False):
+        raise ValueError(f"RGAA {result['id']}: matrix forbids automatic {verdict}")
+    if verdict in {"pass", "not_applicable"} and not evidence_complete:
+        raise ValueError(f"RGAA {result['id']}: {verdict} requires complete evidence")
     result["verdict"] = verdict
     result["confidence"] = confidence
+    result["evidence_complete"] = evidence_complete
     if findings is not None:
         result["findings"] = findings
     if evidence is not None:
@@ -72,14 +114,12 @@ def _set_result(
 
 
 def _initial_results(selected: set[str]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
-    results = []
-    by_id = {}
+    results, by_id = [], {}
     for test in load_catalog()["tests"]:
         profile = test["automation"]
-        if test["id"] not in selected:
-            verdict = "not_tested"
-        else:
-            verdict = profile["default_unresolved_verdict"]
+        verdict = (
+            "not_tested" if test["id"] not in selected else profile["default_unresolved_verdict"]
+        )
         result = {
             "id": test["id"],
             "theme_id": test["theme_id"],
@@ -87,18 +127,63 @@ def _initial_results(selected: set[str]) -> tuple[list[dict[str, Any]], dict[str
             "verdict": verdict,
             "automation": profile["automation_class"],
             "confidence": profile["confidence"],
+            "evidence_complete": False,
             "findings": [],
             "evidence": [],
             "advisory": [],
             "limitations": [profile["limitations"]],
+            "_capabilities": {
+                key: bool(profile[key]) for key in ("auto_pass", "auto_fail", "auto_not_applicable")
+            },
         }
         results.append(result)
         by_id[test["id"]] = result
     return results, by_id
 
 
-def _load_probe(client: CDPClient, expression: str, *, timeout: float) -> dict[str, Any]:
-    raw = js.evaluate(client, expression, await_promise=True, timeout=timeout)
+def _frame_tree(client: CDPClient, timeout: float) -> tuple[str, str]:
+    response = client.send("Page.getFrameTree", timeout=timeout)
+    tree = response.get("frameTree", {})
+    frame = tree.get("frame", {}) if isinstance(tree, dict) else {}
+    frame_id = frame.get("id") if isinstance(frame, dict) else None
+    url = frame.get("url") if isinstance(frame, dict) else None
+    if not isinstance(frame_id, str) or not frame_id or not isinstance(url, str) or not url:
+        raise ValueError("RGAA main frame identity unavailable")
+    return frame_id, url
+
+
+def _isolated_world(client: CDPClient, budget: ExecutionBudget) -> tuple[int, str]:
+    frame_id, url = _frame_tree(client, budget.remaining())
+    response = client.send(
+        "Page.createIsolatedWorld",
+        {
+            "frameId": frame_id,
+            "worldName": "__cdpx_rgaa_native",
+            "grantUniveralAccess": False,
+        },
+        timeout=budget.remaining(),
+    )
+    context_id = response.get("executionContextId")
+    if not isinstance(context_id, int):
+        raise ValueError("RGAA isolated world unavailable")
+    return context_id, url
+
+
+def _load_probe(
+    client: CDPClient,
+    context_id: int,
+    expression: str,
+    budget: ExecutionBudget,
+    *,
+    await_promise: bool = True,
+) -> dict[str, Any]:
+    raw = js.evaluate(
+        client,
+        expression,
+        await_promise=await_promise,
+        timeout=budget.remaining(),
+        context_id=context_id,
+    )
     if not isinstance(raw, str):
         raise ValueError("RGAA page probe returned no value")
     try:
@@ -110,381 +195,473 @@ def _load_probe(client: CDPClient, expression: str, *, timeout: float) -> dict[s
     return value
 
 
-def _items(observation: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    group = observation.get(key, {})
-    items = group.get("items", []) if isinstance(group, dict) else []
-    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+def _group(observation: dict[str, Any], key: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    raw = observation.get(key, {})
+    group = raw if isinstance(raw, dict) else {}
+    values = group.get("items", [])
+    items = [item for item in values if isinstance(item, dict)] if isinstance(values, list) else []
+    return items, group
 
 
-def _apply_passive(by_id: dict[str, dict[str, Any]], observation: dict[str, Any]) -> None:
-    frames = _items(observation, "frames")
-    if not frames:
-        _set_result(by_id["2.1.1"], "not_applicable", confidence="high")
-    else:
+def _coverage_evidence(collector: str, group: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "collector": collector,
+        "total": group.get("total"),
+        "examined": group.get("examined"),
+        "truncated": bool(group.get("truncated", False)),
+        "evidence_complete": bool(group.get("evidence_complete", False)),
+        "coverage_scope": group.get("coverage_scope"),
+    }
+
+
+def _apply_passive(
+    by_id: dict[str, dict[str, Any]], observation: dict[str, Any], selected: set[str]
+) -> None:
+    if "2.1.1" in selected:
+        frames, group = _group(observation, "frames")
         missing = [item for item in frames if not item.get("title_present")]
-        _set_result(
-            by_id["2.1.1"],
-            "fail" if missing else "pass",
-            confidence="high",
-            findings=[
-                _finding(
-                    "frame-title", "Frame has no title attribute.", target=item.get("selector")
-                )
-                for item in missing
-            ],
-            evidence=[{"collector": "dom", "frames": len(frames)}],
-        )
+        if missing:
+            _set_result(
+                by_id["2.1.1"],
+                "fail",
+                confidence="high",
+                findings=[
+                    _finding(
+                        "frame-title",
+                        "Frame has no title attribute.",
+                        target=item.get("target"),
+                        status="proven",
+                    )
+                    for item in missing
+                ],
+                evidence=[_coverage_evidence("isolated-dom", group)],
+            )
+        else:
+            _set_result(
+                by_id["2.1.1"],
+                "needs_review",
+                confidence="medium",
+                evidence=[_coverage_evidence("isolated-dom", group)],
+                limitations=[
+                    "Frames in closed shadow roots and nested documents remain unobserved."
+                ],
+            )
 
     contrast = observation.get("contrast", {})
-    contrast_items = contrast.get("items", []) if isinstance(contrast, dict) else []
-    unresolved = int(contrast.get("unresolved", 0)) if isinstance(contrast, dict) else 0
+    contrast_group = contrast if isinstance(contrast, dict) else {}
+    contrast_items = contrast_group.get("items", [])
     for test_id in ("3.2.1", "3.2.2", "3.2.3", "3.2.4"):
+        if test_id not in selected:
+            continue
         candidates = [
             item
             for item in contrast_items
             if isinstance(item, dict) and item.get("test_id") == test_id
         ]
         failures = [item for item in candidates if item.get("ratio", 0) < item.get("required", 0)]
-        findings = [
-            _finding(
-                "text-contrast-solid",
-                f"Contrast ratio {item.get('ratio')}:1 is below {item.get('required')}:1.",
-                target=item.get("selector"),
-                observed={
-                    key: item.get(key)
-                    for key in (
-                        "ratio",
-                        "required",
-                        "foreground",
-                        "background",
-                        "font_size",
-                        "font_weight",
-                    )
-                },
-            )
-            for item in failures
-        ]
-        if failures:
-            verdict = "fail"
-        elif unresolved:
-            verdict = "needs_review"
-        elif candidates:
-            verdict = "pass"
-        else:
-            verdict = "not_applicable"
         _set_result(
             by_id[test_id],
-            verdict,
-            confidence="high" if verdict in {"pass", "fail", "not_applicable"} else "medium",
-            findings=findings,
-            evidence=[
-                {
-                    "collector": "dom-css",
-                    "solid_candidates": len(candidates),
-                    "complex_background_candidates": unresolved,
-                }
+            "needs_review",
+            confidence="medium",
+            findings=[
+                _finding(
+                    "text-contrast-solid",
+                    f"Observed ratio {item.get('ratio')}:1 is below {item.get('required')}:1; alternate mechanisms and RGAA exceptions remain to review.",
+                    target=item.get("target"),
+                    observed={
+                        key: item.get(key)
+                        for key in (
+                            "ratio",
+                            "required",
+                            "foreground",
+                            "background",
+                            "font_size",
+                            "font_weight",
+                        )
+                    },
+                )
+                for item in failures
             ],
-            limitations=(
-                ["Complex, transparent, gradient, image and composited backgrounds require review."]
-                if unresolved
-                else []
-            ),
+            evidence=[_coverage_evidence("isolated-dom-css", contrast_group)],
+            limitations=[
+                "Text images, generated content, complex composition, exceptions and alternate contrast mechanisms are not fully resolved."
+            ],
         )
 
-    links = _items(observation, "links")
-    blank_links = [item for item in links if not item.get("name")]
-    if not links:
-        link_verdict = "not_applicable"
-    elif blank_links:
-        link_verdict = "fail"
-    else:
-        link_verdict = "needs_review"
-    _set_result(
-        by_id["6.1.1"],
-        link_verdict,
-        confidence="high" if link_verdict in {"fail", "not_applicable"} else "medium",
-        findings=[
-            _finding(
-                "link-accessible-name", "Link has no accessible name.", target=item.get("selector")
-            )
-            for item in blank_links
-        ],
-        evidence=[{"collector": "dom", "links": len(links)}],
-        limitations=[]
-        if blank_links
-        else ["Link purpose and surrounding context remain semantic judgments."],
-    )
+    if "6.1.1" in selected:
+        links, group = _group(observation, "links")
+        unnamed = [item for item in links if not item.get("name_sources")]
+        _set_result(
+            by_id["6.1.1"],
+            "needs_review",
+            confidence="medium",
+            findings=[
+                _finding(
+                    "link-accessible-name",
+                    "No supported name source was observed; confirm with the accessibility tree and RGAA context.",
+                    target=item.get("target"),
+                )
+                for item in unnamed
+            ],
+            evidence=[_coverage_evidence("isolated-dom", group)],
+            limitations=[
+                "Accessible-name computation and link purpose require AX and human review."
+            ],
+        )
 
-    doctype = observation.get("doctype", {})
-    if not isinstance(doctype, dict) or not doctype.get("present"):
-        doctype_verdict = "fail"
-        doctype_findings = [_finding("document-type", "Document has no DOCTYPE.")]
-    elif str(doctype.get("name", "")).lower() != "html":
-        doctype_verdict = "fail"
-        doctype_findings = [
-            _finding("document-type", "Document type is not HTML.", observed=doctype)
-        ]
-    elif not doctype.get("public_id") and not doctype.get("system_id"):
-        doctype_verdict = "pass"
-        doctype_findings = []
-    else:
-        doctype_verdict = "needs_review"
-        doctype_findings = []
-    _set_result(
-        by_id["8.1.1"],
-        doctype_verdict,
-        confidence="high" if doctype_verdict != "needs_review" else "medium",
-        findings=doctype_findings,
-        evidence=[{"collector": "dom", "doctype": doctype}],
-        limitations=[]
-        if doctype_verdict != "needs_review"
-        else ["Legacy public/system identifiers require validation."],
-    )
+    if "8.1.1" in selected:
+        doctype = observation.get("doctype", {})
+        complete = isinstance(doctype, dict) and bool(doctype.get("evidence_complete"))
+        if (
+            not isinstance(doctype, dict)
+            or not doctype.get("present")
+            or str(doctype.get("name", "")).lower() != "html"
+        ):
+            verdict, findings = (
+                "fail",
+                [
+                    _finding(
+                        "document-type",
+                        "Document has no HTML document type.",
+                        observed=doctype,
+                        status="proven",
+                    )
+                ],
+            )
+        elif not doctype.get("public_id") and not doctype.get("system_id"):
+            verdict, findings = "pass", []
+        else:
+            verdict, findings = "needs_review", []
+        _set_result(
+            by_id["8.1.1"],
+            verdict,
+            confidence="high" if verdict != "needs_review" else "medium",
+            findings=findings,
+            evidence=[{"collector": "isolated-dom", "doctype": doctype}],
+            evidence_complete=complete and verdict == "pass",
+        )
 
     language = observation.get("language", {})
-    lang = ""
-    if isinstance(language, dict):
-        lang = str(language.get("lang") or language.get("xml_lang") or "").strip()
-    _set_result(
-        by_id["8.3.1"],
-        "pass" if lang else "fail",
-        confidence="high",
-        findings=[]
-        if lang
-        else [_finding("default-language", "Document has no default language.")],
-        evidence=[{"collector": "dom", "language": lang or None}],
+    lang = (
+        str(language.get("lang") or language.get("xml_lang") or "").strip()
+        if isinstance(language, dict)
+        else ""
     )
-    plausible_language = bool(re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", lang))
-    if not lang or not plausible_language:
-        language_verdict = "fail"
-        language_findings = [
-            _finding(
-                "default-language-validity",
-                "Default language code is absent or structurally invalid.",
-                observed=lang or None,
-            )
-        ]
-    else:
-        language_verdict = "needs_review"
-        language_findings = []
-    _set_result(
-        by_id["8.4.1"],
-        language_verdict,
-        confidence="high" if language_verdict == "fail" else "medium",
-        findings=language_findings,
-        evidence=[
-            {"collector": "dom", "language": lang or None, "syntax_plausible": plausible_language}
-        ],
-        limitations=[
-            "A syntactically plausible code does not prove that it matches the page language."
-        ],
-    )
+    if "8.3.1" in selected:
+        _set_result(
+            by_id["8.3.1"],
+            "pass" if lang else "fail",
+            confidence="high",
+            findings=[]
+            if lang
+            else [
+                _finding("default-language", "Document has no default language.", status="proven")
+            ],
+            evidence=[{"collector": "isolated-dom", "language": lang or None}],
+            evidence_complete=bool(lang),
+        )
+    if "8.4.1" in selected:
+        _set_result(
+            by_id["8.4.1"],
+            "needs_review",
+            confidence="medium",
+            findings=[]
+            if lang
+            else [
+                _finding(
+                    "default-language-validity",
+                    "No language tag is available to validate.",
+                    observed=None,
+                )
+            ],
+            evidence=[{"collector": "isolated-dom", "language": lang or None}],
+            limitations=[
+                "BCP 47 syntax alone cannot prove that the tag matches the page language."
+            ],
+        )
 
     title = observation.get("title", {})
     title_present = isinstance(title, dict) and bool(title.get("present"))
     title_value = str(title.get("value", "")).strip() if isinstance(title, dict) else ""
-    _set_result(
-        by_id["8.5.1"],
-        "pass" if title_present else "fail",
-        confidence="high",
-        findings=[]
-        if title_present
-        else [_finding("document-title-presence", "Document has no title element.")],
-        evidence=[{"collector": "dom", "title_present": title_present}],
-    )
-    _set_result(
-        by_id["8.6.1"],
-        "needs_review" if title_value else "fail",
-        confidence="medium" if title_value else "high",
-        findings=[]
-        if title_value
-        else [_finding("document-title-relevance", "Document title is empty.")],
-        evidence=[{"collector": "dom", "title": title_value}],
-        limitations=["A non-empty title still requires a relevance judgment."],
-    )
+    if "8.5.1" in selected:
+        _set_result(
+            by_id["8.5.1"],
+            "pass" if title_present else "fail",
+            confidence="high",
+            findings=[]
+            if title_present
+            else [
+                _finding(
+                    "document-title-presence", "Document has no title element.", status="proven"
+                )
+            ],
+            evidence=[{"collector": "isolated-dom", "title_present": title_present}],
+            evidence_complete=title_present,
+        )
+    if "8.6.1" in selected:
+        _set_result(
+            by_id["8.6.1"],
+            "needs_review" if title_value else "fail",
+            confidence="medium" if title_value else "high",
+            findings=[]
+            if title_value
+            else [
+                _finding("document-title-relevance", "Document title is empty.", status="proven")
+            ],
+            evidence=[{"collector": "isolated-dom", "title": title_value}],
+            limitations=["A non-empty title still requires a relevance judgment."],
+        )
 
-    fields = _items(observation, "fields")
-    unlabelled = [item for item in fields if not item.get("labelled")]
-    field_verdict = "not_applicable" if not fields else ("fail" if unlabelled else "pass")
-    _set_result(
-        by_id["11.1.1"],
-        field_verdict,
-        confidence="high",
-        findings=[
-            _finding(
-                "form-label",
-                "Form field has no supported label mechanism.",
-                target=item.get("selector"),
+    if "11.1.1" in selected:
+        fields, group = _group(observation, "fields")
+        weak = [
+            item
+            for item in fields
+            if not any(
+                item.get(key)
+                for key in ("explicit_label", "aria_labelledby", "aria_label", "title")
             )
-            for item in unlabelled
-        ],
-        evidence=[{"collector": "dom", "fields": len(fields)}],
-    )
+        ]
+        _set_result(
+            by_id["11.1.1"],
+            "needs_review",
+            confidence="medium",
+            findings=[
+                _finding(
+                    "form-label",
+                    "No explicit supported labelling mechanism was observed; confirm the RGAA branch in AX.",
+                    target=item.get("target"),
+                )
+                for item in weak
+            ],
+            evidence=[_coverage_evidence("isolated-dom", group)],
+            limitations=[
+                "DOM heuristics do not implement the full accessible-name or RGAA labelling algorithm."
+            ],
+        )
+    if "11.9.1" in selected:
+        buttons, group = _group(observation, "buttons")
+        unnamed = [item for item in buttons if not item.get("name_sources")]
+        _set_result(
+            by_id["11.9.1"],
+            "needs_review",
+            confidence="medium",
+            findings=[
+                _finding(
+                    "button-accessible-name",
+                    "No supported name source was observed for this form button; confirm in AX.",
+                    target=item.get("target"),
+                )
+                for item in unnamed
+            ],
+            evidence=[_coverage_evidence("isolated-dom", group)],
+            limitations=[
+                "Button-name relevance and the complete AccName algorithm require review."
+            ],
+        )
+    if "13.1.1" in selected:
+        mechanisms, group = _group(observation, "refresh_mechanisms")
+        _set_result(
+            by_id["13.1.1"],
+            "needs_review",
+            confidence="medium",
+            findings=[
+                _finding(
+                    "timed-refresh-candidate",
+                    "A mechanism capable of refreshing content requires timing and control review.",
+                    target=item.get("target"),
+                    observed={"kind": item.get("kind"), "content": item.get("content")},
+                    severity="moderate",
+                )
+                for item in mechanisms
+            ],
+            evidence=[_coverage_evidence("isolated-dom", group)],
+            limitations=[
+                "Absence of observed candidates does not prove non-applicability; script-driven changes and embedded content remain."
+            ],
+        )
 
-    buttons = _items(observation, "buttons")
-    unnamed_buttons = [item for item in buttons if not item.get("name")]
-    if not buttons:
-        button_verdict = "not_applicable"
-    elif unnamed_buttons:
-        button_verdict = "fail"
-    else:
-        button_verdict = "needs_review"
-    _set_result(
-        by_id["11.9.1"],
-        button_verdict,
-        confidence="high" if button_verdict in {"fail", "not_applicable"} else "medium",
-        findings=[
-            _finding(
-                "button-accessible-name",
-                "Button has no accessible name.",
-                target=item.get("selector"),
-            )
-            for item in unnamed_buttons
-        ],
-        evidence=[{"collector": "dom", "buttons": len(buttons)}],
-        limitations=[]
-        if unnamed_buttons
-        else ["Name relevance and visible-label consistency require review."],
-    )
 
-    refreshes = _items(observation, "meta_refresh")
-    _set_result(
-        by_id["13.1.1"],
-        "not_applicable" if not refreshes else "needs_review",
-        confidence="high" if not refreshes else "medium",
-        findings=[
-            _finding(
-                "meta-refresh",
-                "A meta refresh requires expert review of timing controls.",
-                target=item.get("selector"),
-                observed=item.get("content"),
-                severity="moderate",
-            )
-            for item in refreshes
-        ],
-        evidence=[{"collector": "dom", "meta_refresh": len(refreshes)}],
-        limitations=[
-            "Script, SVG, canvas, object and embed refresh mechanisms are not "
-            "exhaustively inferred."
-        ],
-    )
+def _collect_accessibility(client: CDPClient, budget: ExecutionBudget) -> dict[str, Any]:
+    client.send("Accessibility.enable", timeout=budget.remaining())
+    response = client.send("Accessibility.getFullAXTree", timeout=budget.remaining())
+    nodes = response.get("nodes", [])
+    if not isinstance(nodes, list):
+        raise ValueError("RGAA accessibility tree unavailable")
+    return {"nodes": len(nodes), "evidence_complete": True, "exposed_values": False}
 
 
-def _collect_focus(client: CDPClient, *, timeout: float, steps: int = 20) -> list[dict[str, Any]]:
-    observations: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for _ in range(steps):
-        inputs.press_key(client, "Tab")
-        raw = js.evaluate(client, FOCUS_STATE_PROBE, timeout=timeout)
+def _collect_focus(
+    client: CDPClient,
+    context_id: int,
+    budget: ExecutionBudget,
+    origin_guard: OriginGuard | None,
+) -> dict[str, Any]:
+    if origin_guard:
+        origin_guard()
+    js.evaluate(client, FOCUS_RESET_PROBE, timeout=budget.remaining(), context_id=context_id)
+    observations, seen = [], set()
+    wrapped = False
+    for _ in range(FOCUS_STEP_LIMIT):
+        budget.consume("RGAA Tab traversal")
+        if origin_guard:
+            origin_guard()
+        inputs.press_key(client, "Tab", remaining=budget.remaining)
+        if origin_guard:
+            origin_guard()
+        raw = js.evaluate(
+            client,
+            FOCUS_STATE_PROBE,
+            await_promise=True,
+            timeout=budget.remaining(),
+            context_id=context_id,
+        )
+        if raw is None:
+            break
         if not isinstance(raw, str):
             raise ValueError("RGAA focus probe returned no value")
-        try:
-            state = json.loads(raw)
-        except json.JSONDecodeError as error:
-            raise ValueError("RGAA focus probe returned invalid JSON") from error
-        if state is None:
-            break
-        if not isinstance(state, dict):
+        state = json.loads(raw)
+        if not isinstance(state, dict) or not isinstance(state.get("target"), str):
             raise ValueError("RGAA focus probe returned an invalid object")
-        selector = state.get("selector")
-        if not isinstance(selector, str) or not selector:
+        target = state["target"]
+        if target in seen:
+            wrapped = True
             break
-        if selector in seen:
-            break
-        seen.add(selector)
+        seen.add(target)
         observations.append(state)
-    return observations
+    return {
+        "items": observations,
+        "steps": len(observations),
+        "wrapped": wrapped,
+        "truncated": len(observations) >= FOCUS_STEP_LIMIT and not wrapped,
+        "evidence_complete": False,
+        "coverage_scope": "top-level and open-shadow focus chain; frames, closed shadow roots and visual deltas require review",
+    }
 
 
-def _apply_interactive(
-    client: CDPClient, by_id: dict[str, dict[str, Any]], *, timeout: float
+def _apply_focus(
+    by_id: dict[str, dict[str, Any]], focus: dict[str, Any], selected: set[str]
 ) -> None:
-    focus = _collect_focus(client, timeout=timeout)
-    invisible = [item for item in focus if not item.get("indicator_detected")]
-    focus_verdict = "not_applicable" if not focus else ("fail" if invisible else "needs_review")
-    _set_result(
-        by_id["10.7.1"],
-        focus_verdict,
-        confidence="medium" if focus else "high",
-        findings=[
-            _finding(
-                "focus-indicator",
-                "No CSS outline or box-shadow focus indicator was detected.",
-                target=item.get("selector"),
-                observed=item,
-            )
-            for item in invisible
-        ],
-        evidence=[{"collector": "input-dom-css", "focus_sequence": focus}],
-        limitations=[
-            "Visual focus can use mechanisms outside the CSS outline/box-shadow heuristic."
-        ],
-    )
-    _set_result(
-        by_id["12.8.1"],
-        "not_applicable" if not focus else "needs_review",
-        confidence="medium" if focus else "high",
-        evidence=[
-            {
-                "collector": "input-dom",
-                "forward_tab_sequence": [item.get("selector") for item in focus],
-            }
-        ],
-        limitations=[
-            "DOM order evidence cannot establish that the tab order is semantically coherent."
-        ],
-    )
+    evidence = [{"collector": "trusted-input+isolated-dom-css", **focus}]
+    if "10.7.1" in selected:
+        _set_result(
+            by_id["10.7.1"],
+            "needs_review",
+            confidence="medium",
+            evidence=evidence,
+            limitations=[
+                "Collected focus styles are observations; absence of outline or shadow is never treated as proof of failure."
+            ],
+        )
+    if "12.8.1" in selected:
+        _set_result(
+            by_id["12.8.1"],
+            "needs_review",
+            confidence="medium",
+            evidence=evidence,
+            limitations=[
+                "A bounded tab sequence cannot establish semantic coherence for every focusable target."
+            ],
+        )
 
 
-def _apply_spacing(client: CDPClient, by_id: dict[str, dict[str, Any]], *, timeout: float) -> None:
-    spacing = _load_probe(client, TEXT_SPACING_PROBE, timeout=timeout)
-    candidates = int(spacing.get("candidates", 0))
+def _collect_spacing(client: CDPClient, context_id: int, budget: ExecutionBudget) -> dict[str, Any]:
+    token = f"cdpx-{context_id}"
+    expression = TEXT_SPACING_PROBE.replace("__CDPX_SPACING_TOKEN__", json.dumps(token))
+    try:
+        return _load_probe(client, context_id, expression, budget)
+    finally:
+        try:
+            js.evaluate(client, TEXT_SPACING_CLEANUP, timeout=1.0, context_id=context_id)
+        except _COLLECTOR_ERRORS:
+            pass
+
+
+def _apply_spacing(by_id: dict[str, dict[str, Any]], spacing: dict[str, Any]) -> None:
     clipped = spacing.get("clipped", [])
-    clipped = (
-        [item for item in clipped if isinstance(item, dict)] if isinstance(clipped, list) else []
-    )
-    verdict = "not_applicable" if not candidates else ("fail" if clipped else "needs_review")
+    findings = [
+        _finding(
+            "text-spacing-clipping",
+            "Text-spacing emulation introduced overflow under a clipping overflow policy; readability and exceptions require review.",
+            target=item.get("target"),
+            observed=item,
+        )
+        for item in clipped
+        if isinstance(item, dict)
+    ]
     _set_result(
         by_id["10.12.1"],
-        verdict,
-        confidence="medium" if candidates else "high",
-        findings=[
-            _finding(
-                "text-spacing",
-                "Text spacing introduced new clipping or overflow.",
-                target=item.get("selector"),
-                observed=item,
-            )
-            for item in clipped
-        ],
-        evidence=[{"collector": "runtime-dom-layout", **spacing}],
+        "needs_review",
+        confidence="medium",
+        findings=findings,
+        evidence=[{"collector": "isolated-runtime-dom-layout", **spacing}],
         limitations=[
-            "Absence of detected clipping does not prove that every transformed "
-            "text remains readable."
+            "Detected geometry is not sufficient to prove readability or every RGAA exception."
         ],
     )
+
+
+def _mark_error(
+    by_id: dict[str, dict[str, Any]],
+    selected: set[str],
+    affected: set[str] | frozenset[str],
+    collector: str,
+) -> None:
+    for test_id in selected & set(affected):
+        _set_result(
+            by_id[test_id],
+            "error",
+            confidence="none",
+            limitations=[f"Required collector did not complete: {collector}."],
+        )
+
+
+def _environment(
+    client: CDPClient, context_id: int, budget: ExecutionBudget, url: str
+) -> dict[str, Any]:
+    environment: dict[str, Any] = {
+        "cdpx_version": __version__,
+        "native_rule_version": RULE_VERSION,
+        "final_url": url,
+    }
+    try:
+        version = client.send("Browser.getVersion", timeout=budget.remaining())
+        environment["browser"] = {
+            key: version.get(key)
+            for key in ("product", "userAgent", "jsVersion", "protocolVersion")
+        }
+    except _COLLECTOR_ERRORS as error:
+        environment["browser_error"] = str(error)
+    expression = r"""
+    // __cdpx_rgaa_environment_v2
+    (async () => {
+      const html = document.documentElement?.outerHTML || "";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(html));
+      const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+      return JSON.stringify({user_agent: navigator.userAgent, locale: navigator.language, viewport: {width: innerWidth, height: innerHeight, device_pixel_ratio: devicePixelRatio, visual_scale: visualViewport?.scale || 1}, media: {forced_colors: matchMedia("(forced-colors: active)").matches, prefers_contrast_more: matchMedia("(prefers-contrast: more)").matches, prefers_dark: matchMedia("(prefers-color-scheme: dark)").matches}, dom_sha256: hex});
+    })()
+    """
+    try:
+        environment["page"] = _load_probe(client, context_id, expression, budget)
+    except _COLLECTOR_ERRORS as error:
+        environment["page_error"] = str(error)
+    return environment
 
 
 def _rollup_verdict(values: list[str]) -> str:
-    """Conservatively collapse child verdicts without inventing compliance."""
     for verdict in ("fail", "error", "needs_review", "manual_only", "not_tested"):
         if verdict in values:
             return verdict
-    if "pass" in values:
-        return "pass"
-    return "not_applicable"
+    return "pass" if "pass" in values else "not_applicable"
 
 
 def summarize_hierarchy(
     results: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Build the official criterion/theme hierarchy from test-level truth."""
     by_test = {result["id"]: result for result in results}
-    criteria: list[dict[str, Any]] = []
-    themes: list[dict[str, Any]] = []
+    criteria, themes = [], []
     for topic in load_catalog()["topics"]:
-        topic_results: list[dict[str, Any]] = []
-        topic_criteria: list[dict[str, Any]] = []
+        topic_results, topic_criteria = [], []
         for criterion in topic["criteria"]:
             criterion_results = [by_test[test_id] for test_id in criterion["test_ids"]]
             topic_results.extend(criterion_results)
@@ -513,20 +690,96 @@ def summarize_hierarchy(
     return criteria, themes
 
 
-def _summaries(
-    results: list[dict[str, Any]], selected: set[str]
-) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+def _finish(
+    results: list[dict[str, Any]],
+    selected: set[str],
+    *,
+    url: str | None,
+    scope: Scope,
+    engine: Engine,
+    plan: ScanPlan,
+    collectors: dict[str, dict[str, Any]],
+    providers: list[dict[str, Any]],
+    environment: dict[str, Any],
+    budget: ExecutionBudget,
+) -> dict[str, Any]:
+    for result in results:
+        result.pop("_capabilities", None)
     counts = Counter(result["verdict"] for result in results)
+    attempted = sum(
+        1
+        for result in results
+        if result["id"] in selected
+        and (result["evidence"] or result["findings"] or result["verdict"] == "error")
+    )
     summary = {
         "official_tests": EXPECTED_COUNTS["tests"],
         "selected": len(selected),
-        "evaluated": sum(counts[verdict] for verdict in VERDICTS if verdict != "not_tested"),
+        "evaluated": attempted,
+        "collector_attempted": sum(
+            status.get("status") in {"ok", "error"} for status in collectors.values()
+        ),
+        "evidence_collected": sum(
+            bool(result["evidence"] or result["findings"]) for result in results
+        ),
         **{verdict: counts[verdict] for verdict in VERDICTS},
-        "resolved": counts["pass"] + counts["fail"] + counts["not_applicable"],
+        "automatically_resolved": counts["pass"] + counts["fail"] + counts["not_applicable"],
+        "unresolved": counts["needs_review"] + counts["manual_only"] + counts["error"],
         "certification_claim": False,
     }
     criteria, themes = summarize_hierarchy(results)
-    return summary, criteria, themes
+    return {
+        "schema": "cdpx.rgaa.result/v1",
+        "rgaa_version": RGAA_VERSION,
+        "catalog": {
+            "id": CATALOG_ID,
+            "source_commit": SOURCE_COMMIT,
+            "catalog_sha256": catalog_sha256(),
+        },
+        "scope": {"mode": scope, "engine": engine, "url": url},
+        "execution_plan": plan.public(),
+        "environment": environment,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "summary": summary,
+        "themes": themes,
+        "criteria": criteria,
+        "collector_status": collectors,
+        "providers": providers,
+        "tests": results,
+        "actions_used": budget.actions_used,
+        "limitations": [
+            "This is an automated/assisted evidence report, never an RGAA certification.",
+            "Partial evidence and unresolved human/AT work are never counted as passes.",
+            "Chromium AX is not a substitute for NVDA, JAWS or VoiceOver testing.",
+        ],
+    }
+
+
+def scan_error_report(
+    *,
+    scope: Scope,
+    engine: Engine,
+    selected_tests: tuple[str, ...] | None,
+    error: Exception,
+    budget: ExecutionBudget,
+) -> dict[str, Any]:
+    all_ids = {test["id"] for test in load_catalog()["tests"]}
+    selected = set(selected_tests) if selected_tests is not None else all_ids
+    results, by_id = _initial_results(selected)
+    _mark_error(by_id, selected, selected, "page-navigation")
+    plan = build_scan_plan(selected, scope=scope, engine=engine)
+    return _finish(
+        results,
+        selected,
+        url=None,
+        scope=scope,
+        engine=engine,
+        plan=plan,
+        collectors={"page-navigation": {"status": "error", "error": str(error)}},
+        providers=[],
+        environment={"cdpx_version": __version__, "native_rule_version": RULE_VERSION},
+        budget=budget,
+    )
 
 
 def scan(
@@ -536,76 +789,170 @@ def scan(
     engine: Engine = "native",
     selected_tests: tuple[str, ...] | None = None,
     timeout: float = 15.0,
+    budget: ExecutionBudget | None = None,
+    origin_guard: OriginGuard | None = None,
 ) -> dict[str, Any]:
-    if scope not in {"passive", "interactive", "privileged"}:
-        raise ValueError(f"unknown RGAA scope: {scope}")
-    if engine not in {"native", "hybrid"}:
-        raise ValueError(f"unknown RGAA engine: {engine}")
-    catalog = load_catalog()
-    all_ids = {test["id"] for test in catalog["tests"]}
-    selected = set(selected_tests) if selected_tests is not None else set(all_ids)
+    if scope not in {"passive", "interactive", "privileged"} or engine not in {"native", "hybrid"}:
+        raise ValueError("unknown RGAA scope or engine")
+    all_ids = {test["id"] for test in load_catalog()["tests"]}
+    selected = set(selected_tests) if selected_tests is not None else all_ids
     unknown = selected - all_ids
     if unknown:
         raise ValueError(f"unknown RGAA test id(s): {', '.join(sorted(unknown))}")
+    active_budget = budget or ExecutionBudget.start(timeout)
+    plan = build_scan_plan(selected, scope=scope, engine=engine)
     results, by_id = _initial_results(selected)
-
-    observation = _load_probe(client, PASSIVE_PROBE, timeout=timeout)
-    _apply_passive(by_id, observation)
-    if scope in {"interactive", "privileged"}:
-        _apply_interactive(client, by_id, timeout=timeout)
-    if scope == "privileged":
-        _apply_spacing(client, by_id, timeout=timeout)
-
+    collectors: dict[str, dict[str, Any]] = {}
     providers: list[dict[str, Any]] = []
-    if engine == "hybrid":
+    try:
+        context_id, url = _isolated_world(client, active_budget)
+        environment = _environment(client, context_id, active_budget, url)
+    except _COLLECTOR_ERRORS as error:
+        _mark_error(by_id, selected, selected, "isolated-world")
+        return _finish(
+            results,
+            selected,
+            url=None,
+            scope=scope,
+            engine=engine,
+            plan=plan,
+            collectors={"isolated-world": {"status": "error", "error": str(error)}},
+            providers=providers,
+            environment={"cdpx_version": __version__, "native_rule_version": RULE_VERSION},
+            budget=active_budget,
+        )
+
+    if plan.passive:
         try:
-            axe = provider.run_axe(client, timeout=timeout)
-        except (CDPError, CDPTimeout, JSException, ValueError) as error:
-            providers.append({"name": "axe-core", "status": "error", "error": str(error)})
-            for test_ids in provider.AXE_TO_RGAA.values():
-                for test_id in test_ids:
-                    if test_id in selected and by_id[test_id]["verdict"] in {
-                        "needs_review",
-                        "manual_only",
-                    }:
-                        _set_result(
-                            by_id[test_id],
-                            "error",
-                            confidence="none",
-                            limitations=["The requested advisory provider did not complete."],
-                        )
-        else:
+            if origin_guard:
+                origin_guard()
+            observation = _load_probe(client, context_id, PASSIVE_PROBE, active_budget)
+            if origin_guard:
+                origin_guard()
+            _apply_passive(by_id, observation, selected)
+            collectors["passive-dom-css"] = {"status": "ok", "isolated_world": True}
+        except _COLLECTOR_ERRORS as error:
+            collectors["passive-dom-css"] = {
+                "status": "error",
+                "error": str(error),
+                "isolated_world": True,
+            }
+            _mark_error(by_id, selected, PASSIVE_TESTS, "passive-dom-css")
+    else:
+        collectors["passive-dom-css"] = {
+            "status": "skipped",
+            "reason": "no selected test requires it",
+        }
+
+    if plan.accessibility:
+        try:
+            if origin_guard:
+                origin_guard()
+            ax = _collect_accessibility(client, active_budget)
+            if origin_guard:
+                origin_guard()
+            collectors["accessibility"] = {"status": "ok", **ax}
+            for test_id in selected & set(ACCESSIBILITY_TESTS):
+                by_id[test_id]["evidence"].append({"collector": "accessibility", **ax})
+        except _COLLECTOR_ERRORS as error:
+            collectors["accessibility"] = {"status": "error", "error": str(error)}
+            _mark_error(by_id, selected, ACCESSIBILITY_TESTS, "accessibility")
+    else:
+        collectors["accessibility"] = {
+            "status": "skipped",
+            "reason": "no selected test requires it",
+        }
+
+    if plan.focus:
+        try:
+            focus = _collect_focus(client, context_id, active_budget, origin_guard)
+            _apply_focus(by_id, focus, selected)
+            collectors["focus"] = {
+                "status": "ok",
+                "steps": focus["steps"],
+                "truncated": focus["truncated"],
+            }
+        except _COLLECTOR_ERRORS as error:
+            collectors["focus"] = {"status": "error", "error": str(error)}
+            _mark_error(by_id, selected, FOCUS_TESTS, "focus")
+    else:
+        collectors["focus"] = {
+            "status": "skipped",
+            "reason": "scope or selection does not require it",
+        }
+
+    if plan.spacing:
+        try:
+            if origin_guard:
+                origin_guard()
+            spacing = _collect_spacing(client, context_id, active_budget)
+            if origin_guard:
+                origin_guard()
+            _apply_spacing(by_id, spacing)
+            collectors["text-spacing"] = {
+                "status": "ok",
+                "truncated": spacing.get("truncated", False),
+                "cleanup": "completed",
+            }
+        except _COLLECTOR_ERRORS as error:
+            collectors["text-spacing"] = {
+                "status": "error",
+                "error": str(error),
+                "cleanup": "attempted",
+            }
+            _mark_error(by_id, selected, SPACING_TESTS, "text-spacing")
+    else:
+        collectors["text-spacing"] = {
+            "status": "skipped",
+            "reason": "scope or selection does not require it",
+        }
+
+    if plan.axe:
+        try:
+            if origin_guard:
+                origin_guard()
+            axe = provider.run_axe(client, timeout=active_budget.remaining())
+            if origin_guard:
+                origin_guard()
             providers.append(
                 {key: value for key, value in axe.items() if key != "result"} | {"status": "ok"}
             )
             for test_id, observations in provider.mapped_observations(axe).items():
                 if test_id in selected:
                     by_id[test_id]["advisory"].extend(observations)
+        except _COLLECTOR_ERRORS as error:
+            providers.append(
+                {
+                    "name": "axe-core",
+                    "status": "error",
+                    "error": str(error),
+                    "verdict_authority": "advisory_only",
+                }
+            )
+    elif engine == "hybrid":
+        providers.append(
+            {
+                "name": "axe-core",
+                "status": "skipped",
+                "reason": "no selected test has an axe mapping",
+                "verdict_authority": "advisory_only",
+            }
+        )
 
     for result in results:
         if result["id"] not in selected:
             _set_result(
                 result, "not_tested", confidence="none", findings=[], evidence=[], limitations=[]
             )
-
-    summary, criteria, themes = _summaries(results, selected)
-    return {
-        "schema": "cdpx.rgaa.result/v1",
-        "rgaa_version": RGAA_VERSION,
-        "catalog": {
-            "id": CATALOG_ID,
-            "source_commit": SOURCE_COMMIT,
-            "catalog_sha256": catalog_sha256(),
-        },
-        "scope": {"mode": scope, "engine": engine, "url": observation.get("url")},
-        "summary": summary,
-        "themes": themes,
-        "criteria": criteria,
-        "providers": providers,
-        "tests": results,
-        "limitations": [
-            "This result is an automated/assisted evidence report, never an RGAA certification.",
-            "needs_review and manual_only are unresolved work, not passes.",
-            "Chromium accessibility data is not a substitute for NVDA, JAWS or VoiceOver testing.",
-        ],
-    }
+    return _finish(
+        results,
+        selected,
+        url=url,
+        scope=scope,
+        engine=engine,
+        plan=plan,
+        collectors=collectors,
+        providers=providers,
+        environment=environment,
+        budget=active_budget,
+    )

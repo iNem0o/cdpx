@@ -6,10 +6,17 @@ import argparse
 from typing import cast
 
 from cdpx import scenarios
-from cdpx.commands.shared import assert_session_current, browser_client, emit_json, execution
+from cdpx.commands.shared import (
+    assert_session_current,
+    browser_client,
+    emit_json,
+    emit_rgaa_json,
+    execution,
+)
 from cdpx.policy import Authority, assert_url_allowed
 from cdpx.primitives import nav
-from cdpx.rgaa.catalog import CatalogError, describe_catalog, parse_test_selection
+from cdpx.rgaa.catalog import CatalogError, describe_catalog, parse_test_selection, test_index
+from cdpx.rgaa.plan import ExecutionBudget, build_scan_plan
 from cdpx.rgaa.sample import compile_sample, run_sample
 from cdpx.rgaa.scanner import Engine, Scope, scan
 
@@ -39,19 +46,29 @@ def cmd_scan(args) -> None:
     context = execution(args)
     if args.options.url:
         assert_url_allowed(args.options.url, context.origins)
+    wanted = set(selected or test_index())
+    plan = build_scan_plan(wanted, scope=args.options.scope, engine=args.options.engine)
+    maximum = plan.maximum_actions + (1 if args.options.url else 0)
+    if args.options.max_actions is not None and maximum > args.options.max_actions:
+        raise scenarios.ScenarioUsageError(
+            f"--max-actions budget too small for RGAA plan: {maximum} required"
+        )
+    budget = ExecutionBudget.start(args.options.timeout, args.options.max_actions)
     with browser_client(args, required_authority=required) as client:
         if args.options.url:
-            nav.navigate(client, args.options.url, wait="load", timeout=args.options.timeout)
-        assert_session_current(args, client)
+            budget.consume("RGAA navigation")
+            nav.navigate(client, args.options.url, wait="load", timeout=budget.remaining())
+        assert_session_current(args, client, timeout=budget.remaining())
         result = scan(
             client,
             scope=cast(Scope, args.options.scope),
             engine=cast(Engine, args.options.engine),
             selected_tests=selected,
             timeout=args.options.timeout,
+            budget=budget,
+            origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
         )
-        assert_session_current(args, client)
-        emit_json(args, result)
+        emit_rgaa_json(args, result)
 
 
 def _compile_or_usage(path: str | None):
@@ -73,15 +90,30 @@ def cmd_sample_run(args) -> None:
     context = execution(args)
     for page in compiled.pages:
         assert_url_allowed(page.url, context.origins)
+    maximum = len(compiled.pages)
+    all_tests = set(test_index())
+    maximum += sum(
+        build_scan_plan(
+            set(page.tests) if page.tests is not None else all_tests,
+            scope=compiled.scope,
+            engine=compiled.engine,
+        ).maximum_actions
+        for page in compiled.pages
+    )
+    if args.options.max_actions is not None and maximum > args.options.max_actions:
+        raise scenarios.ScenarioUsageError(
+            f"--max-actions budget too small for RGAA sample plan: {maximum} required"
+        )
+    budget = ExecutionBudget.start(args.options.timeout, args.options.max_actions)
     with browser_client(args, required_authority=compiled.authority) as client:
         result = run_sample(
             client,
             compiled,
             timeout=args.options.timeout,
-            origin_guard=lambda: assert_session_current(args, client),
+            budget=budget,
+            origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
         )
-        assert_session_current(args, client)
-        emit_json(args, result)
+        emit_rgaa_json(args, result)
 
 
 def register_commands(

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Contexte principal hostile</title>
+</head>
+<body>
+  <iframe srcdoc="<p>Sans titre</p>"></iframe>
+  <script>
+    Object.defineProperty(window, "JSON", {value: {stringify: () => "forged"}});
+    Object.defineProperty(Document.prototype, "querySelectorAll", {
+      value: () => [], configurable: false
+    });
+    Object.defineProperty(Element.prototype, "matches", {
+      value: () => false, configurable: false
+    });
+  </script>
+</body>
+</html>

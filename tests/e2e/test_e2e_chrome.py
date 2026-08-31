@@ -2114,18 +2114,19 @@ def test_rgaa_native_scan_real(page, evidence_case):
     baseline = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
     baseline_tests = {test["id"]: test for test in baseline["tests"]}
     assert baseline["summary"]["official_tests"] == 258
+    assert baseline_tests["8.3.1"]["verdict"] == "pass"
     assert all(
-        baseline_tests[test_id]["verdict"] == "pass"
-        for test_id in ("2.1.1", "3.2.1", "8.3.1", "11.1.1")
+        baseline_tests[test_id]["verdict"] == "needs_review"
+        for test_id in ("2.1.1", "3.2.1", "11.1.1")
     )
     assert baseline_tests["1.1.1"]["verdict"] == "not_tested"
 
     nav.navigate(c, f"{base}/rgaa-broken.html")
     broken = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
     broken_tests = {test["id"]: test for test in broken["tests"]}
+    assert all(broken_tests[test_id]["verdict"] == "fail" for test_id in ("2.1.1", "8.3.1"))
     assert all(
-        broken_tests[test_id]["verdict"] == "fail"
-        for test_id in ("2.1.1", "3.2.1", "8.3.1", "11.1.1")
+        broken_tests[test_id]["verdict"] == "needs_review" for test_id in ("3.2.1", "11.1.1")
     )
     assert broken["summary"]["certification_claim"] is False
     if evidence_case is not None:
@@ -2133,6 +2134,15 @@ def test_rgaa_native_scan_real(page, evidence_case):
             "RGAA baseline and controlled regression",
             {"baseline": baseline["summary"], "regression": broken["summary"]},
         )
+
+
+def test_rgaa_native_probe_isolated_from_hostile_main_world(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-hostile.html")
+    report = rgaa_scan(c, selected_tests=("2.1.1",))
+    result = next(test for test in report["tests"] if test["id"] == "2.1.1")
+    assert result["verdict"] == "fail"
+    assert report["collector_status"]["passive-dom-css"]["isolated_world"] is True
 
 
 def test_coverage_real(page):

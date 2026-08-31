@@ -142,9 +142,9 @@ def test_rgaa_sources_and_axe_provider_are_offline_pinned_and_noticed():
         "criteres.json": "25f71c18150d15514253badd883d0c62e329bc3928814779dc4b41497002a13a",
         "methodologies.json": "199dcd99b3c9783465c74936e721f2d905bfbd286ff6a3197358912e2ba1b84d",
         "glossaire.json": "6855035e03fd9c47aee743976897f9958539e5b2be88996a41a1b273e29e01a4",
-        "catalog.json": "0de067569afa90cd2b6a88ad322c0561f81f7ec0f5c939f88203fe39c0e64a4a",
+        "catalog.json": "a9ed7e0ac58d4b3f66f6cd33bb7263da709d483c6619d7866ba68c1fb543dac3",
         "automation-matrix.json": (
-            "2a123cce73d2a9b05449d3047c5a7a7ee9fe1dcb3870fb82a3663b05e927acec"
+            "b301426f03c1c30a98b2c8bdb8021440507579fceb55be55354e94cd753276a7"
         ),
     }
     for name, digest in expected.items():

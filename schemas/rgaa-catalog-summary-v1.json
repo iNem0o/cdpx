@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inem0o.github.io/cdpx/schema/rgaa-catalog-summary-v1.json",
+  "type": "object",
+  "required": ["schema", "rgaa_version", "catalog_id", "counts", "selected", "tests"],
+  "properties": {
+    "schema": {"const": "cdpx.rgaa.catalog-summary/v1"},
+    "rgaa_version": {"const": "4.1.2"},
+    "catalog_id": {"const": "rgaa-4.1.2"},
+    "counts": {"type": "object"},
+    "selected": {"type": "integer", "minimum": 0, "maximum": 258},
+    "tests": {"type": "array", "maxItems": 258}
+  }
+}

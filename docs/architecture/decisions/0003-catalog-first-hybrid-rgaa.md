@@ -22,13 +22,19 @@ is forbidden.
 The native engine collects bounded rendered DOM/CSS evidence, trusted input
 evidence for interactive scopes, and temporary layout evidence only under
 privileged authority. A conservative resolver owns the seven public verdicts.
+Native page probes execute in a dedicated isolated world and use protocol-owned
+frame URLs for origin checks. Truncation is explicit and prevents pass or
+non-applicability; contrast, focus, spacing and accessible-name observations
+remain assisted review evidence unless a complete official branch is proven.
 The optional axe-core 4.10.3 provider runs from a hash-pinned local bundle in
 an isolated world and remains advisory: provider outcomes can enrich evidence
 but never become RGAA verdicts by identity or implication.
 
-Samples are explicit versioned YAML manifests. Compilation validates all
+Samples are explicit versioned YAML manifests read through a bounded,
+no-symlink, duplicate-key-rejecting path. Compilation validates all
 pages/tests, calculates the maximum authority and a digest before the first
-browser effect. There is no implicit crawler.
+browser effect. Runs share one monotonic deadline and action budget and preserve
+an error report for every declared page. There is no implicit crawler.
 
 ## Consequences
 
@@ -37,6 +43,8 @@ unautomated inventory or overstating compliance. Outputs are larger but remain
 boundable through the existing list contract, while summaries always use the
 complete counts. Maintaining an automated rule requires test-level mapping,
 evidence, limitations, mock protocol coverage, and real Chromium coverage.
+Default output bounding applies only to variable evidence; the normative 258
+tests, 106 criteria, 13 themes and declared pages retain their schema shape.
 
 The rejected designs are engine-first translation of axe/ACT into RGAA IDs,
 runtime downloads of the “current” catalog, an automatic global score, and a

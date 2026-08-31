@@ -166,8 +166,9 @@ the 258-row matrix, public schemas, and ADR are durable design evidence.
 
 Native coverage is deliberately partial. Complex color compositing, semantic
 relevance, assistive-technology restitution, external documents and sample
-representativeness are never inferred as passes. Focus and spacing heuristics
-can prove clear failures but otherwise remain review work. Cross-origin frame
+representativeness are never inferred as passes. Focus and spacing collectors
+produce bounded review evidence and never infer failure from a missing visual
+signal or geometry change alone. Cross-origin frame
 content is not deeply inspected. RGAA 5 is not aliased to 4.1.2.
 
 Full design records and the generated 258-row matrix live in

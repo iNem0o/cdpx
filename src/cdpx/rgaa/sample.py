@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,11 +20,41 @@ from cdpx.client import CDPClient
 from cdpx.policy import Authority
 from cdpx.primitives import nav
 from cdpx.rgaa.catalog import EXPECTED_COUNTS, RGAA_VERSION, parse_test_selection, test_index
-from cdpx.rgaa.scanner import VERDICTS, Engine, Scope, scan, summarize_hierarchy
+from cdpx.rgaa.plan import ExecutionBudget
+from cdpx.rgaa.scanner import (
+    VERDICTS,
+    Engine,
+    Scope,
+    scan,
+    scan_error_report,
+    summarize_hierarchy,
+)
 
 MAX_SAMPLE_BYTES = 1024 * 1024
 MAX_PAGES = 50
 PAGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _unique_mapping(loader: yaml.Loader, node: yaml.Node, deep: bool = False) -> dict[Any, Any]:
+    result: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in result:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"duplicate key: {key}",
+                key_node.start_mark,
+            )
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
 
 
 @dataclass(frozen=True)
@@ -85,21 +117,42 @@ def _page_tests(value: Any, *, label: str) -> tuple[str, ...] | None:
         return None
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"RGAA sample: {label}.tests must be a list of test IDs")
+    if not value:
+        raise ValueError(f"RGAA sample: {label}.tests must not be empty")
+    if len(value) != len(set(value)):
+        raise ValueError(f"RGAA sample: {label}.tests contains duplicate test IDs")
     return parse_test_selection(",".join(value))
+
+
+def _read_manifest(source: Path) -> bytes:
+    current = source.parent
+    while current != current.parent:
+        if current.is_symlink():
+            raise ValueError("RGAA sample: symbolic path component forbidden")
+        current = current.parent
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(source, flags)
+    except OSError as error:
+        raise ValueError(f"RGAA sample: unreadable manifest: {error}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("RGAA sample: manifest must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            payload = stream.read(MAX_SAMPLE_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(payload) > MAX_SAMPLE_BYTES:
+        raise ValueError("RGAA sample: manifest exceeds 1 MiB")
+    return payload
 
 
 def compile_sample(path: str | Path) -> CompiledSample:
     source = Path(path)
-    if source.is_symlink():
-        raise ValueError("RGAA sample: symbolic manifest forbidden")
+    payload = _read_manifest(source)
     try:
-        payload = source.read_bytes()
-    except OSError as error:
-        raise ValueError(f"RGAA sample: unreadable manifest: {error}") from error
-    if len(payload) > MAX_SAMPLE_BYTES:
-        raise ValueError("RGAA sample: manifest exceeds 1 MiB")
-    try:
-        parsed = yaml.safe_load(payload.decode("utf-8"))
+        parsed = yaml.load(payload.decode("utf-8"), Loader=_UniqueKeyLoader)
     except (UnicodeDecodeError, yaml.YAMLError) as error:
         raise ValueError(f"RGAA sample: invalid YAML: {error}") from error
     if not isinstance(parsed, dict):
@@ -157,7 +210,7 @@ def compile_sample(path: str | Path) -> CompiledSample:
     digest = hashlib.sha256(
         json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    return CompiledSample(str(source.resolve()), scope, engine, tuple(pages), digest)
+    return CompiledSample(source.name, scope, engine, tuple(pages), digest)
 
 
 _PRECEDENCE = {
@@ -187,6 +240,9 @@ def _aggregate(page_reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
                 "criterion_id": known[test_id]["criterion_id"],
                 "verdict": verdict,
                 "pages": page_values,
+                "tested_pages": sum(item["verdict"] != "not_tested" for item in page_values),
+                "excluded_pages": sum(item["verdict"] == "not_tested" for item in page_values),
+                "coverage_complete": all(item["verdict"] != "not_tested" for item in page_values),
             }
         )
     counts = Counter(item["verdict"] for item in aggregated)
@@ -205,22 +261,36 @@ def run_sample(
     compiled: CompiledSample,
     *,
     timeout: float,
+    budget: ExecutionBudget | None = None,
     origin_guard: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
+    active_budget = budget or ExecutionBudget.start(timeout)
     page_reports = []
     for page in compiled.pages:
-        nav.navigate(client, page.url, wait="load", timeout=timeout)
-        if origin_guard is not None:
-            origin_guard()
-        report = scan(
-            client,
-            scope=compiled.scope,
-            engine=compiled.engine,
-            selected_tests=page.tests,
-            timeout=timeout,
-        )
-        if origin_guard is not None:
-            origin_guard()
+        try:
+            active_budget.consume(f"navigation to sample page {page.id}")
+            nav.navigate(client, page.url, wait="load", timeout=active_budget.remaining())
+            if origin_guard is not None:
+                origin_guard()
+            report = scan(
+                client,
+                scope=compiled.scope,
+                engine=compiled.engine,
+                selected_tests=page.tests,
+                timeout=timeout,
+                budget=active_budget,
+                origin_guard=origin_guard,
+            )
+            if origin_guard is not None:
+                origin_guard()
+        except Exception as error:
+            report = scan_error_report(
+                scope=compiled.scope,
+                engine=compiled.engine,
+                selected_tests=page.tests,
+                error=error,
+                budget=active_budget,
+            )
         page_reports.append({"page_id": page.id, "url": page.url, "report": report})
     tests, summary = _aggregate(page_reports)
     criteria, themes = summarize_hierarchy(tests)

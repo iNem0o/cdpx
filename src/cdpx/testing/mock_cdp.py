@@ -285,6 +285,13 @@ class MockCDP:
             return {"frameId": "FRAME1", "loaderId": "LOADER1"}, None, events
 
         if method == "Page.getFrameTree":
+            main_url = self.targets.get(tid, {}).get("url", "about:blank")
+            for substring, values in self.eval_rules:
+                if "window.location.href" in substring:
+                    scripted = values.popleft() if len(values) > 1 else values[0]
+                    if isinstance(scripted, str):
+                        main_url = scripted
+                    break
             child_frames = []
             for frame_id, urls in self.frame_urls.items():
                 url = urls.popleft() if len(urls) > 1 else urls[0]
@@ -292,7 +299,7 @@ class MockCDP:
             frame_tree: dict[str, Any] = {
                 "frame": {
                     "id": "FRAME1",
-                    "url": self.targets.get(tid, {}).get("url", "about:blank"),
+                    "url": main_url,
                 }
             }
             if child_frames:
@@ -354,6 +361,8 @@ class MockCDP:
             return {"data": base64.b64encode(TINY_PDF).decode()}, None, events
         if method == "Performance.getMetrics":
             return {"metrics": DEFAULT_METRICS}, None, events
+        if method == "Accessibility.enable":
+            return {}, None, events
         if method == "Accessibility.getFullAXTree":
             return (
                 {

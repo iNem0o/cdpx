@@ -24,7 +24,6 @@ from cdpx.policy import (
     command_semantics,
     max_authority,
 )
-from cdpx.primitives import js
 from cdpx.security import (
     RedactionContext,
     redact_tree,
@@ -60,8 +59,15 @@ def orchestration(args: CommandInvocation) -> OrchestrationContext:
 
 
 def current_http_url(client: CDPClient, *, timeout: float | None = None) -> str:
-    current = js.evaluate(client, "window.location.href", timeout=timeout)
-    if not isinstance(current, str):
+    response = (
+        client.send("Page.getFrameTree")
+        if timeout is None
+        else client.send("Page.getFrameTree", timeout=timeout)
+    )
+    tree = response.get("frameTree", {})
+    frame = tree.get("frame", {}) if isinstance(tree, dict) else {}
+    current = frame.get("url") if isinstance(frame, dict) else None
+    if not isinstance(current, str) or not current:
         raise PolicyError("session: current URL undeterminable")
     return current
 
@@ -178,6 +184,16 @@ def safe_output(args: CommandInvocation, data: Any) -> Any:
 
 def emit_json(args: CommandInvocation, data: Any) -> None:
     shaped = output.bound(safe_output(args, data), full=args.options.full, limit=args.options.limit)
+    if args.options.pretty:
+        print(json.dumps(shaped, indent=2, ensure_ascii=False))
+    else:
+        print(json.dumps(shaped, ensure_ascii=False, separators=(",", ":")))
+
+
+def emit_rgaa_json(args: CommandInvocation, data: Any) -> None:
+    shaped = output.bound_rgaa(
+        safe_output(args, data), full=args.options.full, limit=args.options.limit
+    )
     if args.options.pretty:
         print(json.dumps(shaped, indent=2, ensure_ascii=False))
     else:

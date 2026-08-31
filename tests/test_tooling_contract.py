@@ -119,6 +119,9 @@ def test_rgaa_result_and_sample_schemas_publish_prudent_contracts():
     assert result["properties"]["tests"]["minItems"] == 258
     assert sample["$id"].endswith("/schema/rgaa-sample-v1.json")
     assert sample["properties"]["pages"]["maxItems"] == 50
+    assert sample["properties"]["pages"]["items"]["properties"]["tests"]["minItems"] == 1
+    for path in Path("schemas").glob("rgaa-*.json"):
+        assert (Path("src/cdpx/schemas") / path.name).read_bytes() == path.read_bytes()
 
 
 def test_portable_scripts_are_posix_and_shellcheck_clean():
