@@ -78,8 +78,19 @@ def assert_session_current(
     *,
     timeout: float | None = None,
 ) -> None:
+    verified_session_url(args, client, timeout=timeout)
+
+
+def verified_session_url(
+    args: CommandInvocation,
+    client: CDPClient,
+    *,
+    timeout: float | None = None,
+) -> str:
     context = execution(args)
-    assert_url_allowed(current_http_url(client, timeout=timeout), context.origins)
+    current = current_http_url(client, timeout=timeout)
+    assert_url_allowed(current, context.origins)
+    return current
 
 
 def artifact_path(

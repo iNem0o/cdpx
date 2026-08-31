@@ -744,6 +744,54 @@ def test_press_key_backspace_sequence(mock, client):
     ]
 
 
+def test_press_key_uses_independent_cleanup_budget_after_deadline(mock, client):
+    cleanup: dict[str, str] = {}
+
+    with pytest.raises(CDPTimeout, match="functional deadline"):
+        inputs.press_key(
+            client,
+            "Tab",
+            remaining=lambda: 1.0,
+            after_key_down=lambda: (_ for _ in ()).throw(CDPTimeout("functional deadline")),
+            cleanup_remaining=lambda: 0.5,
+            cleanup_status=cleanup,
+        )
+
+    assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == [
+        "rawKeyDown",
+        "keyUp",
+    ]
+    assert cleanup["key_up"] == "completed"
+
+
+def test_press_key_cleans_up_when_raw_key_down_times_out_after_effect(mock, client, monkeypatch):
+    original_send = client.send
+    cleanup: dict[str, str] = {}
+
+    def timeout_after_key_down(method, params=None, timeout=None):
+        result = original_send(method, params, timeout)
+        if method == "Input.dispatchKeyEvent" and params["type"] == "rawKeyDown":
+            raise CDPTimeout("key down response timeout")
+        return result
+
+    monkeypatch.setattr(client, "send", timeout_after_key_down)
+
+    with pytest.raises(CDPTimeout, match="key down response timeout"):
+        inputs.press_key(
+            client,
+            "Tab",
+            remaining=lambda: 1.0,
+            cleanup_remaining=lambda: 0.5,
+            cleanup_status=cleanup,
+        )
+
+    assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == [
+        "rawKeyDown",
+        "keyUp",
+    ]
+    assert cleanup["key_up"] == "completed"
+
+
 @pytest.mark.parametrize(
     ("key", "types"),
     [
@@ -1988,7 +2036,7 @@ def test_intercept_click_action_timeout_still_disables_fetch(mock, client, monke
     def exhausted_click(_client, selector, button="left", *, remaining=None):
         del selector, button
         assert remaining is not None
-        raise CDPTimeout("interception timeout after 0.01s")
+        raise CDPTimeout("interception timeout during click")
 
     monkeypatch.setattr(inputs, "click", exhausted_click)
 
@@ -1998,7 +2046,9 @@ def test_intercept_click_action_timeout_still_disables_fetch(mock, client, monke
             "#slow",
             rules=["* => block"],
             allowed_origins=("http://s.test",),
-            timeout=0.01,
+            # Leave setup headroom under loaded CI; the mocked click is the
+            # deterministic timeout boundary exercised by this test.
+            timeout=1.0,
             settle=0.01,
         )
 

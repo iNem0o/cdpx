@@ -23,7 +23,7 @@ import pytest
 
 from cdpx import discovery, proof, scenarios
 from cdpx.action_model import ClickAction, GotoAction, TypeAction
-from cdpx.client import CDPClient, CDPTimeout
+from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.primitives import (
     actions,
@@ -2189,16 +2189,124 @@ def test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript(page):
     identity = rgaa_scanner._document_identity(c, 2)
     context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
 
-    with pytest.raises(CDPTimeout):
+    with pytest.raises((CDPError, CDPTimeout)):
         rgaa_scanner._load_probe(
             c,
             context_id,
-            "new Promise(() => {})",
+            "(() => { const end = performance.now() + 1000; "
+            "while (performance.now() < end) {} "
+            "globalThis.__cdpxLateProbeEffect = true; return '{}'; })()",
             ExecutionBudget.start(0.2),
         )
 
     time.sleep(0.1)
     assert js.evaluate(c, "globalThis.__cdpxMainTicks") > 0
+    assert (
+        js.evaluate(
+            c,
+            "globalThis.__cdpxLateProbeEffect === true",
+            context_id=context_id,
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("setup", "scope", "test_id"),
+    [
+        (
+            "document.body.replaceChildren(Object.assign(document.createElement('p'), "
+            "{textContent: 'X'.repeat(20_000_000)}))",
+            "privileged",
+            "10.12.1",
+        ),
+        (
+            "document.body.innerHTML='<a href=/ id=target></a>'; "
+            "document.querySelector('#target').append(...Array.from({length: 6000}, "
+            "() => document.createElement('span')))",
+            "passive",
+            "6.1.1",
+        ),
+        (
+            "document.body.replaceChildren(...Array.from({length: 6001}, (_, index) => "
+            "Object.assign(document.createElement('button'), {textContent: String(index)})))",
+            "passive",
+            "11.9.1",
+        ),
+        (
+            "document.body.innerHTML = Array.from({length: 500}, (_, index) => "
+            "`<label for=f${index}>Field ${index}</label><input id=f${index}>`).join('')",
+            "passive",
+            "11.1.1",
+        ),
+    ],
+)
+def test_rgaa_adversarial_dom_work_is_bounded(page, setup, scope, test_id):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(c, setup)
+
+    report = rgaa_scan(c, scope=scope, selected_tests=(test_id,), timeout=10)
+    collector_name = "text-spacing" if test_id == "10.12.1" else "passive-dom-css"
+    collector = report["collector_status"][collector_name]
+
+    assert collector["nodes_examined"] <= 5000
+    assert collector["bytes_examined"] <= 262144
+    assert collector["execution_timed_out"] is False
+    assert collector["subtree_truncated"] is True
+
+
+def test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    js.evaluate(
+        c,
+        "(() => { document.addEventListener('keydown', () => { "
+        "const end = performance.now() + 750; while (performance.now() < end) {} "
+        "}, {once: true, capture: true}); return true; })()",
+    )
+
+    report = rgaa_scan(c, scope="interactive", selected_tests=("10.7.1",), timeout=0.5)
+    focus = report["collector_status"]["focus"]
+
+    assert report["execution_status"] == "partial"
+    assert focus["key_up"] == "completed"
+    assert focus["focus_restoration"] == "completed"
+
+
+def test_rgaa_focus_restoration_runs_when_blur_response_times_out(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+    js.evaluate(
+        c,
+        "(() => { let button = document.activeElement; "
+        "while (button?.shadowRoot?.activeElement) button = button.shadowRoot.activeElement; "
+        "const nativeBlur = button.blur.bind(button); button.blur = () => { nativeBlur(); "
+        "const end = performance.now() + 750; while (performance.now() < end) {} }; "
+        "return true; })()",
+        context_id=context_id,
+    )
+
+    focus = rgaa_scanner._collect_focus(
+        c,
+        context_id,
+        ExecutionBudget.start(0.5),
+        identity,
+        None,
+    )
+
+    assert focus["focus_reset"] == "failed"
+    assert focus["focus_restoration"] == "completed"
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
 
 
 def test_rgaa_focus_restores_idless_control_in_nested_shadow_root(page):

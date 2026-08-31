@@ -48,8 +48,9 @@ from cdpx.rgaa.probes import (
 
 Scope = Literal["passive", "interactive", "privileged"]
 Engine = Literal["native", "hybrid"]
-OriginGuard = Callable[[], None]
+OriginGuard = Callable[[float], object]
 RULE_VERSION = 2
+CLEANUP_TIMEOUT = 1.0
 VERDICTS = (
     "pass",
     "fail",
@@ -86,6 +87,11 @@ class DocumentIdentity:
 
 
 _COLLECTOR_ERRORS = (CDPError, CDPTimeout, CDPTransportError, JSException, CollectorExecutionError)
+
+
+def _execution_timed_out(error: BaseException) -> bool:
+    message = str(error).lower()
+    return isinstance(error, CDPTimeout) or "timed out" in message or "terminated" in message
 
 
 def _finding(
@@ -209,7 +215,7 @@ def _guard_document(
     origin_guard: OriginGuard | None,
 ) -> None:
     if origin_guard:
-        origin_guard()
+        origin_guard(budget.remaining())
     observed = _document_identity(client, budget.remaining())
     if observed != expected:
         raise DocumentStateDrift(
@@ -556,8 +562,9 @@ def _collect_accessibility(client: CDPClient, budget: ExecutionBudget) -> dict[s
     if not isinstance(nodes, list):
         raise CollectorExecutionError("RGAA accessibility tree unavailable")
     return {
-        "nodes": len(nodes),
-        "ax_tree_collected": "bounded-root",
+        "nodes_returned": len(nodes),
+        "ax_domain_available": True,
+        "target_correlation": False,
         "evidence_complete": False,
         "exposed_values": False,
     }
@@ -567,29 +574,66 @@ def _collect_focus(
     client: CDPClient,
     context_id: int,
     budget: ExecutionBudget,
+    identity: DocumentIdentity,
     origin_guard: OriginGuard | None,
 ) -> dict[str, Any]:
-    if origin_guard:
-        origin_guard()
-    reset_token = js.evaluate(
-        client, FOCUS_RESET_PROBE, timeout=budget.remaining(), context_id=context_id
-    )
     observations, seen = [], set()
     wrapped = False
+    reset_attempted = False
+    focus_reset = "not_attempted"
     restoration = "not_possible"
+    key_cleanup = {"key_up": "not_attempted"}
+    collection_error: str | None = None
+
+    def functional_origin_guard() -> None:
+        if origin_guard:
+            origin_guard(budget.remaining())
+
+    def cleanup_guard(cleanup_budget: ExecutionBudget) -> None:
+        if origin_guard:
+            origin_guard(cleanup_budget.remaining())
+        observed = _document_identity(client, cleanup_budget.remaining())
+        if observed != identity:
+            raise DocumentStateDrift("RGAA document state drift during focus cleanup")
+
     try:
+        if origin_guard:
+            origin_guard(budget.remaining())
+        reset_attempted = True
+        js.evaluate(client, FOCUS_RESET_PROBE, timeout=budget.remaining(), context_id=context_id)
+        focus_reset = "completed"
         for _ in range(FOCUS_STEP_LIMIT):
             budget.consume("RGAA Tab traversal")
-            if origin_guard:
-                origin_guard()
+            functional_origin_guard()
+            cleanup_holder: list[ExecutionBudget | None] = [None]
+
+            def key_cleanup_remaining(
+                holder: list[ExecutionBudget | None] = cleanup_holder,
+            ) -> float:
+                if holder[0] is None:
+                    holder[0] = ExecutionBudget.start(CLEANUP_TIMEOUT)
+                active = holder[0]
+                assert active is not None
+                return active.remaining()
+
+            def key_cleanup_guard(
+                holder: list[ExecutionBudget | None] = cleanup_holder,
+            ) -> None:
+                key_cleanup_remaining()
+                assert holder[0] is not None
+                cleanup_guard(holder[0])
+
             inputs.press_key(
                 client,
                 "Tab",
                 remaining=budget.remaining,
-                after_key_down=origin_guard,
+                after_key_down=functional_origin_guard,
+                cleanup_remaining=key_cleanup_remaining,
+                before_key_up=key_cleanup_guard,
+                cleanup_status=key_cleanup,
             )
             if origin_guard:
-                origin_guard()
+                origin_guard(budget.remaining())
             raw = js.evaluate(
                 client,
                 FOCUS_STATE_PROBE,
@@ -613,29 +657,42 @@ def _collect_focus(
                 break
             seen.add(target)
             observations.append(state)
+    except DocumentStateDrift:
+        raise
+    except _COLLECTOR_ERRORS as error:
+        if reset_attempted and focus_reset != "completed":
+            focus_reset = "failed"
+        collection_error = str(error)
     finally:
-        try:
-            if isinstance(reset_token, str):
-                token = json.loads(reset_token)
-                if isinstance(token, dict) or token is None:
-                    restored = js.evaluate(
-                        client,
-                        FOCUS_RESTORE_PROBE.replace("__CDPX_FOCUS_TOKEN__", json.dumps(token)),
-                        timeout=budget.remaining(),
-                        context_id=context_id,
-                    )
-                    restoration = "completed" if restored is True else "failed"
-        except _COLLECTOR_ERRORS + (json.JSONDecodeError,):
-            restoration = "failed"
-    return {
+        if reset_attempted:
+            cleanup_budget = ExecutionBudget.start(CLEANUP_TIMEOUT)
+            try:
+                cleanup_guard(cleanup_budget)
+                restored = js.evaluate(
+                    client,
+                    FOCUS_RESTORE_PROBE,
+                    timeout=cleanup_budget.remaining(),
+                    context_id=context_id,
+                )
+                restoration = "completed" if restored is True else "failed"
+            except DocumentStateDrift:
+                raise
+            except _COLLECTOR_ERRORS:
+                restoration = "failed"
+    result = {
         "items": observations,
         "steps": len(observations),
         "wrapped": wrapped,
         "truncated": len(observations) >= FOCUS_STEP_LIMIT and not wrapped,
         "evidence_complete": False,
         "coverage_scope": "top-level and open-shadow focus chain; frames, closed shadow roots and visual deltas require review",
+        "focus_reset": focus_reset,
         "focus_restoration": restoration,
+        "key_up": key_cleanup["key_up"],
     }
+    if collection_error is not None:
+        result["error"] = collection_error
+    return result
 
 
 def _apply_focus(
@@ -849,7 +906,7 @@ def _finish(
         "selected": len(selected),
         "evaluated": attempted,
         "collector_attempted": sum(
-            status.get("status") in {"ok", "error"} for status in collectors.values()
+            status.get("status") in {"ok", "partial", "error"} for status in collectors.values()
         ),
         "evidence_collected": sum(
             bool(result["evidence"] or result["findings"]) for result in results
@@ -861,7 +918,7 @@ def _finish(
     }
     criteria, themes = summarize_hierarchy(results)
     failed_collectors = [
-        name for name, status in collectors.items() if status.get("status") == "error"
+        name for name, status in collectors.items() if status.get("status") in {"partial", "error"}
     ]
     failed_providers = [
         str(status.get("name", "provider"))
@@ -874,6 +931,18 @@ def _finish(
         status.get("status") == "ok" for status in collectors.values()
     ):
         execution_status = "error"
+    environment_status = {
+        "browser": (
+            "error"
+            if "browser_error" in environment
+            else "ok"
+            if "browser" in environment
+            else "skipped"
+        ),
+        "page_fingerprint": (
+            "error" if "page_error" in environment else "ok" if "page" in environment else "skipped"
+        ),
+    }
     return {
         "schema": "cdpx.rgaa.result/v1",
         "execution_status": execution_status,
@@ -887,6 +956,7 @@ def _finish(
         "scope": {"mode": scope, "engine": engine, "url": url},
         "execution_plan": plan.public(navigations=planned_navigations),
         "environment": environment,
+        "environment_status": environment_status,
         "generated_at": datetime.now(UTC).isoformat(),
         "summary": summary,
         "themes": themes,
@@ -901,6 +971,42 @@ def _finish(
             "Chromium AX is not a substitute for NVDA, JAWS or VoiceOver testing.",
         ],
     }
+
+
+def finalize_report_error(
+    report: dict[str, Any],
+    error: Exception,
+    *,
+    collector: str = "final-document-verification",
+) -> dict[str, Any]:
+    """Preserve a completed report when a final command-level guard fails."""
+    statuses = report.setdefault("collector_status", {})
+    statuses[collector] = {"status": "error", "error": str(error)}
+    report["execution_status"] = "partial"
+    if report.get("schema") != "cdpx.rgaa.result/v1":
+        return report
+
+    for result in report.get("tests", []):
+        if not isinstance(result, dict) or result.get("verdict") not in _AUTO_FLAG:
+            continue
+        result["verdict"] = "error"
+        result["confidence"] = "none"
+        result["evidence_complete"] = False
+        limitations = result.setdefault("limitations", [])
+        limitations.append(f"Required collector did not complete: {collector}.")
+
+    results = [item for item in report.get("tests", []) if isinstance(item, dict)]
+    counts = Counter(item.get("verdict") for item in results)
+    summary = report.get("summary", {})
+    if isinstance(summary, dict):
+        for verdict in VERDICTS:
+            summary[verdict] = counts[verdict]
+        summary["automatically_resolved"] = (
+            counts["pass"] + counts["fail"] + counts["not_applicable"]
+        )
+        summary["unresolved"] = counts["needs_review"] + counts["manual_only"] + counts["error"]
+    report["criteria"], report["themes"] = summarize_hierarchy(results)
+    return report
 
 
 def scan_error_report(
@@ -945,6 +1051,7 @@ def scan(
     origin_guard: OriginGuard | None = None,
     planned_navigations: int = 0,
     actions_start: int = 0,
+    document_url: str | None = None,
 ) -> dict[str, Any]:
     if scope not in {"passive", "interactive", "privileged"} or engine not in {"native", "hybrid"}:
         raise ValueError("unknown RGAA scope or engine")
@@ -964,7 +1071,7 @@ def scan(
         return _finish(
             results,
             selected,
-            url=None,
+            url=document_url,
             scope=scope,
             engine=engine,
             plan=plan,
@@ -977,22 +1084,44 @@ def scan(
         )
     try:
         if origin_guard:
-            origin_guard()
+            origin_guard(active_budget.remaining())
         identity = _document_identity(client, active_budget.remaining())
         if origin_guard:
-            origin_guard()
+            origin_guard(active_budget.remaining())
         context_id = _isolated_world(client, active_budget, identity)
         _guard_document(client, active_budget, identity, origin_guard)
         url = identity.url
         environment = _environment(client, context_id, active_budget, url)
+        environment_errors = [
+            name
+            for name, key in (
+                ("browser", "browser_error"),
+                ("page_fingerprint", "page_error"),
+            )
+            if key in environment
+        ]
         collectors["environment"] = {
-            "status": "error" if "page_error" in environment else "ok",
+            "status": "partial" if environment_errors else "ok",
             "bounded": True,
             "hash_complete": environment.get("page", {}).get("hash_complete", False),
+            "components": {
+                "browser": "error" if "browser_error" in environment else "ok",
+                "page_fingerprint": "error" if "page_error" in environment else "ok",
+            },
         }
-        if "page_error" in environment:
-            collectors["environment"]["error"] = environment["page_error"]
-            _mark_error(by_id, selected, selected, "environment")
+        if environment_errors:
+            collectors["environment"]["errors"] = {
+                **(
+                    {"browser": environment["browser_error"]}
+                    if "browser_error" in environment
+                    else {}
+                ),
+                **(
+                    {"page_fingerprint": environment["page_error"]}
+                    if "page_error" in environment
+                    else {}
+                ),
+            }
         _guard_document(client, active_budget, identity, origin_guard)
     except DocumentStateDrift as error:
         _mark_error(by_id, selected, selected, "document-state")
@@ -1056,7 +1185,14 @@ def scan(
             observation = _load_probe(client, context_id, PASSIVE_PROBE, active_budget)
             _guard_document(client, active_budget, identity, origin_guard)
             _apply_passive(by_id, observation, selected)
-            collectors["passive-dom-css"] = {"status": "ok", "isolated_world": True}
+            collectors["passive-dom-css"] = {
+                "status": "ok",
+                "isolated_world": True,
+                "nodes_examined": int(observation.get("nodes_examined", 0)),
+                "bytes_examined": int(observation.get("bytes_examined", 0)),
+                "subtree_truncated": bool(observation.get("subtree_truncated", False)),
+                "execution_timed_out": bool(observation.get("execution_timed_out", False)),
+            }
         except DocumentStateDrift as error:
             return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
@@ -1064,6 +1200,10 @@ def scan(
                 "status": "error",
                 "error": str(error),
                 "isolated_world": True,
+                "nodes_examined": 0,
+                "bytes_examined": 0,
+                "subtree_truncated": True,
+                "execution_timed_out": _execution_timed_out(error),
             }
             _mark_error(by_id, selected, PASSIVE_TESTS, "passive-dom-css")
     else:
@@ -1093,15 +1233,22 @@ def scan(
 
     if plan.focus:
         try:
-            focus = _collect_focus(client, context_id, active_budget, origin_guard)
+            focus = _collect_focus(client, context_id, active_budget, identity, origin_guard)
             _apply_focus(by_id, focus, selected)
+            focus_failed = bool(focus.get("error")) or any(
+                focus[field] == "failed" for field in ("focus_reset", "focus_restoration", "key_up")
+            )
             collectors["focus"] = {
-                "status": "ok" if focus["focus_restoration"] == "completed" else "error",
+                "status": "error" if focus_failed else "ok",
                 "steps": focus["steps"],
                 "truncated": focus["truncated"],
+                "focus_reset": focus["focus_reset"],
                 "focus_restoration": focus["focus_restoration"],
+                "key_up": focus["key_up"],
             }
-            if focus["focus_restoration"] != "completed":
+            if focus.get("error"):
+                collectors["focus"]["error"] = focus["error"]
+            if focus_failed:
                 _mark_error(by_id, selected, FOCUS_TESTS, "focus-restoration")
         except DocumentStateDrift as error:
             return state_drift_report(error)
@@ -1123,6 +1270,10 @@ def scan(
             collectors["text-spacing"] = {
                 "status": "ok" if spacing["cleanup"]["completed"] else "error",
                 "truncated": spacing.get("truncated", False),
+                "nodes_examined": int(spacing.get("nodes_examined", spacing.get("examined", 0))),
+                "bytes_examined": int(spacing.get("bytes_examined", 0)),
+                "subtree_truncated": bool(spacing.get("subtree_truncated", False)),
+                "execution_timed_out": bool(spacing.get("execution_timed_out", False)),
                 "cleanup": spacing["cleanup"],
             }
             if not spacing["cleanup"]["completed"]:
@@ -1134,6 +1285,10 @@ def scan(
                 "status": "error",
                 "error": str(error),
                 "cleanup": "attempted",
+                "nodes_examined": 0,
+                "bytes_examined": 0,
+                "subtree_truncated": True,
+                "execution_timed_out": _execution_timed_out(error),
             }
             _mark_error(by_id, selected, SPACING_TESTS, "text-spacing")
     else:
@@ -1183,6 +1338,21 @@ def scan(
         _guard_document(client, active_budget, identity, origin_guard)
     except DocumentStateDrift as error:
         return state_drift_report(error)
+    except _COLLECTOR_ERRORS as error:
+        collectors["final-document-verification"] = {
+            "status": "error",
+            "error": str(error),
+        }
+        for test_id in selected:
+            if by_id[test_id]["verdict"] in _AUTO_FLAG:
+                _set_result(
+                    by_id[test_id],
+                    "error",
+                    confidence="none",
+                    limitations=[
+                        "Required collector did not complete: final-document-verification."
+                    ],
+                )
     return _finish(
         results,
         selected,

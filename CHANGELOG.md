@@ -88,6 +88,11 @@ cdpx uses semantic versioning.
   restoration retains id-less controls inside nested open shadow roots, AX
   evidence uses a bounded root query, action plans include navigation, and all
   bounded result variants remain valid against their published schemas.
+- RGAA final verification now preserves complete JSON and collected evidence on
+  deadline expiry. Passive/spacing probes share node and byte budgets and use
+  Chromium execution timeouts; focus/key cleanup has an independent guarded
+  budget. Environment components, AX target correlation, manual-scan URLs and
+  sample validation action/collector plans are now reported unambiguously.
 
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced

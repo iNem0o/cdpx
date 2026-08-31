@@ -30,7 +30,7 @@ when = "cdpx runs its fixed DOM/CSS collector against both fixtures."
 then = "The result contains 258 test records, local evidence for resolved tests, and certification_claim=false."
 target = "chrome"
 proof_level = "runtime"
-tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_environment_hash_works_on_non_secure_http_origin", "tests/e2e/test_e2e_chrome.py::test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restores_idless_control_in_nested_shadow_root", "tests/e2e/test_e2e_chrome.py::test_rgaa_cli_navigation_error_text_keeps_full_report", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
+tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_environment_hash_works_on_non_secure_http_origin", "tests/e2e/test_e2e_chrome.py::test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript", "tests/e2e/test_e2e_chrome.py::test_rgaa_adversarial_dom_work_is_bounded*", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restoration_runs_when_blur_response_times_out", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restores_idless_control_in_nested_shadow_root", "tests/e2e/test_e2e_chrome.py::test_rgaa_cli_navigation_error_text_keeps_full_report", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
 expected_proofs = ["junit", "json"]
 +++
 
@@ -72,14 +72,23 @@ Navigation and all following collection share one deadline. If navigation or
 a required collector fails, the command still emits the full normative
 skeleton, publishes `execution_status: partial|error`, marks the affected tests
 `error`, and exits `1`; the trustworthy final page URL remains unknown rather
-than being copied from the requested URL. A proven RGAA failure after a
-completed execution remains exit `0`.
+than being copied from the requested URL. Final document/session verification
+is itself a reported phase: expiry after collection keeps the evidence and
+full JSON, invalidates dependent automatic verdicts, and exits `1`. A
+manual-only scan still records the verified URL after navigation. A proven
+RGAA failure after a completed execution remains exit `0`.
 
 The environment probe returns at most 256 KiB of DOM fingerprint material;
 SHA-256 is computed by cdpx, so plain HTTP development hosts such as
 `http://app.test` do not depend on Web Crypto or secure-context eligibility.
-Probe timeouts abandon the isolated world without sending target-wide
-`Runtime.terminateExecution`.
+Passive and spacing probes share node and byte budgets across DOM walks,
+text/subtree extraction and structural paths. Status publishes
+`nodes_examined`, `bytes_examined`, `subtree_truncated` and
+`execution_timed_out`. `Runtime.evaluate.timeout` bounds isolated execution as
+well as the WebSocket wait, without target-wide `Runtime.terminateExecution`.
+Browser metadata and page fingerprinting expose separate advisory
+`environment_status` values; their failure cannot overwrite normative
+collector verdicts.
 
 | Scope/engine | Required authority | Additional effect |
 |---|---|---|
@@ -118,8 +127,10 @@ credential-bearing URLs, unknown fields/tests, duplicate page IDs, more than
 Each YAML `tests` item must contain exactly one non-blank normalized ID;
 comma-injected IDs and duplicates that differ only by whitespace are rejected.
 It returns the complete plan, maximum required authority, and a deterministic
-composition digest before any browser effect. Normative page and test-ID arrays
-are preserved even with a small global `--limit`.
+composition digest before any browser effect. Global and per-page navigation,
+interaction and total action counts, the maximum interactive count, and each
+page's collectors are explicit. Normative page and test-ID arrays are preserved
+even with a small global `--limit`.
 
 ```yaml
 schema: cdpx.rgaa.sample/v1
@@ -144,6 +155,10 @@ coverage; otherwise the aggregate remains `needs_review`.
 Page and sample results expose `audit_findings_present`. Per-page
 `actions_used` is local to that page, sample `actions_used` is cumulative, and
 each page plan separates planned navigations from interactions.
+
+The bounded AX collector currently proves only domain availability. Evidence
+declares `ax_domain_available: true` and `target_correlation: false`; it does
+not imply correlation between DOM candidates and AX nodes.
 
 ## User journeys
 

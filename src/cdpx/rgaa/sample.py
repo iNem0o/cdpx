@@ -25,6 +25,7 @@ from cdpx.rgaa.scanner import (
     VERDICTS,
     Engine,
     Scope,
+    finalize_report_error,
     scan,
     scan_error_report,
     summarize_hierarchy,
@@ -96,6 +97,17 @@ class CompiledSample:
         return required
 
     def public_plan(self) -> dict[str, Any]:
+        known = set(test_index())
+        page_plans = [
+            build_scan_plan(
+                set(page.tests) if page.tests is not None else known,
+                scope=self.scope,
+                engine=self.engine,
+            )
+            for page in self.pages
+        ]
+        interactions = sum(plan.maximum_actions for plan in page_plans)
+        navigations = len(self.pages)
         return {
             "schema": "cdpx.rgaa.sample-plan/v1",
             "rgaa_version": RGAA_VERSION,
@@ -104,10 +116,23 @@ class CompiledSample:
             "engine": self.engine,
             "required_authority": self.authority.value,
             "pages": [
-                {"id": page.id, "url": page.url, "tests": list(page.tests) if page.tests else None}
-                for page in self.pages
+                {
+                    "id": page.id,
+                    "url": page.url,
+                    "tests": list(page.tests) if page.tests is not None else None,
+                    "collectors": plan.public()["collectors"],
+                    "planned_actions": plan.public(navigations=1)["planned_actions"],
+                    "required_authority": plan.required_authority.value,
+                }
+                for page, plan in zip(self.pages, page_plans, strict=True)
             ],
             "page_count": len(self.pages),
+            "planned_actions": {
+                "navigations": navigations,
+                "interactions": interactions,
+                "total": navigations + interactions,
+            },
+            "maximum_interactive_actions": interactions,
             "composition_digest": self.digest,
         }
 
@@ -285,13 +310,41 @@ def _aggregate(page_reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
     return aggregated, summary
 
 
+def finalize_sample_report_error(
+    report: dict[str, Any],
+    error: Exception,
+    *,
+    collector: str = "final-document-verification",
+) -> dict[str, Any]:
+    """Invalidate page evidence and rebuild a sample after its final guard fails."""
+    for page in report.get("pages", []):
+        if not isinstance(page, dict) or not isinstance(page.get("report"), dict):
+            continue
+        finalize_report_error(page["report"], error, collector=collector)
+
+    page_reports = [
+        page
+        for page in report.get("pages", [])
+        if isinstance(page, dict) and isinstance(page.get("report"), dict)
+    ]
+    tests, summary = _aggregate(page_reports)
+    report["tests"] = tests
+    report["summary"] = summary
+    report["criteria"], report["themes"] = summarize_hierarchy(tests)
+    report["execution_status"] = "partial"
+    statuses = report.setdefault("collector_status", {})
+    statuses["sample-pages"] = {"status": "partial"}
+    statuses[collector] = {"status": "error", "error": str(error)}
+    return report
+
+
 def run_sample(
     client: CDPClient,
     compiled: CompiledSample,
     *,
     timeout: float,
     budget: ExecutionBudget | None = None,
-    origin_guard: Callable[[], None] | None = None,
+    origin_guard: Callable[[float], str | None] | None = None,
 ) -> dict[str, Any]:
     active_budget = budget or ExecutionBudget.start(timeout)
     page_reports: list[dict[str, Any]] = []
@@ -300,8 +353,11 @@ def run_sample(
         try:
             active_budget.consume(f"navigation to sample page {page.id}")
             nav.navigate(client, page.url, wait="load", timeout=active_budget.remaining())
+            verified_url = page.url
             if origin_guard is not None:
-                origin_guard()
+                guarded_url = origin_guard(active_budget.remaining())
+                if isinstance(guarded_url, str):
+                    verified_url = guarded_url
             report = scan(
                 client,
                 scope=compiled.scope,
@@ -312,9 +368,13 @@ def run_sample(
                 origin_guard=origin_guard,
                 planned_navigations=1,
                 actions_start=page_actions_start,
+                document_url=verified_url,
             )
             if origin_guard is not None:
-                origin_guard()
+                try:
+                    origin_guard(active_budget.remaining())
+                except (CDPError, CDPTimeout, CDPTransportError, TimeoutError) as error:
+                    finalize_report_error(report, error)
         except PolicyError:
             raise
         except (
@@ -355,6 +415,9 @@ def run_sample(
         "criteria": criteria,
         "tests": tests,
         "pages": page_reports,
+        "collector_status": {
+            "sample-pages": {"status": "ok" if execution_status == "complete" else execution_status}
+        },
         "actions_used": active_budget.actions_used,
         "limitations": [
             "The declared sample is auditable evidence, not proof that the sample "

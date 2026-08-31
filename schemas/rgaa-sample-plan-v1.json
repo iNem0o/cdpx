@@ -3,7 +3,7 @@
   "$id": "https://inem0o.github.io/cdpx/schema/rgaa-sample-plan-v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "rgaa_version", "source", "scope", "engine", "required_authority", "pages", "page_count", "composition_digest"],
+  "required": ["schema", "rgaa_version", "source", "scope", "engine", "required_authority", "pages", "page_count", "planned_actions", "maximum_interactive_actions", "composition_digest"],
   "properties": {
     "schema": {"const": "cdpx.rgaa.sample-plan/v1"},
     "rgaa_version": {"const": "4.1.2"},
@@ -13,6 +13,17 @@
     "required_authority": {"enum": ["observation", "interaction", "privileged"]},
     "pages": {"type": "array", "minItems": 1, "maxItems": 50},
     "page_count": {"type": "integer", "minimum": 1, "maximum": 50},
+    "planned_actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navigations", "interactions", "total"],
+      "properties": {
+        "navigations": {"type": "integer", "minimum": 1, "maximum": 50},
+        "interactions": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 1}
+      }
+    },
+    "maximum_interactive_actions": {"type": "integer", "minimum": 0},
     "composition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   }
 }

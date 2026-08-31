@@ -1,5 +1,22 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@5943702
+  - Symptom: the first complete gate passed every functional suite but rejected
+    the four parameterized RGAA adversarial-DOM cases as undocumented; an
+    earlier loaded run also let a 10 ms interception-test deadline expire
+    during setup instead of at its mocked click boundary.
+  - Root cause (missing capability): exact scenario entries do not match pytest
+    parameter suffixes, and the interception regression allowed no setup
+    headroom under full-proof load.
+  - Fix encoded (doc/script/lint): the RGAA scenario uses a trailing wildcard
+    for the parameterized case, while the interception test gives setup a
+    deterministic one-second budget and keeps the mocked click as the tested
+    timeout boundary.
+  - Verification (command/CI): `./dev check-local` passed 1,072 tests with
+    89.98% line and 79.07% branch coverage; the repeated `./dev check` returned
+    `ok: true` for 1,072 unit/contract, 68 Chrome, 7 Symfony and 2 Shopware
+    tests, with zero proof failures.
+
 - Session-Key: feat/rgaa-audit-engine@05533db
   - Symptom: the first complete gate passed all 1,132 functional tests but the
     proof inventory rejected four new RGAA Chromium cases as undocumented and

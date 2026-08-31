@@ -575,14 +575,24 @@ def press_key(
     *,
     remaining: Callable[[], float] | None = None,
     after_key_down: Callable[[], None] | None = None,
+    cleanup_remaining: Callable[[], float] | None = None,
+    before_key_up: Callable[[], None] | None = None,
+    cleanup_status: dict[str, str] | None = None,
 ) -> dict:
     if key not in KEY_MAP:
         raise ValueError(f"unsupported key: {key} (available: {', '.join(KEY_MAP)})")
     params = KEY_MAP[key]
     down = {"type": "rawKeyDown", **{k: v for k, v in params.items() if k != "text"}}
-    _send(client, "Input.dispatchKeyEvent", down, remaining=remaining)
+    cleanup_timeout = cleanup_remaining or remaining
     pending_error: BaseException | None = None
+    key_down_attempted = False
+    if cleanup_status is not None:
+        cleanup_status["key_up"] = "not_attempted"
     try:
+        # Mark the event as attempted before waiting for its response: a
+        # transport timeout can happen after Chromium applied rawKeyDown.
+        key_down_attempted = True
+        _send(client, "Input.dispatchKeyEvent", down, remaining=remaining)
         if after_key_down is not None:
             after_key_down()
         if "text" in params:
@@ -596,14 +606,21 @@ def press_key(
         pending_error = error
         raise
     finally:
-        try:
-            _send(
-                client,
-                "Input.dispatchKeyEvent",
-                {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
-                remaining=remaining,
-            )
-        except CDPError, CDPTimeout, CDPTransportError:
-            if pending_error is None:
-                raise
+        if key_down_attempted:
+            try:
+                if before_key_up is not None:
+                    before_key_up()
+                _send(
+                    client,
+                    "Input.dispatchKeyEvent",
+                    {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
+                    remaining=cleanup_timeout,
+                )
+                if cleanup_status is not None:
+                    cleanup_status["key_up"] = "completed"
+            except CDPError, CDPTimeout, CDPTransportError:
+                if cleanup_status is not None:
+                    cleanup_status["key_up"] = "failed"
+                if pending_error is None:
+                    raise
     return {"pressed": key}

@@ -4,7 +4,7 @@
   "title": "cdpx RGAA evidence result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "execution_status", "audit_findings_present", "rgaa_version", "catalog", "scope", "execution_plan", "environment", "generated_at", "summary", "themes", "criteria", "collector_status", "providers", "tests", "actions_used", "limitations"],
+  "required": ["schema", "execution_status", "audit_findings_present", "rgaa_version", "catalog", "scope", "execution_plan", "environment", "environment_status", "generated_at", "summary", "themes", "criteria", "collector_status", "providers", "tests", "actions_used", "limitations"],
   "properties": {
     "schema": {"const": "cdpx.rgaa.result/v1"},
     "execution_status": {"enum": ["complete", "partial", "error"]},
@@ -30,6 +30,15 @@
     },
     "execution_plan": {"type": "object"},
     "environment": {"type": "object"},
+    "environment_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["browser", "page_fingerprint"],
+      "properties": {
+        "browser": {"enum": ["ok", "error", "skipped"]},
+        "page_fingerprint": {"enum": ["ok", "error", "skipped"]}
+      }
+    },
     "generated_at": {"type": "string", "format": "date-time"},
     "summary": {
       "type": "object",

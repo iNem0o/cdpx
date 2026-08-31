@@ -14,10 +14,12 @@ from tools.generate_rgaa_catalog import build
 
 from cdpx import discovery
 from cdpx.cli import main
-from cdpx.client import CDPClient, CDPTimeout
+from cdpx.client import CDPClient, CDPError, CDPTimeout
+from cdpx.commands import rgaa as rgaa_commands
 from cdpx.policy import Authority, PolicyError
 from cdpx.primitives import inputs
 from cdpx.rgaa import provider
+from cdpx.rgaa import scanner as rgaa_scanner
 from cdpx.rgaa.catalog import (
     EXPECTED_COUNTS,
     SOURCE_COMMIT,
@@ -194,6 +196,11 @@ def test_passive_scan_emits_exact_probe_and_prudent_verdicts(mock, client):
     )
     assert probe["awaitPromise"] is True and probe["returnByValue"] is True
     assert probe["contextId"] == 42
+    assert probe["timeout"] > 0
+    assert report["collector_status"]["passive-dom-css"]["nodes_examined"] >= 0
+    assert report["collector_status"]["passive-dom-css"]["bytes_examined"] >= 0
+    assert report["collector_status"]["passive-dom-css"]["subtree_truncated"] is False
+    assert report["collector_status"]["passive-dom-css"]["execution_timed_out"] is False
     environment_probe = next(
         call
         for call in mock.commands_for("Runtime.evaluate")
@@ -207,6 +214,37 @@ def test_passive_scan_emits_exact_probe_and_prudent_verdicts(mock, client):
     assert mock.commands_for("Accessibility.getPartialAXTree") == [
         {"backendNodeId": 1, "fetchRelatives": False}
     ]
+    accessibility = report["collector_status"]["accessibility"]
+    assert accessibility["ax_domain_available"] is True
+    assert accessibility["target_correlation"] is False
+    assert "ax_tree_collected" not in accessibility
+
+
+def test_passive_probe_source_bounds_text_subtrees_siblings_and_label_lookups():
+    probe = rgaa_scanner.PASSIVE_PROBE
+
+    assert "bytes_examined" in probe
+    assert "subtree_truncated" in probe
+    assert "execution_timed_out" in probe
+    assert ".textContent" not in probe
+    assert "[...parent.children]" not in probe
+    assert "querySelector(`label[for=" not in probe
+    assert 'querySelectorAll("img[alt],input[type=image][alt]")' not in probe
+    assert ".slice(0, length).trim()" in probe
+    assert "[...parent.children]" not in rgaa_scanner.FOCUS_STATE_PROBE
+
+
+def test_runtime_evaluation_timeout_is_sent_to_chromium(mock, client):
+    mock.on_eval("JSON.stringify({ok: true})", json.dumps({"ok": True}))
+    rgaa_scanner._load_probe(
+        client,
+        42,
+        "JSON.stringify({ok: true})",
+        rgaa_scanner.ExecutionBudget.start(0.5),
+    )
+
+    call = mock.commands_for("Runtime.evaluate")[-1]
+    assert 0 < call["timeout"] <= 500
 
 
 def test_passive_scan_proves_clear_structural_failures(mock, client):
@@ -259,7 +297,7 @@ def test_origin_policy_breach_is_never_a_collector_error(mock, client):
     mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
     guards = 0
 
-    def breach():
+    def breach(_remaining):
         nonlocal guards
         guards += 1
         if guards == 2:
@@ -300,6 +338,66 @@ def test_document_drift_stops_collection_and_invalidates_rollups(mock, client):
     )
 
 
+def test_final_document_verification_timeout_preserves_evidence_and_report(
+    mock, client, monkeypatch
+):
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    original_guard = rgaa_scanner._guard_document
+    calls = 0
+
+    def expire_on_final_guard(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 5:
+            raise CDPTimeout("RGAA global deadline exceeded")
+        return original_guard(*args, **kwargs)
+
+    monkeypatch.setattr(rgaa_scanner, "_guard_document", expire_on_final_guard)
+
+    report = scan(client, selected_tests=("8.3.1",))
+    result = next(test for test in report["tests"] if test["id"] == "8.3.1")
+
+    assert report["execution_status"] == "partial"
+    assert report["collector_status"]["final-document-verification"]["status"] == "error"
+    assert result["verdict"] == "error"
+    assert result["evidence"]
+
+
+def test_scan_cli_final_guard_timeout_emits_json_without_stderr(
+    mock, client, cli_manifest, capsys, monkeypatch
+):
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    completed_report = scan(client, selected_tests=("8.3.1",))
+
+    def command_guard(*_args, **_kwargs):
+        raise CDPTimeout("RGAA global deadline exceeded")
+
+    monkeypatch.setattr(rgaa_commands, "assert_session_current", command_guard)
+    monkeypatch.setattr(rgaa_commands, "scan", lambda *_args, **_kwargs: completed_report)
+
+    code, out, err = run_cli(mock, capsys, "rgaa", "scan", "--tests", "8.3.1")
+
+    assert code == 1 and err == ""
+    report = json.loads(out)
+    assert report["execution_status"] == "partial"
+    assert report["collector_status"]["final-document-verification"]["status"] == "error"
+
+
+def test_manual_only_cli_scan_reports_verified_current_url(mock, cli_manifest, capsys):
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "rgaa",
+        "scan",
+        "http://site.test/manual",
+        "--tests",
+        "1.1.2",
+    )
+
+    assert code == 0 and err == ""
+    assert json.loads(out)["scope"]["url"] == "http://site.test/manual"
+
+
 def test_manual_only_selection_skips_world_and_environment(mock, client):
     report = scan(client, selected_tests=("1.1.2",))
 
@@ -333,6 +431,39 @@ def test_interactive_scan_uses_trusted_tab_input_and_keeps_order_unresolved(mock
     assert report["collector_status"]["focus"]["focus_restoration"] == "completed"
     assert len(mock.commands_for("Input.dispatchKeyEvent")) == 4
     assert all(call["key"] == "Tab" for call in mock.commands_for("Input.dispatchKeyEvent"))
+
+
+def test_focus_reset_timeout_still_runs_independent_restoration(mock, client, monkeypatch):
+    mock.on_eval("__cdpx_rgaa_focus_reset", '{"stored": true}')
+    mock.on_eval("__cdpx_rgaa_focus_restore", True)
+    original_evaluate = rgaa_scanner.js.evaluate
+
+    def timeout_after_blur(client_arg, expression, *args, **kwargs):
+        value = original_evaluate(client_arg, expression, *args, **kwargs)
+        if "__cdpx_rgaa_focus_reset" in expression:
+            raise CDPTimeout("focus reset response timeout")
+        return value
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", timeout_after_blur)
+
+    report = scan(
+        client,
+        scope="interactive",
+        selected_tests=("10.7.1",),
+        timeout=5,
+    )
+
+    focus = report["collector_status"]["focus"]
+    assert report["execution_status"] == "partial"
+    assert focus["focus_reset"] == "failed"
+    assert focus["focus_restoration"] == "completed"
+    assert focus["key_up"] == "not_attempted"
+    restore = next(
+        call
+        for call in mock.commands_for("Runtime.evaluate")
+        if "__cdpx_rgaa_focus_restore" in call["expression"]
+    )
+    assert 0 < restore["timeout"] <= 1000
 
 
 def test_privileged_spacing_probe_reports_new_clipping(mock, client):
@@ -468,7 +599,7 @@ base_url: http://site.test
 pages:
   - id: home
     url: /
-    tests: [2.1.1, 8.3.1]
+    tests: [2.1.1, 10.7.1]
   - id: checkout
     url: /checkout
 """,
@@ -481,7 +612,20 @@ pages:
     assert first.digest == second.digest
     assert first.authority is Authority.INTERACTION
     assert [page.url for page in first.pages] == ["http://site.test/", "http://site.test/checkout"]
-    assert first.public_plan()["page_count"] == 2
+    public = first.public_plan()
+    assert public["page_count"] == 2
+    assert public["planned_actions"] == {
+        "navigations": 2,
+        "interactions": 40,
+        "total": 42,
+    }
+    assert public["maximum_interactive_actions"] == 40
+    assert public["pages"][0]["planned_actions"] == {
+        "navigations": 1,
+        "interactions": 20,
+        "total": 21,
+    }
+    assert public["pages"][0]["collectors"] == ["passive-dom-css", "focus"]
 
 
 def test_sample_manifest_rejects_credentials_and_non_schema_test_shortcuts(tmp_path):
@@ -612,6 +756,53 @@ def test_manual_only_selection_skips_all_page_collectors(mock, client):
     )
 
 
+def test_environment_component_errors_are_advisory_and_reported_separately(
+    mock, client, monkeypatch
+):
+    mock.on_eval(
+        "__cdpx_rgaa_environment",
+        json.dumps(
+            {
+                "dom_material_base64": "not-valid-base64***",
+                "bytes_examined": 12,
+                "nodes_examined": 1,
+            }
+        ),
+    )
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    original_send = client.send
+
+    def fail_browser_version(method, params=None, timeout=None):
+        if method == "Browser.getVersion":
+            raise CDPError(-32000, "browser version unavailable")
+        return original_send(method, params, timeout)
+
+    monkeypatch.setattr(client, "send", fail_browser_version)
+
+    report = scan(client, selected_tests=("8.3.1",))
+    result = next(test for test in report["tests"] if test["id"] == "8.3.1")
+
+    assert report["execution_status"] == "partial"
+    assert report["environment_status"] == {
+        "browser": "error",
+        "page_fingerprint": "error",
+    }
+    assert report["collector_status"]["environment"]["status"] == "partial"
+    assert result["verdict"] == "pass"
+
+
+def test_browser_environment_error_alone_is_not_reported_as_ok(mock, client):
+    mock.error_methods.add("Browser.getVersion")
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+
+    report = scan(client, selected_tests=("8.3.1",))
+
+    assert report["environment_status"]["browser"] == "error"
+    assert report["environment_status"]["page_fingerprint"] == "ok"
+    assert report["collector_status"]["environment"]["status"] == "partial"
+    assert next(test for test in report["tests"] if test["id"] == "8.3.1")["verdict"] == "pass"
+
+
 def test_truncated_contrast_never_becomes_an_automatic_verdict(mock, client):
     observation = passive_observation()
     observation["contrast"]["truncated"] = True
@@ -740,7 +931,7 @@ pages:
             client,
             compile_sample(path),
             timeout=5,
-            origin_guard=lambda: (_ for _ in ()).throw(PolicyError("origin rejected")),
+            origin_guard=lambda _remaining: (_ for _ in ()).throw(PolicyError("origin rejected")),
         )
 
     assert [call["url"] for call in mock.commands_for("Page.navigate")] == [
@@ -1024,3 +1215,50 @@ pages:
     assert len(result["pages"]) == 2
     assert len(result["tests"]) == 258
     assert result["summary"]["certification_claim"] is False
+
+
+def test_sample_cli_final_guard_timeout_preserves_last_page_and_json(
+    mock, client, cli_manifest, tmp_path, capsys, monkeypatch
+):
+    manifest = tmp_path / "sample.yml"
+    manifest.write_text(
+        "schema: cdpx.rgaa.sample/v1\npages:\n"
+        "  - id: baseline\n    url: http://site.test/baseline\n    tests: [8.3.1]\n",
+        encoding="utf-8",
+    )
+    compiled = compile_sample(manifest)
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    completed_result = run_sample(client, compiled, timeout=5)
+
+    monkeypatch.setattr(rgaa_commands, "run_sample", lambda *_args, **_kwargs: completed_result)
+    monkeypatch.setattr(
+        rgaa_commands,
+        "assert_session_current",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CDPTimeout("RGAA global deadline exceeded")
+        ),
+    )
+
+    code, out, err = run_cli(
+        mock,
+        capsys,
+        "rgaa",
+        "sample",
+        "run",
+        str(manifest),
+    )
+
+    assert code == 1 and err == ""
+    result = json.loads(out)
+    assert result["execution_status"] == "partial"
+    assert len(result["pages"]) == 1
+    assert result["collector_status"]["sample-pages"]["status"] == "partial"
+    assert result["collector_status"]["final-document-verification"]["status"] == "error"
+    page_report = result["pages"][0]["report"]
+    page_test = next(test for test in page_report["tests"] if test["id"] == "8.3.1")
+    aggregate_test = next(test for test in result["tests"] if test["id"] == "8.3.1")
+    assert page_report["collector_status"]["final-document-verification"]["status"] == "error"
+    assert page_test["verdict"] == "error"
+    assert page_test["evidence"]
+    assert aggregate_test["verdict"] == "error"
+    assert result["summary"]["error"] == 1

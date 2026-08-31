@@ -12,13 +12,14 @@ from cdpx.commands.shared import (
     browser_client,
     emit_rgaa_json,
     execution,
+    verified_session_url,
 )
 from cdpx.policy import assert_url_allowed
 from cdpx.primitives import nav
 from cdpx.rgaa.catalog import CatalogError, describe_catalog, parse_test_selection, test_index
 from cdpx.rgaa.plan import ExecutionBudget, build_scan_plan
-from cdpx.rgaa.sample import compile_sample, run_sample
-from cdpx.rgaa.scanner import Engine, Scope, scan, scan_error_report
+from cdpx.rgaa.sample import compile_sample, finalize_sample_report_error, run_sample
+from cdpx.rgaa.scanner import Engine, Scope, finalize_report_error, scan, scan_error_report
 
 
 def _tests_arg(value: str) -> tuple[str, ...]:
@@ -67,7 +68,7 @@ def cmd_scan(args) -> int:
                     ),
                 )
                 return 1
-        assert_session_current(args, client, timeout=budget.remaining())
+        verified_url = verified_session_url(args, client, timeout=budget.remaining())
         result = scan(
             client,
             scope=cast(Scope, args.options.scope),
@@ -75,10 +76,14 @@ def cmd_scan(args) -> int:
             selected_tests=selected,
             timeout=args.options.timeout,
             budget=budget,
-            origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
+            origin_guard=lambda remaining: verified_session_url(args, client, timeout=remaining),
             planned_navigations=1 if args.options.url else 0,
+            document_url=verified_url,
         )
-        assert_session_current(args, client, timeout=budget.remaining())
+        try:
+            assert_session_current(args, client, timeout=budget.remaining())
+        except (CDPError, CDPTimeout, CDPTransportError, TimeoutError) as error:
+            finalize_report_error(result, error)
         emit_rgaa_json(args, result)
         return 0 if result["execution_status"] == "complete" else 1
 
@@ -102,16 +107,7 @@ def cmd_sample_run(args) -> int:
     context = execution(args)
     for page in compiled.pages:
         assert_url_allowed(page.url, context.origins)
-    maximum = len(compiled.pages)
-    all_tests = set(test_index())
-    maximum += sum(
-        build_scan_plan(
-            set(page.tests) if page.tests is not None else all_tests,
-            scope=compiled.scope,
-            engine=compiled.engine,
-        ).maximum_actions
-        for page in compiled.pages
-    )
+    maximum = compiled.public_plan()["planned_actions"]["total"]
     if args.options.max_actions is not None and maximum > args.options.max_actions:
         raise scenarios.ScenarioUsageError(
             f"--max-actions budget too small for RGAA sample plan: {maximum} required"
@@ -123,9 +119,12 @@ def cmd_sample_run(args) -> int:
             compiled,
             timeout=args.options.timeout,
             budget=budget,
-            origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
+            origin_guard=lambda remaining: verified_session_url(args, client, timeout=remaining),
         )
-        assert_session_current(args, client, timeout=budget.remaining())
+        try:
+            assert_session_current(args, client, timeout=budget.remaining())
+        except (CDPError, CDPTimeout, CDPTransportError, TimeoutError) as error:
+            finalize_sample_report_error(result, error)
         emit_rgaa_json(args, result)
         return 0 if result["execution_status"] == "complete" else 1
 

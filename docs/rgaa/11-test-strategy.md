@@ -8,7 +8,9 @@ Input events, spacing is privileged, and axe uses an isolated world.
 
 Real Chromium runs accessible and controlled-regression fixtures, hostile
 main-world JavaScript, passive/interactive/privileged scopes, the hybrid
-advisory provider, and declared multi-page aggregation. Because the protocol
+advisory provider, adversarial large text/subtree/sibling/label workloads,
+deadline cleanup, renderer execution termination, and declared multi-page
+aggregation. Because the protocol
 mock does not parse embedded JavaScript, Chromium execution is also the syntax
 gate for focus and text-spacing probes. The full `./dev check` additionally
 preserves Symfony, Shopware, packaging, docs, coverage and proof gates.

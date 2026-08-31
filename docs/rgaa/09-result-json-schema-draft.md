@@ -13,4 +13,7 @@ Normative `themes`, `criteria`, `tests`, `pages`, `providers`, and
 for `--full`. Variable evidence nested inside those records may still be
 bounded. Page and sample documents expose `execution_status`,
 `audit_findings_present`, and action use; sample page reports use page-local
-counts while the sample top level carries the cumulative count.
+counts while the sample top level carries the cumulative count. Page reports
+separate browser/page-fingerprint environment status and publish bounded probe
+metrics. Sample plans expose global and per-page action budgets and collectors;
+sample results expose collector status for finalization errors.

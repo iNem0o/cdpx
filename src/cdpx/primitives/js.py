@@ -34,6 +34,11 @@ def evaluate(
     }
     if context_id is not None:
         params["contextId"] = context_id
+    if timeout is not None:
+        # Runtime.TimeDelta is expressed in milliseconds. This bounds the
+        # renderer execution itself; the transport timeout alone only stops
+        # waiting for a response and can leave JavaScript running.
+        params["timeout"] = max(1.0, timeout * 1000)
     res = (
         client.send("Runtime.evaluate", params)
         if timeout is None

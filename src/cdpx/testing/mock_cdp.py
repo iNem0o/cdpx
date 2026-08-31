@@ -351,6 +351,18 @@ class MockCDP:
                 events,
             )
 
+        if method == "Browser.getVersion":
+            return (
+                {
+                    "product": "MockCDP/1.0",
+                    "userAgent": "MockCDP",
+                    "jsVersion": "mock",
+                    "protocolVersion": "1.3",
+                },
+                None,
+                events,
+            )
+
         if method == "Page.createIsolatedWorld":
             return {"executionContextId": 42}, None, events
 
