@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -35,6 +36,7 @@ from cdpx.rgaa.plan import (
 )
 from cdpx.rgaa.probes import (
     FOCUS_RESET_PROBE,
+    FOCUS_RESTORE_PROBE,
     FOCUS_STATE_PROBE,
     PASSIVE_PROBE,
     TEXT_SPACING_CLEANUP,
@@ -59,7 +61,28 @@ _AUTO_FLAG = {
     "fail": "auto_fail",
     "not_applicable": "auto_not_applicable",
 }
-_COLLECTOR_ERRORS = (CDPError, CDPTimeout, CDPTransportError, JSException, ValueError)
+
+
+class AuditInvariantError(RuntimeError):
+    """The resolver or report violated an internal invariant."""
+
+
+class CollectorExecutionError(ValueError):
+    """A browser collector could not produce its documented observation."""
+
+
+class DocumentStateDrift(ValueError):
+    """The assigned top-level document changed during one audit."""
+
+
+@dataclass(frozen=True)
+class DocumentIdentity:
+    frame_id: str
+    loader_id: str
+    url: str
+
+
+_COLLECTOR_ERRORS = (CDPError, CDPTimeout, CDPTransportError, JSException, CollectorExecutionError)
 
 
 def _finding(
@@ -95,13 +118,13 @@ def _set_result(
     evidence_complete: bool = False,
 ) -> None:
     if verdict not in VERDICTS:
-        raise ValueError(f"unknown RGAA verdict: {verdict}")
+        raise AuditInvariantError(f"unknown RGAA verdict: {verdict}")
     flag = _AUTO_FLAG.get(verdict)
     capabilities = result.get("_capabilities", {})
     if flag and not capabilities.get(flag, False):
-        raise ValueError(f"RGAA {result['id']}: matrix forbids automatic {verdict}")
+        raise AuditInvariantError(f"RGAA {result['id']}: matrix forbids automatic {verdict}")
     if verdict in {"pass", "not_applicable"} and not evidence_complete:
-        raise ValueError(f"RGAA {result['id']}: {verdict} requires complete evidence")
+        raise AuditInvariantError(f"RGAA {result['id']}: {verdict} requires complete evidence")
     result["verdict"] = verdict
     result["confidence"] = confidence
     result["evidence_complete"] = evidence_complete
@@ -141,23 +164,30 @@ def _initial_results(selected: set[str]) -> tuple[list[dict[str, Any]], dict[str
     return results, by_id
 
 
-def _frame_tree(client: CDPClient, timeout: float) -> tuple[str, str]:
+def _document_identity(client: CDPClient, timeout: float) -> DocumentIdentity:
     response = client.send("Page.getFrameTree", timeout=timeout)
     tree = response.get("frameTree", {})
     frame = tree.get("frame", {}) if isinstance(tree, dict) else {}
     frame_id = frame.get("id") if isinstance(frame, dict) else None
+    loader_id = frame.get("loaderId") if isinstance(frame, dict) else None
     url = frame.get("url") if isinstance(frame, dict) else None
-    if not isinstance(frame_id, str) or not frame_id or not isinstance(url, str) or not url:
-        raise ValueError("RGAA main frame identity unavailable")
-    return frame_id, url
+    if (
+        not isinstance(frame_id, str)
+        or not frame_id
+        or not isinstance(loader_id, str)
+        or not loader_id
+        or not isinstance(url, str)
+        or not url
+    ):
+        raise CollectorExecutionError("RGAA main frame identity unavailable")
+    return DocumentIdentity(frame_id, loader_id, url)
 
 
-def _isolated_world(client: CDPClient, budget: ExecutionBudget) -> tuple[int, str]:
-    frame_id, url = _frame_tree(client, budget.remaining())
+def _isolated_world(client: CDPClient, budget: ExecutionBudget, identity: DocumentIdentity) -> int:
     response = client.send(
         "Page.createIsolatedWorld",
         {
-            "frameId": frame_id,
+            "frameId": identity.frame_id,
             "worldName": "__cdpx_rgaa_native",
             "grantUniveralAccess": False,
         },
@@ -165,8 +195,25 @@ def _isolated_world(client: CDPClient, budget: ExecutionBudget) -> tuple[int, st
     )
     context_id = response.get("executionContextId")
     if not isinstance(context_id, int):
-        raise ValueError("RGAA isolated world unavailable")
-    return context_id, url
+        raise CollectorExecutionError("RGAA isolated world unavailable")
+    return context_id
+
+
+def _guard_document(
+    client: CDPClient,
+    budget: ExecutionBudget,
+    expected: DocumentIdentity,
+    origin_guard: OriginGuard | None,
+) -> None:
+    if origin_guard:
+        origin_guard()
+    observed = _document_identity(client, budget.remaining())
+    if observed != expected:
+        raise DocumentStateDrift(
+            "RGAA document state drift: "
+            f"expected {expected.url} ({expected.loader_id}), "
+            f"observed {observed.url} ({observed.loader_id})"
+        )
 
 
 def _load_probe(
@@ -177,21 +224,28 @@ def _load_probe(
     *,
     await_promise: bool = True,
 ) -> dict[str, Any]:
-    raw = js.evaluate(
-        client,
-        expression,
-        await_promise=await_promise,
-        timeout=budget.remaining(),
-        context_id=context_id,
-    )
+    try:
+        raw = js.evaluate(
+            client,
+            expression,
+            await_promise=await_promise,
+            timeout=budget.remaining(),
+            context_id=context_id,
+        )
+    except CDPTimeout:
+        try:
+            client.send("Runtime.terminateExecution", timeout=1.0)
+        except CDPError, CDPTimeout, CDPTransportError:
+            pass
+        raise
     if not isinstance(raw, str):
-        raise ValueError("RGAA page probe returned no value")
+        raise CollectorExecutionError("RGAA page probe returned no value")
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as error:
-        raise ValueError("RGAA page probe returned invalid JSON") from error
+        raise CollectorExecutionError("RGAA page probe returned invalid JSON") from error
     if not isinstance(value, dict):
-        raise ValueError("RGAA page probe returned an invalid object")
+        raise CollectorExecutionError("RGAA page probe returned an invalid object")
     return value
 
 
@@ -312,11 +366,7 @@ def _apply_passive(
     if "8.1.1" in selected:
         doctype = observation.get("doctype", {})
         complete = isinstance(doctype, dict) and bool(doctype.get("evidence_complete"))
-        if (
-            not isinstance(doctype, dict)
-            or not doctype.get("present")
-            or str(doctype.get("name", "")).lower() != "html"
-        ):
+        if not isinstance(doctype, dict) or not doctype.get("present"):
             verdict, findings = (
                 "fail",
                 [
@@ -328,10 +378,8 @@ def _apply_passive(
                     )
                 ],
             )
-        elif not doctype.get("public_id") and not doctype.get("system_id"):
-            verdict, findings = "pass", []
         else:
-            verdict, findings = "needs_review", []
+            verdict, findings = "pass", []
         _set_result(
             by_id["8.1.1"],
             verdict,
@@ -350,12 +398,15 @@ def _apply_passive(
     if "8.3.1" in selected:
         _set_result(
             by_id["8.3.1"],
-            "pass" if lang else "fail",
-            confidence="high",
+            "pass" if lang else "needs_review",
+            confidence="high" if lang else "medium",
             findings=[]
             if lang
             else [
-                _finding("default-language", "Document has no default language.", status="proven")
+                _finding(
+                    "default-language",
+                    "No language was observed on the root element; the per-text-element RGAA branch remains to review.",
+                )
             ],
             evidence=[{"collector": "isolated-dom", "language": lang or None}],
             evidence_complete=bool(lang),
@@ -487,8 +538,13 @@ def _collect_accessibility(client: CDPClient, budget: ExecutionBudget) -> dict[s
     response = client.send("Accessibility.getFullAXTree", timeout=budget.remaining())
     nodes = response.get("nodes", [])
     if not isinstance(nodes, list):
-        raise ValueError("RGAA accessibility tree unavailable")
-    return {"nodes": len(nodes), "evidence_complete": True, "exposed_values": False}
+        raise CollectorExecutionError("RGAA accessibility tree unavailable")
+    return {
+        "nodes": len(nodes),
+        "ax_tree_collected": True,
+        "evidence_complete": False,
+        "exposed_values": False,
+    }
 
 
 def _collect_focus(
@@ -499,36 +555,62 @@ def _collect_focus(
 ) -> dict[str, Any]:
     if origin_guard:
         origin_guard()
-    js.evaluate(client, FOCUS_RESET_PROBE, timeout=budget.remaining(), context_id=context_id)
+    reset_token = js.evaluate(
+        client, FOCUS_RESET_PROBE, timeout=budget.remaining(), context_id=context_id
+    )
     observations, seen = [], set()
     wrapped = False
-    for _ in range(FOCUS_STEP_LIMIT):
-        budget.consume("RGAA Tab traversal")
-        if origin_guard:
-            origin_guard()
-        inputs.press_key(client, "Tab", remaining=budget.remaining)
-        if origin_guard:
-            origin_guard()
-        raw = js.evaluate(
-            client,
-            FOCUS_STATE_PROBE,
-            await_promise=True,
-            timeout=budget.remaining(),
-            context_id=context_id,
-        )
-        if raw is None:
-            break
-        if not isinstance(raw, str):
-            raise ValueError("RGAA focus probe returned no value")
-        state = json.loads(raw)
-        if not isinstance(state, dict) or not isinstance(state.get("target"), str):
-            raise ValueError("RGAA focus probe returned an invalid object")
-        target = state["target"]
-        if target in seen:
-            wrapped = True
-            break
-        seen.add(target)
-        observations.append(state)
+    restoration = "not_possible"
+    try:
+        for _ in range(FOCUS_STEP_LIMIT):
+            budget.consume("RGAA Tab traversal")
+            if origin_guard:
+                origin_guard()
+            inputs.press_key(
+                client,
+                "Tab",
+                remaining=budget.remaining,
+                after_key_down=origin_guard,
+            )
+            if origin_guard:
+                origin_guard()
+            raw = js.evaluate(
+                client,
+                FOCUS_STATE_PROBE,
+                await_promise=True,
+                timeout=budget.remaining(),
+                context_id=context_id,
+            )
+            if raw is None:
+                break
+            if not isinstance(raw, str):
+                raise CollectorExecutionError("RGAA focus probe returned no value")
+            try:
+                state = json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise CollectorExecutionError("RGAA focus probe returned invalid JSON") from error
+            if not isinstance(state, dict) or not isinstance(state.get("target"), str):
+                raise CollectorExecutionError("RGAA focus probe returned an invalid object")
+            target = state["target"]
+            if target in seen:
+                wrapped = True
+                break
+            seen.add(target)
+            observations.append(state)
+    finally:
+        try:
+            if isinstance(reset_token, str):
+                token = json.loads(reset_token)
+                if isinstance(token, dict) or token is None:
+                    restored = js.evaluate(
+                        client,
+                        FOCUS_RESTORE_PROBE.replace("__CDPX_FOCUS_TOKEN__", json.dumps(token)),
+                        timeout=budget.remaining(),
+                        context_id=context_id,
+                    )
+                    restoration = "completed" if restored is True else "failed"
+        except _COLLECTOR_ERRORS + (json.JSONDecodeError,):
+            restoration = "failed"
     return {
         "items": observations,
         "steps": len(observations),
@@ -536,6 +618,7 @@ def _collect_focus(
         "truncated": len(observations) >= FOCUS_STEP_LIMIT and not wrapped,
         "evidence_complete": False,
         "coverage_scope": "top-level and open-shadow focus chain; frames, closed shadow roots and visual deltas require review",
+        "focus_restoration": restoration,
     }
 
 
@@ -568,13 +651,20 @@ def _apply_focus(
 def _collect_spacing(client: CDPClient, context_id: int, budget: ExecutionBudget) -> dict[str, Any]:
     token = f"cdpx-{context_id}"
     expression = TEXT_SPACING_PROBE.replace("__CDPX_SPACING_TOKEN__", json.dumps(token))
+    observation: dict[str, Any] | None = None
+    cleanup: dict[str, Any] = {"attempted": True, "completed": False}
     try:
-        return _load_probe(client, context_id, expression, budget)
+        observation = _load_probe(client, context_id, expression, budget)
     finally:
         try:
             js.evaluate(client, TEXT_SPACING_CLEANUP, timeout=1.0, context_id=context_id)
-        except _COLLECTOR_ERRORS:
-            pass
+            cleanup["completed"] = True
+        except _COLLECTOR_ERRORS as error:
+            cleanup["error"] = str(error)
+    if observation is None:
+        raise CollectorExecutionError("RGAA text-spacing observation unavailable")
+    observation["cleanup"] = cleanup
+    return observation
 
 
 def _apply_spacing(by_id: dict[str, dict[str, Any]], spacing: dict[str, Any]) -> None:
@@ -621,7 +711,7 @@ def _environment(
 ) -> dict[str, Any]:
     environment: dict[str, Any] = {
         "cdpx_version": __version__,
-        "native_rule_version": RULE_VERSION,
+        "native_resolver_version": RULE_VERSION,
         "final_url": url,
     }
     try:
@@ -635,10 +725,21 @@ def _environment(
     expression = r"""
     // __cdpx_rgaa_environment_v2
     (async () => {
-      const html = document.documentElement?.outerHTML || "";
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(html));
+      const NODE_LIMIT = 5000, BYTE_LIMIT = 262144, encoder = new TextEncoder();
+      const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+      const chunks = []; let nodes = 0, bytes = 0, clipped = false, node = walker.currentNode;
+      while (node && nodes < NODE_LIMIT && bytes < BYTE_LIMIT) {
+        const value = node.nodeType === Node.TEXT_NODE ? String(node.nodeValue || "") : `<${node.localName}>`;
+        const raw = encoder.encode(value), remaining = BYTE_LIMIT - bytes;
+        if (raw.byteLength > remaining) clipped = true;
+        const encoded = raw.slice(0, remaining);
+        chunks.push(encoded); bytes += encoded.byteLength; nodes += 1; node = walker.nextNode();
+      }
+      const material = new Uint8Array(bytes); let offset = 0;
+      for (const chunk of chunks) { material.set(chunk, offset); offset += chunk.byteLength; }
+      const digest = await crypto.subtle.digest("SHA-256", material);
       const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-      return JSON.stringify({user_agent: navigator.userAgent, locale: navigator.language, viewport: {width: innerWidth, height: innerHeight, device_pixel_ratio: devicePixelRatio, visual_scale: visualViewport?.scale || 1}, media: {forced_colors: matchMedia("(forced-colors: active)").matches, prefers_contrast_more: matchMedia("(prefers-contrast: more)").matches, prefers_dark: matchMedia("(prefers-color-scheme: dark)").matches}, dom_sha256: hex});
+      return JSON.stringify({user_agent: navigator.userAgent, locale: navigator.language, viewport: {width: innerWidth, height: innerHeight, device_pixel_ratio: devicePixelRatio, visual_scale: visualViewport?.scale || 1}, media: {forced_colors: matchMedia("(forced-colors: active)").matches, prefers_contrast_more: matchMedia("(prefers-contrast: more)").matches, prefers_dark: matchMedia("(prefers-color-scheme: dark)").matches}, dom_sha256: hex, nodes_examined: nodes, bytes_examined: bytes, truncated: clipped || Boolean(node), hash_complete: !clipped && !node});
     })()
     """
     try:
@@ -728,8 +829,24 @@ def _finish(
         "certification_claim": False,
     }
     criteria, themes = summarize_hierarchy(results)
+    failed_collectors = [
+        name for name, status in collectors.items() if status.get("status") == "error"
+    ]
+    failed_providers = [
+        str(status.get("name", "provider"))
+        for status in providers
+        if status.get("status") == "error"
+    ]
+    execution_failures = failed_collectors + failed_providers
+    execution_status = "partial" if execution_failures else "complete"
+    if execution_failures and not any(
+        status.get("status") == "ok" for status in collectors.values()
+    ):
+        execution_status = "error"
     return {
         "schema": "cdpx.rgaa.result/v1",
+        "execution_status": execution_status,
+        "audit_findings_present": any(result["findings"] for result in results),
         "rgaa_version": RGAA_VERSION,
         "catalog": {
             "id": CATALOG_ID,
@@ -777,7 +894,7 @@ def scan_error_report(
         plan=plan,
         collectors={"page-navigation": {"status": "error", "error": str(error)}},
         providers=[],
-        environment={"cdpx_version": __version__, "native_rule_version": RULE_VERSION},
+        environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
         budget=budget,
     )
 
@@ -804,9 +921,58 @@ def scan(
     results, by_id = _initial_results(selected)
     collectors: dict[str, dict[str, Any]] = {}
     providers: list[dict[str, Any]] = []
+    if not any((plan.passive, plan.accessibility, plan.focus, plan.spacing, plan.axe)):
+        for name in ("passive-dom-css", "accessibility", "focus", "text-spacing"):
+            collectors[name] = {"status": "skipped", "reason": "no selected test requires it"}
+        return _finish(
+            results,
+            selected,
+            url=None,
+            scope=scope,
+            engine=engine,
+            plan=plan,
+            collectors=collectors,
+            providers=providers,
+            environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
+            budget=active_budget,
+        )
     try:
-        context_id, url = _isolated_world(client, active_budget)
+        if origin_guard:
+            origin_guard()
+        identity = _document_identity(client, active_budget.remaining())
+        if origin_guard:
+            origin_guard()
+        context_id = _isolated_world(client, active_budget, identity)
+        _guard_document(client, active_budget, identity, origin_guard)
+        url = identity.url
         environment = _environment(client, context_id, active_budget, url)
+        collectors["environment"] = {
+            "status": "error" if "page_error" in environment else "ok",
+            "bounded": True,
+            "hash_complete": environment.get("page", {}).get("hash_complete", False),
+        }
+        if "page_error" in environment:
+            collectors["environment"]["error"] = environment["page_error"]
+            _mark_error(by_id, selected, selected, "environment")
+        _guard_document(client, active_budget, identity, origin_guard)
+    except DocumentStateDrift as error:
+        _mark_error(by_id, selected, selected, "document-state")
+        return _finish(
+            results,
+            selected,
+            url=None,
+            scope=scope,
+            engine=engine,
+            plan=plan,
+            collectors={"document-state": {"status": "error", "error": str(error)}},
+            providers=providers,
+            environment={
+                "cdpx_version": __version__,
+                "native_resolver_version": RULE_VERSION,
+                "state_drift": True,
+            },
+            budget=active_budget,
+        )
     except _COLLECTOR_ERRORS as error:
         _mark_error(by_id, selected, selected, "isolated-world")
         return _finish(
@@ -818,19 +984,36 @@ def scan(
             plan=plan,
             collectors={"isolated-world": {"status": "error", "error": str(error)}},
             providers=providers,
-            environment={"cdpx_version": __version__, "native_rule_version": RULE_VERSION},
+            environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
+            budget=active_budget,
+        )
+
+    def state_drift_report(error: DocumentStateDrift) -> dict[str, Any]:
+        collectors["document-state"] = {"status": "error", "error": str(error)}
+        environment["state_drift"] = True
+        _mark_error(by_id, selected, selected, "document-state")
+        return _finish(
+            results,
+            selected,
+            url=url,
+            scope=scope,
+            engine=engine,
+            plan=plan,
+            collectors=collectors,
+            providers=providers,
+            environment=environment,
             budget=active_budget,
         )
 
     if plan.passive:
         try:
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             observation = _load_probe(client, context_id, PASSIVE_PROBE, active_budget)
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             _apply_passive(by_id, observation, selected)
             collectors["passive-dom-css"] = {"status": "ok", "isolated_world": True}
+        except DocumentStateDrift as error:
+            return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
             collectors["passive-dom-css"] = {
                 "status": "error",
@@ -846,14 +1029,14 @@ def scan(
 
     if plan.accessibility:
         try:
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             ax = _collect_accessibility(client, active_budget)
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             collectors["accessibility"] = {"status": "ok", **ax}
             for test_id in selected & set(ACCESSIBILITY_TESTS):
                 by_id[test_id]["evidence"].append({"collector": "accessibility", **ax})
+        except DocumentStateDrift as error:
+            return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
             collectors["accessibility"] = {"status": "error", "error": str(error)}
             _mark_error(by_id, selected, ACCESSIBILITY_TESTS, "accessibility")
@@ -868,10 +1051,15 @@ def scan(
             focus = _collect_focus(client, context_id, active_budget, origin_guard)
             _apply_focus(by_id, focus, selected)
             collectors["focus"] = {
-                "status": "ok",
+                "status": "ok" if focus["focus_restoration"] == "completed" else "error",
                 "steps": focus["steps"],
                 "truncated": focus["truncated"],
+                "focus_restoration": focus["focus_restoration"],
             }
+            if focus["focus_restoration"] != "completed":
+                _mark_error(by_id, selected, FOCUS_TESTS, "focus-restoration")
+        except DocumentStateDrift as error:
+            return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
             collectors["focus"] = {"status": "error", "error": str(error)}
             _mark_error(by_id, selected, FOCUS_TESTS, "focus")
@@ -883,17 +1071,19 @@ def scan(
 
     if plan.spacing:
         try:
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             spacing = _collect_spacing(client, context_id, active_budget)
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             _apply_spacing(by_id, spacing)
             collectors["text-spacing"] = {
-                "status": "ok",
+                "status": "ok" if spacing["cleanup"]["completed"] else "error",
                 "truncated": spacing.get("truncated", False),
-                "cleanup": "completed",
+                "cleanup": spacing["cleanup"],
             }
+            if not spacing["cleanup"]["completed"]:
+                _mark_error(by_id, selected, SPACING_TESTS, "text-spacing-cleanup")
+        except DocumentStateDrift as error:
+            return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
             collectors["text-spacing"] = {
                 "status": "error",
@@ -909,17 +1099,17 @@ def scan(
 
     if plan.axe:
         try:
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             axe = provider.run_axe(client, remaining=active_budget.remaining)
-            if origin_guard:
-                origin_guard()
+            _guard_document(client, active_budget, identity, origin_guard)
             providers.append(
                 {key: value for key, value in axe.items() if key != "result"} | {"status": "ok"}
             )
             for test_id, observations in provider.mapped_observations(axe).items():
                 if test_id in selected:
                     by_id[test_id]["advisory"].extend(observations)
+        except DocumentStateDrift as error:
+            return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
             providers.append(
                 {
@@ -944,6 +1134,10 @@ def scan(
             _set_result(
                 result, "not_tested", confidence="none", findings=[], evidence=[], limitations=[]
             )
+    try:
+        _guard_document(client, active_budget, identity, origin_guard)
+    except DocumentStateDrift as error:
+        return state_drift_report(error)
     return _finish(
         results,
         selected,

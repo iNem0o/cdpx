@@ -92,7 +92,7 @@ RULE_PROFILES: dict[str, dict[str, Any]] = {
         "rules": ["default-language"],
         "collectors": ["dom"],
         "auto_pass": True,
-        "auto_fail": True,
+        "auto_fail": False,
         "auto_not_applicable": False,
         "confidence": "high",
     },

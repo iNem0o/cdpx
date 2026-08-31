@@ -30,7 +30,7 @@ when = "cdpx runs its fixed DOM/CSS collector against both fixtures."
 then = "The result contains 258 test records, local evidence for resolved tests, and certification_claim=false."
 target = "chrome"
 proof_level = "runtime"
-tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
+tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
 expected_proofs = ["junit", "json"]
 +++
 
@@ -68,17 +68,22 @@ cdpx rgaa scan [URL] \
 
 When `URL` is omitted, the current assigned page is scanned. The complete
 session/run/target identity and origin allowlist remain mandatory.
-Navigation and all following collection share one deadline. If navigation
-fails, the command still emits the full normative skeleton and marks every
-selected test `error`; the trustworthy final page URL remains unknown rather
-than being copied from the requested URL.
+Navigation and all following collection share one deadline. If navigation or
+a required collector fails, the command still emits the full normative
+skeleton, publishes `execution_status: partial|error`, marks the affected tests
+`error`, and exits `1`; the trustworthy final page URL remains unknown rather
+than being copied from the requested URL. A proven RGAA failure after a
+completed execution remains exit `0`.
 
 | Scope/engine | Required authority | Additional effect |
 |---|---|---|
-| `passive`, `native` | `observation` | fixed DOM/CSS rendered-state probe |
-| `interactive`, `native` | `interaction` | trusted Tab input and focus evidence |
-| `privileged`, `native` | `privileged` | temporary official text-spacing transformation, removed in `finally` |
-| any scope, `hybrid` | `privileged` | integrity-pinned axe-core in a fresh isolated world |
+| passive collectors only | `observation` | fixed DOM/CSS rendered-state probe |
+| a selected focus test | `interaction` | trusted Tab input and focus evidence |
+| a selected text-spacing test | `privileged` | temporary official text-spacing transformation, removed in `finally` |
+| a selected hybrid mapping | `privileged` | integrity-pinned axe-core in a fresh isolated world |
+
+Authority is derived from the selected execution plan, not from unused scope
+or engine capabilities.
 
 The native rules cover deterministic or useful partial observations for
 frame titles, simple solid-background contrast, link names, doctype,
@@ -87,6 +92,10 @@ tab order, text spacing, and meta refresh. Each mapped test declares whether
 automatic pass/fail/NA is authorized. Complex backgrounds, semantic
 relevance, actual assistive-technology restitution, and external documents
 stay unresolved.
+
+Test 8.1.1 resolves only doctype presence; validity and placement belong to
+8.1.2/8.1.3. Test 8.3.1 can pass from a root language, but absence on `<html>`
+remains `needs_review` until the official per-text-element branch is inspected.
 
 axe-core is advisory only. Provider rule IDs are never public RGAA IDs, and
 a provider violation cannot by itself change an RGAA verdict. Results omit
@@ -99,7 +108,8 @@ without a network fetch.
 credential-bearing URLs, unknown fields/tests, duplicate page IDs, more than
 50 pages, manifests above 1 MiB, symlinks, and unsupported schemas/versions.
 It returns the complete plan, maximum required authority, and a deterministic
-composition digest before any browser effect.
+composition digest before any browser effect. Normative page and test-ID arrays
+are preserved even with a small global `--limit`.
 
 ```yaml
 schema: cdpx.rgaa.sample/v1
@@ -119,7 +129,8 @@ pages:
 authority before connecting, then navigates only to declared pages. It keeps
 per-page reports and aggregates each official test conservatively: `fail`
 dominates, followed by `error`, unresolved review/manual work, pass, NA, and
-not-tested.
+not-tested. A sample-level `pass` or `not_applicable` requires complete page
+coverage; otherwise the aggregate remains `needs_review`.
 
 ## User journeys
 
@@ -145,6 +156,11 @@ form the explicit expert/AT review backlog.
 Every report states `certification_claim: false`. A `pass` is local to one
 official test on one observed page/state, never to the service.
 
+The scanner binds evidence to the exact top-level `frameId`, `loaderId`, and
+URL. Any document drift stops further collection, invalidates automatic
+rollups, and produces a non-success execution status. Origin-policy violations
+are fatal and stop an entire sample at the first breach.
+
 ## Validation
 
 The official JSON files, source manifest, generated catalog, exhaustive
@@ -155,8 +171,9 @@ provider requires new provenance, hashes, generated outputs, mappings, tests,
 and an explicit catalog/version change.
 
 The deterministic mock proves the exact Runtime/Input/isolated-world protocol.
-Real Chromium proves accessible and deliberately regressed fixtures, hostile
-main-world isolation, focus traversal, temporary text-spacing mutation, the
+Real Chromium and the installed CLI prove accessible and deliberately regressed
+fixtures, nested open-shadow traversal, hostile main-world isolation, focus
+traversal/restoration, temporary text-spacing mutation and cleanup, the
 isolated axe provider, and multi-page aggregation. The repository-wide gate
 still requires Chrome, Symfony, Shopware, packaging, documentation, coverage,
 and the proof inventory.
@@ -170,7 +187,9 @@ the 258-row matrix, public schemas, and ADR are durable design evidence.
 
 ## Known limitations
 
-Native coverage is deliberately partial. Complex color compositing, semantic
+Native coverage is deliberately partial. Environment fingerprinting examines
+at most 5,000 light-DOM nodes and 256 KiB and publishes its frontier; it is not
+a complete rendered-document identity. Complex color compositing, semantic
 relevance, assistive-technology restitution, external documents and sample
 representativeness are never inferred as passes. Focus and spacing collectors
 produce bounded review evidence and never infer failure from a missing visual

@@ -13,8 +13,9 @@ from tools.generate_rgaa_catalog import build
 
 from cdpx import discovery
 from cdpx.cli import main
-from cdpx.client import CDPClient
-from cdpx.policy import Authority
+from cdpx.client import CDPClient, CDPTimeout
+from cdpx.policy import Authority, PolicyError
+from cdpx.primitives import inputs
 from cdpx.rgaa import provider
 from cdpx.rgaa.catalog import (
     EXPECTED_COUNTS,
@@ -58,16 +59,30 @@ def run_cli(mock, capsys, *argv: str):
 def passive_observation(*, broken: bool = False) -> dict:
     return {
         "url": "http://site.test/rgaa.html",
-        "doctype": {"present": not broken, "name": "html", "public_id": "", "system_id": ""},
-        "language": {"lang": "" if broken else "fr", "xml_lang": ""},
-        "title": {"present": not broken, "value": "" if broken else "Page accessible"},
+        "doctype": {
+            "present": not broken,
+            "name": "html",
+            "public_id": "",
+            "system_id": "",
+            "evidence_complete": True,
+        },
+        "language": {
+            "lang": "" if broken else "fr",
+            "xml_lang": "",
+            "evidence_complete": True,
+        },
+        "title": {
+            "present": not broken,
+            "value": "" if broken else "Page accessible",
+            "evidence_complete": True,
+        },
         "frames": {
             "items": [
                 {
-                    "selector": "#frame",
+                    "target": "#frame",
                     "title_present": not broken,
                     "title": "Aide",
-                    "aria_hidden": False,
+                    "exposed": True,
                 }
             ],
             "total": 1,
@@ -76,35 +91,42 @@ def passive_observation(*, broken: bool = False) -> dict:
         "fields": {
             "items": [
                 {
-                    "selector": "#email",
-                    "labelled": not broken,
-                    "mechanisms": ["label-for"] if not broken else [],
+                    "target": "#email",
+                    "explicit_label": not broken,
+                    "implicit_label": False,
+                    "aria_labelledby": False,
+                    "aria_label": False,
+                    "title": False,
                 }
             ],
             "total": 1,
             "truncated": False,
         },
         "links": {
-            "items": [{"selector": "#account", "name": "Compte" if not broken else ""}],
+            "items": [
+                {
+                    "target": "#account",
+                    "name_sources": ["descendant-text"] if not broken else [],
+                }
+            ],
             "total": 1,
             "truncated": False,
         },
         "buttons": {
             "items": [
                 {
-                    "selector": "#send",
-                    "name": "Envoyer" if not broken else "",
-                    "visible_name": "Envoyer",
+                    "target": "#send",
+                    "name_sources": ["descendant-text"] if not broken else [],
                 }
             ],
             "total": 1,
             "truncated": False,
         },
-        "meta_refresh": {"items": [], "total": 0, "truncated": False},
+        "refresh_mechanisms": {"items": [], "total": 0, "truncated": False},
         "contrast": {
             "items": [
                 {
-                    "selector": "p",
+                    "target": "p",
                     "test_id": "3.2.1",
                     "ratio": 2.1 if broken else 12.5,
                     "required": 4.5,
@@ -179,15 +201,89 @@ def test_passive_scan_proves_clear_structural_failures(mock, client):
     report = scan(client)
     results = {test["id"]: test for test in report["tests"]}
 
-    for test_id in ("2.1.1", "8.1.1", "8.3.1", "8.5.1", "8.6.1"):
+    for test_id in ("2.1.1", "8.1.1", "8.5.1", "8.6.1"):
         assert results[test_id]["verdict"] == "fail", test_id
         assert results[test_id]["findings"], test_id
+    assert results["8.3.1"]["verdict"] == "needs_review"
     for test_id in ("3.2.1", "6.1.1", "11.1.1", "11.9.1"):
         assert results[test_id]["verdict"] == "needs_review", test_id
 
 
+def test_doctype_presence_is_independent_from_doctype_validity(mock, client):
+    observation = passive_observation()
+    observation["doctype"] = {
+        "present": True,
+        "name": "custom",
+        "public_id": "legacy",
+        "system_id": "legacy.dtd",
+        "evidence_complete": True,
+    }
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(observation))
+
+    report = scan(client, selected_tests=("8.1.1",))
+    result = next(test for test in report["tests"] if test["id"] == "8.1.1")
+
+    assert result["verdict"] == "pass"
+    assert result["evidence_complete"] is True
+
+
+def test_origin_policy_breach_is_never_a_collector_error(mock, client):
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    guards = 0
+
+    def breach():
+        nonlocal guards
+        guards += 1
+        if guards == 2:
+            raise PolicyError("origin rejected by the run's policy")
+
+    with pytest.raises(PolicyError, match="origin rejected"):
+        scan(client, selected_tests=("8.1.1",), origin_guard=breach)
+
+
+def test_key_up_is_dispatched_when_post_keydown_policy_guard_fails(mock, client):
+    with pytest.raises(PolicyError, match="origin rejected"):
+        inputs.press_key(
+            client,
+            "Tab",
+            after_key_down=lambda: (_ for _ in ()).throw(PolicyError("origin rejected")),
+        )
+
+    assert [call["type"] for call in mock.commands_for("Input.dispatchKeyEvent")] == [
+        "rawKeyDown",
+        "keyUp",
+    ]
+
+
+def test_document_drift_stops_collection_and_invalidates_rollups(mock, client):
+    original = "http://site.test/page"
+    mock.on_eval("window.location.href", original, original, "http://site.test/other")
+
+    report = scan(client, selected_tests=("8.1.1",))
+    result = next(test for test in report["tests"] if test["id"] == "8.1.1")
+
+    assert report["execution_status"] == "error"
+    assert report["environment"]["state_drift"] is True
+    assert report["collector_status"]["document-state"]["status"] == "error"
+    assert result["verdict"] == "error"
+    assert not any(
+        "__cdpx_rgaa_passive" in call["expression"]
+        for call in mock.commands_for("Runtime.evaluate")
+    )
+
+
+def test_manual_only_selection_skips_world_and_environment(mock, client):
+    report = scan(client, selected_tests=("1.1.2",))
+
+    assert report["execution_plan"]["collectors"] == []
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert mock.commands_for("Runtime.evaluate") == []
+
+
 def test_interactive_scan_uses_trusted_tab_input_and_keeps_order_unresolved(mock, client):
     mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    mock.on_eval("__cdpx_rgaa_focus_reset", "null")
+    mock.on_eval("__cdpx_rgaa_focus_restore", True)
     focus = {
         "target": "#account",
         "tag": "a",
@@ -206,6 +302,7 @@ def test_interactive_scan_uses_trusted_tab_input_and_keeps_order_unresolved(mock
 
     assert results["10.7.1"]["verdict"] == "needs_review"
     assert results["12.8.1"]["verdict"] == "needs_review"
+    assert report["collector_status"]["focus"]["focus_restoration"] == "completed"
     assert len(mock.commands_for("Input.dispatchKeyEvent")) == 4
     assert all(call["key"] == "Tab" for call in mock.commands_for("Input.dispatchKeyEvent"))
 
@@ -230,6 +327,23 @@ def test_privileged_spacing_probe_reports_new_clipping(mock, client):
     assert result["verdict"] == "needs_review"
     assert result["findings"][0]["target"] == "#card"
     assert "__cdpx_rgaa_text_spacing" in mock.commands_for("Runtime.evaluate")[-1]["expression"]
+
+
+def test_spacing_cleanup_failure_is_reported_as_execution_error(mock, client):
+    mock.on_eval("__cdpx_rgaa_text_spacing_cleanup", {"error": "cleanup failed"})
+    mock.on_eval(
+        "__cdpx_rgaa_text_spacing_v2",
+        json.dumps({"candidates": 1, "clipped": [], "truncated": False}),
+    )
+
+    report = scan(client, scope="privileged", selected_tests=("10.12.1",))
+    collector = report["collector_status"]["text-spacing"]
+
+    assert report["execution_status"] == "partial"
+    assert collector["status"] == "error"
+    assert collector["cleanup"]["attempted"] is True
+    assert collector["cleanup"]["completed"] is False
+    assert "cleanup failed" in collector["cleanup"]["error"]
 
 
 def test_hybrid_axe_observations_are_isolated_bounded_and_never_oracle_verdicts(mock, client):
@@ -266,6 +380,15 @@ def test_hybrid_axe_observations_are_isolated_bounded_and_never_oracle_verdicts(
     axe_call = mock.commands_for("Runtime.evaluate")[-1]
     assert axe_call["contextId"] == 42
     assert hashlib_sha256(Path(provider.AXE_PATH).read_bytes()) == provider.AXE_HASH
+
+
+def test_required_hybrid_provider_failure_marks_execution_partial(mock, client):
+    mock.on_eval("__cdpx_rgaa_axe_provider", {"error": "axe failed"})
+
+    report = scan(client, engine="hybrid", selected_tests=("1.1.1",))
+
+    assert report["execution_status"] == "partial"
+    assert report["providers"][0]["status"] == "error"
 
 
 def test_axe_provider_shares_the_scan_deadline_across_protocol_calls():
@@ -480,12 +603,64 @@ pages:
         "http://site.test/good",
         "http://site.test/broken",
     ]
-    assert aggregated["8.3.1"]["verdict"] == "fail"
-    assert next(item for item in result["criteria"] if item["id"] == "8.3")["verdict"] == ("fail")
+    assert aggregated["8.3.1"]["verdict"] == "needs_review"
+    assert next(item for item in result["criteria"] if item["id"] == "8.3")["verdict"] == (
+        "needs_review"
+    )
     assert next(item for item in result["themes"] if item["id"] == 8)["verdict"] == "fail"
     assert len(result["criteria"]) == 106
     assert result["summary"]["pages"] == 2
     assert result["summary"]["certification_claim"] is False
+
+
+def test_sample_partial_coverage_cannot_aggregate_to_pass(mock, client, tmp_path):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        """schema: cdpx.rgaa.sample/v1
+pages:
+  - id: selected
+    url: http://site.test/selected
+    tests: [8.3.1]
+  - id: excluded
+    url: http://site.test/excluded
+    tests: [2.1.1]
+""",
+        encoding="utf-8",
+    )
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+
+    result = run_sample(client, compile_sample(path), timeout=5)
+    aggregated = next(test for test in result["tests"] if test["id"] == "8.3.1")
+
+    assert aggregated["coverage_complete"] is False
+    assert aggregated["verdict"] == "needs_review"
+    assert result["summary"]["resolved"] == 0
+
+
+def test_sample_stops_at_first_policy_breach(mock, client, tmp_path):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        """schema: cdpx.rgaa.sample/v1
+pages:
+  - id: first
+    url: http://site.test/first
+  - id: second
+    url: http://site.test/second
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PolicyError, match="origin rejected"):
+        run_sample(
+            client,
+            compile_sample(path),
+            timeout=5,
+            origin_guard=lambda: (_ for _ in ()).throw(PolicyError("origin rejected")),
+        )
+
+    assert [call["url"] for call in mock.commands_for("Page.navigate")] == [
+        "http://site.test/first"
+    ]
 
 
 def test_catalog_cli_is_browser_free_and_keeps_single_json_output(capsys):
@@ -497,6 +672,15 @@ def test_catalog_cli_is_browser_free_and_keeps_single_json_output(capsys):
     assert payload["schema"] == "cdpx.rgaa.catalog-summary/v1"
     assert payload["selected"] == 1
     assert payload["tests"][0]["id"] == "2.1.1"
+
+
+def test_catalog_cli_preserves_the_complete_normative_inventory(capsys):
+    code = main(["--limit", "1", "rgaa", "catalog"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert len(payload["tests"]) == 258
+    assert "tests_truncated" not in payload
 
 
 def test_catalog_cli_rejects_an_explicitly_empty_test_selection(capsys):
@@ -568,13 +752,14 @@ def test_scan_cli_navigation_failure_returns_complete_error_report(mock, cli_man
         "2.1.1,8.3.1",
     )
 
-    assert code == 0 and err == ""
+    assert code == 1 and err == ""
     report = json.loads(out)
     selected = {test["id"]: test for test in report["tests"]}
     assert len(report["tests"]) == 258
     assert selected["2.1.1"]["verdict"] == "error"
     assert selected["8.3.1"]["verdict"] == "error"
     assert report["collector_status"]["page-navigation"]["status"] == "error"
+    assert report["execution_status"] == "error"
 
 
 def test_passive_collector_failure_is_explicit_and_preserves_catalog(mock, client):
@@ -587,6 +772,18 @@ def test_passive_collector_failure_is_explicit_and_preserves_catalog(mock, clien
     assert selected["2.1.1"]["verdict"] == "error"
     assert selected["8.3.1"]["verdict"] == "error"
     assert report["collector_status"]["passive-dom-css"]["status"] == "error"
+
+
+def test_timed_out_runtime_probe_is_explicitly_terminated(mock, client, monkeypatch):
+    monkeypatch.setattr(
+        "cdpx.rgaa.scanner.js.evaluate",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(CDPTimeout("probe timeout")),
+    )
+
+    report = scan(client, selected_tests=("8.1.1",))
+
+    assert report["execution_status"] == "error"
+    assert len(mock.commands_for("Runtime.terminateExecution")) >= 1
 
 
 def test_native_isolation_failure_still_returns_complete_error_report(mock, client):
@@ -621,6 +818,26 @@ pages:
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "schema must be cdpx.rgaa.sample/v1" in captured.err
+
+
+@pytest.mark.parametrize(
+    "mapping_key",
+    ("42", "true", "? [a, b]\n"),
+)
+def test_sample_validate_rejects_non_text_mapping_keys_cleanly(mapping_key, tmp_path, capsys):
+    invalid = tmp_path / "invalid-key.yml"
+    prefix = (
+        f"{mapping_key}: value\n" if not mapping_key.startswith("?") else f"{mapping_key}: value\n"
+    )
+    invalid.write_text(
+        prefix + "schema: cdpx.rgaa.sample/v1\npages:\n  - id: home\n    url: http://site.test/\n",
+        encoding="utf-8",
+    )
+
+    assert main(["rgaa", "sample", "validate", str(invalid)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "mapping keys must be strings" in captured.err
 
 
 def test_sample_run_cli_emits_one_bounded_json_result(mock, cli_manifest, tmp_path, capsys):

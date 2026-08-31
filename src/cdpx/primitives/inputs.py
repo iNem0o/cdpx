@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from cdpx.client import CDPClient
+from cdpx.client import CDPClient, CDPError, CDPTimeout, CDPTransportError
 from cdpx.policy import assert_url_allowed, origin_from_url, parse_exact_origin
 
 OriginGuard = Callable[[Callable[[], float] | None], None]
@@ -574,23 +574,36 @@ def press_key(
     key: str,
     *,
     remaining: Callable[[], float] | None = None,
+    after_key_down: Callable[[], None] | None = None,
 ) -> dict:
     if key not in KEY_MAP:
         raise ValueError(f"unsupported key: {key} (available: {', '.join(KEY_MAP)})")
     params = KEY_MAP[key]
     down = {"type": "rawKeyDown", **{k: v for k, v in params.items() if k != "text"}}
     _send(client, "Input.dispatchKeyEvent", down, remaining=remaining)
-    if "text" in params:
-        _send(
-            client,
-            "Input.dispatchKeyEvent",
-            {"type": "char", "text": params["text"], "key": params["key"]},
-            remaining=remaining,
-        )
-    _send(
-        client,
-        "Input.dispatchKeyEvent",
-        {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
-        remaining=remaining,
-    )
+    pending_error: BaseException | None = None
+    try:
+        if after_key_down is not None:
+            after_key_down()
+        if "text" in params:
+            _send(
+                client,
+                "Input.dispatchKeyEvent",
+                {"type": "char", "text": params["text"], "key": params["key"]},
+                remaining=remaining,
+            )
+    except BaseException as error:
+        pending_error = error
+        raise
+    finally:
+        try:
+            _send(
+                client,
+                "Input.dispatchKeyEvent",
+                {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
+                remaining=remaining,
+            )
+        except CDPError, CDPTimeout, CDPTransportError:
+            if pending_error is None:
+                raise
     return {"pressed": key}

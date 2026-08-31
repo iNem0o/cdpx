@@ -71,6 +71,15 @@ cdpx uses semantic versioning.
   shares navigation and axe work across the global deadline, rejects explicit
   empty CLI selections and non-regular manifest inputs without blocking, and
   keeps the 32-command proof/site inventory synchronized.
+- RGAA origin-policy violations now escape every collector and stop samples;
+  operational failures emit a complete report with exit 1 and an explicit
+  execution status. Exact document identity is checked between collectors,
+  open shadow roots no longer break passive scans, environment hashing is
+  bounded, and focus/key/text-spacing cleanup outcomes are reported.
+- RGAA 8.1.1 now resolves doctype presence only, while missing root language
+  for 8.3.1 stays under review. Partial sample coverage cannot aggregate to a
+  pass, normative catalog/sample plans ignore generic list truncation, and
+  non-text YAML keys fail as clean usage errors.
 
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced

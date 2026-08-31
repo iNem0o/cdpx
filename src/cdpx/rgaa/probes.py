@@ -43,10 +43,10 @@ PASSIVE_PROBE = r"""
       const root = roots.pop();
       if (!root) continue;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-      let node = root;
+      let node = root.nodeType === Node.ELEMENT_NODE ? root : walker.nextNode();
       while (node && examined < NODE_LIMIT) {
         examined += 1;
-        if (predicate(node)) matches.push(node);
+        if (node.nodeType === Node.ELEMENT_NODE && predicate(node)) matches.push(node);
         if (node.shadowRoot) roots.push(node.shadowRoot);
         node = walker.nextNode();
       }
@@ -138,7 +138,7 @@ PASSIVE_PROBE = r"""
       node = walker.nextNode();
     }
   }
-  const refreshWalk = walkElements((element) => element.matches('meta[http-equiv="refresh" i],object,embed,svg,canvas'));
+  const refreshWalk = walkElements((element) => element.matches('meta[http-equiv="refresh" i]'));
   const doctype = document.doctype, titleElement = document.querySelector("head > title"), html = document.documentElement;
   return stringify({
     doctype: doctype ? {present: true, name: doctype.name, public_id: doctype.publicId, system_id: doctype.systemId, evidence_complete: true} : {present: false, evidence_complete: true},
@@ -153,7 +153,35 @@ PASSIVE_PROBE = r"""
 
 FOCUS_RESET_PROBE = r"""
 // __cdpx_rgaa_focus_reset_v2
-(() => { const active = document.activeElement; const token = active && active !== document.body && active !== document.documentElement ? {id: active.id || null, tag: active.localName || null} : null; if (active && typeof active.blur === "function") active.blur(); return JSON.stringify(token); })()
+(() => {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  const token = active && active !== document.body && active !== document.documentElement
+    ? {id: active.id || null, tag: active.localName || null, name: active.getAttribute?.("name") || null}
+    : null;
+  if (active && typeof active.blur === "function") active.blur();
+  return JSON.stringify(token);
+})()
+"""
+
+FOCUS_RESTORE_PROBE = r"""
+// __cdpx_rgaa_focus_restore_v2
+(() => {
+  const token = __CDPX_FOCUS_TOKEN__;
+  if (!token) {
+    let active = document.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    if (active && typeof active.blur === "function") active.blur();
+    return document.activeElement === document.body || document.activeElement === document.documentElement;
+  }
+  let target = token.id ? document.getElementById(token.id) : null;
+  if (!target && token.name && token.tag) {
+    target = [...document.getElementsByTagName(token.tag)].find((item) => item.getAttribute("name") === token.name) || null;
+  }
+  if (!target || typeof target.focus !== "function") return false;
+  target.focus({preventScroll: true});
+  return document.activeElement === target;
+})()
 """
 
 FOCUS_STATE_PROBE = r"""

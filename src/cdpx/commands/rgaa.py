@@ -6,14 +6,14 @@ import argparse
 from typing import cast
 
 from cdpx import scenarios
+from cdpx.client import CDPError, CDPTimeout, CDPTransportError
 from cdpx.commands.shared import (
     assert_session_current,
     browser_client,
-    emit_json,
     emit_rgaa_json,
     execution,
 )
-from cdpx.policy import Authority, assert_url_allowed
+from cdpx.policy import assert_url_allowed
 from cdpx.primitives import nav
 from cdpx.rgaa.catalog import CatalogError, describe_catalog, parse_test_selection, test_index
 from cdpx.rgaa.plan import ExecutionBudget, build_scan_plan
@@ -31,26 +31,18 @@ def _tests_arg(value: str) -> tuple[str, ...]:
     return selected
 
 
-def _required_authority(scope: str, engine: str) -> Authority:
-    if engine == "hybrid" or scope == "privileged":
-        return Authority.PRIVILEGED
-    if scope == "interactive":
-        return Authority.INTERACTION
-    return Authority.OBSERVATION
-
-
 def cmd_catalog(args) -> None:
-    emit_json(args, describe_catalog(args.options.tests))
+    emit_rgaa_json(args, describe_catalog(args.options.tests))
 
 
-def cmd_scan(args) -> None:
+def cmd_scan(args) -> int:
     selected = args.options.tests
-    required = _required_authority(args.options.scope, args.options.engine)
     context = execution(args)
     if args.options.url:
         assert_url_allowed(args.options.url, context.origins)
     wanted = set(selected or test_index())
     plan = build_scan_plan(wanted, scope=args.options.scope, engine=args.options.engine)
+    required = plan.required_authority
     maximum = plan.maximum_actions + (1 if args.options.url else 0)
     if args.options.max_actions is not None and maximum > args.options.max_actions:
         raise scenarios.ScenarioUsageError(
@@ -62,7 +54,7 @@ def cmd_scan(args) -> None:
             budget.consume("RGAA navigation")
             try:
                 nav.navigate(client, args.options.url, wait="load", timeout=budget.remaining())
-            except Exception as error:
+            except (CDPError, CDPTimeout, CDPTransportError) as error:
                 emit_rgaa_json(
                     args,
                     scan_error_report(
@@ -73,7 +65,7 @@ def cmd_scan(args) -> None:
                         budget=budget,
                     ),
                 )
-                return
+                return 1
         assert_session_current(args, client, timeout=budget.remaining())
         result = scan(
             client,
@@ -84,7 +76,9 @@ def cmd_scan(args) -> None:
             budget=budget,
             origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
         )
+        assert_session_current(args, client, timeout=budget.remaining())
         emit_rgaa_json(args, result)
+        return 0 if result["execution_status"] == "complete" else 1
 
 
 def _compile_or_usage(path: str | None):
@@ -98,10 +92,10 @@ def _compile_or_usage(path: str | None):
 
 def cmd_sample_validate(args) -> None:
     compiled = _compile_or_usage(args.options.path)
-    emit_json(args, compiled.public_plan())
+    emit_rgaa_json(args, compiled.public_plan())
 
 
-def cmd_sample_run(args) -> None:
+def cmd_sample_run(args) -> int:
     compiled = _compile_or_usage(args.options.path)
     context = execution(args)
     for page in compiled.pages:
@@ -129,7 +123,9 @@ def cmd_sample_run(args) -> None:
             budget=budget,
             origin_guard=lambda: assert_session_current(args, client, timeout=budget.remaining()),
         )
+        assert_session_current(args, client, timeout=budget.remaining())
         emit_rgaa_json(args, result)
+        return 0 if result["execution_status"] == "complete" else 1
 
 
 def register_commands(

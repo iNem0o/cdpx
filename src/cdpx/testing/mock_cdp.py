@@ -262,11 +262,28 @@ class MockCDP:
             for substring, values in self.eval_rules:
                 if substring in expr:
                     value = values.popleft() if len(values) > 1 else values[0]
+                    if isinstance(value, dict) and "error" in value:
+                        return None, {"code": -32000, "message": str(value["error"])}, events
                     if isinstance(value, dict) and "raw" in value:
                         return value["raw"], None, events
                     return {"result": {"type": type(value).__name__, "value": value}}, None, events
             if "window.location.href" in expr:
                 value = self.targets.get(tid, {}).get("url", "about:blank")
+                return {"result": {"type": "str", "value": value}}, None, events
+            if "__cdpx_rgaa_environment" in expr:
+                value = json.dumps(
+                    {
+                        "user_agent": "MockCDP",
+                        "locale": "en",
+                        "viewport": {"width": 800, "height": 600},
+                        "media": {},
+                        "dom_sha256": "0" * 64,
+                        "nodes_examined": 1,
+                        "bytes_examined": 1,
+                        "truncated": False,
+                        "hash_complete": True,
+                    }
+                )
                 return {"result": {"type": "str", "value": value}}, None, events
             return {"result": {"type": "string", "value": "mock"}}, None, events
 
@@ -299,6 +316,7 @@ class MockCDP:
             frame_tree: dict[str, Any] = {
                 "frame": {
                     "id": "FRAME1",
+                    "loaderId": "LOADER1",
                     "url": main_url,
                 }
             }

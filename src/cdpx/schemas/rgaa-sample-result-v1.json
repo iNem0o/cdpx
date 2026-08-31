@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://inem0o.github.io/cdpx/schema/rgaa-sample-result-v1.json",
   "type": "object",
-  "required": ["schema", "rgaa_version", "sample", "summary", "themes", "criteria", "tests", "pages", "limitations"],
+  "required": ["schema", "execution_status", "rgaa_version", "sample", "summary", "themes", "criteria", "tests", "pages", "limitations"],
   "properties": {
     "schema": {"const": "cdpx.rgaa.sample-result/v1"},
+    "execution_status": {"enum": ["complete", "partial", "error"]},
     "rgaa_version": {"const": "4.1.2"},
     "sample": {"$ref": "rgaa-sample-plan-v1.json"},
     "summary": {"type": "object"},

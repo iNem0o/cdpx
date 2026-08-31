@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 
 from cdpx.client import CDPTimeout
+from cdpx.policy import Authority
 from cdpx.rgaa import provider
 
 PASSIVE_TESTS = frozenset(
@@ -43,6 +44,18 @@ class ScanPlan:
     axe: bool
     maximum_actions: int
 
+    @property
+    def environment(self) -> bool:
+        return any((self.passive, self.accessibility, self.focus, self.spacing, self.axe))
+
+    @property
+    def required_authority(self) -> Authority:
+        if self.spacing or self.axe:
+            return Authority.PRIVILEGED
+        if self.focus:
+            return Authority.INTERACTION
+        return Authority.OBSERVATION
+
     def public(self) -> dict[str, object]:
         return {
             "collectors": [
@@ -56,7 +69,9 @@ class ScanPlan:
                 )
                 if enabled
             ],
+            "environment": self.environment,
             "maximum_actions": self.maximum_actions,
+            "required_authority": self.required_authority.value,
         }
 
 

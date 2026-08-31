@@ -125,7 +125,10 @@ cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 
 All 258 official tests remain in each result. The native engine owns RGAA
 semantics; optional axe-core observations are offline, isolated and advisory.
-Every aggregation publishes `certification_claim: false`.
+Every aggregation publishes `certification_claim: false`. Page and sample
+results also publish `execution_status: complete|partial|error`; operational
+failure still writes the full JSON report on stdout but exits `1`. Proven
+non-conformance after a completed audit remains exit `0`.
 
 ```bash
 cdpx rgaa catalog --tests 2.1.1,8.3.1

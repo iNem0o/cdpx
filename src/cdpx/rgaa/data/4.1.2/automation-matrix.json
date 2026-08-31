@@ -4614,7 +4614,7 @@
     "detectable": true,
     "auto_applicability": true,
     "auto_pass": true,
-    "auto_fail": true,
+    "auto_fail": false,
     "auto_not_applicable": false,
     "human_judgment": true,
     "assistive_technology": false,

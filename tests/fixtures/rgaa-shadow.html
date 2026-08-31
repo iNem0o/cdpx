@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>RGAA shadow DOM ouvert</title>
+  <style>body { color: #111; background: #fff; }</style>
+</head>
+<body>
+  <main>
+    <p>Contenu lumineux observable.</p>
+    <div id="component"></div>
+  </main>
+  <script>
+    const outer = document.querySelector("#component").attachShadow({mode: "open"});
+    outer.innerHTML = '<a href="#target">Action shadow</a><input aria-label="Recherche"><div id="nested"></div><iframe title="Aide shadow"></iframe>';
+    const nested = outer.querySelector("#nested").attachShadow({mode: "open"});
+    nested.innerHTML = '<button type="button">Action imbriquée</button><span style="color:#111;background:#fff">Texte imbriqué</span>';
+  </script>
+</body>
+</html>

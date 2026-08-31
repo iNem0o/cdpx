@@ -2126,7 +2126,8 @@ def test_rgaa_native_scan_real(page, evidence_case):
     nav.navigate(c, f"{base}/rgaa-broken.html")
     broken = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
     broken_tests = {test["id"]: test for test in broken["tests"]}
-    assert all(broken_tests[test_id]["verdict"] == "fail" for test_id in ("2.1.1", "8.3.1"))
+    assert broken_tests["2.1.1"]["verdict"] == "fail"
+    assert broken_tests["8.3.1"]["verdict"] == "needs_review"
     assert all(
         broken_tests[test_id]["verdict"] == "needs_review" for test_id in ("3.2.1", "11.1.1")
     )
@@ -2145,6 +2146,135 @@ def test_rgaa_native_probe_isolated_from_hostile_main_world(page):
     result = next(test for test in report["tests"] if test["id"] == "2.1.1")
     assert result["verdict"] == "fail"
     assert report["collector_status"]["passive-dom-css"]["isolated_world"] is True
+
+
+def test_rgaa_native_probe_walks_nested_open_shadow_roots(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+
+    report = rgaa_scan(
+        c,
+        selected_tests=("2.1.1", "3.2.1", "6.1.1", "11.1.1", "11.9.1"),
+    )
+    assert report["execution_status"] == "complete"
+    assert report["collector_status"]["passive-dom-css"]["status"] == "ok"
+    assert all(
+        test["verdict"] != "error"
+        for test in report["tests"]
+        if test["id"] in {"2.1.1", "3.2.1", "6.1.1", "11.1.1", "11.9.1"}
+    )
+
+
+def test_rgaa_installed_cli_covers_catalog_scopes_and_samples(cli_page, tmp_path, evidence_case):
+    manifest, path, base = cli_page
+
+    catalog_proc = run_cli(manifest, path, "--limit", "1", "rgaa", "catalog")
+    attach_cli_run(evidence_case, "RGAA complete catalog through installed CLI", catalog_proc)
+    catalog = successful_json(catalog_proc)
+    assert len(catalog["tests"]) == 258
+
+    passive = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa-shadow.html",
+            "--tests",
+            "2.1.1,8.3.1",
+            timeout=30,
+        )
+    )
+    assert passive["execution_status"] == "complete"
+
+    interactive = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa.html",
+            "--scope",
+            "interactive",
+            "--tests",
+            "10.7.1",
+            timeout=30,
+        )
+    )
+    assert interactive["collector_status"]["focus"]["status"] == "ok"
+
+    privileged = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa.html",
+            "--scope",
+            "privileged",
+            "--tests",
+            "10.12.1",
+            timeout=30,
+        )
+    )
+    assert privileged["collector_status"]["text-spacing"]["status"] == "ok"
+
+    hybrid = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa.html",
+            "--engine",
+            "hybrid",
+            "--tests",
+            "1.1.1",
+            timeout=30,
+        )
+    )
+    assert hybrid["providers"][0]["status"] == "ok"
+
+    sample = tmp_path / "rgaa-cli-sample.yml"
+    sample.write_text(
+        f"""schema: cdpx.rgaa.sample/v1
+pages:
+  - id: baseline
+    url: {base}/rgaa.html
+    tests: [2.1.1, 8.3.1]
+  - id: shadow
+    url: {base}/rgaa-shadow.html
+    tests: [2.1.1, 8.3.1]
+""",
+        encoding="utf-8",
+    )
+    plan = successful_json(
+        run_cli(manifest, path, "--limit", "1", "rgaa", "sample", "validate", str(sample))
+    )
+    assert plan["page_count"] == len(plan["pages"]) == 2
+    sample_result = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "30",
+            "rgaa",
+            "sample",
+            "run",
+            str(sample),
+            timeout=40,
+        )
+    )
+    assert sample_result["execution_status"] == "complete"
+    assert len(sample_result["pages"]) == 2
 
 
 def test_rgaa_interactive_privileged_and_hybrid_scopes_real(page):
@@ -2211,7 +2341,7 @@ pages:
     ]
     assert all(len(page_result["report"]["tests"]) == 258 for page_result in result["pages"])
     assert tests["2.1.1"]["verdict"] == "fail"
-    assert tests["8.3.1"]["verdict"] == "fail"
+    assert tests["8.3.1"]["verdict"] == "needs_review"
     assert result["summary"]["certification_claim"] is False
 
 

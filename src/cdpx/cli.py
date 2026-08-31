@@ -37,6 +37,7 @@ from cdpx.primitives import (
     inputs,
     js,
 )
+from cdpx.rgaa.scanner import AuditInvariantError
 from cdpx.security import redact_text
 
 # -- commands -----------------------------------------------------------------
@@ -190,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         discovery.DiscoveryError,
         js.JSException,
         inputs.ElementNotFound,
+        AuditInvariantError,
         ValueError,
         TimeoutError,
     ) as e:

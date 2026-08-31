@@ -1,5 +1,20 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@30dd6b4
+  - Symptom: the first complete gate passed every functional suite but the
+    proof cockpit rejected the new installed-CLI RGAA scenario because it had
+    no exact command transcript; the next run then exposed one unformatted
+    test signature.
+  - Root cause (missing capability): invoking the installed binary in a real
+    Chromium test proves behavior but does not by itself attach evidence to the
+    documented scenario, and the final test edit had not passed the formatter.
+  - Fix encoded (doc/script/lint): the black-box scenario now attaches its
+    catalog command result through the proof fixture, and the complete source,
+    test and tools tree is formatter-clean.
+  - Verification (command/CI): `./dev check` returned `ok: true` for all 1,110
+    tests (1,043 unit, 58 Chrome, 7 Symfony and 2 Shopware), with zero skips,
+    failures, unavailable suites or proof violations.
+
 - Session-Key: feat/rgaa-audit-engine@54fd352
   - Symptom: the protocol mock accepted invalid asynchronous focus and
     text-spacing JavaScript that real Chromium rejected; the first complete

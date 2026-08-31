@@ -12,15 +12,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
 import yaml
 
-from cdpx.client import CDPClient
-from cdpx.policy import Authority
+from cdpx.client import CDPClient, CDPError, CDPTimeout, CDPTransportError
+from cdpx.policy import Authority, PolicyError, origin_from_url
 from cdpx.primitives import nav
 from cdpx.rgaa.catalog import EXPECTED_COUNTS, RGAA_VERSION, parse_test_selection, test_index
-from cdpx.rgaa.plan import ExecutionBudget
+from cdpx.rgaa.plan import ExecutionBudget, build_scan_plan
 from cdpx.rgaa.scanner import (
     VERDICTS,
     Engine,
@@ -43,6 +43,13 @@ def _unique_mapping(loader: yaml.Loader, node: yaml.Node, deep: bool = False) ->
     result: dict[Any, Any] = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, str):
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "mapping keys must be strings",
+                key_node.start_mark,
+            )
         if key in result:
             raise yaml.constructor.ConstructorError(
                 "while constructing a mapping",
@@ -74,11 +81,19 @@ class CompiledSample:
 
     @property
     def authority(self) -> Authority:
-        if self.engine == "hybrid" or self.scope == "privileged":
-            return Authority.PRIVILEGED
-        if self.scope == "interactive":
-            return Authority.INTERACTION
-        return Authority.OBSERVATION
+        known = set(test_index())
+        required = Authority.OBSERVATION
+        for page in self.pages:
+            plan = build_scan_plan(
+                set(page.tests) if page.tests is not None else known,
+                scope=self.scope,
+                engine=self.engine,
+            )
+            if plan.required_authority is Authority.PRIVILEGED:
+                return Authority.PRIVILEGED
+            if plan.required_authority is Authority.INTERACTION:
+                required = plan.required_authority
+        return required
 
     def public_plan(self) -> dict[str, Any]:
         return {
@@ -101,14 +116,12 @@ def _http_url(value: Any, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"RGAA sample: {label} non-empty URL required")
     url = value.strip()
-    parsed = urlsplit(url)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-    ):
-        raise ValueError(f"RGAA sample: {label} must be an HTTP(S) URL without credentials")
+    try:
+        origin_from_url(url)
+    except PolicyError as error:
+        raise ValueError(
+            f"RGAA sample: {label} must be an HTTP(S) URL without credentials"
+        ) from error
     return url
 
 
@@ -237,7 +250,10 @@ def _aggregate(page_reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
         for report in page_reports:
             match = next(test for test in report["report"]["tests"] if test["id"] == test_id)
             page_values.append({"page_id": report["page_id"], "verdict": match["verdict"]})
+        coverage_complete = all(item["verdict"] != "not_tested" for item in page_values)
         verdict = max((item["verdict"] for item in page_values), key=_PRECEDENCE.__getitem__)
+        if not coverage_complete and verdict in {"pass", "not_applicable"}:
+            verdict = "needs_review"
         aggregated.append(
             {
                 "id": test_id,
@@ -247,7 +263,7 @@ def _aggregate(page_reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
                 "pages": page_values,
                 "tested_pages": sum(item["verdict"] != "not_tested" for item in page_values),
                 "excluded_pages": sum(item["verdict"] == "not_tested" for item in page_values),
-                "coverage_complete": all(item["verdict"] != "not_tested" for item in page_values),
+                "coverage_complete": coverage_complete,
             }
         )
     counts = Counter(item["verdict"] for item in aggregated)
@@ -270,7 +286,7 @@ def run_sample(
     origin_guard: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     active_budget = budget or ExecutionBudget.start(timeout)
-    page_reports = []
+    page_reports: list[dict[str, Any]] = []
     for page in compiled.pages:
         try:
             active_budget.consume(f"navigation to sample page {page.id}")
@@ -288,7 +304,9 @@ def run_sample(
             )
             if origin_guard is not None:
                 origin_guard()
-        except Exception as error:
+        except PolicyError:
+            raise
+        except (CDPError, CDPTimeout, CDPTransportError, TimeoutError) as error:
             report = scan_error_report(
                 scope=compiled.scope,
                 engine=compiled.engine,
@@ -299,8 +317,15 @@ def run_sample(
         page_reports.append({"page_id": page.id, "url": page.url, "report": report})
     tests, summary = _aggregate(page_reports)
     criteria, themes = summarize_hierarchy(tests)
+    page_statuses: list[str] = [item["report"]["execution_status"] for item in page_reports]
+    execution_status = "complete"
+    if any(status != "complete" for status in page_statuses):
+        execution_status = (
+            "error" if all(status == "error" for status in page_statuses) else "partial"
+        )
     return {
         "schema": "cdpx.rgaa.sample-result/v1",
+        "execution_status": execution_status,
         "rgaa_version": RGAA_VERSION,
         "sample": compiled.public_plan(),
         "summary": summary,
