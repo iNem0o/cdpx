@@ -331,9 +331,19 @@ def finalize_sample_report_error(
     report["tests"] = tests
     report["summary"] = summary
     report["criteria"], report["themes"] = summarize_hierarchy(tests)
-    report["execution_status"] = "partial"
+    prior_status = str(report.get("execution_status", "complete"))
+    page_status = (
+        "error"
+        if page_reports
+        and all(page["report"].get("execution_status") == "error" for page in page_reports)
+        else "partial"
+    )
+    execution_precedence = {"complete": 0, "partial": 1, "error": 2}
+    report["execution_status"] = max(
+        (prior_status, page_status), key=lambda status: execution_precedence.get(status, 0)
+    )
     statuses = report.setdefault("collector_status", {})
-    statuses["sample-pages"] = {"status": "partial"}
+    statuses["sample-pages"] = {"status": page_status}
     statuses[collector] = {"status": "error", "error": str(error)}
     return report
 

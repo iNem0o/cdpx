@@ -2256,6 +2256,63 @@ def test_rgaa_adversarial_dom_work_is_bounded(page, setup, scope, test_id):
     assert collector["subtree_truncated"] is True
 
 
+def test_rgaa_title_evidence_is_independent_and_truncation_never_fails(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(
+        c,
+        "document.title = 'Titre parfaitement pertinent'; "
+        "document.body.replaceChildren(...Array.from({length: 6000}, "
+        "() => document.createElement('span')))",
+    )
+
+    report = rgaa_scan(c, selected_tests=("8.6.1",), timeout=10)
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+    assert result["verdict"] == "needs_review"
+    assert result["evidence"][0]["title"] == "Titre parfaitement pertinent"
+    assert result["evidence"][0]["evidence_complete"] is True
+
+    js.evaluate(c, "document.title = ' '.repeat(300) + 'Titre pertinent'")
+    report = rgaa_scan(c, selected_tests=("8.6.1",), timeout=10)
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+    assert result["verdict"] == "needs_review"
+    assert result["evidence"][0]["title"] == "Titre pertinent"
+    assert result["evidence"][0]["evidence_complete"] is True
+
+    js.evaluate(c, "document.title = ' '.repeat(5000) + 'Titre hors frontière'")
+    report = rgaa_scan(c, selected_tests=("8.6.1",), timeout=10)
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+    assert result["verdict"] == "needs_review"
+    assert result["findings"] == []
+    assert result["evidence"][0]["value_truncated"] is True
+    assert result["evidence"][0]["evidence_complete"] is False
+
+
+def test_rgaa_passive_probe_bounds_raw_attributes_and_ancestor_walks(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(
+        c,
+        "(() => { const input = document.createElement('input'); "
+        "input.setAttribute('role', 'A'.repeat(2_000_000)); "
+        "document.body.replaceChildren(input); let root = document.body; "
+        "for (let index = 0; index < 2000; index++) { "
+        "const wrapper = document.createElement('div'); wrapper.append('x'); "
+        "root.append(wrapper); root = wrapper; } return true; })()",
+    )
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    observation = rgaa_scanner._load_probe(
+        c, context_id, rgaa_scanner.PASSIVE_PROBE, ExecutionBudget.start(10)
+    )
+
+    assert len(observation["fields"]["items"][0]["role"]) <= 64
+    assert observation["nodes_examined"] <= 5000
+    assert observation["bytes_examined"] <= 262144
+    assert observation["subtree_truncated"] is True
+
+
 def test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline(page):
     c, base = page
     nav.navigate(c, f"{base}/rgaa-shadow.html")

@@ -93,6 +93,10 @@ cdpx uses semantic versioning.
   Chromium execution timeouts; focus/key cleanup has an independent guarded
   budget. Environment components, AX target correlation, manual-scan URLs and
   sample validation action/collector plans are now reported unambiguously.
+- RGAA initial verification and axe provider failures now preserve the full
+  report; title, raw attribute and ancestor evidence is bounded without false
+  automatic failures, finalization severity is monotone, and axe receives a
+  renderer-side deadline.
 
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced

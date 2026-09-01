@@ -27,12 +27,42 @@ PASSIVE_PROBE = r"""
     if (raw.length > charLimit) budget.subtree_truncated = true;
     return bounded.slice(0, length).trim();
   };
+  const titleEvidence = (element) => {
+    if (!element) return {present: false, value: "", value_truncated: false, evidence_complete: true};
+    const TITLE_NODE_LIMIT = 32, TITLE_SCAN_LIMIT = 4096, TITLE_VALUE_LIMIT = 240;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const chunks = [];
+    let node = walker.nextNode(), nodes = 0, characters = 0, truncated = false;
+    while (node && nodes < TITLE_NODE_LIMIT && characters < TITLE_SCAN_LIMIT) {
+      if (!takeNode()) { truncated = true; break; }
+      const raw = String(node.nodeValue || "");
+      const available = TITLE_SCAN_LIMIT - characters;
+      const pieceLength = Math.min(raw.length, available);
+      const piece = cut(raw, pieceLength);
+      if (piece) chunks.push(piece);
+      characters += pieceLength; nodes += 1;
+      if (raw.length > pieceLength) { truncated = true; break; }
+      node = walker.nextNode();
+    }
+    if (node) truncated = true;
+    const value = chunks.join(" ").trim();
+    const valueTruncated = truncated || value.length > TITLE_VALUE_LIMIT;
+    return {
+      present: true,
+      value: value.slice(0, TITLE_VALUE_LIMIT),
+      value_truncated: valueTruncated,
+      evidence_complete: !valueTruncated
+    };
+  };
+  // Capture title evidence before the shared document walk can exhaust its
+  // node budget. Its own frontier is explicit and never supports a false fail.
+  const titleElement = document.querySelector("head > title"), title = titleEvidence(titleElement);
   const structuralPath = (element) => {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
     const parts = [];
     let current = element;
     while (current && current.nodeType === Node.ELEMENT_NODE && parts.length < 10) {
-      let part = current.localName || "element";
+      let part = cut(current.localName || "element", 64) || "element";
       const parent = current.parentElement;
       if (parent) {
         let index = 1, sibling = current.previousElementSibling;
@@ -153,9 +183,9 @@ PASSIVE_PROBE = r"""
   };
   const fieldsFound = elements.filter((element) => element.matches(fieldSelector) && exposed(element));
   const fields = group(fieldsFound, (element) => {
-    const id = element.getAttribute("id");
+    const id = cut(element.getAttribute("id"), 256);
     const explicit = id ? labelIndex.get(id) : null, implicit = implicitLabel(element);
-    return {target: structuralPath(element), tag: element.localName, role: element.getAttribute("role"),
+    return {target: structuralPath(element), tag: cut(element.localName, 64), role: cut(element.getAttribute("role"), 64),
       explicit_label: Boolean(explicit && boundedText(explicit)),
       implicit_label: Boolean(implicit && boundedText(implicit)),
       aria_labelledby: Boolean(referencedText(element, "aria-labelledby")),
@@ -176,15 +206,17 @@ PASSIVE_PROBE = r"""
   };
   const ratio = (first, second) => { const values = [luminance(first), luminance(second)].sort((a, b) => b - a); return (values[0] + 0.05) / (values[1] + 0.05); };
   const solidBackground = (element) => {
-    let current = element;
-    while (current) {
+    let current = element, depth = 0;
+    while (current && depth < 64) {
+      if (!takeNode()) return null;
       const style = getComputedStyle(current);
       if (style.backgroundImage && style.backgroundImage !== "none") return null;
       const color = parseColor(style.backgroundColor);
       if (!color || color.a > 0 && color.a < 1) return null;
       if (color.a === 1) return color;
-      current = current.parentElement;
+      current = current.parentElement; depth += 1;
     }
+    if (current) { budget.subtree_truncated = true; return null; }
     return {r: 255, g: 255, b: 255, a: 1};
   };
   const contrastCandidates = [], seenTextElements = new Set();
@@ -199,18 +231,18 @@ PASSIVE_PROBE = r"""
           else {
             const size = Number.parseFloat(style.fontSize) || 0, weight = Number.parseInt(style.fontWeight, 10) || (style.fontWeight === "bold" ? 700 : 400), bold = weight >= 700, large = bold ? size >= 18.5 : size >= 24;
             const testId = bold ? (large ? "3.2.4" : "3.2.2") : (large ? "3.2.3" : "3.2.1");
-            contrastCandidates.push({target: structuralPath(element), test_id: testId, ratio: Math.round(ratio(foreground, background) * 100) / 100, required: large ? 3 : 4.5, font_size: size, font_weight: weight, foreground: style.color, background: `rgb(${background.r}, ${background.g}, ${background.b})`});
+            contrastCandidates.push({target: structuralPath(element), test_id: testId, ratio: Math.round(ratio(foreground, background) * 100) / 100, required: large ? 3 : 4.5, font_size: size, font_weight: weight, foreground: cut(style.color, 80), background: `rgb(${background.r}, ${background.g}, ${background.b})`});
           }
         }
   }
   const refreshFound = elements.filter((element) => element.matches('meta[http-equiv="refresh" i]'));
-  const doctype = document.doctype, titleElement = document.querySelector("head > title"), html = document.documentElement;
+  const doctype = document.doctype, html = document.documentElement;
   return stringify({
-    doctype: doctype ? {present: true, name: doctype.name, public_id: doctype.publicId, system_id: doctype.systemId, evidence_complete: true} : {present: false, evidence_complete: true},
+    doctype: doctype ? {present: true, name: cut(doctype.name, 64), public_id: cut(doctype.publicId, 256), system_id: cut(doctype.systemId, 256), evidence_complete: true} : {present: false, evidence_complete: true},
     language: {lang: cut(html.getAttribute("lang"), 64), xml_lang: cut(html.getAttribute("xml:lang"), 64), evidence_complete: true},
-    title: {present: Boolean(titleElement), value: titleElement ? boundedText(titleElement, 240) : "", evidence_complete: true},
+    title,
     frames, fields, links, buttons,
-    refresh_mechanisms: group(refreshFound, (element) => ({target: structuralPath(element), kind: element.localName, content: cut(element.getAttribute("content"), 120)})),
+    refresh_mechanisms: group(refreshFound, (element) => ({target: structuralPath(element), kind: cut(element.localName, 64), content: cut(element.getAttribute("content"), 120)})),
     contrast: {items: contrastCandidates.slice(0, ITEM_LIMIT), total: contrastCandidates.length, examined: budget.nodes_examined, bytes_examined: budget.bytes_examined, unresolved: unresolvedContrast, truncated: budget.subtree_truncated || contrastCandidates.length > ITEM_LIMIT, evidence_complete: false, coverage_scope: "rendered DOM text on opaque solid backgrounds; images, generated content, frames, closed shadow roots and alternate mechanisms unobserved"},
     nodes_examined: budget.nodes_examined,
     bytes_examined: budget.bytes_examined,
@@ -259,9 +291,10 @@ FOCUS_STATE_PROBE = r"""
   while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
   if (!element || element === document.body || element === document.documentElement) return null;
   const PATH_NODE_LIMIT = 5000, parts = [];
+  const cut = (value, length) => String(value || "").slice(0, length).trim();
   let current = element, pathNodesExamined = 0, pathTruncated = false;
   while (current && current.nodeType === Node.ELEMENT_NODE && parts.length < 10) {
-    let part = current.localName || "element"; const parent = current.parentElement;
+    let part = cut(current.localName || "element", 64) || "element"; const parent = current.parentElement;
     if (parent) {
       let index = 1, sibling = current.previousElementSibling;
       while (sibling && pathNodesExamined < PATH_NODE_LIMIT) {
@@ -276,7 +309,7 @@ FOCUS_STATE_PROBE = r"""
     if (!parent && root instanceof ShadowRoot) { parts.unshift(">>"); current = root.host; } else current = parent;
   }
   const style = getComputedStyle(element), before = getComputedStyle(element, "::before"), after = getComputedStyle(element, "::after");
-  return JSON.stringify({target: parts.join(" > ").replace(/ > >> > /g, " >> "), tag: element.localName, role: element.getAttribute("role"), outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`, box_shadow: String(style.boxShadow).slice(0, 160), border: `${style.borderStyle} ${style.borderWidth} ${style.borderColor}`, background: style.backgroundColor, transform: style.transform, before_content: String(before.content).slice(0, 80), after_content: String(after.content).slice(0, 80), focus_visible_match: (() => { try { return element.matches(":focus-visible"); } catch (_) { return null; } })(), path_nodes_examined: pathNodesExamined, path_truncated: pathTruncated});
+  return JSON.stringify({target: cut(parts.join(" > ").replace(/ > >> > /g, " >> "), 1200), tag: cut(element.localName, 64), role: cut(element.getAttribute("role"), 64), outline: cut(`${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`, 240), box_shadow: cut(style.boxShadow, 160), border: cut(`${style.borderStyle} ${style.borderWidth} ${style.borderColor}`, 240), background: cut(style.backgroundColor, 80), transform: cut(style.transform, 160), before_content: cut(before.content, 80), after_content: cut(after.content, 80), focus_visible_match: (() => { try { return element.matches(":focus-visible"); } catch (_) { return null; } })(), path_nodes_examined: pathNodesExamined, path_truncated: pathTruncated});
 })()
 """
 

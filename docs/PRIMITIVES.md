@@ -132,9 +132,11 @@ results also publish `execution_status: complete|partial|error` and
 exits `1`. Proven non-conformance after a completed audit remains exit `0`.
 DOM fingerprints are hashed by cdpx from bounded page material, so the
 documented plain-HTTP `.test` workflow does not require a secure context.
-Final verification failures preserve collected JSON. Environment sub-statuses
+Initial and final verification failures preserve full JSON. Environment sub-statuses
 separate browser metadata from page fingerprinting; probe statuses expose
-node/byte/truncation/execution-timeout bounds. Sample validation publishes
+node/byte/truncation/execution-timeout bounds; incomplete title extraction
+cannot prove 8.6.1 failure, and advisory axe execution is renderer-bounded.
+Sample validation publishes
 global and per-page action budgets plus enabled collectors before Chrome opens.
 
 ```bash

@@ -792,6 +792,22 @@ def test_press_key_cleans_up_when_raw_key_down_times_out_after_effect(mock, clie
     assert cleanup["key_up"] == "completed"
 
 
+def test_press_key_sends_nothing_when_local_deadline_expires_before_key_down(mock, client):
+    cleanup: dict[str, str] = {}
+
+    with pytest.raises(CDPTimeout, match="deadline before key down"):
+        inputs.press_key(
+            client,
+            "Tab",
+            remaining=lambda: (_ for _ in ()).throw(CDPTimeout("deadline before key down")),
+            cleanup_remaining=lambda: 0.5,
+            cleanup_status=cleanup,
+        )
+
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert cleanup["key_up"] == "not_attempted"
+
+
 @pytest.mark.parametrize(
     ("key", "types"),
     [

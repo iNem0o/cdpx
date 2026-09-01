@@ -11,6 +11,11 @@ returns the complete 258-test result skeleton with explicit `error` verdicts;
 sample execution applies the same rule per declared page and never drops a
 later page from the aggregate.
 
+Initial document verification is also a reported collector boundary. A
+deadline or transport failure after navigation but before `scan()` records
+`initial-document-verification: error` in the complete JSON skeleton instead
+of escaping through the generic CLI handler.
+
 The internal document guard and command-level session guard are explicit final
 phases. Deadline or transport failure at either boundary preserves stdout JSON
 and evidence, records `final-document-verification: error`, invalidates
@@ -24,12 +29,17 @@ material is bounded in the page and hashed in Python, including on non-secure
 HTTP origins. Passive and spacing work share node/byte budgets across nested
 operations; the CDP execution timeout terminates only the isolated evaluation.
 Focus restoration and key-up use a separate one-second cleanup budget and
-recheck document identity and origin.
+recheck document identity and origin. A key-up is emitted only after dispatch
+of rawKeyDown has begun. Execution status finalization is monotone
+(`complete < partial < error`) and regenerates summary collector counts.
 
 Environment collection is advisory. Browser metadata and page fingerprinting
 have separate statuses; either failure makes execution partial without
 overwriting normative verdicts. The bounded AX request reports domain
 availability and explicitly reports that target correlation is absent.
+Operational axe bundle, frame, isolated-world, result and parsing failures are
+typed provider errors contained in the advisory provider status. Axe's promise
+uses Chromium's renderer timeout as well as the transport timeout.
 
 Passive native collection requires observation. Trusted focus traversal
 requires interaction. Text-spacing mutation and the isolated axe provider

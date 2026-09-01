@@ -65,6 +65,7 @@ _AUTO_FLAG = {
     "fail": "auto_fail",
     "not_applicable": "auto_not_applicable",
 }
+_EXECUTION_PRECEDENCE = {"complete": 0, "partial": 1, "error": 2}
 
 
 class AuditInvariantError(RuntimeError):
@@ -86,7 +87,14 @@ class DocumentIdentity:
     url: str
 
 
-_COLLECTOR_ERRORS = (CDPError, CDPTimeout, CDPTransportError, JSException, CollectorExecutionError)
+_COLLECTOR_ERRORS = (
+    CDPError,
+    CDPTimeout,
+    CDPTransportError,
+    JSException,
+    CollectorExecutionError,
+    provider.ProviderExecutionError,
+)
 
 
 def _execution_timed_out(error: BaseException) -> bool:
@@ -436,6 +444,12 @@ def _apply_passive(
     title = observation.get("title", {})
     title_present = isinstance(title, dict) and bool(title.get("present"))
     title_value = str(title.get("value", "")).strip() if isinstance(title, dict) else ""
+    title_value_truncated = isinstance(title, dict) and bool(title.get("value_truncated"))
+    title_evidence_complete = (
+        isinstance(title, dict)
+        and bool(title.get("evidence_complete"))
+        and not title_value_truncated
+    )
     if "8.5.1" in selected:
         _set_result(
             by_id["8.5.1"],
@@ -452,7 +466,7 @@ def _apply_passive(
             evidence_complete=title_present,
         )
     if "8.6.1" in selected:
-        empty_title = title_present and not title_value
+        empty_title = title_present and title_evidence_complete and not title_value
         _set_result(
             by_id["8.6.1"],
             "fail" if empty_title else "needs_review",
@@ -467,9 +481,15 @@ def _apply_passive(
                     "collector": "isolated-dom",
                     "title_present": title_present,
                     "title": title_value,
+                    "value_truncated": title_value_truncated,
+                    "evidence_complete": title_evidence_complete,
                 }
             ],
-            limitations=["A non-empty title still requires a relevance judgment."],
+            limitations=[
+                "A non-empty title still requires a relevance judgment."
+                if title_evidence_complete
+                else "Title extraction was truncated or incomplete; emptiness cannot be established."
+            ],
         )
 
     if "11.1.1" in selected:
@@ -982,7 +1002,10 @@ def finalize_report_error(
     """Preserve a completed report when a final command-level guard fails."""
     statuses = report.setdefault("collector_status", {})
     statuses[collector] = {"status": "error", "error": str(error)}
-    report["execution_status"] = "partial"
+    current_status = str(report.get("execution_status", "complete"))
+    report["execution_status"] = max(
+        (current_status, "partial"), key=lambda status: _EXECUTION_PRECEDENCE.get(status, 0)
+    )
     if report.get("schema") != "cdpx.rgaa.result/v1":
         return report
 
@@ -1005,6 +1028,10 @@ def finalize_report_error(
             counts["pass"] + counts["fail"] + counts["not_applicable"]
         )
         summary["unresolved"] = counts["needs_review"] + counts["manual_only"] + counts["error"]
+        summary["collector_attempted"] = sum(
+            isinstance(status, dict) and status.get("status") in {"ok", "partial", "error"}
+            for status in statuses.values()
+        )
     report["criteria"], report["themes"] = summarize_hierarchy(results)
     return report
 
@@ -1018,11 +1045,12 @@ def scan_error_report(
     budget: ExecutionBudget,
     planned_navigations: int = 0,
     actions_start: int = 0,
+    collector: str = "page-navigation",
 ) -> dict[str, Any]:
     all_ids = {test["id"] for test in load_catalog()["tests"]}
     selected = set(selected_tests) if selected_tests is not None else all_ids
     results, by_id = _initial_results(selected)
-    _mark_error(by_id, selected, selected, "page-navigation")
+    _mark_error(by_id, selected, selected, collector)
     plan = build_scan_plan(selected, scope=scope, engine=engine)
     return _finish(
         results,
@@ -1031,7 +1059,7 @@ def scan_error_report(
         scope=scope,
         engine=engine,
         plan=plan,
-        collectors={"page-navigation": {"status": "error", "error": str(error)}},
+        collectors={collector: {"status": "error", "error": str(error)}},
         providers=[],
         environment={"cdpx_version": __version__, "native_resolver_version": RULE_VERSION},
         budget=budget,

@@ -68,7 +68,22 @@ def cmd_scan(args) -> int:
                     ),
                 )
                 return 1
-        verified_url = verified_session_url(args, client, timeout=budget.remaining())
+        try:
+            verified_url = verified_session_url(args, client, timeout=budget.remaining())
+        except (CDPError, CDPTimeout, CDPTransportError, TimeoutError) as error:
+            emit_rgaa_json(
+                args,
+                scan_error_report(
+                    scope=cast(Scope, args.options.scope),
+                    engine=cast(Engine, args.options.engine),
+                    selected_tests=selected,
+                    error=error,
+                    budget=budget,
+                    planned_navigations=1 if args.options.url else 0,
+                    collector="initial-document-verification",
+                ),
+            )
+            return 1
         result = scan(
             client,
             scope=cast(Scope, args.options.scope),

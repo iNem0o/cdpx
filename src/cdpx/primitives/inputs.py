@@ -589,10 +589,15 @@ def press_key(
     if cleanup_status is not None:
         cleanup_status["key_up"] = "not_attempted"
     try:
-        # Mark the event as attempted before waiting for its response: a
-        # transport timeout can happen after Chromium applied rawKeyDown.
+        # Resolve the local deadline before marking the event as attempted.
+        # Once client.send starts, a response timeout can still mean Chromium
+        # applied rawKeyDown, so cleanup must then dispatch keyUp.
+        down_timeout = remaining() if remaining is not None else None
         key_down_attempted = True
-        _send(client, "Input.dispatchKeyEvent", down, remaining=remaining)
+        if down_timeout is None:
+            client.send("Input.dispatchKeyEvent", down)
+        else:
+            client.send("Input.dispatchKeyEvent", down, timeout=down_timeout)
         if after_key_down is not None:
             after_key_down()
         if "text" in params:

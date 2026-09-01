@@ -30,7 +30,7 @@ when = "cdpx runs its fixed DOM/CSS collector against both fixtures."
 then = "The result contains 258 test records, local evidence for resolved tests, and certification_claim=false."
 target = "chrome"
 proof_level = "runtime"
-tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_environment_hash_works_on_non_secure_http_origin", "tests/e2e/test_e2e_chrome.py::test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript", "tests/e2e/test_e2e_chrome.py::test_rgaa_adversarial_dom_work_is_bounded*", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restoration_runs_when_blur_response_times_out", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restores_idless_control_in_nested_shadow_root", "tests/e2e/test_e2e_chrome.py::test_rgaa_cli_navigation_error_text_keeps_full_report", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
+tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_environment_hash_works_on_non_secure_http_origin", "tests/e2e/test_e2e_chrome.py::test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript", "tests/e2e/test_e2e_chrome.py::test_rgaa_adversarial_dom_work_is_bounded*", "tests/e2e/test_e2e_chrome.py::test_rgaa_title_evidence_is_independent_and_truncation_never_fails", "tests/e2e/test_e2e_chrome.py::test_rgaa_passive_probe_bounds_raw_attributes_and_ancestor_walks", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restoration_runs_when_blur_response_times_out", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restores_idless_control_in_nested_shadow_root", "tests/e2e/test_e2e_chrome.py::test_rgaa_cli_navigation_error_text_keeps_full_report", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
 expected_proofs = ["junit", "json"]
 +++
 
@@ -68,8 +68,8 @@ cdpx rgaa scan [URL] \
 
 When `URL` is omitted, the current assigned page is scanned. The complete
 session/run/target identity and origin allowlist remain mandatory.
-Navigation and all following collection share one deadline. If navigation or
-a required collector fails, the command still emits the full normative
+Navigation and all following collection share one deadline. If navigation,
+initial document verification, or a required collector fails, the command still emits the full normative
 skeleton, publishes `execution_status: partial|error`, marks the affected tests
 `error`, and exits `1`; the trustworthy final page URL remains unknown rather
 than being copied from the requested URL. Final document/session verification
@@ -82,13 +82,18 @@ The environment probe returns at most 256 KiB of DOM fingerprint material;
 SHA-256 is computed by cdpx, so plain HTTP development hosts such as
 `http://app.test` do not depend on Web Crypto or secure-context eligibility.
 Passive and spacing probes share node and byte budgets across DOM walks,
-text/subtree extraction and structural paths. Status publishes
+text/subtree extraction, raw document attributes, structural paths and bounded
+ancestor walks. Title evidence is captured before the shared walk: an
+incomplete or truncated title value can only remain `needs_review`, never
+prove an empty-title failure. Status publishes
 `nodes_examined`, `bytes_examined`, `subtree_truncated` and
 `execution_timed_out`. `Runtime.evaluate.timeout` bounds isolated execution as
 well as the WebSocket wait, without target-wide `Runtime.terminateExecution`.
 Browser metadata and page fingerprinting expose separate advisory
 `environment_status` values; their failure cannot overwrite normative
-collector verdicts.
+collector verdicts. Hybrid axe evaluation receives the same deadline as both a
+transport timeout and Chromium `Runtime.evaluate.timeout`; provider frame,
+world, result and JSON failures remain advisory errors inside the full report.
 
 | Scope/engine | Required authority | Additional effect |
 |---|---|---|

@@ -1,5 +1,20 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@e9fd8f4
+  - Symptom: the first full gate passed all functional suites but rejected two
+    new RGAA Chromium hardening cases as undocumented; after mapping them, the
+    cockpit HTML exceeded its explicit size ceiling by 909 bytes.
+  - Root cause (missing capability): runtime scenarios require an exact
+    feature-sheet attachment, and each newly documented proof is embedded in
+    the self-contained cockpit report governed by a fixed size budget.
+  - Fix encoded (doc/script/lint): the RGAA scenario now names the title and
+    raw-attribute/ancestor-bound Chromium cases, and the cockpit ceiling/comment
+    includes that justified qualification pack.
+  - Verification (command/CI): `./dev check-local` passed 1,081 tests; the
+    final `./dev check` returned `ok: true` for all 1,160 tests/scenarios
+    (1,081 unit/contract, 70 Chrome, 7 Symfony and 2 Shopware), with 90.04%
+    line coverage, 79.31% branch coverage and zero proof failures.
+
 - Session-Key: feat/rgaa-audit-engine@5943702
   - Symptom: the first complete gate passed every functional suite but rejected
     the four parameterized RGAA adversarial-DOM cases as undocumented; an

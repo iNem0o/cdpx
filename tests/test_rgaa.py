@@ -27,7 +27,7 @@ from cdpx.rgaa.catalog import (
     load_catalog,
     parse_test_selection,
 )
-from cdpx.rgaa.sample import compile_sample, run_sample
+from cdpx.rgaa.sample import compile_sample, finalize_sample_report_error, run_sample
 from cdpx.rgaa.scanner import scan
 
 
@@ -77,6 +77,7 @@ def passive_observation(*, broken: bool = False) -> dict:
         "title": {
             "present": not broken,
             "value": "" if broken else "Page accessible",
+            "value_truncated": False,
             "evidence_complete": True,
         },
         "frames": {
@@ -231,6 +232,11 @@ def test_passive_probe_source_bounds_text_subtrees_siblings_and_label_lookups():
     assert "querySelector(`label[for=" not in probe
     assert 'querySelectorAll("img[alt],input[type=image][alt]")' not in probe
     assert ".slice(0, length).trim()" in probe
+    assert 'role: cut(element.getAttribute("role"), 64)' in probe
+    assert "public_id: cut(doctype.publicId, 256)" in probe
+    assert probe.index("titleEvidence(titleElement)") < probe.index("const elements = []")
+    assert "while (current && depth < 64)" in probe
+    assert "if (!takeNode()) return null" in probe
     assert "[...parent.children]" not in rgaa_scanner.FOCUS_STATE_PROBE
 
 
@@ -291,6 +297,31 @@ def test_title_relevance_distinguishes_missing_and_present_empty_title(mock, cli
 
     assert result["verdict"] == "fail"
     assert result["findings"][0]["rule_id"] == "document-title-relevance"
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        {"present": True, "value": "", "value_truncated": True, "evidence_complete": False},
+        {
+            "present": True,
+            "value": "Relevant title",
+            "value_truncated": True,
+            "evidence_complete": False,
+        },
+    ],
+)
+def test_truncated_title_evidence_never_produces_an_automatic_failure(mock, client, title):
+    observation = passive_observation()
+    observation["title"] = title
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(observation))
+
+    report = scan(client, selected_tests=("8.6.1",))
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+
+    assert result["verdict"] == "needs_review"
+    assert result["findings"] == []
+    assert result["evidence"][0]["evidence_complete"] is False
 
 
 def test_origin_policy_breach_is_never_a_collector_error(mock, client):
@@ -550,13 +581,26 @@ def test_required_hybrid_provider_failure_marks_execution_partial(mock, client):
     assert report["providers"][0]["status"] == "error"
 
 
+def test_invalid_axe_provider_json_is_contained_in_the_full_report(mock, client):
+    mock.on_eval("__cdpx_rgaa_axe_provider", "not-json")
+
+    report = scan(client, engine="hybrid", selected_tests=("1.1.1",))
+
+    assert len(report["tests"]) == 258
+    assert report["execution_status"] == "partial"
+    assert report["providers"][0]["status"] == "error"
+    assert "invalid JSON" in report["providers"][0]["error"]
+
+
 def test_axe_provider_shares_the_scan_deadline_across_protocol_calls():
     class TimedClient:
         def __init__(self):
             self.timeouts = []
+            self.calls = []
 
         def send(self, method, params=None, timeout=30.0):
             self.timeouts.append(timeout)
+            self.calls.append((method, params))
             if method == "Page.getFrameTree":
                 return {"frameTree": {"frame": {"id": "FRAME1"}}}
             if method == "Page.createIsolatedWorld":
@@ -580,6 +624,9 @@ def test_axe_provider_shares_the_scan_deadline_across_protocol_calls():
     provider.run_axe(timed, remaining=lambda: next(remaining))
 
     assert timed.timeouts == [9.0, 8.0, 7.0]
+    method, params = timed.calls[-1]
+    assert method == "Runtime.evaluate"
+    assert params["timeout"] == 7000.0
 
 
 def hashlib_sha256(payload: bytes) -> str:
@@ -1060,6 +1107,26 @@ def test_scan_cli_navigation_error_text_returns_complete_error_report(mock, cli_
     assert len(report["tests"]) == 258
 
 
+def test_scan_cli_initial_document_verification_timeout_returns_full_json(
+    mock, cli_manifest, capsys, monkeypatch
+):
+    monkeypatch.setattr(
+        rgaa_commands,
+        "verified_session_url",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CDPTimeout("initial document verification timed out")
+        ),
+    )
+
+    code, out, err = run_cli(mock, capsys, "rgaa", "scan", "--tests", "8.3.1")
+
+    assert code == 1 and err == ""
+    report = json.loads(out)
+    assert len(report["tests"]) == 258
+    assert report["execution_status"] == "error"
+    assert report["collector_status"]["initial-document-verification"]["status"] == "error"
+
+
 def test_passive_collector_failure_is_explicit_and_preserves_catalog(mock, client):
     mock.error_methods.add("Runtime.evaluate")
 
@@ -1262,3 +1329,40 @@ def test_sample_cli_final_guard_timeout_preserves_last_page_and_json(
     assert page_test["evidence"]
     assert aggregate_test["verdict"] == "error"
     assert result["summary"]["error"] == 1
+
+
+@pytest.mark.parametrize(
+    ("starting_status", "expected_status"),
+    [("complete", "partial"), ("partial", "partial"), ("error", "error")],
+)
+def test_report_finalization_never_reduces_execution_severity(
+    mock, client, starting_status, expected_status
+):
+    mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
+    report = scan(client, selected_tests=("8.3.1",))
+    report["execution_status"] = starting_status
+
+    rgaa_scanner.finalize_report_error(report, CDPTimeout("final guard timed out"))
+
+    assert report["execution_status"] == expected_status
+    assert report["summary"]["collector_attempted"] == sum(
+        status["status"] in {"ok", "partial", "error"}
+        for status in report["collector_status"].values()
+    )
+
+
+def test_sample_finalization_keeps_all_error_sample_as_error(mock, client, tmp_path):
+    manifest = tmp_path / "sample.yml"
+    manifest.write_text(
+        "schema: cdpx.rgaa.sample/v1\npages:\n"
+        "  - id: failed\n    url: http://site.test/failed\n    tests: [8.3.1]\n",
+        encoding="utf-8",
+    )
+    mock.navigate_error_text = "net::ERR_CONNECTION_REFUSED"
+    report = run_sample(client, compile_sample(manifest), timeout=5)
+    assert report["execution_status"] == "error"
+
+    finalize_sample_report_error(report, CDPTimeout("final guard timed out"))
+
+    assert report["execution_status"] == "error"
+    assert report["collector_status"]["sample-pages"]["status"] == "error"

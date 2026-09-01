@@ -36,14 +36,22 @@ AXE_TO_RGAA: dict[str, tuple[str, ...]] = {
 }
 
 
+class ProviderExecutionError(RuntimeError):
+    """An advisory provider could not produce its documented observation."""
+
+
+class ProviderIntegrityError(ProviderExecutionError):
+    """An advisory provider's pinned local payload failed integrity checks."""
+
+
 @lru_cache(maxsize=1)
 def _bundle() -> str:
     try:
         payload = AXE_PATH.read_bytes()
     except OSError as error:
-        raise ValueError("axe-core advisory bundle unavailable") from error
+        raise ProviderExecutionError("axe-core advisory bundle unavailable") from error
     if hashlib.sha256(payload).hexdigest() != AXE_HASH:
-        raise ValueError("axe-core advisory bundle integrity mismatch")
+        raise ProviderIntegrityError("axe-core advisory bundle integrity mismatch")
     return payload.decode("utf-8")
 
 
@@ -51,7 +59,7 @@ def _main_frame_id(client: CDPClient, remaining: Callable[[], float]) -> str:
     tree = client.send("Page.getFrameTree", timeout=remaining()).get("frameTree", {})
     frame_id = tree.get("frame", {}).get("id") if isinstance(tree, dict) else None
     if not isinstance(frame_id, str) or not frame_id:
-        raise ValueError("axe-core advisory provider: main frame unavailable")
+        raise ProviderExecutionError("axe-core advisory provider: main frame unavailable")
     return frame_id
 
 
@@ -68,7 +76,7 @@ def run_axe(client: CDPClient, *, remaining: Callable[[], float]) -> dict[str, A
     )
     context_id = world.get("executionContextId")
     if not isinstance(context_id, int):
-        raise ValueError("axe-core advisory provider: isolated world unavailable")
+        raise ProviderExecutionError("axe-core advisory provider: isolated world unavailable")
     projection = r"""
 // __cdpx_rgaa_axe_provider
 globalThis.axe.run(document, {
@@ -94,6 +102,7 @@ globalThis.axe.run(document, {
   });
 })
 """
+    evaluation_timeout = remaining()
     response = client.send(
         "Runtime.evaluate",
         {
@@ -101,8 +110,9 @@ globalThis.axe.run(document, {
             "contextId": context_id,
             "returnByValue": True,
             "awaitPromise": True,
+            "timeout": max(1.0, evaluation_timeout * 1000),
         },
-        timeout=remaining(),
+        timeout=evaluation_timeout,
     )
     if "exceptionDetails" in response:
         details = response["exceptionDetails"]
@@ -112,11 +122,13 @@ globalThis.axe.run(document, {
         raise JSException(message)
     raw = response.get("result", {}).get("value")
     if not isinstance(raw, str):
-        raise ValueError("axe-core advisory provider returned no value")
+        raise ProviderExecutionError("axe-core advisory provider returned no value")
     try:
         projected = json.loads(raw)
     except json.JSONDecodeError as error:
-        raise ValueError("axe-core advisory provider returned invalid JSON") from error
+        raise ProviderExecutionError("axe-core advisory provider returned invalid JSON") from error
+    if not isinstance(projected, dict):
+        raise ProviderExecutionError("axe-core advisory provider returned invalid JSON")
     return {
         "name": "axe-core",
         "version": AXE_VERSION,
