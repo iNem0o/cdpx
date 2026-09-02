@@ -253,28 +253,30 @@ PASSIVE_PROBE = r"""
 """
 
 FOCUS_RESET_PROBE = r"""
-// __cdpx_rgaa_focus_reset_v2
+// __cdpx_rgaa_focus_reset_v3
 (() => {
   let active = document.activeElement;
   while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-  const token = active && active !== document.body && active !== document.documentElement ? {stored: true} : null;
-  globalThis.__cdpxRgaaFocusTarget = token ? active : null;
+  const target = active && active !== document.body && active !== document.documentElement ? active : null;
+  globalThis.__cdpxRgaaFocusCapture = {initialized: true, target};
   if (active && typeof active.blur === "function") active.blur();
-  return JSON.stringify(token);
+  return JSON.stringify({initialized: true, stored: target !== null});
 })()
 """
 
 FOCUS_RESTORE_PROBE = r"""
-// __cdpx_rgaa_focus_restore_v2
+// __cdpx_rgaa_focus_restore_v3
 (() => {
-  const target = globalThis.__cdpxRgaaFocusTarget;
-  delete globalThis.__cdpxRgaaFocusTarget;
-  if (!target) {
+  const capture = globalThis.__cdpxRgaaFocusCapture;
+  delete globalThis.__cdpxRgaaFocusCapture;
+  if (!capture || capture.initialized !== true || !("target" in capture)) return false;
+  if (capture.target === null) {
     let active = document.activeElement;
     while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
     if (active && typeof active.blur === "function") active.blur();
     return document.activeElement === document.body || document.activeElement === document.documentElement;
   }
+  const target = capture.target;
   if (!target.isConnected || typeof target.focus !== "function") return false;
   target.focus({preventScroll: true});
   let active = document.activeElement;

@@ -360,14 +360,17 @@ def run_sample(
     page_reports: list[dict[str, Any]] = []
     for page in compiled.pages:
         page_actions_start = active_budget.actions_used
+        failure_collector = "page-navigation"
         try:
             active_budget.consume(f"navigation to sample page {page.id}")
             nav.navigate(client, page.url, wait="load", timeout=active_budget.remaining())
+            failure_collector = "initial-document-verification"
             verified_url = page.url
             if origin_guard is not None:
                 guarded_url = origin_guard(active_budget.remaining())
                 if isinstance(guarded_url, str):
                     verified_url = guarded_url
+            failure_collector = "scanner-initialization"
             report = scan(
                 client,
                 scope=compiled.scope,
@@ -402,6 +405,7 @@ def run_sample(
                 budget=active_budget,
                 planned_navigations=1,
                 actions_start=page_actions_start,
+                collector=failure_collector,
             )
         page_reports.append({"page_id": page.id, "url": page.url, "report": report})
     tests, summary = _aggregate(page_reports)

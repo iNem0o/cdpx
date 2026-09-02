@@ -1,5 +1,23 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@199c492
+  - Symptom: host `pytest` could not parse the repository's Python 3.14
+    exception syntax under Python 3.12; after running through the canonical
+    Docker portal, the first local gate passed all functional tests but the
+    three newly documented RGAA Chromium proofs exceeded the cockpit's fixed
+    HTML size ceiling by 2,670 bytes.
+  - Root cause (missing capability): this repository requires its pinned
+    Python 3.14 image, and every explicit runtime scenario is embedded in the
+    self-contained proof cockpit governed by a bounded size budget.
+  - Fix encoded (doc/script/lint): validation stayed behind `./dev`; the RGAA
+    feature sheet explicitly attaches focus reversibility, exact-document and
+    spacing-cleanup runtime proofs, while the cockpit ceiling/comment includes
+    only that justified evidence increment.
+  - Verification (command/CI): `./dev check-local` passed 1,088 tests with
+    90.13% line and 79.24% branch coverage; `./dev check` returned `ok: true`
+    for all 1,170 tests/scenarios (1,088 unit/contract, 73 Chrome, 7 Symfony
+    and 2 Shopware), with zero proof failures.
+
 - Session-Key: feat/rgaa-audit-engine@e9fd8f4
   - Symptom: the first full gate passed all functional suites but rejected two
     new RGAA Chromium hardening cases as undocumented; after mapping them, the

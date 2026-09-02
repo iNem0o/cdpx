@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Document de dérive focus</title>
+  </head>
+  <body data-keydowns="0">
+    <h1>Document chargé après dérive</h1>
+    <button type="button">Action sensible</button>
+    <script>
+      document.addEventListener("keydown", () => {
+        document.body.dataset.keydowns = String(Number(document.body.dataset.keydowns) + 1);
+      });
+    </script>
+  </body>
+</html>

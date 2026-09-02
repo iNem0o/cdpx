@@ -497,6 +497,73 @@ def test_focus_reset_timeout_still_runs_independent_restoration(mock, client, mo
     assert 0 < restore["timeout"] <= 1000
 
 
+def test_focus_deadline_before_reset_send_never_runs_restoration(mock, client):
+    identity = rgaa_scanner.DocumentIdentity(
+        frame_id="FRAME1",
+        loader_id="LOADER1",
+        url="http://site.test/page",
+    )
+
+    class ExpiringBeforeResetBudget:
+        def __init__(self):
+            self.calls = 0
+
+        def remaining(self):
+            self.calls += 1
+            if self.calls >= 3:
+                raise CDPTimeout("RGAA global deadline exceeded before focus reset")
+            return 1.0
+
+        def consume(self, _label):
+            raise AssertionError("focus traversal must not start")
+
+    focus = rgaa_scanner._collect_focus(
+        client,
+        42,
+        ExpiringBeforeResetBudget(),
+        identity,
+        lambda _remaining: None,
+    )
+
+    expressions = [call["expression"] for call in mock.commands_for("Runtime.evaluate")]
+    assert focus["focus_reset"] == "not_attempted"
+    assert focus["focus_restoration"] == "not_possible"
+    assert "deadline exceeded before focus reset" in focus["error"]
+    assert not any("__cdpx_rgaa_focus_reset" in expression for expression in expressions)
+    assert not any("__cdpx_rgaa_focus_restore" in expression for expression in expressions)
+
+
+def test_focus_document_identity_drift_blocks_raw_keydown(mock, client, monkeypatch):
+    original = rgaa_scanner.DocumentIdentity(
+        frame_id="FRAME1",
+        loader_id="LOADER1",
+        url="http://site.test/page-a",
+    )
+    navigated = rgaa_scanner.DocumentIdentity(
+        frame_id="FRAME1",
+        loader_id="LOADER2",
+        url="http://site.test/page-b",
+    )
+    observed = iter((original, navigated, navigated))
+    monkeypatch.setattr(
+        rgaa_scanner,
+        "_document_identity",
+        lambda _client, _timeout: next(observed),
+    )
+    mock.on_eval("__cdpx_rgaa_focus_reset", "null")
+
+    with pytest.raises(rgaa_scanner.DocumentStateDrift):
+        rgaa_scanner._collect_focus(
+            client,
+            42,
+            rgaa_scanner.ExecutionBudget.start(5),
+            original,
+            lambda _remaining: None,
+        )
+
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+
+
 def test_privileged_spacing_probe_reports_new_clipping(mock, client):
     mock.on_eval("__cdpx_rgaa_passive", json.dumps(passive_observation()))
     mock.on_eval("__cdpx_rgaa_focus_state", "null")
@@ -520,7 +587,10 @@ def test_privileged_spacing_probe_reports_new_clipping(mock, client):
 
 
 def test_spacing_cleanup_failure_is_reported_as_execution_error(mock, client):
-    mock.on_eval("__cdpx_rgaa_text_spacing_cleanup", {"error": "cleanup failed"})
+    mock.on_eval(
+        "__cdpx_rgaa_text_spacing_cleanup",
+        {"error": "Cannot find context with specified id"},
+    )
     mock.on_eval(
         "__cdpx_rgaa_text_spacing_v2",
         json.dumps({"candidates": 1, "clipped": [], "truncated": False}),
@@ -533,7 +603,46 @@ def test_spacing_cleanup_failure_is_reported_as_execution_error(mock, client):
     assert collector["status"] == "error"
     assert collector["cleanup"]["attempted"] is True
     assert collector["cleanup"]["completed"] is False
-    assert "cleanup failed" in collector["cleanup"]["error"]
+    assert "Cannot find context" in collector["cleanup"]["error"]
+
+
+def test_spacing_probe_timeout_reports_successful_cleanup(mock, client, monkeypatch):
+    original_load_probe = rgaa_scanner._load_probe
+
+    def timeout_spacing(client_arg, context_id, expression, budget, **kwargs):
+        if "__cdpx_rgaa_text_spacing_v2" in expression:
+            raise CDPTimeout("text-spacing probe timed out")
+        return original_load_probe(client_arg, context_id, expression, budget, **kwargs)
+
+    monkeypatch.setattr(rgaa_scanner, "_load_probe", timeout_spacing)
+
+    report = scan(client, scope="privileged", selected_tests=("10.12.1",))
+    collector = report["collector_status"]["text-spacing"]
+
+    assert collector["status"] == "error"
+    assert "probe timed out" in collector["error"]
+    assert collector["cleanup"] == {"attempted": True, "completed": True}
+
+
+def test_spacing_probe_and_cleanup_failures_are_both_reported(mock, client, monkeypatch):
+    original_load_probe = rgaa_scanner._load_probe
+
+    def timeout_spacing(client_arg, context_id, expression, budget, **kwargs):
+        if "__cdpx_rgaa_text_spacing_v2" in expression:
+            raise CDPTimeout("text-spacing probe timed out")
+        return original_load_probe(client_arg, context_id, expression, budget, **kwargs)
+
+    monkeypatch.setattr(rgaa_scanner, "_load_probe", timeout_spacing)
+    mock.on_eval("__cdpx_rgaa_text_spacing_cleanup", {"error": "cleanup timed out"})
+
+    report = scan(client, scope="privileged", selected_tests=("10.12.1",))
+    collector = report["collector_status"]["text-spacing"]
+
+    assert collector["status"] == "error"
+    assert "probe timed out" in collector["error"]
+    assert collector["cleanup"]["attempted"] is True
+    assert collector["cleanup"]["completed"] is False
+    assert "cleanup timed out" in collector["cleanup"]["error"]
 
 
 def test_hybrid_axe_observations_are_isolated_bounded_and_never_oracle_verdicts(mock, client):
@@ -579,6 +688,27 @@ def test_required_hybrid_provider_failure_marks_execution_partial(mock, client):
 
     assert report["execution_status"] == "partial"
     assert report["providers"][0]["status"] == "error"
+
+
+def test_successful_hybrid_provider_keeps_advisory_environment_failure_partial(mock, client):
+    mock.error_methods.add("Browser.getVersion")
+    mock.on_eval(
+        "__cdpx_rgaa_axe_provider",
+        json.dumps(
+            {
+                "violations": [],
+                "incomplete": [],
+                "passes": [],
+                "inapplicable": [],
+            }
+        ),
+    )
+
+    report = scan(client, engine="hybrid", selected_tests=("1.1.1",))
+
+    assert report["collector_status"]["environment"]["status"] == "partial"
+    assert report["providers"][0]["status"] == "ok"
+    assert report["execution_status"] == "partial"
 
 
 def test_invalid_axe_provider_json_is_contained_in_the_full_report(mock, client):
@@ -934,6 +1064,65 @@ pages:
     assert failed["execution_status"] == "error"
     assert failed["collector_status"]["page-navigation"]["status"] == "error"
     assert len(failed["tests"]) == 258
+
+
+def test_sample_initial_document_verification_failure_has_its_own_status(mock, client, tmp_path):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        """schema: cdpx.rgaa.sample/v1
+pages:
+  - id: guarded
+    url: http://site.test/guarded
+    tests: [8.3.1]
+""",
+        encoding="utf-8",
+    )
+
+    result = run_sample(
+        client,
+        compile_sample(path),
+        timeout=5,
+        origin_guard=lambda _remaining: (_ for _ in ()).throw(
+            CDPTimeout("initial document verification timed out")
+        ),
+    )
+    report = result["pages"][0]["report"]
+
+    assert mock.commands_for("Page.navigate")
+    assert report["collector_status"]["initial-document-verification"]["status"] == "error"
+    assert "page-navigation" not in report["collector_status"]
+
+
+def test_sample_scanner_initialization_failure_has_its_own_status(
+    mock, client, tmp_path, monkeypatch
+):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        """schema: cdpx.rgaa.sample/v1
+pages:
+  - id: scanner
+    url: http://site.test/scanner
+    tests: [8.3.1]
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "cdpx.rgaa.sample.scan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CDPTimeout("scanner initialization timed out")
+        ),
+    )
+
+    result = run_sample(
+        client,
+        compile_sample(path),
+        timeout=5,
+        origin_guard=lambda _remaining: "http://site.test/scanner",
+    )
+    report = result["pages"][0]["report"]
+
+    assert report["collector_status"]["scanner-initialization"]["status"] == "error"
+    assert "page-navigation" not in report["collector_status"]
 
 
 def test_sample_partial_coverage_cannot_aggregate_to_pass(mock, client, tmp_path):

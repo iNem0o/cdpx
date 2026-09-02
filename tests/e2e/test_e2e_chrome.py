@@ -2366,6 +2366,74 @@ def test_rgaa_focus_restoration_runs_when_blur_response_times_out(page):
     )
 
 
+def test_rgaa_focus_deadline_before_reset_preserves_initial_focus(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    class ExpiringBeforeResetBudget:
+        def __init__(self):
+            self.calls = 0
+
+        def remaining(self):
+            self.calls += 1
+            if self.calls >= 3:
+                raise CDPTimeout("RGAA global deadline exceeded before focus reset")
+            return 1.0
+
+        def consume(self, _label):
+            raise AssertionError("focus traversal must not start")
+
+    focus = rgaa_scanner._collect_focus(
+        c,
+        context_id,
+        ExpiringBeforeResetBudget(),
+        identity,
+        lambda _remaining: None,
+    )
+
+    assert focus["focus_reset"] == "not_attempted"
+    assert focus["focus_restoration"] == "not_possible"
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+
+def test_rgaa_same_origin_document_drift_blocks_tab(page, monkeypatch):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    destination = f"{base}/rgaa-focus-drift.html"
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+    original_evaluate = rgaa_scanner.js.evaluate
+
+    def navigate_after_reset(client, expression, *args, **kwargs):
+        result = original_evaluate(client, expression, *args, **kwargs)
+        if "__cdpx_rgaa_focus_reset" in expression:
+            nav.navigate(client, destination, timeout=2)
+        return result
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", navigate_after_reset)
+
+    with pytest.raises(rgaa_scanner.DocumentStateDrift):
+        rgaa_scanner._collect_focus(
+            c,
+            context_id,
+            ExecutionBudget.start(5),
+            identity,
+            None,
+        )
+
+    assert rgaa_scanner._document_identity(c, 2).url == destination
+    assert js.evaluate(c, "document.body.dataset.keydowns") == "0"
+
+
 def test_rgaa_focus_restores_idless_control_in_nested_shadow_root(page):
     c, base = page
     nav.navigate(c, f"{base}/rgaa-shadow.html")
@@ -2389,6 +2457,66 @@ def test_rgaa_focus_restores_idless_control_in_nested_shadow_root(page):
         )
         == "button"
     )
+
+
+def test_rgaa_spacing_cleanup_outcomes_match_document_state(page, monkeypatch):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+    original_load_probe = rgaa_scanner._load_probe
+    original_evaluate = rgaa_scanner.js.evaluate
+
+    def inject_style_then_timeout(client, context, expression, budget, **kwargs):
+        if "__cdpx_rgaa_text_spacing_v2" not in expression:
+            return original_load_probe(client, context, expression, budget, **kwargs)
+        original_evaluate(
+            client,
+            "(() => { const style = document.createElement('style'); "
+            "style.setAttribute('data-cdpx-rgaa-spacing', 'timeout'); "
+            "globalThis.__cdpxRgaaSpacingStyle = style; document.head.appendChild(style); "
+            "return true; })()",
+            context_id=context,
+        )
+        raise CDPTimeout("text-spacing probe timed out")
+
+    monkeypatch.setattr(rgaa_scanner, "_load_probe", inject_style_then_timeout)
+    with pytest.raises(rgaa_scanner.SpacingCollectorError) as successful_cleanup:
+        rgaa_scanner._collect_spacing(c, context_id, ExecutionBudget.start(2))
+    assert successful_cleanup.value.cleanup == {"attempted": True, "completed": True}
+    assert js.evaluate(c, "document.querySelectorAll('[data-cdpx-rgaa-spacing]').length") == 0
+
+    def fail_cleanup_before_send(client, expression, *args, **kwargs):
+        if "__cdpx_rgaa_text_spacing_cleanup" in expression:
+            raise CDPTimeout("cleanup timed out before send")
+        return original_evaluate(client, expression, *args, **kwargs)
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", fail_cleanup_before_send)
+    with pytest.raises(rgaa_scanner.SpacingCollectorError) as failed_cleanup:
+        rgaa_scanner._collect_spacing(c, context_id, ExecutionBudget.start(2))
+    assert failed_cleanup.value.cleanup["attempted"] is True
+    assert failed_cleanup.value.cleanup["completed"] is False
+    assert "cleanup timed out" in failed_cleanup.value.cleanup["error"]
+    assert js.evaluate(c, "document.querySelectorAll('[data-cdpx-rgaa-spacing]').length") == 1
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", original_evaluate)
+    nav.navigate(c, f"{base}/rgaa.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    def navigate_after_probe(client, context, expression, budget, **kwargs):
+        observation = original_load_probe(client, context, expression, budget, **kwargs)
+        if "__cdpx_rgaa_text_spacing_v2" in expression:
+            nav.navigate(client, f"{base}/rgaa-focus-drift.html", timeout=2)
+        return observation
+
+    monkeypatch.setattr(rgaa_scanner, "_load_probe", navigate_after_probe)
+    observation = rgaa_scanner._collect_spacing(c, context_id, ExecutionBudget.start(5))
+
+    assert observation["cleanup"]["attempted"] is True
+    assert observation["cleanup"]["completed"] is False
+    assert observation["cleanup"]["error"]
+    assert js.evaluate(c, "document.querySelectorAll('[data-cdpx-rgaa-spacing]').length") == 0
 
 
 def test_rgaa_cli_navigation_error_text_keeps_full_report(managed_cli_session, evidence_case):

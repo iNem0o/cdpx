@@ -136,6 +136,10 @@ Initial and final verification failures preserve full JSON. Environment sub-stat
 separate browser metadata from page fingerprinting; probe statuses expose
 node/byte/truncation/execution-timeout bounds; incomplete title extraction
 cannot prove 8.6.1 failure, and advisory axe execution is renderer-bounded.
+Focus interaction is guarded by exact document identity around every trusted
+key event; spacing cleanup always reports structured attempted/completed/error
+state, including primary-probe failures. Sample page failures distinguish
+navigation, initial verification, and scanner initialization.
 Sample validation publishes
 global and per-page action budgets plus enabled collectors before Chrome opens.
 

@@ -30,7 +30,7 @@ when = "cdpx runs its fixed DOM/CSS collector against both fixtures."
 then = "The result contains 258 test records, local evidence for resolved tests, and certification_claim=false."
 target = "chrome"
 proof_level = "runtime"
-tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_environment_hash_works_on_non_secure_http_origin", "tests/e2e/test_e2e_chrome.py::test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript", "tests/e2e/test_e2e_chrome.py::test_rgaa_adversarial_dom_work_is_bounded*", "tests/e2e/test_e2e_chrome.py::test_rgaa_title_evidence_is_independent_and_truncation_never_fails", "tests/e2e/test_e2e_chrome.py::test_rgaa_passive_probe_bounds_raw_attributes_and_ancestor_walks", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restoration_runs_when_blur_response_times_out", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restores_idless_control_in_nested_shadow_root", "tests/e2e/test_e2e_chrome.py::test_rgaa_cli_navigation_error_text_keeps_full_report", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
+tests = ["tests/test_rgaa.py::test_*", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_scan_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_isolated_from_hostile_main_world", "tests/e2e/test_e2e_chrome.py::test_rgaa_native_probe_walks_nested_open_shadow_roots", "tests/e2e/test_e2e_chrome.py::test_rgaa_environment_hash_works_on_non_secure_http_origin", "tests/e2e/test_e2e_chrome.py::test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript", "tests/e2e/test_e2e_chrome.py::test_rgaa_adversarial_dom_work_is_bounded*", "tests/e2e/test_e2e_chrome.py::test_rgaa_title_evidence_is_independent_and_truncation_never_fails", "tests/e2e/test_e2e_chrome.py::test_rgaa_passive_probe_bounds_raw_attributes_and_ancestor_walks", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restoration_runs_when_blur_response_times_out", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_deadline_before_reset_preserves_initial_focus", "tests/e2e/test_e2e_chrome.py::test_rgaa_same_origin_document_drift_blocks_tab", "tests/e2e/test_e2e_chrome.py::test_rgaa_focus_restores_idless_control_in_nested_shadow_root", "tests/e2e/test_e2e_chrome.py::test_rgaa_spacing_cleanup_outcomes_match_document_state", "tests/e2e/test_e2e_chrome.py::test_rgaa_cli_navigation_error_text_keeps_full_report", "tests/e2e/test_e2e_chrome.py::test_rgaa_installed_cli_covers_catalog_scopes_and_samples", "tests/e2e/test_e2e_chrome.py::test_rgaa_interactive_privileged_and_hybrid_scopes_real", "tests/e2e/test_e2e_chrome.py::test_rgaa_declared_sample_runs_multiple_real_pages"]
 expected_proofs = ["junit", "json"]
 +++
 
@@ -94,6 +94,8 @@ Browser metadata and page fingerprinting expose separate advisory
 collector verdicts. Hybrid axe evaluation receives the same deadline as both a
 transport timeout and Chromium `Runtime.evaluate.timeout`; provider frame,
 world, result and JSON failures remain advisory errors inside the full report.
+A successful provider keeps an otherwise advisory-degraded hybrid execution
+`partial`, never `error` solely because no native collector was required.
 
 | Scope/engine | Required authority | Additional effect |
 |---|---|---|
@@ -104,6 +106,15 @@ world, result and JSON failures remain advisory errors inside the full report.
 
 Authority is derived from the selected execution plan, not from unused scope
 or engine capabilities.
+
+Focus traversal binds every trusted step to the captured top-level `frameId`,
+`loaderId`, exact URL and allowed origin. The binding is checked before reset,
+on both sides of `rawKeyDown`, before `keyUp`, and before restoration. If the
+reset deadline expires locally before its CDP send begins, no restoration probe
+runs and the original focus is untouched. The isolated capture sentinel also
+separates “no initial focus” from “capture never initialized.” Text-spacing
+reports cleanup as `{attempted, completed, error?}` even when its main probe
+times out or its execution context disappears.
 
 The native rules cover deterministic or useful partial observations for
 frame titles, simple solid-background contrast, link names, doctype,
@@ -160,6 +171,9 @@ coverage; otherwise the aggregate remains `needs_review`.
 Page and sample results expose `audit_findings_present`. Per-page
 `actions_used` is local to that page, sample `actions_used` is cumulative, and
 each page plan separates planned navigations from interactions.
+Failures before a page scan retain their exact operational phase:
+`page-navigation`, `initial-document-verification`, or
+`scanner-initialization`.
 
 The bounded AX collector currently proves only domain availability. Evidence
 declares `ax_domain_available: true` and `target_correlation: false`; it does

@@ -76,6 +76,15 @@ class CollectorExecutionError(ValueError):
     """A browser collector could not produce its documented observation."""
 
 
+class SpacingCollectorError(CollectorExecutionError):
+    """A spacing probe failed after recording its independent cleanup outcome."""
+
+    def __init__(self, cause: BaseException, cleanup: dict[str, Any]) -> None:
+        self.cause = cause
+        self.cleanup = cleanup
+        super().__init__(str(cause))
+
+
 class DocumentStateDrift(ValueError):
     """The assigned top-level document changed during one audit."""
 
@@ -605,9 +614,8 @@ def _collect_focus(
     key_cleanup = {"key_up": "not_attempted"}
     collection_error: str | None = None
 
-    def functional_origin_guard() -> None:
-        if origin_guard:
-            origin_guard(budget.remaining())
+    def functional_document_guard() -> None:
+        _guard_document(client, budget, identity, origin_guard)
 
     def cleanup_guard(cleanup_budget: ExecutionBudget) -> None:
         if origin_guard:
@@ -617,14 +625,14 @@ def _collect_focus(
             raise DocumentStateDrift("RGAA document state drift during focus cleanup")
 
     try:
-        if origin_guard:
-            origin_guard(budget.remaining())
+        functional_document_guard()
+        reset_timeout = budget.remaining()
         reset_attempted = True
-        js.evaluate(client, FOCUS_RESET_PROBE, timeout=budget.remaining(), context_id=context_id)
+        js.evaluate(client, FOCUS_RESET_PROBE, timeout=reset_timeout, context_id=context_id)
         focus_reset = "completed"
         for _ in range(FOCUS_STEP_LIMIT):
             budget.consume("RGAA Tab traversal")
-            functional_origin_guard()
+            functional_document_guard()
             cleanup_holder: list[ExecutionBudget | None] = [None]
 
             def key_cleanup_remaining(
@@ -647,13 +655,12 @@ def _collect_focus(
                 client,
                 "Tab",
                 remaining=budget.remaining,
-                after_key_down=functional_origin_guard,
+                after_key_down=functional_document_guard,
                 cleanup_remaining=key_cleanup_remaining,
                 before_key_up=key_cleanup_guard,
                 cleanup_status=key_cleanup,
             )
-            if origin_guard:
-                origin_guard(budget.remaining())
+            functional_document_guard()
             raw = js.evaluate(
                 client,
                 FOCUS_STATE_PROBE,
@@ -746,16 +753,23 @@ def _collect_spacing(client: CDPClient, context_id: int, budget: ExecutionBudget
     expression = TEXT_SPACING_PROBE.replace("__CDPX_SPACING_TOKEN__", json.dumps(token))
     observation: dict[str, Any] | None = None
     cleanup: dict[str, Any] = {"attempted": True, "completed": False}
+    probe_error: BaseException | None = None
     try:
         observation = _load_probe(client, context_id, expression, budget)
+    except _COLLECTOR_ERRORS as error:
+        probe_error = error
     finally:
         try:
             js.evaluate(client, TEXT_SPACING_CLEANUP, timeout=1.0, context_id=context_id)
             cleanup["completed"] = True
         except _COLLECTOR_ERRORS as error:
             cleanup["error"] = str(error)
+    if probe_error is not None:
+        raise SpacingCollectorError(probe_error, cleanup) from probe_error
     if observation is None:
-        raise CollectorExecutionError("RGAA text-spacing observation unavailable")
+        raise SpacingCollectorError(
+            CollectorExecutionError("RGAA text-spacing observation unavailable"), cleanup
+        )
     observation["cleanup"] = cleanup
     return observation
 
@@ -947,8 +961,10 @@ def _finish(
     ]
     execution_failures = failed_collectors + failed_providers
     execution_status = "partial" if execution_failures else "complete"
-    if execution_failures and not any(
-        status.get("status") == "ok" for status in collectors.values()
+    if (
+        execution_failures
+        and not any(status.get("status") == "ok" for status in collectors.values())
+        and not any(status.get("status") == "ok" for status in providers)
     ):
         execution_status = "error"
     environment_status = {
@@ -1290,11 +1306,10 @@ def scan(
         }
 
     if plan.spacing:
+        spacing: dict[str, Any] | None = None
         try:
             _guard_document(client, active_budget, identity, origin_guard)
             spacing = _collect_spacing(client, context_id, active_budget)
-            _guard_document(client, active_budget, identity, origin_guard)
-            _apply_spacing(by_id, spacing)
             collectors["text-spacing"] = {
                 "status": "ok" if spacing["cleanup"]["completed"] else "error",
                 "truncated": spacing.get("truncated", False),
@@ -1306,13 +1321,22 @@ def scan(
             }
             if not spacing["cleanup"]["completed"]:
                 _mark_error(by_id, selected, SPACING_TESTS, "text-spacing-cleanup")
+            _guard_document(client, active_budget, identity, origin_guard)
+            _apply_spacing(by_id, spacing)
         except DocumentStateDrift as error:
             return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:
+            cleanup = (
+                error.cleanup
+                if isinstance(error, SpacingCollectorError)
+                else spacing["cleanup"]
+                if spacing is not None and isinstance(spacing.get("cleanup"), dict)
+                else {"attempted": False, "completed": False}
+            )
             collectors["text-spacing"] = {
                 "status": "error",
                 "error": str(error),
-                "cleanup": "attempted",
+                "cleanup": cleanup,
                 "nodes_examined": 0,
                 "bytes_examined": 0,
                 "subtree_truncated": True,
