@@ -1319,10 +1319,10 @@ def scan(
                 "execution_timed_out": bool(spacing.get("execution_timed_out", False)),
                 "cleanup": spacing["cleanup"],
             }
-            if not spacing["cleanup"]["completed"]:
-                _mark_error(by_id, selected, SPACING_TESTS, "text-spacing-cleanup")
             _guard_document(client, active_budget, identity, origin_guard)
             _apply_spacing(by_id, spacing)
+            if not spacing["cleanup"]["completed"]:
+                _mark_error(by_id, selected, SPACING_TESTS, "text-spacing-cleanup")
         except DocumentStateDrift as error:
             return state_drift_report(error)
         except _COLLECTOR_ERRORS as error:

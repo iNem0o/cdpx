@@ -598,12 +598,49 @@ def test_spacing_cleanup_failure_is_reported_as_execution_error(mock, client):
 
     report = scan(client, scope="privileged", selected_tests=("10.12.1",))
     collector = report["collector_status"]["text-spacing"]
+    result = next(test for test in report["tests"] if test["id"] == "10.12.1")
 
     assert report["execution_status"] == "partial"
     assert collector["status"] == "error"
     assert collector["cleanup"]["attempted"] is True
     assert collector["cleanup"]["completed"] is False
     assert "Cannot find context" in collector["cleanup"]["error"]
+    assert result["verdict"] == "error"
+    assert result["confidence"] == "none"
+    assert result["evidence"]
+
+
+def test_sample_spacing_cleanup_failure_aggregates_as_error(mock, client, tmp_path):
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        "schema: cdpx.rgaa.sample/v1\n"
+        "scope: privileged\n"
+        "pages:\n"
+        "  - id: spacing\n"
+        "    url: http://site.test/spacing\n"
+        "    tests: [10.12.1]\n",
+        encoding="utf-8",
+    )
+    mock.on_eval(
+        "__cdpx_rgaa_text_spacing_cleanup",
+        {"error": "Cannot find context with specified id"},
+    )
+    mock.on_eval(
+        "__cdpx_rgaa_text_spacing_v2",
+        json.dumps({"candidates": 1, "clipped": [], "truncated": False}),
+    )
+
+    report = run_sample(client, compile_sample(path), timeout=5)
+    page_result = next(
+        test for test in report["pages"][0]["report"]["tests"] if test["id"] == "10.12.1"
+    )
+    aggregate = next(test for test in report["tests"] if test["id"] == "10.12.1")
+
+    assert report["execution_status"] == "partial"
+    assert page_result["verdict"] == "error"
+    assert page_result["evidence"]
+    assert aggregate["verdict"] == "error"
+    assert report["summary"]["error"] == 1
 
 
 def test_spacing_probe_timeout_reports_successful_cleanup(mock, client, monkeypatch):
