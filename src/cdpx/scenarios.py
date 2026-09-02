@@ -227,6 +227,8 @@ class ScenarioRun:
     interception_count: int = 0
     interception_matched_count: int = 0
     interception_effective_count: int = 0
+    vitals_handle: dict[str, Any] = field(default_factory=dict)
+    browser_version: str | None = None
 
     def finding(
         self,
@@ -669,10 +671,7 @@ def run(
     )
     collector = PassiveCollector(context)
     collector.enable(client)
-    if has_capture(scenario_spec.artifacts, "vitals") or any(
-        has_capture(step.capture, "vitals") for step in scenario_spec.steps
-    ):
-        diagnostics.install_vitals_observer(client)
+    run_state.browser_version = diagnostics.browser_version(client)
     if scenario_spec.emulation:
         emulation.emulate(client, scenario_spec.emulation)
 
@@ -1298,10 +1297,13 @@ def _record_interception(
 ) -> None:
     hits = result.get("hits")
     if isinstance(hits, list):
-        run_state.interception_count += len(hits)
         for hit in hits:
             if isinstance(hit, dict) and len(run_state.interception_hits) < MAX_INTERCEPTION_HITS:
                 run_state.interception_hits.append({**hit, "step": step.label})
+    hits_total = result.get("hits_total")
+    if hits_total is None:
+        hits_total = len(hits) if isinstance(hits, list) else 0
+    run_state.interception_count += _non_negative_int(hits_total)
     run_state.interception_matched_count += _non_negative_int(result.get("matched_count"))
     run_state.interception_effective_count += _non_negative_int(result.get("effective_count"))
 
@@ -1357,6 +1359,11 @@ def _persistable_step_result(
 ) -> dict[str, Any]:
     if step.verb != "eval":
         safe = redact_tree(result, context=context)
+        if isinstance(safe, dict) and "hits" in safe:
+            # The bounded aggregate lives in result["interception"]; step
+            # results must not duplicate it (or the raw wire traffic).
+            safe = {key: value for key, value in safe.items() if key != "hits"}
+            safe["hits_omitted"] = True
         return safe if isinstance(safe, dict) else {"redacted": True}
     context.mark(f"$.steps[{step.index}].result.value")
     return {"value": MASK, "value_masked": True}
@@ -1455,7 +1462,13 @@ def _capture_one(
     if kind == "vitals":
         entry = run_state.writer.write_json(
             f"{stem}.json",
-            diagnostics.collect_vitals(client, settle=0),
+            diagnostics.collect_vitals(
+                client,
+                settle=0,
+                handle=run_state.vitals_handle,
+                requested_url=run_state.last_url,
+                browser_version=run_state.browser_version,
+            ),
         )
         run_state.artifacts.append(_artifact("vitals", label, entry, run_state.evidence_dir))
         return

@@ -7,9 +7,15 @@ cdpx uses semantic versioning.
 
 ### Added
 
-- `vitals` now reports official CLS session windows, a separate `raw_sum`,
-  and bounded winning-window entries with DOM sources and before/current
-  rectangles.
+- `vitals` now reports a versioned `cdpx.vitals/v2` result: collector
+  availability (`status`, `collector.installed`, `document_observed`,
+  `supported`, `errors`), document binding (requested/final URL, navigation
+  type, main-frame scope, viewport, capture timestamp, browser version) and
+  bounded winning-window entries with DOM sources and before/current
+  rectangles. The collector runs inside a CDP isolated world: page JavaScript
+  cannot falsify it, and no instrumentation leaks into subsequent
+  navigations. A capture without an observable collector reports
+  `status: "unavailable"` with a reason instead of a silent zero.
 - Scenarios can capture `vitals`, use a bounded `wait_ms`, and apply existing
   interception rules around journey navigations and trusted clicks while
   reporting matched/effective counts.
@@ -18,6 +24,19 @@ cdpx uses semantic versioning.
 
 ### Changed
 
+- **`vitals` CLS semantics (migration):** before this change the top-level
+  `cls` field was a raw sum of layout-shift entries; it is now the official
+  maximum session window. Old `cls` value → new `metrics.raw_sum`; new
+  `metrics.cls` → official maximum session window over eligible entries
+  (`hadRecentInput` excluded from both). The `schema` field lets consumers
+  distinguish the contracts. `metrics.lcp` and `metrics.inp` are documented
+  as approximate signals, not the official LCP/INP algorithms.
+- Interception hits are bounded at the source: recorded hits are capped per
+  action (URLs capped too) while `hits_total`/`hits_limit`/`hits_truncated`
+  keep the exact totals; scenario step results no longer duplicate the
+  bounded aggregate.
+- A `vitals` settle wait no longer consumes buffered console/network events
+  owed to passive collectors.
 - Named keys accept unambiguous case-insensitive aliases and report their
   canonical spelling.
 

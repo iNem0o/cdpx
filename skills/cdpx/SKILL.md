@@ -127,9 +127,20 @@ mix values from different sessions.
 
 For Core Web Vitals work:
 
-- Treat `vitals` as a quick local signal, not a field-data explanation or
-  causal proof. Its current CLS value is a raw sum, not the official maximum
-  session window.
+- Treat `vitals` as a bounded laboratory measurement on the current main-frame
+  document, not a field-data explanation or a CrUX equivalent. In the
+  `cdpx.vitals/v2` result, `metrics.cls` is the official maximum session
+  window over eligible `layout-shift` entries; `metrics.raw_sum` is the
+  diagnostic sum of those same eligible entries (entries with
+  `hadRecentInput` are already excluded from both). `metrics.lcp` and
+  `metrics.inp` are approximate signals (maximum LCP candidate start time,
+  longest click entry duration), not the official LCP/INP algorithms.
+- Check `status` before reading any metric: `"measured"` means the isolated
+  world collector observed the document; `"unavailable"` reports a reason and
+  `metrics: null` — never interpret a missing collector as a real zero.
+- The measurement covers the current main-frame document only (no iframe
+  aggregation, no BFCache or soft-navigation lifecycle handling) and is not
+  comparable to CrUX field data.
 - Reproduce the reported journey: exact URL and viewport, consent state,
   scroll/click sequence and enough bounded wait for delayed widgets.
 - Use repeated control/variant runs and require a matched interception before

@@ -214,6 +214,17 @@ class CDPClient:
         """Empty the event buffer (without network read)."""
         return self.collect_events(0, names)
 
+    def settle(self, duration: float) -> None:
+        """Wait for `duration` seconds while buffering every incoming event.
+
+        Unlike :meth:`collect_events`, nothing is consumed: passive
+        collectors keep every buffered event for their own later ingestion.
+        A capture that only needs to let the page quiet down must use this
+        instead of an unfiltered collection, which would swallow late
+        console/network events owed to other collectors.
+        """
+        self.collect_events(duration, names=())
+
     # -- internal --------------------------------------------------------------
     @staticmethod
     def _validate_timeout(timeout: float) -> None:

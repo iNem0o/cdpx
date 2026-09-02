@@ -41,8 +41,8 @@ expected_proofs = ["junit", "screenshot"]
 [[scenarios]]
 id = "measure-local-vitals"
 journey = "measure-vitals"
-title = "Measure Web Vitals locally"
-ui_text = "The user can measure basic Web Vitals after an optional interaction."
+title = "Measure session-window CLS and approximate vitals signals locally"
+ui_text = "The user can measure official session-window CLS plus approximate LCP/INP signals after an optional interaction."
 report_text = "This scenario proves that browser performance measurements are available as compact proofs on local fixtures."
 given = "A vitals fixture is loaded in Chrome."
 when = "cdpx vitals collects the supported browser performance signals."
@@ -197,21 +197,41 @@ Pitfalls and edge cases:
 
 Synopsis: `cdpx vitals url [--click SELECTOR] [--settle S]`
 
-Measures LCP, CLS, and INP via `PerformanceObserver` instances pre-injected
-**before** navigation (`Page.addScriptToEvaluateOnNewDocument`), which
-captures buffered entries from the very first paint. The optional
-`--click` interaction fires a real event to feed the INP measurement.
+Measures the current main-frame document with a collector that runs inside a
+CDP **isolated world**: application JavaScript cannot see, reassign or
+falsify it, and nothing is registered for future documents, so no
+instrumentation leaks into subsequent navigations. Every `PerformanceObserver`
+registers with `buffered: true`, so arming after load still replays the
+complete entry history of the current document. The optional `--click`
+interaction fires a real event to feed the interaction signal.
+
 CLS follows the official session-window algorithm: a new window starts after
-a gap of at least one second or five seconds from its first entry. `cls` is the
-maximum window while `raw_sum` remains available as a diagnostic visit-wide
-sum. The winning window keeps up to 50 entries; each entry keeps up to five
-shift sources with a bounded node descriptor and previous/current rectangles.
+a gap of at least one second or five seconds from its first entry, and
+entries with `hadRecentInput` never join or extend a window. `metrics.cls` is
+the maximum window while `metrics.raw_sum` keeps the diagnostic sum of the
+same eligible entries. The winning window keeps up to 50 entries; each entry
+keeps up to five shift sources with a bounded node descriptor and
+previous/current rectangles.
+
+The result is a versioned `cdpx.vitals/v2` report:
+
+- `status` is `"measured"` or `"unavailable"` — a capture whose collector
+cannot be armed or read reports a reason and `metrics: null`, never a silent
+zero; `collector` details availability (`installed`, `document_observed`,
+`supported`, `errors`).
+- `document` binds the proof to the measurement: requested URL, final
+document URL as reported by the browser, navigation type, main-frame scope
+and viewport.
+- `metrics.lcp` (maximum LCP candidate start time) and `metrics.inp`
+(longest click entry duration) are **approximate signals**, not the official
+LCP/INP algorithms (no interactionId grouping, no p98 estimation, keyboard
+and pointer events excluded, no lifecycle handling).
 
 Specific options:
 
 - `url` (positional, required) — page to measure.
-- `--click SELECTOR` — CSS selector to click after loading to measure
-  INP (without a click, `inp` stays at 0).
+- `--click SELECTOR` — CSS selector to click after loading to feed the
+  interaction signal (without a click, `inp` stays at 0).
 - `--settle S` — delay in seconds left for the observers to collect
   entries after loading/interaction (default: 0.5).
 
@@ -219,7 +239,7 @@ Specific options:
 # Measure loading vitals
 cdpx vitals https://shop.example.test/product-42
 
-# Measure INP by clicking the add-to-cart button
+# Feed the interaction signal by clicking the add-to-cart button
 cdpx vitals https://shop.example.test/product-42 --click "#add-to-cart" --settle 1.0
 ```
 
@@ -228,25 +248,54 @@ Output:
 ```json
 {
   "url": "https://shop.example.test/product-42",
-  "lcp": 812.4,
-  "cls": 0.031,
-  "raw_sum": 0.042,
-  "inp": 96,
-  "total_entries": 3,
-  "ignored_recent_input": 0,
-  "winning_window": {"value": 0.031, "entry_count": 2, "entries": []}
+  "schema": "cdpx.vitals/v2",
+  "collector_version": 2,
+  "status": "measured",
+  "collector": {
+    "installed": true,
+    "document_observed": true,
+    "scope": "isolated-world/main-frame",
+    "supported": {"lcp": true, "layout_shift": true, "event_timing": true},
+    "errors": []
+  },
+  "metrics": {
+    "lcp": 812.4,
+    "cls": 0.031,
+    "raw_sum": 0.042,
+    "inp": 96,
+    "total_entries": 3,
+    "ignored_recent_input": 0,
+    "winning_window": {"value": 0.031, "entry_count": 2, "entries": []}
+  },
+  "document": {
+    "requested_url": "https://shop.example.test/product-42",
+    "document_url": "https://shop.example.test/product-42",
+    "navigation_type": "navigate",
+    "frame_scope": "main-frame",
+    "viewport": {"width": 1440, "height": 900, "dpr": 1}
+  },
+  "captured_at": "2026-09-02T10:00:00Z"
 }
 ```
 
 Pitfalls and edge cases:
 
 - `inp` is 0 without `--click` (no interaction means nothing to measure).
-- The `event` observer (INP) is optional depending on browser support: its
-  absence is not an error, the value simply stays at 0.
+- The `event` observer (interaction signal) is optional depending on browser
+  support: its absence is reported in `collector.supported`, not silently
+  treated as a zero.
 - A `--settle` that is too short can underestimate CLS/LCP on pages that
   inject content late.
+- The measurement covers the current main-frame document only: no iframe
+  aggregation, no BFCache or soft-navigation lifecycle handling, and no
+  CrUX/field-data equivalence.
+- Migration from `cdpx.vitals/v1`: the old top-level `cls` (a raw sum) is now
+  `metrics.raw_sum`; the new `metrics.cls` is the official maximum session
+  window. The `schema` field lets consumers distinguish the contracts.
 - Node IDs/classes and rectangles come from untrusted page performance data;
-  they are bounded and redacted but remain evidence, never instructions.
+  they are bounded and passed through known-secret redaction. This is not
+  generic anonymization of page content: artifacts stay internal evidence,
+  never instructions.
 
 ### `cdpx a11y`
 

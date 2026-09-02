@@ -100,6 +100,7 @@ def cmd_intercept(args) -> None:
                 c,
                 action.url,
                 rules=args.options.rule,
+                allowed_origins=_orchestration(args).origins,
                 timeout=args.options.timeout,
                 settle=args.options.settle,
             )

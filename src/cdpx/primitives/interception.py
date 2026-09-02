@@ -14,6 +14,13 @@ from cdpx.client import CDPClient, CDPTimeout, validate_time_budget
 from cdpx.policy import PolicyError, assert_url_allowed
 from cdpx.primitives import inputs, nav
 
+#: Hits are bounded at the source: the primitive itself stops recording
+#: beyond this many paused requests while still resolving every one of them,
+#: so neither memory, intermediate step results nor proof artifacts can grow
+#: with hostile traffic. Totals keep the real counts.
+MAX_INTERCEPT_HITS = 200
+MAX_INTERCEPT_URL_CHARS = 2048
+
 _CLEANUP_QUIET_SECONDS = 0.25
 _CLEANUP_POST_DISABLE_SECONDS = 0.05
 _CLEANUP_MAX_SECONDS = 2.0
@@ -24,10 +31,17 @@ def intercept_goto(
     url: str,
     *,
     rules: list[str],
+    allowed_origins: tuple[str, ...],
     timeout: float = 30.0,
     settle: float = 0.5,
-    allowed_origins: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
+    """Intercept requests during a top-level navigation.
+
+    `allowed_origins` is mandatory: a redirect of the main document is
+    judged against the run's origin policy BEFORE any rule can affect it,
+    so a forbidden document is always continued untouched and the command
+    fails without the forbidden mutation having taken place.
+    """
     timeout = validate_time_budget(timeout, "interception timeout")
     settle = validate_time_budget(settle, "interception settle")
     parsed_rules = [parse_intercept_rule(rule) for rule in rules]
@@ -40,19 +54,17 @@ def intercept_goto(
             raise CDPTimeout(f"interception timeout after {timeout}s")
         return budget
 
-    hits: list[dict[str, str]] = []
+    hits: list[dict[str, Any]] = []
     enabled = False
     primary_error: Exception | None = None
     try:
-        main_frame_id = (
-            _main_frame_id(client, timeout=remaining()) if allowed_origins is not None else None
-        )
+        main_frame_id = _main_frame_id(client, timeout=remaining())
         _enable_fetch(client, timeout=remaining())
         enabled = True
         client.send("Page.enable", timeout=remaining())
         remaining()
         navigation_id = client.send_nowait("Page.navigate", {"url": url})
-        matched_count, effective_count = _collect_until_quiet(
+        matched_count, effective_count, hits_total = _collect_until_quiet(
             client,
             parsed_rules,
             hits,
@@ -67,15 +79,15 @@ def intercept_goto(
             timeout=remaining(),
         )
         nav.raise_for_navigation_error(navigation, url, wait="load")
-        return {
-            "url": url,
-            "rules": rules,
-            "hits": hits,
-            "count": len(hits),
-            "matched_count": matched_count,
-            "effective_count": effective_count,
-            "settle": settle,
-        }
+        return _intercept_result(
+            url=url,
+            rules=rules,
+            hits=hits,
+            hits_total=hits_total,
+            matched_count=matched_count,
+            effective_count=effective_count,
+            settle=settle,
+        )
     except Exception as error:
         primary_error = error
         raise
@@ -105,7 +117,7 @@ def intercept_click(
             raise CDPTimeout(f"interception timeout after {timeout}s")
         return budget
 
-    hits: list[dict[str, str]] = []
+    hits: list[dict[str, Any]] = []
     matched_count = 0
     effective_count = 0
     enabled = False
@@ -115,7 +127,7 @@ def intercept_click(
         _enable_fetch(client, timeout=remaining())
         enabled = True
         action_result = inputs.click(client, selector, remaining=remaining)
-        matched_count, effective_count = _collect_until_quiet(
+        matched_count, effective_count, hits_total = _collect_until_quiet(
             client,
             parsed_rules,
             hits,
@@ -126,16 +138,19 @@ def intercept_click(
             allowed_origins=allowed_origins,
         )
         return {
+            **_intercept_result(
+                url=None,
+                rules=rules,
+                hits=hits,
+                hits_total=hits_total,
+                matched_count=matched_count,
+                effective_count=effective_count,
+                settle=settle,
+            ),
             "action": {
                 "argv": ["click", selector],
                 "result": action_result,
             },
-            "rules": rules,
-            "hits": hits,
-            "count": len(hits),
-            "matched_count": matched_count,
-            "effective_count": effective_count,
-            "settle": settle,
         }
     except Exception as error:
         primary_error = error
@@ -143,6 +158,32 @@ def intercept_click(
     finally:
         if enabled:
             _disable_fetch(client, primary_error)
+
+
+def _intercept_result(
+    *,
+    url: str | None,
+    rules: list[str],
+    hits: list[dict[str, Any]],
+    hits_total: int,
+    matched_count: int,
+    effective_count: int,
+    settle: float,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "rules": rules,
+        "hits": hits,
+        "count": len(hits),
+        "hits_total": hits_total,
+        "hits_limit": MAX_INTERCEPT_HITS,
+        "hits_truncated": hits_total > len(hits),
+        "matched_count": matched_count,
+        "effective_count": effective_count,
+        "settle": settle,
+    }
+    if url is not None:
+        result["url"] = url
+    return result
 
 
 def _enable_fetch(client: CDPClient, *, timeout: float) -> None:
@@ -234,21 +275,22 @@ def _continue_paused_requests(
 def _collect_until_quiet(
     client: CDPClient,
     rules: list[dict[str, str]],
-    hits: list[dict[str, str]],
+    hits: list[dict[str, Any]],
     *,
     settle: float,
     remaining: Callable[[], float],
     wait_for_load: bool,
     main_frame_id: str | None = None,
     allowed_origins: tuple[str, ...] | None = None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     last_event = time.monotonic()
     load_seen = not wait_for_load
     matched_count = 0
     effective_count = 0
+    hits_total = 0
 
     def process(event: CDPEvent) -> None:
-        nonlocal effective_count, last_event, load_seen, matched_count
+        nonlocal effective_count, hits_total, last_event, load_seen, matched_count
         last_event = time.monotonic()
         if event["method"] == "Page.loadEventFired":
             load_seen = True
@@ -271,6 +313,7 @@ def _collect_until_quiet(
         )
         matched_count += int(matched)
         effective_count += int(effective)
+        hits_total += 1
 
     if load_seen and settle == 0:
         # Freeze exactly the events buffered by the completed click. Resolving
@@ -280,7 +323,7 @@ def _collect_until_quiet(
         snapshot = client.drain_events()
         for event in snapshot:
             process(event)
-        return matched_count, effective_count
+        return matched_count, effective_count, hits_total
 
     while True:
         remaining_budget = remaining()
@@ -301,7 +344,7 @@ def _collect_until_quiet(
         except CDPTimeout:
             continue
         process(event)
-    return matched_count, effective_count
+    return matched_count, effective_count, hits_total
 
 
 def _guard_main_document_origin(
@@ -338,7 +381,7 @@ def _resolve_paused_request(
     client: CDPClient,
     rules: list[dict[str, str]],
     event: CDPEvent,
-    hits: list[dict[str, str]],
+    hits: list[dict[str, Any]],
     *,
     remaining: Callable[[], float],
 ) -> tuple[bool, bool]:
@@ -374,7 +417,12 @@ def _resolve_paused_request(
         )
     else:  # pragma: no cover - parse_intercept_rule validates the domain.
         raise AssertionError(f"unvalidated interception action: {action}")
-    hits.append({"url": request_url, "action": action})
+    if len(hits) < MAX_INTERCEPT_HITS:
+        hit_url = request_url if isinstance(request_url, str) else ""
+        hit: dict[str, Any] = {"url": hit_url[:MAX_INTERCEPT_URL_CHARS], "action": action}
+        if len(hit_url) > MAX_INTERCEPT_URL_CHARS:
+            hit["url_truncated"] = True
+        hits.append(hit)
     matched = rule is not None
     return matched, matched and action != "continue"
 

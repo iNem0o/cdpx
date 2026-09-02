@@ -204,17 +204,20 @@ cdpx intercept --rule "*api/echo* => 503" --settle 1 click "#request-button"
 ```
 
 ```json
-{"url":"http://demo.test/","rules":["*api* => 503"],"hits":[{"url":"http://demo.test/","action":"continue"},{"url":"http://demo.test/api/health","action":"503"}],"count":2,"settle":1.0}
+{"url":"http://demo.test/","rules":["*api* => 503"],"hits":[{"url":"http://demo.test/","action":"continue"},{"url":"http://demo.test/api/health","action":"503"}],"count":2,"hits_total":2,"hits_limit":200,"hits_truncated":false,"settle":1.0}
 ```
 
 Click result:
 
 ```json
-{"action":{"argv":["click","#request-button"],"result":{"clicked":"#request-button","x":412.5,"y":318.0}},"rules":["*api/echo* => 503"],"hits":[{"url":"http://demo.test/api/echo","action":"503"}],"count":1,"matched_count":1,"effective_count":1,"settle":1.0}
+{"action":{"argv":["click","#request-button"],"result":{"clicked":"#request-button","x":412.5,"y":318.0}},"rules":["*api/echo* => 503"],"hits":[{"url":"http://demo.test/api/echo","action":"503"}],"count":1,"hits_total":1,"hits_limit":200,"hits_truncated":false,"matched_count":1,"effective_count":1,"settle":1.0}
 ```
 
-For click composition, `count` is the number of requests paused by Fetch,
-`matched_count` is the number matched by an explicit rule (including an
+For click composition, `count` is the number of recorded hits (bounded at
+200 per action with URLs capped at 2048 characters), `hits_total` is the real
+number of paused requests, and `hits_truncated` announces when recording was
+capped while every request was still resolved. `matched_count` is the number
+matched by an explicit rule (including an
 explicit `continue`), and `effective_count` counts status fulfillments and
 blocks. A valid rule with no match is a successful command with
 `matched_count:0` and `effective_count:0`; callers can make that an assertion
@@ -229,9 +232,11 @@ click, or stabilization exceeds `--timeout`, the command exits 1. Every
 observed paused request receives a decision, and `Fetch.disable` runs in a
 `finally` path on success or failure; a cleanup failure is itself an execution
 error, with connection closure as the transport fallback. `intercept` requires
-`privileged`; a `click` also requires the current page origin to be allowed.
-The main document is intercepted during `goto`, so an overly broad rule
-(`* => 503`) can replace the hosting page.
+`privileged`; both routes judge the top-level document against the session
+origin allowlist BEFORE any rule can affect it: a forbidden document
+(redirected or click-triggered) continues untouched and the command fails.
+Within an allowed origin, an overly broad rule (`* => 503`) can still replace
+the hosting page.
 
 ### `cdpx emulate`
 
@@ -472,9 +477,10 @@ Supported executable schema (`cdpx.scenario/v1`):
   the scenario `--timeout`; expiration stops before the next browser effect.
   Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
-  `profiler`, `vitals`. A scenario requesting vitals installs the bounded
-  observer before its first navigation; the internal JSON contains official
-  session-window CLS, `raw_sum`, the winning entries, sources and rectangles.
+  `profiler`, `vitals`. A vitals capture arms the isolated-world collector at
+  capture time; the internal `cdpx.vitals/v2` JSON contains the availability
+  status, the document binding, official session-window CLS, `raw_sum`, the
+  winning entries, sources and rectangles.
   These proofs are collected immediately after the step, even
   if the step fails. `profiler` also accepts the structured form documented
   below; only one profiler capture is allowed at each checkpoint.

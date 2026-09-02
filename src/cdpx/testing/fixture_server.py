@@ -15,6 +15,9 @@ API endpoints (in addition to the static files in tests/fixtures/):
   GET /api/slow?ms=N     -> JSON payload after N milliseconds (default 200)
   GET /api/status/CODE   -> responds with the requested HTTP code
   GET /api/redirect-echo -> redirects to /api/echo
+  GET /api/redirect-external -> 302 to the same URL on the other loopback
+          name (127.0.0.1 <-> localhost): a cross-origin document redirect
+          for origin-guard proofs
   ANY /api/echo          -> returns method, path, body received
   GET /api/set-cookie    -> sets Set-Cookie: fixture=on
 """
@@ -27,6 +30,7 @@ import pathlib
 import threading
 import time
 import urllib.parse
+from typing import cast
 
 DEFAULT_FIXTURES = pathlib.Path(__file__).resolve().parents[3] / "tests" / "fixtures"
 
@@ -76,6 +80,17 @@ def _make_handler(root: pathlib.Path):
                 return True
             if path == "/api/redirect-echo":
                 self._send(b"", status=302, extra={"Location": "/api/echo"})
+                return True
+            if path == "/api/redirect-external":
+                host_header = self.headers.get("Host", "")
+                host = host_header.split(":")[0]
+                other = "localhost" if host == "127.0.0.1" else "127.0.0.1"
+                server_port = cast("tuple[str, int]", self.server.server_address)[1]
+                self._send(
+                    b"",
+                    status=302,
+                    extra={"Location": f"http://{other}:{server_port}/index.html"},
+                )
                 return True
             if path == "/api/echo":
                 length = int(self.headers.get("Content-Length") or 0)

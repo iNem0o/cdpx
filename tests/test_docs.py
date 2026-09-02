@@ -153,6 +153,40 @@ def test_cdpx_skill_metadata_and_safety_contract():
         assert guardrail in CDPX_SKILL
 
 
+def test_cdpx_skill_and_reference_describe_the_same_cls_contract():
+    """The skill and the reference documentation describe the same vitals
+    semantics: the retired raw-sum wording must never come back, and both
+    surfaces must present the official session window, the eligible-entry
+    sum, the availability status and the approximate LCP/INP signals."""
+    skill = " ".join(CDPX_SKILL.split())
+    primitives = " ".join(PRIMITIVES.split())
+    #: the retired sentence must not reappear in any distributed surface
+    assert "raw sum, not the official maximum" not in skill
+    assert "raw sum, not the official maximum" not in primitives
+    #: the skill teaches the current cdpx.vitals/v2 contract
+    for token in (
+        "cdpx.vitals/v2",
+        "maximum session window",
+        "raw_sum",
+        "hadRecentInput",
+        '"unavailable"',
+        "isolated world",
+        "main-frame",
+        "CrUX",
+        "approximate",
+    ):
+        assert token in skill, f"skill misses vitals contract token: {token}"
+    #: the reference sheet agrees with the skill on the same semantics
+    for token in (
+        "cdpx.vitals/v2",
+        "maximum session window",
+        "raw_sum",
+        '"unavailable"',
+        "isolated-world",
+    ):
+        assert token in primitives, f"PRIMITIVES misses vitals contract token: {token}"
+
+
 def test_readme_documents_cli_contract():
     """The README documents the entire global CLI contract: cross-cutting
     options, session environment variables, and the three exit codes of

@@ -303,6 +303,13 @@ class MockCDP:
                 events,
             )
 
+        if method == "Page.createIsolatedWorld":
+            # One stable isolated execution context per target is enough for
+            # the deterministic protocol contract; real Chrome re-uses the
+            # world registered under the same worldName.
+            return {"executionContextId": 1}, None, events
+        if method == "Browser.getVersion":
+            return {"product": "Chrome/126.0.0.0", "Browser": "cdpx-mock/1.0"}, None, events
         if method == "DOM.getDocument":
             return {"root": {"nodeId": 1}}, None, events
 

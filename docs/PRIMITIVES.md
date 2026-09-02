@@ -100,15 +100,19 @@ cdpx session start --run-id demo --authority interaction --origins "http://127.0
 | CLI | Use case | Why |
 |---|---|---|
 | `cdpx seo [url]` | SEO contract of the **rendered** DOM: title/metas/canonical/robots/h1/hreflang/JSON-LD/alt/links + findings, estimated px, duplicates | only the final DOM is authoritative on the Googlebot rendering side |
-| `cdpx vitals <url> [--click sel]` | LCP, session-window CLS with bounded attribution, and INP | `cls` is the official maximum session window; `raw_sum` keeps the visit-wide diagnostic sum and the winning entries include bounded sources/rectangles |
+| `cdpx vitals <url> [--click sel]` | session-window CLS with bounded attribution plus approximate LCP/INP signals, bound to the measured document | `cdpx.vitals/v2`: `metrics.cls` is the official maximum session window, `raw_sum` keeps the eligible-entry diagnostic sum, `status` distinguishes a real zero from an unavailable collector, and the winning entries include bounded sources/rectangles |
 | `cdpx a11y` | compacted accessibility tree | low-cost structured semantic vision |
 | `cdpx coverage <url>` | dead JS/CSS per file | front-end debt measured, not guessed |
 
 Exact scope: `seo` is an on-page diagnostic of the rendered DOM, not a crawl
-or proof of indexing; `vitals` is a bounded local measurement, not a
-complete lab/field methodology or field data; CLS attribution is capped at 50
-entries and five sources per entry. `a11y` is a compact view of the AXTree, not
-an exhaustive RGAA audit.
+or proof of indexing; `vitals` is a bounded laboratory measurement of the
+current main-frame document — official session-window aggregation of the
+`layout-shift` entries exposed to that document, with approximate LCP/INP
+signals, no iframe aggregation and no field-data equivalence; CLS attribution
+is capped at 50 entries and five sources per entry, and a capture whose
+isolated-world collector cannot be armed or read reports `status:
+"unavailable"` instead of a silent zero. `a11y` is a compact view of the
+AXTree, not an exhaustive RGAA audit.
 
 ```bash
 cdpx seo https://shop.example.test/collection/dresses
@@ -153,21 +157,26 @@ cdpx scenario run checkout_guest_add_to_cart.yml
 An interception rule accepts only `continue`, `block`, or a `200..599`
 status; any typo is rejected at parse time. `intercept` composes only with
 `goto` and `click`, always requires `privileged`, resolves every paused
-request, and disables Fetch in cleanup even when the action fails. With
-`--settle 0`, events already buffered by the completed action are resolved,
-but CDPX does not wait for new traffic. A click-triggered top-level navigation
-is checked against the session origin allowlist before a rule can affect its
-document; a forbidden document continues untouched and the command fails.
-Subrequests remain eligible for interception independently of their origin.
-In a scenario, `context.intercept` accepts at most 20 of the same validated
-rules and applies them around every `goto` and trusted `click`. The result
-aggregates bounded hits plus `matched_count` and `effective_count`, so a
-blocking control can prove that its rule actually affected traffic. Rules are
-armed before each composed action and Fetch is disabled in its cleanup.
-`wait_ms` is an integer from 0 to 60000 and must also fit the per-step
-`--timeout`. A `vitals` checkpoint or final artifact installs its observer
-before the first navigation and persists the attributed snapshot as internal
-JSON. In a scenario, `wait_visible` genuinely checks attachment,
+request, and disables Fetch in cleanup even when the action fails. The
+origin guard is mandatory on both routes: a top-level document (navigated or
+click-triggered) is checked against the session origin allowlist before a
+rule can affect it; a forbidden document continues untouched and the command
+fails. Subrequests remain eligible for interception independently of their
+origin. With `--settle 0`, events already buffered by the completed action
+are resolved, but CDPX does not wait for new traffic. Recorded hits are
+bounded at the source (200 per action, URLs
+capped) while `hits_total`, `hits_limit` and `hits_truncated` keep the exact
+totals, and `matched_count`/`effective_count` let a blocking control prove
+that its rule actually affected traffic. Rules are armed before each composed
+action and Fetch is disabled in its cleanup. In a scenario,
+`context.intercept` accepts at most 20 of the same validated rules and
+applies them around every `goto` and trusted `click`; the aggregate keeps
+the exact totals with a bounded hit list, and step results never duplicate
+it. `wait_ms` is an integer from 0 to 60000 and must also fit the per-step
+`--timeout`. A `vitals` checkpoint or final artifact arms the isolated-world
+collector at capture time and persists the `cdpx.vitals/v2` snapshot —
+status, collector availability, document binding and bounded metrics — as
+internal JSON. In a scenario, `wait_visible` genuinely checks attachment,
 display/visibility, and a non-zero box. Its deadline follows the bounded
 scenario `--timeout`, allowing supervised third-party widgets to opt into a
 longer wait. A `type` step requires `secret_ref`

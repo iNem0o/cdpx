@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from cdpx import discovery, scenarios, session
 from cdpx.client import CDPClient
@@ -128,7 +128,23 @@ def _eval_source(args) -> tuple[str, str]:
             raise scenarios.ScenarioUsageError("eval: --file must be UTF-8") from error
     elif args.options.expression_stdin:
         source = "stdin"
-        expression = sys.stdin.read(MAX_EVAL_SOURCE_BYTES + 1)
+        # Read raw bytes: a character-based read would let multi-byte UTF-8
+        # input consume several megabytes before the byte budget is checked,
+        # and the digest must depend on the original bytes, not on Python's
+        # newline translation.
+        try:
+            stdin_buffer = getattr(sys.stdin, "buffer", sys.stdin)
+            payload = cast(bytes, stdin_buffer.read(MAX_EVAL_SOURCE_BYTES + 1))
+        except OSError as error:
+            raise scenarios.ScenarioUsageError(f"eval: cannot read stdin: {error}") from error
+        if len(payload) > MAX_EVAL_SOURCE_BYTES:
+            raise scenarios.ScenarioUsageError(
+                f"eval: source exceeds {MAX_EVAL_SOURCE_BYTES} bytes"
+            )
+        try:
+            expression = payload.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise scenarios.ScenarioUsageError("eval: stdin must be UTF-8") from error
     else:  # pragma: no cover - argparse enforces one source
         raise scenarios.ScenarioUsageError("eval: one source is required")
     size = len(expression.encode())

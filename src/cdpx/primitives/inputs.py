@@ -167,6 +167,10 @@ KEY_MAP = {
     "Delete": {"key": "Delete", "code": "Delete", "windowsVirtualKeyCode": 46},
 }
 KEY_ALIASES = {name.casefold(): name for name in KEY_MAP}
+#: A future key whose casefolded name collides with an existing one would
+#: silently shadow the previous alias; fail at import instead.
+if len(KEY_ALIASES) != len(KEY_MAP):  # pragma: no cover - import-time guard
+    raise RuntimeError("duplicate casefolded key alias in KEY_MAP")
 
 
 class ElementNotFound(RuntimeError):

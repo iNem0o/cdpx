@@ -1,10 +1,11 @@
 """The CLI end-to-end (in-process): args parsing -> discovery -> WS ->
 primitive -> JSON on stdout + exit code. This is the contract seen by the agent."""
 
+import hashlib
+import io
 import json
 import pathlib
 import sys
-from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -244,8 +245,11 @@ def test_eval_reads_file_without_echoing_source(mock, capsys, tmp_path):
 
 
 def test_eval_reads_stdin_with_the_same_bounded_contract(mock, capsys, monkeypatch):
+    """stdin is read as raw bytes with the same budget and digest contract as
+    --file: multi-byte UTF-8 must not bypass the byte limit and the digest
+    depends on the original bytes, not on newline translation."""
     mock.on_eval("document.title", "Fixture title")
-    monkeypatch.setattr(sys, "stdin", StringIO("document.title"))
+    monkeypatch.setattr(sys, "stdin", io.BytesIO(b"document.title"))
 
     code, out, err = run(mock, capsys, "eval", "--stdin")
 
@@ -254,6 +258,20 @@ def test_eval_reads_stdin_with_the_same_bounded_contract(mock, capsys, monkeypat
     assert payload["value"] == "Fixture title"
     assert payload["source"] == "stdin"
     assert len(payload["script_sha256"]) == 64
+    assert payload["script_sha256"] == hashlib.sha256(b"document.title").hexdigest()
+
+
+def test_eval_stdin_rejects_oversized_multibyte_source(mock, capsys, monkeypatch):
+    """A multi-byte UTF-8 source is bounded in bytes, not in characters."""
+    source = "\u00e9" * 500_000  # 1,000,000 bytes in UTF-8, 500,000 characters
+    assert len(source.encode()) == 1_000_000
+    monkeypatch.setattr(sys, "stdin", io.BytesIO((source + "\u00e9").encode()))
+
+    code, _, err = run(mock, capsys, "eval", "--stdin")
+
+    #: a usage error: refused before any browser contact
+    assert code == 2
+    assert "exceeds 1000000 bytes" in err
 
 
 def test_pretty_output_is_explicit(mock, capsys):
@@ -664,9 +682,30 @@ DISPATCH_CASES = [
     (
         "vitals",
         ["vitals", "http://s.test/", "--settle", "0.1"],
-        {"__cdpxVitals": json.dumps({"lcp": 1, "cls": 0, "inp": 0})},
-        "Page.addScriptToEvaluateOnNewDocument",
-        lambda d: d["lcp"] == 1,
+        {
+            "__cdpxVitalsRead()": {
+                "schema": "cdpx.vitals/v2",
+                "collector_version": 2,
+                "document_observed": True,
+                "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+                "errors": [],
+                "metrics": {
+                    "lcp": 1,
+                    "cls": 0,
+                    "raw_sum": 0,
+                    "inp": 0,
+                    "total_entries": 0,
+                    "ignored_recent_input": 0,
+                    "winning_window": None,
+                },
+                "context": {
+                    "navigation_type": "navigate",
+                    "viewport": {"width": 800, "height": 600, "dpr": 1},
+                },
+            }
+        },
+        "Page.createIsolatedWorld",
+        lambda d: d["status"] == "measured" and d["metrics"]["lcp"] == 1,
     ),
     (
         "emulate",
@@ -950,6 +989,9 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
         "rules",
         "hits",
         "count",
+        "hits_total",
+        "hits_limit",
+        "hits_truncated",
         "matched_count",
         "effective_count",
         "settle",

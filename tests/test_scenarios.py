@@ -24,6 +24,34 @@ def orchestration(origins: str = "http://*.test") -> OrchestrationContext:
     return OrchestrationContext.from_origins(origins)
 
 
+def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
+    """A valid isolated-world collector snapshot for scripted reads."""
+    snapshot = {
+        "schema": "cdpx.vitals/v2",
+        "collector_version": 2,
+        "document_observed": True,
+        "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+        "errors": [],
+        "metrics": {
+            "lcp": 0,
+            "cls": 0,
+            "raw_sum": 0,
+            "inp": 0,
+            "total_entries": 0,
+            "ignored_recent_input": 0,
+            "winning_window": None,
+        },
+        "context": {
+            "navigation_type": "navigate",
+            "viewport": {"width": 1440, "height": 900, "dpr": 1},
+        },
+    }
+    if metric_updates is not None:
+        snapshot["metrics"].update(metric_updates)
+    snapshot.update(overrides)
+    return snapshot
+
+
 def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch):
     collector = scenarios.PassiveCollector(orchestration())
     collector.profiler_hits = [
@@ -988,19 +1016,7 @@ def test_scenario_captures_vitals_and_proves_interception_matches(mock, tmp_path
         "__cdpx_actionability",
         json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
     )
-    mock.on_eval(
-        "__cdpxVitals",
-        json.dumps(
-            {
-                "lcp": 120,
-                "cls": 0,
-                "raw_sum": 0,
-                "inp": 0,
-                "total_entries": 0,
-                "winning_window": None,
-            }
-        ),
-    )
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot({"lcp": 120}))
     mock.script_click_network(
         [
             {
@@ -1049,13 +1065,120 @@ def test_scenario_captures_vitals_and_proves_interception_matches(mock, tmp_path
     ]
     vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
     captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
-    assert captured["cls"] == 0
-    assert captured["raw_sum"] == 0
-    methods = [method for (_target, method, _params) in mock.commands]
-    assert methods.index("Page.addScriptToEvaluateOnNewDocument") < methods.index("Page.navigate")
+    assert captured["status"] == "measured"
+    assert captured["metrics"]["cls"] == 0
+    assert captured["metrics"]["raw_sum"] == 0
+    #: the proof is bound to the journey's document and conditions
+    assert captured["document"]["requested_url"] == "http://shop.test/product"
+    assert captured["document"]["document_url"] == "http://shop.test/product"
+    assert captured["browser_version"] == "Chrome/126.0.0.0"
+    assert captured["captured_at"].endswith("Z")
+    #: the collector is armed at capture time inside an isolated world, and
+    #: nothing is registered for future documents
+    assert mock.commands_for("Page.createIsolatedWorld")
+    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument") == []
+    #: step results never duplicate the bounded interception aggregate
+    click_step = next(step for step in result["steps"] if step["verb"] == "click")
+    assert "hits" not in click_step["result"]
+    assert click_step["result"]["hits_omitted"] is True
+    assert click_step["result"]["matched_count"] == 1
     assert mock.commands_for("Fetch.failRequest") == [
         {"requestId": "WIDGET1", "errorReason": "BlockedByClient"}
     ]
+
+
+def test_scenario_vitals_without_goto_measures_current_document(mock, tmp_path):
+    """A scenario without any goto still produces a bound vitals proof for
+    the current document: the collector arms at capture time inside an
+    isolated world and reports its availability status explicitly."""
+    mock.on_eval(
+        "__cdpxVitalsRead()", vitals_snapshot({"cls": 0.05, "raw_sum": 0.05, "total_entries": 1})
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "no_navigation_vitals",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"wait_ms": 0}],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=1,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
+    captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
+    assert captured["status"] == "measured"
+    assert captured["metrics"]["cls"] == 0.05
+    assert captured["document"]["requested_url"] is None
+    assert captured["document"]["document_url"] == "http://shop.test/"
+
+
+def test_scenario_interception_aggregate_stays_bounded(mock, tmp_path):
+    """Thousands of intercepted requests keep the aggregate bounded: the
+    totals stay exact, the recorded hits are capped and the truncation is
+    announced."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    total = scenarios.MAX_INTERCEPTION_HITS + 50
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": f"BULK{n}",
+                    "request": {"url": f"http://shop.test/asset/{n}"},
+                    "resourceType": "Script",
+                    "frameId": "FRAME1",
+                },
+            }
+            for n in range(total)
+        ]
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "flooded_interception",
+            "context": {
+                "base_url": "http://shop.test",
+                "intercept": ["* => continue"],
+            },
+            "steps": [
+                {"goto": "/product"},
+                {"click": "#load-widget"},
+                {"wait_ms": 0},
+            ],
+            "artifacts": [],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=2,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    #: the aggregate keeps the exact totals while the recorded hits stay capped
+    assert result["interception"]["count"] == total
+    assert len(result["interception"]["hits"]) == scenarios.MAX_INTERCEPTION_HITS
+    assert result["interception"]["hits_truncated"] is True
+    assert result["interception"]["matched_count"] == total
+    #: every paused request was resolved even beyond the recording cap
+    assert len(mock.commands_for("Fetch.continueRequest")) == total
 
 
 def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock, tmp_path):
