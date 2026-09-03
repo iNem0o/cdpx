@@ -78,6 +78,7 @@ class MockCDP:
         self.click_network_script: list[dict] = []  # events emitted after mouseReleased
         self.fetch_resolution_script: list[dict] = []  # events emitted during a Fetch verdict
         self.fetch_disable_script: list[dict] = []  # events emitted after Fetch.disable responds
+        self.new_document_scripts: dict[str, str] = {}  # identifier -> registered source
         # Direct target WebSockets are distinct CDP sessions; Fetch state does not
         # leak from a disconnected client to the next client for the same target.
         self._fetch_enabled_sessions: set[tuple[str, object]] = set()
@@ -308,6 +309,15 @@ class MockCDP:
             # the deterministic protocol contract; real Chrome re-uses the
             # world registered under the same worldName.
             return {"executionContextId": 1}, None, events
+        if method == "Page.addScriptToEvaluateOnNewDocument":
+            identifier = f"SCRIPT-{len(self.new_document_scripts) + 1}"
+            self.new_document_scripts[identifier] = params.get("source", "")
+            return {"identifier": identifier}, None, events
+        if method == "Page.removeScriptToEvaluateOnNewDocument":
+            removed = params.get("identifier")
+            if isinstance(removed, str):
+                self.new_document_scripts.pop(removed, None)
+            return {}, None, events
         if method == "Browser.getVersion":
             return {"product": "Chrome/126.0.0.0", "Browser": "cdpx-mock/1.0"}, None, events
         if method == "DOM.getDocument":
@@ -415,7 +425,7 @@ class MockCDP:
             "Emulation.setUserAgentOverride",
             "Emulation.setCPUThrottlingRate",
             "Network.emulateNetworkConditions",
-            "Page.addScriptToEvaluateOnNewDocument",
+            "Page.removeScriptToEvaluateOnNewDocument",
             "Profiler.enable",
             "Profiler.startPreciseCoverage",
             "Profiler.stopPreciseCoverage",

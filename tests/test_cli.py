@@ -460,6 +460,54 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
         assert code == 1 and "origin rejected" in err
 
 
+def test_vitals_cli_forbidden_redirect_never_touches_the_document(mock, capsys):
+    """An allowed URL that redirects to a forbidden origin is refused right
+    after the navigation: no isolated world is created and no collector
+    snapshot is read on the forbidden document."""
+    mock.on_eval("window.location.href", "https://prod.example/redirected")
+    code, out, err = run(mock, capsys, "vitals", "http://s.test/vitals.html")
+    assert code == 1 and not out
+    assert "origin rejected" in err
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_cli_forbidden_click_destination_never_touches_the_document(mock, capsys):
+    """A click that leads to a forbidden origin is judged immediately after
+    the interaction: the collector armed on the allowed document is never
+    read on the hijacked document."""
+    mock.on_eval(
+        "window.location.href", "http://s.test/vitals.html", "https://prod.example/hijacked"
+    )
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    code, out, err = run(mock, capsys, "vitals", "http://s.test/vitals.html", "--click", "#go")
+    assert code == 1 and not out
+    assert "origin rejected" in err
+    #: the collector was armed on the allowed document BEFORE the click
+    assert len(mock.commands_for("Page.createIsolatedWorld")) == 1
+    world_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Page.createIsolatedWorld"
+    )
+    click_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Input.dispatchMouseEvent"
+    )
+    assert world_index < click_index
+    #: the hijacked document was never read by the collector
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
 @pytest.mark.scenario(
     feature="orchestration-control",
     journey="intercept-network",
@@ -684,11 +732,14 @@ DISPATCH_CASES = [
         ["vitals", "http://s.test/", "--settle", "0.1"],
         {
             "__cdpxVitalsRead()": {
-                "schema": "cdpx.vitals/v2",
-                "collector_version": 2,
+                "schema": "cdpx.vitals/v3",
+                "collector_version": 3,
                 "document_observed": True,
+                "arm_scope": "capture-time",
                 "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
                 "errors": [],
+                "dropped_entries": 0,
+                "interaction_entry_count": 0,
                 "metrics": {
                     "lcp": 1,
                     "cls": 0,
@@ -700,12 +751,14 @@ DISPATCH_CASES = [
                 },
                 "context": {
                     "navigation_type": "navigate",
+                    "document_url": "http://s.test/",
+                    "time_origin": 1730000000000,
                     "viewport": {"width": 800, "height": 600, "dpr": 1},
                 },
             }
         },
         "Page.createIsolatedWorld",
-        lambda d: d["status"] == "measured" and d["metrics"]["lcp"] == 1,
+        lambda d: d["status"] == "measured" and d["metrics"]["lcp"]["value"] == 1,
     ),
     (
         "emulate",

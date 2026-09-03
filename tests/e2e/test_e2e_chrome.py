@@ -2300,6 +2300,82 @@ def test_intercept_goto_real_leaves_forbidden_redirect_untouched(cli_page, evide
         cli_json(session, "goto", f"{base}/intercept.html")
 
 
+def test_vitals_real_forbidden_redirect_never_measures_the_document(cli_page, evidence_case):
+    """An allowed URL that HTTP-redirects to a forbidden origin is refused
+    immediately after the navigation: the command fails before creating the
+    isolated world or reading any collector snapshot, and the forbidden
+    document continues untouched."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    proc = run_cli(manifest, path, "vitals", f"{base}/api/redirect-external")
+    attach_cli_run(evidence_case, "vitals-forbidden-redirect", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            main_title = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
+                    break
+                time.sleep(0.05)
+            #: the forbidden document was never disturbed by the measurement
+            assert current_url.startswith("http://localhost:")
+            assert main_title == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "vitals-forbidden-redirect-continued")
+    finally:
+        cli_json(session, "goto", f"{base}/intercept.html")
+
+
+def test_vitals_real_forbidden_click_destination_never_measures_the_document(
+    cli_page, evidence_case
+):
+    """A click that leads to a forbidden origin is judged immediately after
+    the interaction: the collector armed on the allowed document is never
+    read on the hijacked document and the command fails."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    proc = run_cli(
+        manifest,
+        path,
+        "vitals",
+        f"{base}/intercept.html",
+        "--click",
+        "#forbidden-navigation",
+        "--settle",
+        "1.0",
+    )
+    attach_cli_run(evidence_case, "vitals-forbidden-click-destination", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            main_title = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
+                    break
+                time.sleep(0.05)
+            #: the forbidden document was reached by the click and left intact
+            assert current_url.startswith("http://localhost:")
+            assert main_title == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "vitals-forbidden-click-continued")
+    finally:
+        cli_json(session, "goto", f"{base}/intercept.html")
+
+
 def test_vitals_real_with_interaction(page):
     """The Web Vitals signals are measured on a real page through the
     isolated-world collector, the INP being triggered by a synthetic click
@@ -2308,8 +2384,7 @@ def test_vitals_real_with_interaction(page):
     res = diagnostics.vitals(c, f"{base}/vitals.html", click_selector="#inp-button", settle=1.0)
     #: the measurement succeeded and carries its availability status
     assert res["status"] == "measured"
-    assert res["schema"] == "cdpx.vitals/v2"
-    assert res["collector"]["installed"] is True
+    assert res["schema"] == "cdpx.vitals/v3"
     assert res["collector"]["document_observed"] is True
     assert res["collector"]["supported"] == {
         "lcp": True,
@@ -2317,29 +2392,47 @@ def test_vitals_real_with_interaction(page):
         "event_timing": True,
     }
     assert res["collector"]["errors"] == []
-    #: all metrics are present and plausible (never negative)
+    assert res["collector"]["dropped_entries"] == 0
+    #: all metrics are present with their per-metric availability
     metrics = res["metrics"]
-    assert set(metrics) == {
-        "lcp",
-        "cls",
-        "raw_sum",
-        "inp",
-        "total_entries",
-        "ignored_recent_input",
-        "winning_window",
-    }
-    assert metrics["lcp"] >= 0 and metrics["cls"] >= 0 and metrics["inp"] >= 0
+    assert set(metrics) == {"lcp", "cls", "inp"}
+    assert all(metric["status"] == "measured" for metric in metrics.values())
+    assert metrics["lcp"]["value"] >= 0
+    assert metrics["cls"]["value"] >= 0
+    assert metrics["cls"]["raw_sum"] >= metrics["cls"]["value"]
+    assert metrics["inp"]["value"] >= 0
     #: the proof is bound to the real document, not just the requested URL
     assert res["url"].endswith("/vitals.html")
     assert res["document"]["document_url"].endswith("/vitals.html")
+    assert res["document"]["navigation_source"] == "goto"
     assert res["document"]["frame_scope"] == "main-frame"
     assert res["document"]["viewport"]["width"] > 0
+    assert isinstance(res["document"]["time_origin"], int | float)
     assert res["captured_at"].endswith("Z")
     #: the interaction that feeds the INP genuinely reached the page
     assert js.evaluate(c, "document.body.dataset.clicked") == "1"
     #: the main world cannot see the collector: no falsification surface
     assert js.evaluate(c, "typeof __cdpxVitalsRead") == "undefined"
     assert js.evaluate(c, "typeof window.__cdpxVitals") == "undefined"
+
+
+def test_vitals_real_interaction_entry_is_observed(page):
+    """A controlled interaction of 48 ms (inside the 16..103 ms window the
+    Event Timing API exposes) produces a real observed entry because the
+    collector is armed BEFORE the click: the INP approximation is a measured
+    duration, never a late-observer silent zero."""
+    c, base = page
+    res = diagnostics.vitals(
+        c, f"{base}/vitals-interaction.html", click_selector="#slow-button", settle=1.0
+    )
+    assert res["status"] == "measured"
+    assert res["interaction"]["requested"] is True
+    assert res["interaction"]["observed"] is True
+    assert res["interaction"]["entry_count"] >= 1
+    inp = res["metrics"]["inp"]
+    assert inp["status"] == "measured"
+    assert 16 <= inp["value"] <= 103
+    assert js.evaluate(c, "document.body.dataset.interacted") == "1"
 
 
 def test_vitals_real_uses_cls_session_window_and_attributes_source(page):
@@ -2350,10 +2443,10 @@ def test_vitals_real_uses_cls_session_window_and_attributes_source(page):
     result = diagnostics.vitals(client, f"{base}/vitals-windows.html", settle=2.0)
 
     metrics = result["metrics"]
-    assert metrics["cls"] > 0
-    assert metrics["raw_sum"] > metrics["cls"]
-    assert metrics["total_entries"] >= 3
-    window = metrics["winning_window"]
+    assert metrics["cls"]["value"] > 0
+    assert metrics["cls"]["raw_sum"] > metrics["cls"]["value"]
+    assert metrics["cls"]["total_entries"] >= 3
+    window = metrics["cls"]["winning_window"]
     assert window is not None
     assert window["entry_count"] >= 2
     assert window["entries_truncated"] is False
@@ -2480,7 +2573,7 @@ def test_vitals_real_ignores_shift_within_recent_input(page):
         settle=1.5,
     )
     assert res["status"] == "measured"
-    metrics = res["metrics"]
+    metrics = res["metrics"]["cls"]
     assert metrics["ignored_recent_input"] >= 1
     assert metrics["total_entries"] >= 1
     assert metrics["raw_sum"] > 0
@@ -2500,9 +2593,9 @@ def test_vitals_real_ignores_page_tampering(page):
     time.sleep(0.4)
     res = diagnostics.collect_vitals(client, settle=0.5, requested_url=f"{base}/vitals-tamper.html")
     assert res["status"] == "measured"
-    metrics = res["metrics"]
+    metrics = res["metrics"]["cls"]
     #: the falsified near-zero CLS never surfaces: the real shift is reported
-    assert metrics["cls"] > 0.01
+    assert metrics["value"] > 0.01
     assert metrics["winning_window"] is not None
     #: the flooded/negative fields and the 5000-entry array are absent
     assert "flood" not in metrics
@@ -2521,10 +2614,10 @@ def test_vitals_real_repeated_captures_stay_stable(page):
     second = diagnostics.vitals(client, f"{base}/vitals-windows.html", settle=1.5)
     for res in (first, second):
         assert res["status"] == "measured"
-        assert res["metrics"]["cls"] > 0
-        assert res["metrics"]["total_entries"] >= 3
-    assert second["metrics"]["total_entries"] == first["metrics"]["total_entries"]
-    assert second["metrics"]["raw_sum"] == pytest.approx(first["metrics"]["raw_sum"])
+        assert res["metrics"]["cls"]["value"] > 0
+        assert res["metrics"]["cls"]["total_entries"] >= 3
+    assert second["metrics"]["cls"]["total_entries"] == first["metrics"]["cls"]["total_entries"]
+    assert second["metrics"]["cls"]["raw_sum"] == pytest.approx(first["metrics"]["cls"]["raw_sum"])
 
 
 @pytest.mark.scenario(
@@ -2827,17 +2920,26 @@ def test_scenario_attributes_late_cls_and_proves_blocked_control(
         assert active_code == 0, active_err
         active_vitals = scenario_artifact_json(active, "vitals")
         assert active_vitals["status"] == "measured"
-        assert active_vitals["metrics"]["cls"] > 0
-        assert active_vitals["metrics"]["raw_sum"] >= active_vitals["metrics"]["cls"]
-        active_window = active_vitals["metrics"]["winning_window"]
+        assert active_vitals["metrics"]["cls"]["value"] > 0
+        active_cls = active_vitals["metrics"]["cls"]
+        assert active_cls["raw_sum"] >= active_cls["value"]
+        active_window = active_vitals["metrics"]["cls"]["winning_window"]
         assert active_window is not None
         sources = [source for entry in active_window["entries"] for source in entry["sources"]]
         assert any(
             source["node"] and source["node"]["id"] == "shifted-content" for source in sources
         )
+        #: the journey document was instrumented from its first script
+        assert active_vitals["collector"]["arm_scope"] == "document-start"
         #: each proof is bound to the journey's document
         assert active_vitals["document"]["requested_url"].endswith("/vitals-journey.html")
         assert active_vitals["document"]["document_url"].endswith("/vitals-journey.html")
+        assert active_vitals["document"]["navigation_source"] == "goto"
+        #: the artifact is self-sufficient about the measurement conditions
+        environment = active_vitals["measurement_environment"]
+        assert environment["emulation"] is None
+        assert environment["interception_active"] is False
+        assert isinstance(environment["scenario_sha256"], str) and environment["scenario_sha256"]
         active_runs.append(active_vitals["metrics"])
 
         blocked_code, blocked, blocked_err = run_scenario_cli(
@@ -2847,15 +2949,16 @@ def test_scenario_attributes_late_cls_and_proves_blocked_control(
         assert blocked_code == 0, blocked_err
         blocked_vitals = scenario_artifact_json(blocked, "vitals")
         assert blocked_vitals["status"] == "measured"
-        assert blocked_vitals["metrics"]["cls"] == 0
+        assert blocked_vitals["metrics"]["cls"]["value"] == 0
+        assert blocked_vitals["measurement_environment"]["interception_active"] is True
         assert blocked["interception"]["matched_count"] == 1
         assert blocked["interception"]["effective_count"] == 1
         assert any(hit["action"] == "block" for hit in blocked["interception"]["hits"])
         blocked_runs.append(blocked_vitals["metrics"])
 
     #: the repeated control/variant runs agree: the causal contrast is stable
-    assert all(run["cls"] > 0 for run in active_runs)
-    assert all(run["cls"] == 0 for run in blocked_runs)
+    assert all(run["cls"]["value"] > 0 for run in active_runs)
+    assert all(run["cls"]["value"] == 0 for run in blocked_runs)
 
 
 @pytest.mark.scenario(

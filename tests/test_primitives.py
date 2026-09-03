@@ -2193,11 +2193,14 @@ def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
     as a plain Python dict, not as a JSON string.
     """
     snapshot = {
-        "schema": "cdpx.vitals/v2",
-        "collector_version": 2,
+        "schema": "cdpx.vitals/v3",
+        "collector_version": 3,
         "document_observed": True,
+        "arm_scope": "capture-time",
         "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
         "errors": [],
+        "dropped_entries": 0,
+        "interaction_entry_count": 0,
         "metrics": {
             "lcp": 12,
             "cls": 0.1,
@@ -2248,6 +2251,8 @@ def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
         },
         "context": {
             "navigation_type": "navigate",
+            "document_url": "http://s.test/vitals.html",
+            "time_origin": 1730000000000,
             "viewport": {"width": 1440, "height": 900, "dpr": 1},
         },
     }
@@ -2258,19 +2263,21 @@ def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
 
 
 def test_vitals_arms_isolated_world_and_reads_values(mock, client):
-    """vitals arms the collector inside a CDP isolated world, triggers the
-    requested interaction and then reads the vitals snapshot from that
-    world; the result carries the collector status and document binding."""
+    """vitals arms the collector inside a CDP isolated world BEFORE the
+    requested interaction, then reads the vitals snapshot from that world;
+    the result carries the collector status, the interaction record and the
+    document binding."""
     mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = diagnostics.vitals(client, "http://s.test/vitals.html", click_selector="#inp-button")
     #: the reported metrics really come from the collector armed in the page
     assert res["status"] == "measured"
-    assert res["schema"] == "cdpx.vitals/v2"
-    assert res["metrics"]["lcp"] == 12 and res["metrics"]["cls"] == 0.1
-    assert res["metrics"]["raw_sum"] == 0.15
-    assert res["metrics"]["cls"] != res["metrics"]["raw_sum"]
-    assert res["metrics"]["winning_window"]["entries"][0]["sources"][0] == {
+    assert res["schema"] == "cdpx.vitals/v3"
+    assert res["metrics"]["lcp"] == {"status": "measured", "value": 12}
+    assert res["metrics"]["cls"]["value"] == 0.1
+    assert res["metrics"]["cls"]["raw_sum"] == 0.15
+    assert res["metrics"]["cls"]["value"] != res["metrics"]["cls"]["raw_sum"]
+    assert res["metrics"]["cls"]["winning_window"]["entries"][0]["sources"][0] == {
         "node": {
             "tag": "main",
             "id": "content",
@@ -2280,18 +2287,26 @@ def test_vitals_arms_isolated_world_and_reads_values(mock, client):
         "previous_rect": {"x": 0, "y": 100, "width": 800, "height": 200},
         "current_rect": {"x": 0, "y": 200, "width": 800, "height": 200},
     }
+    assert res["metrics"]["inp"] == {"status": "measured", "value": 0}
     #: the collector status distinguishes a real measurement from a failure
     assert res["collector"] == {
-        "installed": True,
         "document_observed": True,
         "scope": "isolated-world/main-frame",
+        "arm_scope": "capture-time",
         "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+        "dropped_entries": 0,
         "errors": [],
     }
+    #: the interaction record distinguishes a click that produced no entry
+    #: from a capture that never observed the interaction
+    assert res["interaction"] == {"requested": True, "observed": False, "entry_count": 0}
     #: the proof is bound to the real document and measurement conditions
     assert res["url"] == "http://s.test/vitals.html"
     assert res["document"]["requested_url"] == "http://s.test/vitals.html"
     assert res["document"]["document_url"] == "http://s.test/vitals.html"
+    assert res["document"]["time_origin"] == 1730000000000
+    assert res["document"]["navigation_source"] == "goto"
+    assert res["document"]["navigation_step"] is None
     assert res["document"]["navigation_type"] == "navigate"
     assert res["document"]["frame_scope"] == "main-frame"
     assert res["document"]["viewport"] == {"width": 1440, "height": 900, "dpr": 1.0}
@@ -2308,6 +2323,21 @@ def test_vitals_arms_isolated_world_and_reads_values(mock, client):
     ]
     assert len(snapshot_evals) == 1
     assert snapshot_evals[0]["contextId"] == 1
+    #: the world is armed BEFORE the interaction so the Event Timing observer
+    #: is live when the click happens
+    world_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Page.createIsolatedWorld"
+    )
+    click_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Input.dispatchMouseEvent"
+    )
+    assert world_index < click_index
+    #: nothing is registered for future documents on this standalone path
+    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument") == []
     #: the INP click did happen
     assert mock.commands_for("Input.dispatchMouseEvent")
 
@@ -2330,7 +2360,26 @@ def test_vitals_collector_uses_official_session_windows(mock, client):
                     "end_time": 6400,
                     "duration": 200,
                     "entry_count": 2,
-                    "entries": [],
+                    "entries": [
+                        {
+                            "value": 0.1,
+                            "start_time": 6200,
+                            "duration": 0,
+                            "had_recent_input": False,
+                            "sources": [],
+                            "source_count": 0,
+                            "sources_truncated": False,
+                        },
+                        {
+                            "value": 0.15,
+                            "start_time": 6400,
+                            "duration": 0,
+                            "had_recent_input": False,
+                            "sources": [],
+                            "source_count": 0,
+                            "sources_truncated": False,
+                        },
+                    ],
                     "entries_truncated": False,
                 },
             }
@@ -2347,9 +2396,9 @@ def test_vitals_collector_uses_official_session_windows(mock, client):
     assert "start - current.last_time < 1000" in source
     assert "start - current.start_time < 5000" in source
     assert "raw_sum" in source
-    assert result["metrics"]["cls"] == 0.25
-    assert result["metrics"]["raw_sum"] == 0.35
-    assert result["metrics"]["winning_window"]["entry_count"] == 2
+    assert result["metrics"]["cls"]["value"] == 0.25
+    assert result["metrics"]["cls"]["raw_sum"] == 0.35
+    assert result["metrics"]["cls"]["winning_window"]["entry_count"] == 2
 
 
 def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, client):
@@ -2358,7 +2407,10 @@ def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, clie
     http://*.test — a deliberate divergence from the old fnmatch matcher,
     which used to refuse it, now pinned."""
     mock.on_eval("window.location.href", "http://s.test:80/vitals.html")
-    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot({"lcp": 5, "cls": 0.0, "inp": 1}))
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot({"lcp": 5, "cls": 0.0, "inp": 1, "raw_sum": 0.0, "winning_window": None}),
+    )
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = diagnostics.vitals(
         client,
@@ -2368,7 +2420,7 @@ def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, clie
     )
     #: the policy's canonical matcher normalizes the default port: click allowed
     assert mock.commands_for("Input.dispatchMouseEvent")
-    assert res["metrics"]["inp"] == 1
+    assert res["metrics"]["inp"]["value"] == 1
 
 
 def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
@@ -2393,10 +2445,10 @@ def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
 def test_vitals_rechecks_redirected_origin_before_click(mock, client):
     """Even after an allowed navigation, a redirection outside the permitted
     origins blocks the INP click: the mutation is re-judged against the real
-    URL."""
+    URL, and the redirected document is never touched by the collector."""
     mock.on_eval("window.location.href", "https://prod.example/redirected")
     #: the mutation is refused based on the real destination, not the requested URL
-    with pytest.raises(ValueError, match="origin rejected"):
+    with pytest.raises(PolicyError, match="origin rejected"):
         diagnostics.vitals(
             client,
             "http://allowed.test/vitals.html",
@@ -2405,6 +2457,14 @@ def test_vitals_rechecks_redirected_origin_before_click(mock, client):
         )
     #: no click was emitted toward the hijacked page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
+    #: no isolated world was created and no collector snapshot was read on
+    #: the forbidden document: the refusal precedes any measurement
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
 
 
 def test_vitals_fails_loudly_when_collector_cannot_be_read(mock, client):
@@ -2466,6 +2526,136 @@ def test_vitals_fails_loudly_when_collector_cannot_be_read(mock, client):
             },
             "entry_count above total_entries",
         ),
+        (
+            {"metrics": {"cls": 0.1, "raw_sum": 0.1, "total_entries": 1, "winning_window": None}},
+            "without a winning window",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.2,
+                    "raw_sum": 0.2,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.1, "had_recent_input": False}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "winning_window.value differs from cls",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 4,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.1, "had_recent_input": False}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "duration differs from end_time - start_time",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.1, "had_recent_input": True}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "retains an entry with had_recent_input",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.05, "had_recent_input": False}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "sum of its retained entries",
+        ),
+        (
+            {"metrics": {"cls": 0.0, "raw_sum": 0.1, "total_entries": 0, "winning_window": None}},
+            "raw_sum above zero without eligible entries",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [
+                            {
+                                "value": 0.1,
+                                "had_recent_input": False,
+                                "sources": [
+                                    {
+                                        "node": {
+                                            "tag": 12,
+                                            "id": "i",
+                                            "classes": [],
+                                            "selector": "#i",
+                                        }
+                                    }
+                                ],
+                                "source_count": 1,
+                            }
+                        ],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "entries.sources.node.tag: string required",
+        ),
+        ({"errors": "nope"}, "errors block: list required"),
+        ({"dropped_entries": -1}, "dropped_entries: non-negative integer required"),
+        ({"arm_scope": "whenever"}, "arm_scope: document-start or capture-time required"),
+        (
+            {"context": {"navigation_type": "navigate", "viewport": {"width": 1, "height": 1}}},
+            "document binding missing from collector snapshot",
+        ),
+        (
+            {"context": {"document_url": "http://s.test/", "time_origin": "yesterday"}},
+            "time_origin: finite number required",
+        ),
     ],
 )
 def test_vitals_refuses_tampered_or_incoherent_snapshots(mock, client, overrides, reason):
@@ -2520,7 +2710,7 @@ def test_vitals_bounds_entries_sources_and_strings(mock, client):
         ),
     )
     res = diagnostics.collect_vitals(client, settle=0)
-    window = res["metrics"]["winning_window"]
+    window = res["metrics"]["cls"]["winning_window"]
     assert window["entry_count"] == 60
     assert len(window["entries"]) == diagnostics.MAX_CLS_ENTRIES
     assert window["entries_truncated"] is True
@@ -2589,6 +2779,137 @@ def test_vitals_rearms_after_context_loss(mock, client, monkeypatch):
     res = diagnostics.collect_vitals(client, settle=0, handle=handle)
     assert res["status"] == "measured"
     assert len(mock.commands_for("Page.createIsolatedWorld")) == 2
+
+
+def test_vitals_refuses_forbidden_redirect_before_any_collector_read(mock, client):
+    """An allowed URL that HTTP-redirects to a forbidden origin is refused
+    immediately after the navigation: no isolated world is created and no
+    collector snapshot is read on the forbidden document."""
+    mock.on_eval("window.location.href", "https://prod.example/redirected")
+    with pytest.raises(PolicyError, match="origin rejected"):
+        diagnostics.vitals(client, "http://allowed.test/vitals.html", origins="http://*.test")
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_refuses_forbidden_click_destination_before_collector_read(mock, client):
+    """A click that leads to a forbidden origin is judged right after the
+    interaction: the collector armed on the allowed document is never read
+    on the hijacked document."""
+    mock.on_eval(
+        "window.location.href", "http://allowed.test/vitals.html", "https://prod.example/hijacked"
+    )
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    with pytest.raises(PolicyError, match="origin rejected"):
+        diagnostics.vitals(
+            client,
+            "http://allowed.test/vitals.html",
+            click_selector="#go",
+            origins="http://*.test",
+        )
+    #: the click happened, but the hijacked document was never read
+    assert mock.commands_for("Input.dispatchMouseEvent")
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_reports_partial_when_the_browser_announces_dropped_entries(mock, client):
+    """A browser that abandoned buffered entries degrades the report to
+    'partial' instead of presenting a truncated history as a full measure."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot({"cls": 0.1, "raw_sum": 0.1}, dropped_entries=7),
+    )
+    res = diagnostics.collect_vitals(client, settle=0)
+    assert res["status"] == "partial"
+    assert res["partial_reasons"]
+    assert "7" in res["partial_reasons"][0]
+    assert res["metrics"]["cls"]["value"] == 0.1
+    assert res["collector"]["dropped_entries"] == 7
+
+
+def test_vitals_marks_unsupported_entry_types_instead_of_silent_zeros(mock, client):
+    """An entry type the browser does not implement is reported as
+    'unsupported' with a null value, never as a measured zero, and its
+    absence does not invalidate the correctly measured CLS."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            {"inp": 0, "lcp": 0},
+            supported={"lcp": False, "layout_shift": True, "event_timing": False},
+        ),
+    )
+    res = diagnostics.collect_vitals(client, settle=0)
+    assert res["status"] == "measured"
+    assert res["metrics"]["lcp"] == {"status": "unsupported", "value": None}
+    assert res["metrics"]["inp"] == {"status": "unsupported", "value": None}
+    assert res["metrics"]["cls"] == {
+        "status": "measured",
+        "value": 0.1,
+        "raw_sum": 0.15,
+        "total_entries": 2,
+        "ignored_recent_input": 0,
+        "winning_window": res["metrics"]["cls"]["winning_window"],
+    }
+    assert res["collector"]["supported"] == {
+        "lcp": False,
+        "layout_shift": True,
+        "event_timing": False,
+    }
+
+
+def test_vitals_registers_and_releases_the_new_document_collector(mock, client):
+    """Journey arming registers the collector for future documents and the
+    release removes the registration: no instrumentation survives the run."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot(arm_scope="document-start"))
+    handle = diagnostics.install_vitals_observer(client, for_future_documents=True)
+    assert handle["script_id"] == "SCRIPT-1"
+    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument") == [
+        {"source": diagnostics.VITALS_COLLECTOR_SOURCE, "worldName": "cdpx-vitals"}
+    ]
+    res = diagnostics.collect_vitals(client, settle=0, handle=handle)
+    assert res["collector"]["arm_scope"] == "document-start"
+    diagnostics.release_vitals_collector(client, handle)
+    assert mock.commands_for("Page.removeScriptToEvaluateOnNewDocument") == [
+        {"identifier": "SCRIPT-1"}
+    ]
+    assert handle == {}
+    #: releasing twice is a no-op
+    diagnostics.release_vitals_collector(client, handle)
+    assert len(mock.commands_for("Page.removeScriptToEvaluateOnNewDocument")) == 1
+
+
+def test_vitals_threads_the_global_timeout_budget(mock, client, monkeypatch):
+    """--timeout is the budget of the whole vitals command: every CDP call
+    after the navigation carries an explicit remaining-time timeout."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    calls: list[tuple[str, dict, float | None]] = []
+    real_send = client.send
+
+    def send(method, params=None, timeout=None):
+        calls.append((method, params or {}, timeout))
+        return real_send(method, params, timeout=timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    diagnostics.vitals(client, "http://s.test/vitals.html", timeout=5, click_selector="#inp-button")
+    for method in ("Browser.getVersion", "Page.getFrameTree", "Page.createIsolatedWorld"):
+        budgets = [timeout for name, _p, timeout in calls if name == method]
+        assert budgets and all(timeout is not None for timeout in budgets), method
+    collector_evals = [
+        timeout
+        for name, params, timeout in calls
+        if name == "Runtime.evaluate" and "__cdpx" in params.get("expression", "")
+    ]
+    #: the collector install and the snapshot read are budget-bound too
+    assert collector_evals and all(timeout is not None for timeout in collector_evals)
 
 
 def test_a11y_compacts_ax_tree(mock, client):

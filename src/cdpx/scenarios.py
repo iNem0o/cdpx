@@ -220,7 +220,14 @@ class ScenarioRun:
     steps: list[dict[str, Any]] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
-    last_url: str | None = None
+    #: Document binding of the current measurement target, kept separately:
+    #: the URL requested by the last goto, the URL actually displayed, and
+    #: how the displayed document was reached (goto | click | redirect |
+    #: current-document) with the step that produced it.
+    last_requested_url: str | None = None
+    last_document_url: str | None = None
+    last_navigation_source: str = "current-document"
+    last_navigation_step: str | None = None
     composition: ScenarioComposition | None = None
     interception_rules: tuple[str, ...] = ()
     interception_hits: list[dict[str, Any]] = field(default_factory=list)
@@ -229,6 +236,9 @@ class ScenarioRun:
     interception_effective_count: int = 0
     vitals_handle: dict[str, Any] = field(default_factory=dict)
     browser_version: str | None = None
+    #: Origin policy and reproduction conditions embedded in vitals artifacts.
+    allowed_origins: tuple[str, ...] = ()
+    measurement_environment: dict[str, Any] | None = None
 
     def finding(
         self,
@@ -674,45 +684,74 @@ def run(
     run_state.browser_version = diagnostics.browser_version(client)
     if scenario_spec.emulation:
         emulation.emulate(client, scenario_spec.emulation)
+    run_state.allowed_origins = tuple(allowed_origins)
+    run_state.measurement_environment = _vitals_measurement_environment(scenario_spec)
 
-    origin_allowed = True
-    for operation in prepared.operations:
-        step_ok, origin_allowed = _execute_scenario_operation(
-            client,
-            operation,
-            scenario_spec,
-            allowed_origins,
-            run_state,
-            collector,
-            redaction,
-            timeout=timeout,
-            settle=settle,
-        )
-        if not step_ok:
-            break
+    try:
+        try:
+            # Baseline document binding: a first-step click that navigates
+            # must be detectable against the document the scenario started on.
+            run_state.last_document_url = _current_url(client)
+        except ACTION_ERRORS:
+            pass
+        if _has_vitals_capture(scenario_spec):
+            # The collector is registered BEFORE the first navigation so every
+            # journey document is instrumented from its first script; the
+            # registration is removed before the run reports its result.
+            run_state.vitals_handle = diagnostics.install_vitals_observer(
+                client,
+                for_future_documents=True,
+            )
 
-    collector.drain(client, settle)
-    if origin_allowed:
-        origin_allowed = _record_current_origin(
-            client,
-            allowed_origins,
-            run_state,
-            redaction,
-            step="final",
-            error_path="$.final.origin_error",
-        )
-    if origin_allowed:
-        _run_assertions(client, collector, run_state, scenario_spec.assertions)
-        origin_allowed = _record_current_origin(
-            client,
-            allowed_origins,
-            run_state,
-            redaction,
-            step="assertions",
-            error_path="$.assertions.origin_error",
-        )
-    if origin_allowed:
-        _capture_many(client, collector, run_state, scenario_spec.artifacts, "final", None, timeout)
+        origin_allowed = True
+        for operation in prepared.operations:
+            step_ok, origin_allowed = _execute_scenario_operation(
+                client,
+                operation,
+                scenario_spec,
+                allowed_origins,
+                run_state,
+                collector,
+                redaction,
+                timeout=timeout,
+                settle=settle,
+            )
+            if not step_ok:
+                break
+
+        collector.drain(client, settle)
+        if origin_allowed:
+            origin_allowed = _record_current_origin(
+                client,
+                allowed_origins,
+                run_state,
+                redaction,
+                step="final",
+                error_path="$.final.origin_error",
+            )
+        if origin_allowed:
+            _run_assertions(client, collector, run_state, scenario_spec.assertions)
+            origin_allowed = _record_current_origin(
+                client,
+                allowed_origins,
+                run_state,
+                redaction,
+                step="assertions",
+                error_path="$.assertions.origin_error",
+            )
+        if origin_allowed:
+            _capture_many(
+                client,
+                collector,
+                run_state,
+                scenario_spec.artifacts,
+                "final",
+                None,
+                timeout,
+            )
+    finally:
+        if run_state.vitals_handle:
+            diagnostics.release_vitals_collector(client, run_state.vitals_handle)
     result = redact_tree(run_state.as_dict(), context=redaction)
     writer.write_json(
         "scenario-result.json",
@@ -745,8 +784,13 @@ def _execute_scenario_operation(
     if step.source is not None:
         record["source"] = step.source.as_dict()
     started = time.monotonic()
+    previous_document_url = run_state.last_document_url
     try:
         _assert_origin(client, scenario, step, allowed_origins)
+        if step.verb == "goto":
+            # The requested URL is recorded even when the navigation fails:
+            # the binding distinguishes what was asked from what is displayed.
+            run_state.last_requested_url = _absolute_url(scenario.base_url, step.value)
         result = _run_operation(
             client,
             operation,
@@ -757,8 +801,6 @@ def _execute_scenario_operation(
         )
         if scenario.intercept_rules and step.verb in {"goto", "click"}:
             _record_interception(run_state, step, result)
-        if step.verb == "goto":
-            run_state.last_url = _absolute_url(scenario.base_url, step.value)
         record["result"] = _persistable_step_result(step, result, redaction)
     except ACTION_ERRORS as error:
         record["ok"] = False
@@ -783,7 +825,8 @@ def _execute_scenario_operation(
         step=step.label,
         error_path="$.step.origin_error",
         record=record,
-        update_last_url=step.verb == "goto",
+        verb=step.verb,
+        previous_document_url=previous_document_url,
     )
     if origin_allowed:
         _capture_many(
@@ -807,7 +850,8 @@ def _record_current_origin(
     step: str,
     error_path: str,
     record: dict[str, Any] | None = None,
-    update_last_url: bool = False,
+    verb: str | None = None,
+    previous_document_url: str | None = None,
 ) -> bool:
     try:
         actual_url = _assert_current_origin(client, allowed_origins)
@@ -818,8 +862,25 @@ def _record_current_origin(
             record["error"] = safe_error
         run_state.finding("origin_refused", safe_error, step=step)
         return False
-    if update_last_url:
-        run_state.last_url = actual_url
+    run_state.last_document_url = actual_url
+    goto_completed = verb == "goto" and (record is None or record.get("ok") is not False)
+    if goto_completed:
+        # A successful goto (re)binds the journey to the document it asked for.
+        run_state.last_navigation_source = (
+            "redirect" if actual_url != run_state.last_requested_url else "goto"
+        )
+        run_state.last_navigation_step = step
+        return True
+    if previous_document_url is None or actual_url == previous_document_url:
+        # Same document (or no baseline to compare against): a non-goto step
+        # cannot prove that it navigated, so the existing binding is kept.
+        return True
+    # A navigation the step triggered indirectly: a trusted click, or a
+    # script-driven redirect. The proof binds to the document the step
+    # opened, not to the last goto.
+    run_state.last_navigation_source = "click" if verb == "click" else "redirect"
+    run_state.last_navigation_step = step
+    run_state.last_requested_url = None
     return True
 
 
@@ -1466,8 +1527,12 @@ def _capture_one(
                 client,
                 settle=0,
                 handle=run_state.vitals_handle,
-                requested_url=run_state.last_url,
+                requested_url=run_state.last_requested_url,
                 browser_version=run_state.browser_version,
+                allowed_origins=run_state.allowed_origins or None,
+                navigation_source=run_state.last_navigation_source,
+                navigation_step=run_state.last_navigation_step,
+                measurement_environment=run_state.measurement_environment,
             ),
         )
         run_state.artifacts.append(_artifact("vitals", label, entry, run_state.evidence_dir))
@@ -1482,7 +1547,7 @@ def _capture_one(
                 step=label,
             )
             return
-        if profiler_result is None and run_state.last_url:
+        if profiler_result is None and run_state.last_document_url:
             panels = (
                 list(artifact.profiler.panels)
                 if artifact.profiler is not None and artifact.profiler.panels is not None
@@ -1490,7 +1555,7 @@ def _capture_one(
             )
             profiler_result = dev.profiler(
                 client,
-                run_state.last_url,
+                run_state.last_document_url,
                 panels=panels,
                 timeout=timeout,
                 context=collector.context,
@@ -1526,6 +1591,34 @@ def _artifact(
         "sha256": entry.sha256,
         "classification": entry.classification,
         "upload_allowed": entry.upload_allowed,
+    }
+
+
+def _has_vitals_capture(scenario: Scenario) -> bool:
+    return has_capture(scenario.artifacts, "vitals") or any(
+        has_capture(step.capture, "vitals") for step in scenario.steps
+    )
+
+
+def _vitals_measurement_environment(scenario: Scenario) -> dict[str, Any]:
+    """Reproduction conditions embedded in scenario vitals artifacts.
+
+    A CLS measurement depends on the emulation (load order under network/CPU
+    throttling) and on the interception rules applied around the journey; the
+    artifact carries them plus the scenario digest so the proof is
+    self-sufficient without its scenario-result.json sibling.
+    """
+    preset = (
+        dict(emulation.PRESETS[scenario.emulation])
+        if scenario.emulation in emulation.PRESETS
+        else None
+    )
+    return {
+        "emulation": scenario.emulation,
+        "emulation_profile": preset,
+        "interception_active": bool(scenario.intercept_rules),
+        "interception_rules": list(scenario.intercept_rules),
+        "scenario_sha256": scenario.composition.sha256 if scenario.composition else None,
     }
 
 

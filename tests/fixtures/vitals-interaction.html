@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture: vitals controlled interaction</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    #hero { display: block; width: 320px; height: 180px; background: #163; color: white; }
+  </style>
+</head>
+<body>
+  <h1>Controlled interaction</h1>
+  <div id="hero">Largest content candidate</div>
+  <button id="slow-button">Slow interaction</button>
+  <script>
+    // A controlled interaction duration inside the 16..103 ms window the
+    // Event Timing API exposes (the spec floors durationThreshold at 16 ms
+    // and only buffers historical entries of 104 ms and more): long enough
+    // to produce an entry, short enough to stay far from the 104 ms buffer.
+    document.getElementById('slow-button').addEventListener('click', () => {
+      const start = performance.now();
+      while (performance.now() - start < 48) {}
+      document.body.dataset.interacted = '1';
+    });
+  </script>
+</body>
+</html>

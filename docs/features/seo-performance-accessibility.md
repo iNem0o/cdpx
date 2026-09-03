@@ -49,7 +49,7 @@ when = "cdpx vitals collects the supported browser performance signals."
 then = "The result is reported with its test coverage and an e2e scenario backed by a screenshot."
 target = "cdp-mock"
 proof_level = "contract"
-tests = ["tests/test_primitives.py::test_vitals*", "tests/e2e/test_e2e_chrome.py::test_vitals*"]
+tests = ["tests/test_primitives.py::test_vitals*", "tests/test_cli.py::test_vitals_cli*", "tests/e2e/test_e2e_chrome.py::test_vitals*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -199,29 +199,58 @@ Synopsis: `cdpx vitals url [--click SELECTOR] [--settle S]`
 
 Measures the current main-frame document with a collector that runs inside a
 CDP **isolated world**: application JavaScript cannot see, reassign or
-falsify it, and nothing is registered for future documents, so no
-instrumentation leaks into subsequent navigations. Every `PerformanceObserver`
-registers with `buffered: true`, so arming after load still replays the
-complete entry history of the current document. The optional `--click`
+falsify it. On this standalone command the collector is armed right after
+the navigation is judged and BEFORE the optional `--click`, so the Event
+Timing observer is live when the interaction happens; nothing is registered
+for future documents, so no instrumentation leaks into subsequent
+navigations. Observers register with `buffered: true`, so arming after load
+replays the entry history still held in the browser's bounded performance
+buffers — not a guaranteed complete history. The optional `--click`
 interaction fires a real event to feed the interaction signal.
+
+The origin policy is enforced before any measurement: the real origin is
+judged immediately after the navigation (catching forbidden HTTP
+redirects), again immediately after the interaction (catching
+click-triggered navigations), once more before every collector (re-)arm,
+and the snapshot's own document binding is judged a final time before the
+result is returned. A forbidden document is never measured.
 
 CLS follows the official session-window algorithm: a new window starts after
 a gap of at least one second or five seconds from its first entry, and
-entries with `hadRecentInput` never join or extend a window. `metrics.cls` is
-the maximum window while `metrics.raw_sum` keeps the diagnostic sum of the
-same eligible entries. The winning window keeps up to 50 entries; each entry
-keeps up to five shift sources with a bounded node descriptor and
+entries with `hadRecentInput` never join or extend a window. `metrics.cls`
+is the maximum window while `metrics.cls.raw_sum` keeps the diagnostic sum of
+the same eligible entries. The winning window keeps up to 50 entries; each
+entry keeps up to five shift sources with a bounded node descriptor and
 previous/current rectangles.
 
-The result is a versioned `cdpx.vitals/v2` report:
+The result is a versioned `cdpx.vitals/v3` report:
 
-- `status` is `"measured"` or `"unavailable"` — a capture whose collector
-cannot be armed or read reports a reason and `metrics: null`, never a silent
-zero; `collector` details availability (`installed`, `document_observed`,
-`supported`, `errors`).
+- `status` is `"measured"`, `"partial"` or `"unavailable"`. A CDP, transport
+or JavaScript failure while arming or reading the collector fails the
+command; a snapshot that is obtained but incoherent or tampered with reports
+`"unavailable"` with `unavailable_reason` and `metrics: null`, never a
+silent zero; a browser that announces dropped performance entries degrades
+the report to `"partial"` with `partial_reasons` and its metrics attached.
+- `collector` details availability (`document_observed`, `scope`,
+`arm_scope` — `document-start` when the collector ran before the document
+finished parsing, `capture-time` otherwise —, `supported`,
+`dropped_entries`, `errors`).
+- `metrics` carries one availability entry per signal:
+`{"status": "measured" | "unsupported", "value": ...}`. An entry type the
+browser does not implement is reported `"unsupported"` with a null value —
+never as a measured zero — and does not invalidate the correctly measured
+CLS. The `cls` entry adds `raw_sum`, `total_entries`,
+`ignored_recent_input` and `winning_window`.
+- `interaction` distinguishes a click that produced no observable entry
+(`{"requested": true, "observed": false}`) from a capture without
+interaction (`requested: false`); the Event Timing API floors its effective
+threshold at 16 ms, so shorter interactions are never exposed.
 - `document` binds the proof to the measurement: requested URL, final
-document URL as reported by the browser, navigation type, main-frame scope
-and viewport.
+document URL read atomically with the metrics inside the isolated world,
+the document's `performance.timeOrigin`, how the document was reached
+(`navigation_source`: `goto`, `click`, `redirect` or `current-document`) and
+which step produced it (`navigation_step`), navigation type, main-frame
+scope and viewport.
 - `metrics.lcp` (maximum LCP candidate start time) and `metrics.inp`
 (longest click entry duration) are **approximate signals**, not the official
 LCP/INP algorithms (no interactionId grouping, no p98 estimation, keyboard
@@ -231,7 +260,8 @@ Specific options:
 
 - `url` (positional, required) — page to measure.
 - `--click SELECTOR` — CSS selector to click after loading to feed the
-  interaction signal (without a click, `inp` stays at 0).
+  interaction signal (without a click, `inp` stays at 0 and `interaction`
+  reports `requested: false`).
 - `--settle S` — delay in seconds left for the observers to collect
   entries after loading/interaction (default: 0.5).
 
@@ -248,50 +278,66 @@ Output:
 ```json
 {
   "url": "https://shop.example.test/product-42",
-  "schema": "cdpx.vitals/v2",
-  "collector_version": 2,
+  "schema": "cdpx.vitals/v3",
+  "collector_version": 3,
   "status": "measured",
   "collector": {
-    "installed": true,
     "document_observed": true,
     "scope": "isolated-world/main-frame",
+    "arm_scope": "capture-time",
     "supported": {"lcp": true, "layout_shift": true, "event_timing": true},
+    "dropped_entries": 0,
     "errors": []
   },
+  "interaction": {"requested": true, "observed": true, "entry_count": 1},
   "metrics": {
-    "lcp": 812.4,
-    "cls": 0.031,
-    "raw_sum": 0.042,
-    "inp": 96,
-    "total_entries": 3,
-    "ignored_recent_input": 0,
-    "winning_window": {"value": 0.031, "entry_count": 2, "entries": []}
+    "lcp": {"status": "measured", "value": 812.4},
+    "cls": {
+      "status": "measured",
+      "value": 0.031,
+      "raw_sum": 0.042,
+      "total_entries": 3,
+      "ignored_recent_input": 0,
+      "winning_window": {"value": 0.031, "entry_count": 2, "entries": []}
+    },
+    "inp": {"status": "measured", "value": 96}
   },
   "document": {
     "requested_url": "https://shop.example.test/product-42",
     "document_url": "https://shop.example.test/product-42",
+    "time_origin": 1730000000000,
+    "navigation_source": "goto",
+    "navigation_step": null,
     "navigation_type": "navigate",
     "frame_scope": "main-frame",
     "viewport": {"width": 1440, "height": 900, "dpr": 1}
   },
+  "browser_version": "HeadlessChrome/126.0.0.0",
   "captured_at": "2026-09-02T10:00:00Z"
 }
 ```
 
 Pitfalls and edge cases:
 
-- `inp` is 0 without `--click` (no interaction means nothing to measure).
+- `inp` is 0 without `--click` (`interaction.requested` is then `false`):
+  no interaction means nothing to measure. With `--click`, a click whose
+  processing stays under 16 ms is not exposed by the Event Timing API:
+  `interaction.observed` is then `false` while `requested` is `true`.
 - The `event` observer (interaction signal) is optional depending on browser
-  support: its absence is reported in `collector.supported`, not silently
-  treated as a zero.
+  support: its absence is reported in `collector.supported` AND as an
+  `"unsupported"` metric status, not silently treated as a zero.
 - A `--settle` that is too short can underestimate CLS/LCP on pages that
   inject content late.
 - The measurement covers the current main-frame document only: no iframe
   aggregation, no BFCache or soft-navigation lifecycle handling, and no
   CrUX/field-data equivalence.
-- Migration from `cdpx.vitals/v1`: the old top-level `cls` (a raw sum) is now
-  `metrics.raw_sum`; the new `metrics.cls` is the official maximum session
-  window. The `schema` field lets consumers distinguish the contracts.
+- Migration from `cdpx.vitals/v1` and `cdpx.vitals/v2`: the old top-level
+  `cls` (a raw sum) became `metrics.raw_sum` in v2; v3 reshapes `metrics`
+  into per-metric availability entries (`metrics.cls.value` is the official
+  maximum session window), adds `interaction`, `arm_scope`,
+  `dropped_entries` and the atomic `time_origin` binding, and retires the
+  always-true `collector.installed` flag. The `schema` field lets consumers
+  distinguish the contracts.
 - Node IDs/classes and rectangles come from untrusted page performance data;
   they are bounded and passed through known-secret redaction. This is not
   generic anonymization of page content: artifacts stay internal evidence,

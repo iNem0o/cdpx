@@ -477,9 +477,14 @@ Supported executable schema (`cdpx.scenario/v1`):
   the scenario `--timeout`; expiration stops before the next browser effect.
   Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
-  `profiler`, `vitals`. A vitals capture arms the isolated-world collector at
-  capture time; the internal `cdpx.vitals/v2` JSON contains the availability
-  status, the document binding, official session-window CLS, `raw_sum`, the
+  `profiler`, `vitals`. A vitals capture reads a collector that was
+  registered before the first navigation (every journey document is
+  instrumented from its first script, and the registration is removed when
+  the run ends); the internal `cdpx.vitals/v3` JSON contains the availability
+  status, per-metric availability, the document binding (requested URL kept
+  distinct from the displayed URL, with the navigation source and the step
+  that produced it), the measurement environment (emulation, interception
+  rules, scenario digest), official session-window CLS, `raw_sum`, the
   winning entries, sources and rectangles.
   These proofs are collected immediately after the step, even
   if the step fails. `profiler` also accepts the structured form documented

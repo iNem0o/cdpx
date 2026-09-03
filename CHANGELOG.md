@@ -7,15 +7,16 @@ cdpx uses semantic versioning.
 
 ### Added
 
-- `vitals` now reports a versioned `cdpx.vitals/v2` result: collector
-  availability (`status`, `collector.installed`, `document_observed`,
-  `supported`, `errors`), document binding (requested/final URL, navigation
-  type, main-frame scope, viewport, capture timestamp, browser version) and
-  bounded winning-window entries with DOM sources and before/current
-  rectangles. The collector runs inside a CDP isolated world: page JavaScript
-  cannot falsify it, and no instrumentation leaks into subsequent
-  navigations. A capture without an observable collector reports
-  `status: "unavailable"` with a reason instead of a silent zero.
+- `vitals` now reports a versioned `cdpx.vitals/v3` result: collector
+  availability (`status`, `document_observed`, `arm_scope`, `supported`,
+  `dropped_entries`, `errors`), per-metric availability, interaction record,
+  document binding (requested/final URL, time origin, navigation
+  source/step, main-frame scope, viewport, capture timestamp, browser
+  version) and bounded winning-window entries with DOM sources and
+  before/current rectangles. The collector runs inside a CDP isolated world:
+  page JavaScript cannot falsify it. A capture without an observable
+  collector reports `status: "unavailable"` with a reason instead of a
+  silent zero.
 - Scenarios can capture `vitals`, use a bounded `wait_ms`, and apply existing
   interception rules around journey navigations and trusted clicks while
   reporting matched/effective counts.
@@ -24,7 +25,30 @@ cdpx uses semantic versioning.
 
 ### Changed
 
-- **`vitals` CLS semantics (migration):** before this change the top-level
+- **`vitals` contract v3 (migration from `cdpx.vitals/v2`):** `metrics` is
+  now a map of per-metric availability entries (`{"status": "measured" |
+  "unsupported", "value": ...}`; the `cls` entry keeps `raw_sum`,
+  `total_entries`, `ignored_recent_input` and `winning_window`), so an entry
+  type the browser does not implement is reported `"unsupported"` with a
+  null value instead of a silent zero. `status` gains `"partial"` for
+  browser-announced dropped performance entries (`partial_reasons`, metrics
+  attached) beside `"measured"` and `"unavailable"`; arming/reading failures
+  now fail the command instead of being reported as `"unavailable"`.
+  `collector` replaces the always-true `installed` flag with `arm_scope`
+  (`document-start` | `capture-time`) and `dropped_entries`; `interaction`
+  distinguishes a requested click that produced no observable entry
+  (`requested`/`observed`/`entry_count`); `document` reads the final URL
+  atomically with the metrics, adds `performance.timeOrigin` and, in
+  scenarios, keeps the requested URL distinct from the displayed one with
+  the navigation source (`goto`/`click`/`redirect`/`current-document`) and
+  the step that produced it. The standalone `cdpx vitals` command arms the
+  collector BEFORE the optional `--click` (the Event Timing observer is live
+  during the interaction) and judges the real origin immediately after the
+  navigation and the interaction — a forbidden document is never measured;
+  scenario vitals captures register the collector before the first
+  navigation and embed a `measurement_environment` block (emulation,
+  interception rules, scenario digest).
+- **`vitals` CLS semantics (migration from v1):** before this change the top-level
   `cls` field was a raw sum of layout-shift entries; it is now the official
   maximum session window. Old `cls` value → new `metrics.raw_sum`; new
   `metrics.cls` → official maximum session window over eligible entries
