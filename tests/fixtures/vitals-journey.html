@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture: delayed attributed CLS journey</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    header { min-height: 120px; padding: 24px; background: #17324d; color: white; }
+    #journey-spacer { height: 900px; background: linear-gradient(#f7f7f7, #ddd); }
+    #load-widget { margin: 24px; padding: 12px 18px; }
+    #widget-host { height: 0; background: #cde; overflow: hidden; }
+    #shifted-content { height: 600px; padding: 24px; background: #f3ead8; }
+  </style>
+</head>
+<body>
+  <header><h1>Delayed widget journey</h1></header>
+  <div id="journey-spacer">Scroll before loading the widget</div>
+  <button id="load-widget">Load widget</button>
+  <div id="widget-host" data-widget-host="empty"></div>
+  <main id="shifted-content">Content shifted by the late widget</main>
+  <script>
+    document.getElementById('load-widget').addEventListener('click', () => {
+      if (document.getElementById('widget-script')) return;
+      const script = document.createElement('script');
+      script.id = 'widget-script';
+      script.src = '/vitals-widget.js';
+      document.head.appendChild(script);
+    });
+  </script>
+</body>
+</html>

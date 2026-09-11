@@ -50,6 +50,8 @@ PAGES_MARKERS = {
         "beforeinput",
     ],
     "/vitals.html": ['id="inp-button"', "Largest content candidate"],
+    "/vitals-windows.html": ['id="shift-target"', "CLS session windows"],
+    "/vitals-journey.html": ['id="widget-host"', 'id="load-widget"'],
     "/coverage.html": ['href="/coverage.css"', 'src="/coverage.js"'],
     "/seo-edge.html": ["Duplicate product", "{invalid json"],
 }

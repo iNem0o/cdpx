@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture: recent-input CLS exclusion</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    #instant-shift { height: 40px; background: #dca; }
+    #delayed-shift { height: 40px; background: #acd; }
+    #shifted-content { height: 300px; padding: 24px; background: #f3ead8; }
+  </style>
+</head>
+<body>
+  <h1>Recent input exclusion</h1>
+  <div id="instant-shift">shifts right after the click (must be ignored)</div>
+  <div id="delayed-shift">shifts long after the click (must be counted)</div>
+  <main id="shifted-content">Content moved by both shifts</main>
+  <button id="shift-button">Trigger shifts</button>
+  <script>
+    document.getElementById('shift-button').addEventListener('click', () => {
+      // Within Chrome's 500ms recent-input window: hadRecentInput = true.
+      document.getElementById('instant-shift').style.height = '160px';
+      // Far outside the window: an eligible shift for the session windows.
+      setTimeout(() => {
+        document.getElementById('delayed-shift').style.height = '200px';
+      }, 900);
+    });
+  </script>
+</body>
+</html>

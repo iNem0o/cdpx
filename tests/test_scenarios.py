@@ -10,7 +10,7 @@ from cdpx.artifacts import scan_canaries
 from cdpx.cli import main
 from cdpx.client import CDPClient
 from cdpx.orchestration import OrchestrationContext
-from cdpx.primitives import profiler
+from cdpx.primitives import emulation, profiler
 
 
 def client_for(mock):
@@ -22,6 +22,39 @@ def client_for(mock):
 
 def orchestration(origins: str = "http://*.test") -> OrchestrationContext:
     return OrchestrationContext.from_origins(origins)
+
+
+def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
+    """A valid isolated-world collector snapshot for scripted reads."""
+    snapshot = {
+        "schema": "cdpx.vitals/v3",
+        "collector_version": 3,
+        "document_observed": True,
+        "arm_scope": "document-start",
+        "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+        "errors": [],
+        "dropped_entries": 0,
+        "interaction_entry_count": 0,
+        "metrics": {
+            "lcp": 0,
+            "cls": 0,
+            "raw_sum": 0,
+            "inp": 0,
+            "total_entries": 0,
+            "ignored_recent_input": 0,
+            "winning_window": None,
+        },
+        "context": {
+            "navigation_type": "navigate",
+            "document_url": "http://shop.test/product",
+            "time_origin": 1730000000000,
+            "viewport": {"width": 1440, "height": 900, "dpr": 1},
+        },
+    }
+    if metric_updates is not None:
+        snapshot["metrics"].update(metric_updates)
+    snapshot.update(overrides)
+    return snapshot
 
 
 def test_passive_profiler_prefers_current_document_over_late_favicon(monkeypatch):
@@ -222,6 +255,101 @@ def test_parse_scenario_with_step_capture():
     assert scenario.name == "checkout_guest_add_to_cart"
     assert scenario.emulation == "mobile"
     assert [capture.kind for capture in scenario.steps[0].capture] == ["screenshot", "console"]
+
+
+def test_parse_scenario_accepts_desktop_emulation_preset():
+    """The desktop preset (1440x900, scale factor 1) is a first-class context
+    emulation value: evidence capture lanes rely on it for PC-sized proofs."""
+    scenario = scenarios.parse(
+        {
+            "name": "evidence_desktop_capture",
+            "context": {"base_url": "http://shop.localhost", "emulation": "desktop"},
+            "steps": [{"goto": "/produit/42"}],
+        }
+    )
+
+    assert scenario.emulation == "desktop"
+    assert scenario.emulation in emulation.PRESETS
+    metrics = emulation.PRESETS["desktop"]["metrics"]
+    assert metrics["width"] == 1440 and metrics["height"] == 900
+    assert metrics["deviceScaleFactor"] == 1
+
+
+def test_scenario_viewport_step_applies_device_metrics(mock, tmp_path):
+    """A viewport step switches device metrics mid-journey (single run): the
+    evidence lanes capture the desktop and mobile variants of one outcome
+    without a second supervised session."""
+    scenario = scenarios.parse(
+        {
+            "name": "dual_variant_capture",
+            "context": {"base_url": "http://shop.test", "emulation": "desktop"},
+            "steps": [
+                {"label": "open", "goto": "/product"},
+                {"viewport": "mobile"},
+                {"viewport": "desktop"},
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
+        )
+
+    assert result["verdict"] == "pass"
+    overrides = mock.commands_for("Emulation.setDeviceMetricsOverride")
+    assert overrides == [
+        {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+        {"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": True},
+        {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+    ]
+
+
+def test_parse_rejects_unknown_viewport_profile():
+    with pytest.raises(scenarios.ScenarioUsageError, match="viewport"):
+        scenarios.parse(
+            {
+                "name": "bad_viewport",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"viewport": "tablet"}],
+            }
+        )
+
+
+def test_parse_attributed_vitals_journey_with_bounded_wait_and_interception():
+    scenario = scenarios.parse(
+        {
+            "name": "blocked_widget",
+            "context": {
+                "base_url": "http://shop.test",
+                "intercept": ["*widget.js* => block"],
+            },
+            "steps": [
+                {"goto": "/product"},
+                {"key": "PageDown"},
+                {"click": "#load-widget"},
+                {"wait_ms": 750},
+            ],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    assert scenario.intercept_rules == ("*widget.js* => block",)
+    assert scenario.steps[-1].value == 750
+    assert scenario.artifacts == [scenarios.CaptureSpec("vitals")]
+    assert scenarios.validation_result(scenario)["required_authority"] == "privileged"
+
+
+@pytest.mark.parametrize("wait_ms", [-1, 60_001, True, 1.5])
+def test_parse_rejects_unbounded_scenario_wait(wait_ms):
+    with pytest.raises(scenarios.ScenarioUsageError, match="wait_ms"):
+        scenarios.parse(
+            {
+                "name": "bad_wait",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"wait_ms": wait_ms}],
+            }
+        )
 
 
 def test_parse_structured_profiler_capture_for_step_and_final_artifact():
@@ -945,6 +1073,335 @@ def test_run_scenario_happy_path_with_checkpoint_artifacts(mock, tmp_path, evide
                 evidence_case.attach_screenshot(artifact["path"], label=label)
             else:
                 evidence_case.attach_file(artifact["path"], label)
+
+
+def test_scenario_captures_vitals_and_proves_interception_matches(mock, tmp_path):
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot({"lcp": 120}))
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "WIDGET1",
+                    "request": {"url": "http://shop.test/assets/widget.js"},
+                    "resourceType": "Script",
+                    "frameId": "FRAME1",
+                },
+            }
+        ]
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "blocked_widget",
+            "context": {
+                "base_url": "http://shop.test",
+                "intercept": ["*widget.js* => block"],
+            },
+            "steps": [
+                {"goto": "/product"},
+                {"key": "PageDown"},
+                {"click": "#load-widget"},
+                {"wait_ms": 0},
+            ],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=1,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    assert result["interception"]["matched_count"] == 1
+    assert result["interception"]["effective_count"] == 1
+    assert result["interception"]["hits"] == [
+        {"url": "http://shop.test/assets/widget.js", "action": "block", "step": "002-click"}
+    ]
+    vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
+    captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
+    assert captured["status"] == "measured"
+    assert captured["metrics"]["cls"]["value"] == 0
+    assert captured["metrics"]["cls"]["raw_sum"] == 0
+    #: the proof is bound to the journey's document and conditions
+    assert captured["document"]["requested_url"] == "http://shop.test/product"
+    assert captured["document"]["document_url"] == "http://shop.test/product"
+    assert captured["document"]["navigation_source"] == "goto"
+    goto_label = next(step["label"] for step in result["steps"] if step["verb"] == "goto")
+    assert captured["document"]["navigation_step"] == goto_label
+    assert captured["browser_version"] == "Chrome/126.0.0.0"
+    assert captured["captured_at"].endswith("Z")
+    #: the collector is registered BEFORE the first navigation so the journey
+    #: document is instrumented from its first script, and the registration
+    #: is removed once the run is over
+    registrations = mock.commands_for("Page.addScriptToEvaluateOnNewDocument")
+    assert registrations
+    navigate_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Page.navigate"
+    )
+    registration_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Page.addScriptToEvaluateOnNewDocument"
+    )
+    assert registration_index < navigate_index
+    assert mock.commands_for("Page.createIsolatedWorld")
+    assert mock.commands_for("Page.removeScriptToEvaluateOnNewDocument") == [
+        {"identifier": "SCRIPT-1"}
+    ]
+    #: the artifact carries the reproduction conditions of the measurement
+    assert captured["measurement_environment"] == {
+        "emulation": None,
+        "emulation_profile": None,
+        "interception_active": True,
+        "interception_rules": ["*widget.js* => block"],
+        "scenario_sha256": None,
+    }
+    #: step results never duplicate the bounded interception aggregate
+    click_step = next(step for step in result["steps"] if step["verb"] == "click")
+    assert "hits" not in click_step["result"]
+    assert click_step["result"]["hits_omitted"] is True
+    assert click_step["result"]["matched_count"] == 1
+    assert mock.commands_for("Fetch.failRequest") == [
+        {"requestId": "WIDGET1", "errorReason": "BlockedByClient"}
+    ]
+
+
+def test_scenario_vitals_without_goto_measures_current_document(mock, tmp_path):
+    """A scenario without any goto still produces a bound vitals proof for
+    the current document: the collector arms inside an isolated world and
+    reports its availability status explicitly."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            {
+                "cls": 0.05,
+                "raw_sum": 0.05,
+                "total_entries": 1,
+                "winning_window": {
+                    "value": 0.05,
+                    "start_time": 100,
+                    "end_time": 100,
+                    "duration": 0,
+                    "entry_count": 1,
+                    "entries": [
+                        {
+                            "value": 0.05,
+                            "start_time": 100,
+                            "duration": 0,
+                            "had_recent_input": False,
+                            "sources": [],
+                            "source_count": 0,
+                            "sources_truncated": False,
+                        }
+                    ],
+                    "entries_truncated": False,
+                },
+            },
+            context={
+                "navigation_type": "navigate",
+                "document_url": "http://shop.test/",
+                "time_origin": 1730000000000,
+                "viewport": {"width": 1440, "height": 900, "dpr": 1},
+            },
+        ),
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "no_navigation_vitals",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"wait_ms": 0}],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=1,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
+    captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
+    assert captured["status"] == "measured"
+    assert captured["metrics"]["cls"]["value"] == 0.05
+    assert captured["document"]["requested_url"] is None
+    assert captured["document"]["document_url"] == "http://shop.test/"
+    assert captured["document"]["navigation_source"] == "current-document"
+    assert captured["document"]["navigation_step"] is None
+
+
+def test_scenario_vitals_keeps_requested_url_distinct_from_redirected_document(mock, tmp_path):
+    """After an allowed redirect the proof keeps BOTH URLs: the requested
+    one and the document actually displayed, with the 'redirect' source."""
+    mock.on_eval("window.location.href", "http://shop.test/final")
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            context={
+                "navigation_type": "navigate",
+                "document_url": "http://shop.test/final",
+                "time_origin": 1730000000000,
+                "viewport": {"width": 1440, "height": 900, "dpr": 1},
+            }
+        ),
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "redirected_vitals",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/product"}, {"wait_ms": 0}],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=1,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
+    captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
+    assert captured["status"] == "measured"
+    #: the requested URL survives the redirect instead of being overwritten
+    assert captured["document"]["requested_url"] == "http://shop.test/product"
+    assert captured["document"]["document_url"] == "http://shop.test/final"
+    assert captured["document"]["navigation_source"] == "redirect"
+    goto_label = next(step["label"] for step in result["steps"] if step["verb"] == "goto")
+    assert captured["document"]["navigation_step"] == goto_label
+
+
+def test_scenario_vitals_binds_click_opened_document(mock, tmp_path):
+    """A trusted click that opens a new document rebinds the proof: the
+    requested URL becomes null and the result references the click step."""
+    mock.on_eval(
+        "window.location.href",
+        "http://shop.test/page",
+        "http://shop.test/page",
+        "http://shop.test/checkout",
+    )
+    mock.on_eval("__cdpx_actionability", json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}))
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            context={
+                "navigation_type": "navigate",
+                "document_url": "http://shop.test/checkout",
+                "time_origin": 1730000000000,
+                "viewport": {"width": 1440, "height": 900, "dpr": 1},
+            }
+        ),
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "click_navigating_vitals",
+            "context": {"base_url": "http://shop.test"},
+            "steps": [{"goto": "/page"}, {"click": "#go"}, {"wait_ms": 0}],
+            "artifacts": ["vitals"],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=1,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    vitals_artifact = next(item for item in result["artifacts"] if item["type"] == "vitals")
+    captured = json.loads(Path(vitals_artifact["path"]).read_text(encoding="utf-8"))
+    assert captured["status"] == "measured"
+    #: the metrics belong to the document the click opened, not to the last goto
+    assert captured["document"]["requested_url"] is None
+    assert captured["document"]["document_url"] == "http://shop.test/checkout"
+    assert captured["document"]["navigation_source"] == "click"
+    click_label = next(step["label"] for step in result["steps"] if step["verb"] == "click")
+    assert captured["document"]["navigation_step"] == click_label
+
+
+def test_scenario_interception_aggregate_stays_bounded(mock, tmp_path):
+    """Thousands of intercepted requests keep the aggregate bounded: the
+    totals stay exact, the recorded hits are capped and the truncation is
+    announced."""
+    mock.on_eval(
+        "__cdpx_actionability",
+        json.dumps({"x": 10, "y": 20, "width": 30, "height": 40}),
+    )
+    total = scenarios.MAX_INTERCEPTION_HITS + 50
+    mock.script_click_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": f"BULK{n}",
+                    "request": {"url": f"http://shop.test/asset/{n}"},
+                    "resourceType": "Script",
+                    "frameId": "FRAME1",
+                },
+            }
+            for n in range(total)
+        ]
+    )
+    scenario = scenarios.parse(
+        {
+            "name": "flooded_interception",
+            "context": {
+                "base_url": "http://shop.test",
+                "intercept": ["* => continue"],
+            },
+            "steps": [
+                {"goto": "/product"},
+                {"click": "#load-widget"},
+                {"wait_ms": 0},
+            ],
+            "artifacts": [],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client,
+            scenario,
+            evidence_root=tmp_path,
+            timeout=2,
+            settle=0,
+            context=orchestration(),
+        )
+
+    assert result["verdict"] == "pass"
+    #: the aggregate keeps the exact totals while the recorded hits stay capped
+    assert result["interception"]["count"] == total
+    assert len(result["interception"]["hits"]) == scenarios.MAX_INTERCEPTION_HITS
+    assert result["interception"]["hits_truncated"] is True
+    assert result["interception"]["matched_count"] == total
+    #: every paused request was resolved even beyond the recording cap
+    assert len(mock.commands_for("Fetch.continueRequest")) == total
 
 
 def test_scenario_wait_visible_requires_visibility_not_only_dom_attachment(mock, tmp_path):

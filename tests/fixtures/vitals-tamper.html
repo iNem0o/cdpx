@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture: vitals tampering attempts</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    #tamper-spacer { height: 60px; background: #cad; }
+    #tamper-content { height: 300px; padding: 24px; background: #f3ead8; }
+  </style>
+</head>
+<body>
+  <h1>Tampering attempts</h1>
+  <div id="tamper-spacer">grows and moves the content below</div>
+  <main id="tamper-content">Real shift target</main>
+  <script>
+    // A hostile (or clumsy) page tries every falsification path against the
+    // old main-world collector. The isolated-world collector must ignore all
+    // of them.
+    window.__cdpxVitals = {
+      lcp: 1, cls: 0.0001, raw_sum: 0.0001, inp: 1,
+      total_entries: 1, ignored_recent_input: 0, winning_window: null
+    };
+    window.JSON.stringify = () => '{"lcp":1,"cls":0.0001,"raw_sum":0.0001,"inp":1}';
+    setTimeout(() => {
+      window.__cdpxVitals = {
+        lcp: 2, cls: 0.0002, raw_sum: 0.0002, inp: 2,
+        total_entries: 2, ignored_recent_input: 0, winning_window: null
+      };
+      const entries = [];
+      for (let i = 0; i < 5000; i += 1) entries.push({ value: 9, startTime: i });
+      window.__cdpxVitals.flood = entries;
+      window.__cdpxVitals.negative = -42;
+      // A real shift still happens so the honest collector has data.
+      document.getElementById('tamper-spacer').style.height = '260px';
+    }, 120);
+  </script>
+</body>
+</html>

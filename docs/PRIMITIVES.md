@@ -48,10 +48,10 @@ cdpx --timeout 5 wait "#offcanvas-cart"
 | `cdpx text [selector]` | innerText — low-cost semantic vision | 100x fewer tokens than a screenshot to verify content |
 | `cdpx html [selector]` | outerHTML — structural inspection | check attributes, classes, data-* |
 | `cdpx count <selector>` | cheap assertion ("there really are 12 products") | quick check loop after an action |
-| `cdpx eval <js> [--await]` | root primitive: everything else | universal escape hatch; last resort (fragile, untyped) |
+| `cdpx eval <js>\|--file probe.js\|--stdin [--await]` | root primitive: everything else | file/stdin avoid shell quoting; output retains only source kind and SHA-256, never a copy of the script |
 | `cdpx click <selector>` | click via the Input domain (trusted) | requires attached, visible, enabled, stable, a non-zero box, and a center hit-test |
 | `cdpx type <selector> --secret-env NAME [--clear] [--key-events]` | fill a field from an environment reference | defaults to IME-safe `Input.insertText`; `--key-events` emits one trusted key sequence per printable ASCII character for segmented controls and rechecks the allowed origin between events |
-| `cdpx key <key>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and the four arrow keys |
+| `cdpx key <key>` | validation, clearing, keyboard navigation | Enter/Space, Backspace/Delete, Tab/Escape, Home/End, PageUp/PageDown, and arrows; unambiguous casing aliases such as `PAGEDOWN` normalize to the canonical name |
 
 ```bash
 cdpx type "#name" --secret-env CUSTOMER_NAME --clear
@@ -100,14 +100,26 @@ cdpx session start --run-id demo --authority interaction --origins "http://127.0
 | CLI | Use case | Why |
 |---|---|---|
 | `cdpx seo [url]` | SEO contract of the **rendered** DOM: title/metas/canonical/robots/h1/hreflang/JSON-LD/alt/links + findings, estimated px, duplicates | only the final DOM is authoritative on the Googlebot rendering side |
-| `cdpx vitals <url> [--click sel]` | basic LCP/CLS/INP | objectify perceived performance, interaction for INP |
+| `cdpx vitals <url> [--click sel]` | session-window CLS with bounded attribution plus approximate LCP/INP signals, bound to the measured document | `cdpx.vitals/v3`: per-metric availability (`"measured"`/`"unsupported"`) so an unsupported signal is never a silent zero, `metrics.cls` is the official maximum session window, `raw_sum` keeps the eligible-entry diagnostic sum, `status` distinguishes `"measured"`, `"partial"` (browser-announced dropped entries) and `"unavailable"`, and the winning entries include bounded sources/rectangles |
 | `cdpx a11y` | compacted accessibility tree | low-cost structured semantic vision |
 | `cdpx coverage <url>` | dead JS/CSS per file | front-end debt measured, not guessed |
 
 Exact scope: `seo` is an on-page diagnostic of the rendered DOM, not a crawl
-or proof of indexing; `vitals` is a bounded local measurement, not a
-complete lab/field methodology; `a11y` is a compact view of the AXTree, not
-an exhaustive RGAA audit.
+or proof of indexing; `vitals` is a bounded laboratory measurement of the
+current main-frame document — official session-window aggregation of the
+`layout-shift` entries exposed to that document, with approximate LCP/INP
+signals, no iframe aggregation and no field-data equivalence; CLS attribution
+is capped at 50 entries and five sources per entry. The origin policy is
+enforced before any measurement: the real origin is judged right after the
+navigation and again right after the optional interaction, always before the
+isolated world is created or the isolated-world collector is read, and the
+snapshot's own document binding is judged once more before the result is
+returned. A forbidden document is never measured. A capture whose collector
+cannot be armed or read fails the command; an incoherent or tampered
+snapshot reports `status: "unavailable"` instead of a silent zero; a
+browser-announced loss of buffered entries degrades the report to
+`status: "partial"`. `a11y` is a compact view of the AXTree, not an
+exhaustive RGAA audit.
 
 ```bash
 cdpx seo https://shop.example.test/collection/dresses
@@ -132,12 +144,12 @@ cdpx dom-diff -- click "#submit-btn"
 | CLI | Use case | Why |
 |---|---|---|
 | `cdpx intercept --rule "PATTERN => 503\|block\|continue" [--] goto <url>\|click <selector>` | mock/block requests during a navigation or trusted click | interception is armed before the composed action and explicitly removed afterward |
-| `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | mobile device, network/CPU throttling | composed form mandatory to act under emulation: overrides die with the connection |
+| `cdpx emulate mobile\|desktop\|slow-3g\|cpu-4x [--reset] [-- <action>]` | mobile device, desktop viewport, network/CPU throttling | composed form mandatory to act under emulation: overrides die with the connection |
 | `cdpx frame <selector>` | read inside a same-origin iframe — the selector targets an element **inside** the iframe's document, not the `<iframe>` tag | embedded content (payment, consent) |
 | `cdpx record [-o j.ndjson] -- <action>` | run ONE action and write a redacted `cdpx.record/v2` log | `type` replayable via `@env:NAME`; eval/sensitive literals not replayable |
 | `cdpx replay <j.ndjson>` | pre-validate then replay, stop at first divergence | rereads the actual URL after navigation and before mutation; `--max-actions` budget |
 | `cdpx scenario validate <file.yml>` | compile a versioned scenario and its local fragments without Chrome | ordered plan, sources, authority, secret references, dependency hashes and digest |
-| `cdpx scenario run <file.yml>` | run a declarative business journey after expanding local step fragments | single verdict and proof bundle; structured profiler captures select panels and the last observed document/XHR/Fetch matching path, type and method |
+| `cdpx scenario run <file.yml>` | run a declarative business journey after expanding local step fragments | single verdict and proof bundle; the `vitals` collector is registered before the first navigation so every journey document is instrumented from its first script, bounded `wait_ms` supports late effects, and optional interception reports matched/effective counts |
 
 ```bash
 cdpx intercept --rule "*api* => 503" --settle 1 -- goto http://demo.test/
@@ -152,13 +164,27 @@ cdpx scenario run checkout_guest_add_to_cart.yml
 An interception rule accepts only `continue`, `block`, or a `200..599`
 status; any typo is rejected at parse time. `intercept` composes only with
 `goto` and `click`, always requires `privileged`, resolves every paused
-request, and disables Fetch in cleanup even when the action fails. With
-`--settle 0`, events already buffered by the completed action are resolved,
-but CDPX does not wait for new traffic. A click-triggered top-level navigation
-is checked against the session origin allowlist before a rule can affect its
-document; a forbidden document continues untouched and the command fails.
-Subrequests remain eligible for interception independently of their origin.
-In a scenario, `wait_visible` genuinely checks attachment,
+request, and disables Fetch in cleanup even when the action fails. The
+origin guard is mandatory on both routes: a top-level document (navigated or
+click-triggered) is checked against the session origin allowlist before a
+rule can affect it; a forbidden document continues untouched and the command
+fails. Subrequests remain eligible for interception independently of their
+origin. With `--settle 0`, events already buffered by the completed action
+are resolved, but CDPX does not wait for new traffic. Recorded hits are
+bounded at the source (200 per action, URLs
+capped) while `hits_total`, `hits_limit` and `hits_truncated` keep the exact
+totals, and `matched_count`/`effective_count` let a blocking control prove
+that its rule actually affected traffic. Rules are armed before each composed
+action and Fetch is disabled in its cleanup. In a scenario,
+`context.intercept` accepts at most 20 of the same validated rules and
+applies them around every `goto` and trusted `click`; the aggregate keeps
+the exact totals with a bounded hit list, and step results never duplicate
+it. `wait_ms` is an integer from 0 to 60000 and must also fit the per-step
+`--timeout`. A `vitals` checkpoint or final artifact reads a collector that
+was registered before the first navigation (every journey document is
+instrumented from its first script) and persists the `cdpx.vitals/v3`
+snapshot — status, per-metric availability, collector metadata, document
+binding, measurement environment and bounded metrics — as internal JSON. In a scenario, `wait_visible` genuinely checks attachment,
 display/visibility, and a non-zero box. Its deadline follows the bounded
 scenario `--timeout`, allowing supervised third-party widgets to opt into a
 longer wait. A `type` step requires `secret_ref`

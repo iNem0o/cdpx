@@ -38,6 +38,8 @@ class CommandOptions:
     wait: NavigationWait = "load"
     selector: str | None = None
     expression: str | None = None
+    expression_file: str | None = None
+    expression_stdin: bool = False
     await_promise: bool = False
     secret_env: str | None = None
     clear: bool = False
@@ -98,6 +100,8 @@ class CommandOptions:
             wait=_navigation_wait(values.get("wait", "load")),
             selector=cast(str | None, values.get("selector")),
             expression=cast(str | None, values.get("expression")),
+            expression_file=cast(str | None, values.get("expression_file")),
+            expression_stdin=bool(values.get("expression_stdin", False)),
             await_promise=bool(values.get("await_promise", False)),
             secret_env=cast(str | None, values.get("secret_env")),
             clear=bool(values.get("clear", False)),

@@ -1,8 +1,11 @@
 """The CLI end-to-end (in-process): args parsing -> discovery -> WS ->
 primitive -> JSON on stdout + exit code. This is the contract seen by the agent."""
 
+import hashlib
+import io
 import json
 import pathlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -213,8 +216,62 @@ def test_eval(mock, capsys):
     payload = json.loads(out)
     #: the value evaluated page-side comes back unchanged to the agent
     assert code == 0 and payload["value"] == 42
+    assert payload["source"] == "inline"
+    assert payload["script_sha256"] == (
+        "4add15946ce36199897a10bc4fe5749d28306b291959adbde54f6a36e4a149d0"
+    )
     #: any content coming from the page carries the untrusted marker
     assert payload["_cdpx"]["content_trust"] == "untrusted"
+
+
+def test_eval_reads_file_without_echoing_source(mock, capsys, tmp_path):
+    """A file avoids shell quoting while stdout retains only its digest and
+    source kind, never a duplicate of the arbitrary JavaScript."""
+    script = tmp_path / "probe.js"
+    script.write_text("({answer: 6 * 7})", encoding="utf-8")
+    mock.on_eval("answer: 6 * 7", {"answer": 42})
+
+    code, out, err = run(mock, capsys, "eval", "--file", str(script))
+
+    payload = json.loads(out)
+    assert code == 0 and not err
+    assert payload["value"] == {"answer": 42}
+    assert payload["source"] == "file"
+    assert payload["script_sha256"] == (
+        "440d3390bf32f8d9c07a19e10cc6f42f3c3cfc1cd895377f2fbf3f0ea1b0e126"
+    )
+    assert str(script) not in out
+    assert "answer: 6 * 7" not in out
+
+
+def test_eval_reads_stdin_with_the_same_bounded_contract(mock, capsys, monkeypatch):
+    """stdin is read as raw bytes with the same budget and digest contract as
+    --file: multi-byte UTF-8 must not bypass the byte limit and the digest
+    depends on the original bytes, not on newline translation."""
+    mock.on_eval("document.title", "Fixture title")
+    monkeypatch.setattr(sys, "stdin", io.BytesIO(b"document.title"))
+
+    code, out, err = run(mock, capsys, "eval", "--stdin")
+
+    payload = json.loads(out)
+    assert code == 0 and not err
+    assert payload["value"] == "Fixture title"
+    assert payload["source"] == "stdin"
+    assert len(payload["script_sha256"]) == 64
+    assert payload["script_sha256"] == hashlib.sha256(b"document.title").hexdigest()
+
+
+def test_eval_stdin_rejects_oversized_multibyte_source(mock, capsys, monkeypatch):
+    """A multi-byte UTF-8 source is bounded in bytes, not in characters."""
+    source = "\u00e9" * 500_000  # 1,000,000 bytes in UTF-8, 500,000 characters
+    assert len(source.encode()) == 1_000_000
+    monkeypatch.setattr(sys, "stdin", io.BytesIO((source + "\u00e9").encode()))
+
+    code, _, err = run(mock, capsys, "eval", "--stdin")
+
+    #: a usage error: refused before any browser contact
+    assert code == 2
+    assert "exceeds 1000000 bytes" in err
 
 
 def test_pretty_output_is_explicit(mock, capsys):
@@ -401,6 +458,54 @@ def test_cookie_mutations_and_vitals_click_use_origin_guard(mock, capsys, monkey
         #: each mutating variant is refused with the origin reason, none
         #: bypasses the configured guard
         assert code == 1 and "origin rejected" in err
+
+
+def test_vitals_cli_forbidden_redirect_never_touches_the_document(mock, capsys):
+    """An allowed URL that redirects to a forbidden origin is refused right
+    after the navigation: no isolated world is created and no collector
+    snapshot is read on the forbidden document."""
+    mock.on_eval("window.location.href", "https://prod.example/redirected")
+    code, out, err = run(mock, capsys, "vitals", "http://s.test/vitals.html")
+    assert code == 1 and not out
+    assert "origin rejected" in err
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_cli_forbidden_click_destination_never_touches_the_document(mock, capsys):
+    """A click that leads to a forbidden origin is judged immediately after
+    the interaction: the collector armed on the allowed document is never
+    read on the hijacked document."""
+    mock.on_eval(
+        "window.location.href", "http://s.test/vitals.html", "https://prod.example/hijacked"
+    )
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    code, out, err = run(mock, capsys, "vitals", "http://s.test/vitals.html", "--click", "#go")
+    assert code == 1 and not out
+    assert "origin rejected" in err
+    #: the collector was armed on the allowed document BEFORE the click
+    assert len(mock.commands_for("Page.createIsolatedWorld")) == 1
+    world_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Page.createIsolatedWorld"
+    )
+    click_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Input.dispatchMouseEvent"
+    )
+    assert world_index < click_index
+    #: the hijacked document was never read by the collector
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
 
 
 @pytest.mark.scenario(
@@ -625,9 +730,35 @@ DISPATCH_CASES = [
     (
         "vitals",
         ["vitals", "http://s.test/", "--settle", "0.1"],
-        {"__cdpxVitals": json.dumps({"lcp": 1, "cls": 0, "inp": 0})},
-        "Page.addScriptToEvaluateOnNewDocument",
-        lambda d: d["lcp"] == 1,
+        {
+            "__cdpxVitalsRead()": {
+                "schema": "cdpx.vitals/v3",
+                "collector_version": 3,
+                "document_observed": True,
+                "arm_scope": "capture-time",
+                "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+                "errors": [],
+                "dropped_entries": 0,
+                "interaction_entry_count": 0,
+                "metrics": {
+                    "lcp": 1,
+                    "cls": 0,
+                    "raw_sum": 0,
+                    "inp": 0,
+                    "total_entries": 0,
+                    "ignored_recent_input": 0,
+                    "winning_window": None,
+                },
+                "context": {
+                    "navigation_type": "navigate",
+                    "document_url": "http://s.test/",
+                    "time_origin": 1730000000000,
+                    "viewport": {"width": 800, "height": 600, "dpr": 1},
+                },
+            }
+        },
+        "Page.createIsolatedWorld",
+        lambda d: d["status"] == "measured" and d["metrics"]["lcp"]["value"] == 1,
     ),
     (
         "emulate",
@@ -635,6 +766,13 @@ DISPATCH_CASES = [
         {},
         "Network.emulateNetworkConditions",
         lambda d: d["applied"] is True,
+    ),
+    (
+        "emulate-desktop",
+        ["emulate", "desktop"],
+        {},
+        "Emulation.setDeviceMetricsOverride",
+        lambda d: d["preset"] == "desktop" and d["applied"] is True,
     ),
     (
         "dom-diff",
@@ -906,7 +1044,19 @@ def test_intercept_multiple_rules_and_invalid_action(mock, capsys):
     #: received the promised 503 via the Fetch protocol
     assert code == 0 and len(data["rules"]) == 2
     assert mock.commands_for("Fetch.fulfillRequest")[0]["responseCode"] == 503
-    assert set(data) == {"url", "rules", "hits", "count", "settle", "_cdpx"}
+    assert set(data) == {
+        "url",
+        "rules",
+        "hits",
+        "count",
+        "hits_total",
+        "hits_limit",
+        "hits_truncated",
+        "matched_count",
+        "effective_count",
+        "settle",
+        "_cdpx",
+    }
     # unsupported action: execution error BEFORE any Fetch command
     mock.commands.clear()
     code, _, err = run(mock, capsys, "intercept", "--rule", "*x* => block", "--", "key", "Enter")

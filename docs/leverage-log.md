@@ -1,5 +1,24 @@
 # Leverage log
 
+- Session-Key: web-core-vitals@ca7c2d1
+  - Symptom: `cdpx vitals` summed layout shifts instead of applying the
+    official CLS session-window algorithm, and one-shot primitives could not
+    attribute a late shift and its network cause in one supervised journey.
+  - Root cause (missing capability): cdpx provides a supervised Chrome and
+    useful point primitives, but has no attributed journey-level vitals
+    collector or resumable experiment runner, and its current CLS calculation
+    is not valid for long visits.
+  - Fix encoded (doc/script/lint):
+    `vitals` now implements bounded official CLS windows and attribution,
+    while scenarios add pre-navigation vitals, bounded delay and matched
+    interception controls. `eval --file/--stdin` removes quoting hazards and
+    named keys normalize unambiguous casing. Public documentation and fixtures
+    describe only generic contracts and synthetic data; private development
+    inputs remain outside the repository.
+  - Verification (command/CI): documentation consistency plus
+    the skill validator, `./dev check-local` and the mandatory `./dev check`
+    are required before commit.
+
 - Session-Key: next-release@643eea8
   - Symptom: invoking host `pytest` failed during collection on the project's
     Python 3.14 multiple-exception syntax because the host interpreter is 3.12.

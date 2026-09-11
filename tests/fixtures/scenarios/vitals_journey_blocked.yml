@@ -1,0 +1,13 @@
+schema: cdpx.scenario/v1
+name: vitals_journey_blocked
+context:
+  base_url: __BASE_URL__
+  intercept:
+    - "*vitals-widget.js* => block"
+steps:
+  - goto: /vitals-journey.html
+  - key: PageDown
+  - click: "#load-widget"
+  - wait_ms: 900
+artifacts:
+  - vitals

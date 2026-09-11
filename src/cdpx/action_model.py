@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+#: Viewport profile names shared by the action grammar and the emulation
+#: primitive (the primitive imports this — the action layer stays primitive-free).
+VIEWPORT_PROFILES = ("desktop", "mobile")
+
 USAGE = (
     "supported action: goto <url>, wait <selector>, click <selector>, "
-    "type <selector> <text> [--clear] [--key-events], key <key>, eval <js>"
+    "type <selector> <text> [--clear] [--key-events], key <key>, eval <js>, "
+    "viewport <desktop|mobile>"
 )
 
 
@@ -49,7 +54,15 @@ class EvalAction:
     verb: str = "eval"
 
 
-type BrowserAction = GotoAction | WaitAction | ClickAction | TypeAction | KeyAction | EvalAction
+@dataclass(frozen=True)
+class ViewportAction:
+    profile: str
+    verb: str = "viewport"
+
+
+type BrowserAction = (
+    GotoAction | WaitAction | ClickAction | TypeAction | KeyAction | EvalAction | ViewportAction
+)
 
 
 def parse_action(argv: list[str]) -> BrowserAction:
@@ -77,6 +90,8 @@ def parse_action(argv: list[str]) -> BrowserAction:
         return KeyAction(arguments[0])
     if verb == "eval" and arguments:
         return EvalAction(" ".join(arguments))
+    if verb == "viewport" and len(arguments) == 1 and arguments[0] in VIEWPORT_PROFILES:
+        return ViewportAction(arguments[0])
     raise ValueError(USAGE)
 
 
@@ -93,4 +108,8 @@ def action_argv(action: BrowserAction) -> list[str]:
         return [action.verb, action.selector, action.text, *flags]
     if isinstance(action, KeyAction):
         return [action.verb, action.key]
-    return [action.verb, action.expression]
+    if isinstance(action, EvalAction):
+        return [action.verb, action.expression]
+    if isinstance(action, ViewportAction):
+        return [action.verb, action.profile]
+    raise AssertionError(f"unhandled action: {action!r}")

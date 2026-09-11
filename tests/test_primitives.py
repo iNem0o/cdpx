@@ -738,6 +738,13 @@ def test_press_key_supports_common_navigation_and_editing_keys(mock, client, key
     assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == types
 
 
+def test_press_key_normalizes_unambiguous_case_aliases(mock, client):
+    result = inputs.press_key(client, "PAGEDOWN")
+
+    assert result == {"pressed": "PageDown", "requested": "PAGEDOWN"}
+    assert mock.commands_for("Input.dispatchKeyEvent")[0]["key"] == "PageDown"
+
+
 # -- capture ----------------------------------------------------------------------
 
 
@@ -1465,6 +1472,7 @@ def test_intercept_goto_fulfills_matching_request(mock, client):
         client,
         "http://s.test/checkout",
         rules=["*payment* => 503"],
+        allowed_origins=("http://s.test",),
     )
     #: the logged hit links the intercepted URL to the applied rule's action
     assert res["hits"] == [{"url": "http://s.test/api/payment", "action": "503"}]
@@ -1487,7 +1495,9 @@ def test_intercept_goto_blocks_and_continues(mock, client):
             },
         ]
     )
-    res = interception.intercept_goto(client, "http://s.test/", rules=["*a => block"])
+    res = interception.intercept_goto(
+        client, "http://s.test/", rules=["*a => block"], allowed_origins=("http://s.test",)
+    )
     #: the log distinguishes the targeted block from the default continuation
     assert res["hits"] == [
         {"url": "http://s.test/a", "action": "block"},
@@ -1517,7 +1527,9 @@ def test_intercept_rejects_invalid_rule_before_cdp(mock, client, rule):
     whatsoever."""
     #: the rule grammar is validated statically, whatever the specific defect
     with pytest.raises(ValueError):
-        interception.intercept_goto(client, "http://s.test/", rules=[rule])
+        interception.intercept_goto(
+            client, "http://s.test/", rules=[rule], allowed_origins=("http://s.test",)
+        )
     #: fail-closed: the browser saw nothing go through
     assert mock.commands == []
 
@@ -1531,6 +1543,7 @@ def test_intercept_prevalidates_every_rule_before_cdp(mock, client):
             client,
             "http://s.test/",
             rules=["*first* => continue", "*second* => typo"],
+            allowed_origins=("http://s.test",),
         )
     #: no partial command: it's all or nothing
     assert mock.commands == []
@@ -1545,7 +1558,12 @@ def test_intercept_prevalidates_every_rule_before_cdp(mock, client):
         (diagnostics.vitals, {"url": "http://s.test/", "settle": -0.1}),
         (
             interception.intercept_goto,
-            {"rules": [], "url": "http://s.test/", "settle": -0.1},
+            {
+                "rules": [],
+                "url": "http://s.test/",
+                "settle": -0.1,
+                "allowed_origins": ("http://s.test",),
+            },
         ),
     ],
 )
@@ -1562,6 +1580,7 @@ def test_intercept_zero_timeout_is_immediate_and_uses_cdp_timeout(mock, client):
             client,
             "http://s.test/",
             rules=[],
+            allowed_origins=("http://s.test",),
             timeout=0,
             settle=0,
         )
@@ -1588,6 +1607,7 @@ def test_intercept_accepts_status_bounds(mock, client, status):
         client,
         "http://s.test/",
         rules=[f"*status* => {status}"],
+        allowed_origins=("http://s.test",),
         settle=0,
     )
     #: the boundary status carries through to the protocol's fulfillRequest, unrounded
@@ -1613,6 +1633,7 @@ def test_intercept_accepts_explicit_continue(mock, client):
         client,
         "http://s.test/",
         rules=["*continue* => continue"],
+        allowed_origins=("http://s.test",),
         settle=0,
     )
     #: the hit is logged even when the rule lets the request through
@@ -1693,6 +1714,106 @@ def test_intercept_forbidden_document_release_uses_remaining_budget(mock, client
     assert observed_timeout == 0.5
 
 
+def test_intercept_goto_requires_allowed_origins(mock, client):
+    """The public goto route cannot skip the origin guard: allowed_origins is
+    a mandatory parameter, exactly like for the click route."""
+    with pytest.raises(TypeError):
+        interception.intercept_goto(client, "http://s.test/", rules=["* => block"])
+    #: fail-closed before any CDP traffic
+    assert mock.commands == []
+
+
+def test_intercept_goto_continues_forbidden_document_before_rules(mock, client):
+    """An allowed URL redirecting to a forbidden origin is judged BEFORE any
+    rule can affect it: the forbidden document continues untouched, no rule
+    is applied to it and the command fails."""
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": "FORBIDDEN-DOC",
+                    "frameId": "FRAME1",
+                    "resourceType": "Document",
+                    "request": {"url": "https://forbidden.example/redirected"},
+                },
+            }
+        ]
+    )
+    with pytest.raises(PolicyError, match="origin rejected"):
+        interception.intercept_goto(
+            client,
+            "http://s.test/redirecting",
+            rules=["* => 503"],
+            allowed_origins=("http://s.test",),
+        )
+    #: the forbidden document was released intact — no rule reached it
+    assert mock.commands_for("Fetch.continueRequest") == [{"requestId": "FORBIDDEN-DOC"}]
+    assert mock.commands_for("Fetch.failRequest") == []
+    assert mock.commands_for("Fetch.fulfillRequest") == []
+    assert mock.commands_for("Page.navigate")
+
+
+def test_intercept_hits_bounded_at_source(mock, client):
+    """The primitive itself bounds recorded hits while still resolving every
+    paused request: memory, step results and artifacts cannot grow with the
+    wire traffic, and the totals keep the real counts."""
+    total = interception.MAX_INTERCEPT_HITS + 20
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {
+                    "requestId": f"R{n}",
+                    "request": {"url": f"http://s.test/asset/{n}"},
+                },
+            }
+            for n in range(total)
+        ]
+    )
+    res = interception.intercept_goto(
+        client,
+        "http://s.test/",
+        rules=["* => continue"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+    assert len(res["hits"]) == interception.MAX_INTERCEPT_HITS
+    assert res["count"] == interception.MAX_INTERCEPT_HITS
+    assert res["hits_total"] == total
+    assert res["hits_limit"] == interception.MAX_INTERCEPT_HITS
+    assert res["hits_truncated"] is True
+    #: every paused request was resolved even beyond the recording limit
+    assert res["matched_count"] == total
+    assert len(mock.commands_for("Fetch.continueRequest")) == total
+
+
+def test_intercept_truncates_long_hit_urls(mock, client):
+    """Recorded hit URLs are bounded: an extremely long URL cannot inflate
+    the proof artifacts."""
+    long_url = "http://s.test/path?" + "a" * 5000
+    mock.script_network(
+        [
+            {
+                "method": "Fetch.requestPaused",
+                "params": {"requestId": "L1", "request": {"url": long_url}},
+            }
+        ]
+    )
+    res = interception.intercept_goto(
+        client,
+        "http://s.test/",
+        rules=["* => block"],
+        allowed_origins=("http://s.test",),
+        settle=0,
+    )
+    assert len(res["hits"]) == 1
+    hit = res["hits"][0]
+    assert len(hit["url"]) == interception.MAX_INTERCEPT_URL_CHARS
+    assert hit["url_truncated"] is True
+    assert hit["action"] == "block"
+
+
 def test_intercept_click_fulfills_request_and_cleans_up(mock, client):
     """The trusted click runs between Fetch.enable and an explicit disable."""
     mock.on_eval(
@@ -1727,6 +1848,9 @@ def test_intercept_click_fulfills_request_and_cleans_up(mock, client):
         "rules": ["*api/echo* => 503"],
         "hits": [{"url": "http://s.test/api/echo", "action": "503"}],
         "count": 1,
+        "hits_total": 1,
+        "hits_limit": 200,
+        "hits_truncated": False,
         "matched_count": 1,
         "effective_count": 1,
         "settle": 0.01,
@@ -2062,18 +2186,246 @@ def test_emulate_mobile_and_reset(mock, client):
     assert mock.commands_for("Emulation.setCPUThrottlingRate")[0] == {"rate": 1}
 
 
-def test_vitals_installs_observer_and_reads_values(mock, client):
-    """vitals installs the observer before navigation, triggers the
-    requested interaction and then reads the web vitals metrics from the
-    page."""
-    mock.on_eval("__cdpxVitals", json.dumps({"lcp": 12, "cls": 0.1, "inp": 0}))
+def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
+    """A valid isolated-world collector snapshot for scripted reads.
+
+    The mock mirrors real Chrome's `returnByValue`: the object comes back
+    as a plain Python dict, not as a JSON string.
+    """
+    snapshot = {
+        "schema": "cdpx.vitals/v3",
+        "collector_version": 3,
+        "document_observed": True,
+        "arm_scope": "capture-time",
+        "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+        "errors": [],
+        "dropped_entries": 0,
+        "interaction_entry_count": 0,
+        "metrics": {
+            "lcp": 12,
+            "cls": 0.1,
+            "raw_sum": 0.15,
+            "inp": 0,
+            "total_entries": 2,
+            "ignored_recent_input": 0,
+            "winning_window": {
+                "value": 0.1,
+                "start_time": 1200,
+                "end_time": 1800,
+                "duration": 600,
+                "entry_count": 1,
+                "entries": [
+                    {
+                        "value": 0.1,
+                        "start_time": 1200,
+                        "duration": 0,
+                        "had_recent_input": False,
+                        "sources": [
+                            {
+                                "node": {
+                                    "tag": "main",
+                                    "id": "content",
+                                    "classes": ["ready"],
+                                    "selector": "#content",
+                                },
+                                "previous_rect": {
+                                    "x": 0,
+                                    "y": 100,
+                                    "width": 800,
+                                    "height": 200,
+                                },
+                                "current_rect": {
+                                    "x": 0,
+                                    "y": 200,
+                                    "width": 800,
+                                    "height": 200,
+                                },
+                            }
+                        ],
+                        "source_count": 1,
+                        "sources_truncated": False,
+                    }
+                ],
+                "entries_truncated": False,
+            },
+        },
+        "context": {
+            "navigation_type": "navigate",
+            "document_url": "http://s.test/vitals.html",
+            "time_origin": 1730000000000,
+            "viewport": {"width": 1440, "height": 900, "dpr": 1},
+        },
+    }
+    if metric_updates is not None:
+        snapshot["metrics"].update(metric_updates)
+    # A partial `metrics` override merges into the valid defaults (and a
+    # partial winning window/entry merges into the valid default one), so
+    # each tampering case fails on ITS targeted validation instead of an
+    # incidental missing-field error; `metrics: None` stays a full
+    # replacement (metrics block missing).
+    overrides = dict(overrides)
+    if isinstance(overrides.get("metrics"), dict):
+        metrics = overrides.pop("metrics")
+        absent = object()
+        window = metrics.pop("winning_window", absent)
+        snapshot["metrics"].update(metrics)
+        default_window = snapshot["metrics"]["winning_window"]
+        if window is absent:
+            pass
+        elif window is None:
+            snapshot["metrics"]["winning_window"] = None
+        elif isinstance(window, dict):
+            entries = window.pop("entries", None)
+            default_window.update(window)
+            if isinstance(entries, list):
+                default_entries = default_window["entries"]
+                default_window["entries"] = [
+                    {**default_entries[min(i, len(default_entries) - 1)], **entry}
+                    if isinstance(entry, dict)
+                    else entry
+                    for i, entry in enumerate(entries)
+                ]
+    snapshot.update(overrides)
+    return snapshot
+
+
+def test_vitals_arms_isolated_world_and_reads_values(mock, client):
+    """vitals arms the collector inside a CDP isolated world BEFORE the
+    requested interaction, then reads the vitals snapshot from that world;
+    the result carries the collector status, the interaction record and the
+    document binding."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = diagnostics.vitals(client, "http://s.test/vitals.html", click_selector="#inp-button")
-    #: the reported metrics really come from the observer injected into the page
-    assert res["lcp"] == 12 and res["cls"] == 0.1
-    #: the observer was in place before the load, and the INP click did happen
-    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument")
+    #: the reported metrics really come from the collector armed in the page
+    assert res["status"] == "measured"
+    assert res["schema"] == "cdpx.vitals/v3"
+    assert res["metrics"]["lcp"] == {"status": "measured", "value": 12}
+    assert res["metrics"]["cls"]["value"] == 0.1
+    assert res["metrics"]["cls"]["raw_sum"] == 0.15
+    assert res["metrics"]["cls"]["value"] != res["metrics"]["cls"]["raw_sum"]
+    assert res["metrics"]["cls"]["winning_window"]["entries"][0]["sources"][0] == {
+        "node": {
+            "tag": "main",
+            "id": "content",
+            "classes": ["ready"],
+            "selector": "#content",
+        },
+        "previous_rect": {"x": 0, "y": 100, "width": 800, "height": 200},
+        "current_rect": {"x": 0, "y": 200, "width": 800, "height": 200},
+    }
+    assert res["metrics"]["inp"] == {"status": "measured", "value": 0}
+    #: the collector status distinguishes a real measurement from a failure
+    assert res["collector"] == {
+        "document_observed": True,
+        "scope": "isolated-world/main-frame",
+        "arm_scope": "capture-time",
+        "supported": {"lcp": True, "layout_shift": True, "event_timing": True},
+        "dropped_entries": 0,
+        "errors": [],
+    }
+    #: the interaction record distinguishes a click that produced no entry
+    #: from a capture that never observed the interaction
+    assert res["interaction"] == {"requested": True, "observed": False, "entry_count": 0}
+    #: the proof is bound to the real document and measurement conditions
+    assert res["url"] == "http://s.test/vitals.html"
+    assert res["document"]["requested_url"] == "http://s.test/vitals.html"
+    assert res["document"]["document_url"] == "http://s.test/vitals.html"
+    assert res["document"]["time_origin"] == 1730000000000
+    assert res["document"]["navigation_source"] == "goto"
+    assert res["document"]["navigation_step"] is None
+    assert res["document"]["navigation_type"] == "navigate"
+    assert res["document"]["frame_scope"] == "main-frame"
+    assert res["document"]["viewport"] == {"width": 1440, "height": 900, "dpr": 1.0}
+    assert res["captured_at"].endswith("Z")
+    assert res["browser_version"] == "Chrome/126.0.0.0"
+    #: the collector lives in an isolated world created for the main frame
+    assert mock.commands_for("Page.createIsolatedWorld") == [
+        {"frameId": "FRAME1", "worldName": "cdpx-vitals"}
+    ]
+    snapshot_evals = [
+        params
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate" and "__cdpxVitalsRead()" in params.get("expression", "")
+    ]
+    assert len(snapshot_evals) == 1
+    assert snapshot_evals[0]["contextId"] == 1
+    #: the world is armed BEFORE the interaction so the Event Timing observer
+    #: is live when the click happens
+    world_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Page.createIsolatedWorld"
+    )
+    click_index = next(
+        index
+        for index, (_target, method, _params) in enumerate(mock.commands)
+        if method == "Input.dispatchMouseEvent"
+    )
+    assert world_index < click_index
+    #: nothing is registered for future documents on this standalone path
+    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument") == []
+    #: the INP click did happen
     assert mock.commands_for("Input.dispatchMouseEvent")
+
+
+def test_vitals_collector_uses_official_session_windows(mock, client):
+    """The armed collector starts a new CLS window after a one-second gap
+    or five seconds from the first entry, while retaining a separate raw sum."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            {
+                "lcp": 0,
+                "cls": 0.25,
+                "raw_sum": 0.35,
+                "total_entries": 3,
+                "ignored_recent_input": 1,
+                "winning_window": {
+                    "value": 0.25,
+                    "start_time": 6200,
+                    "end_time": 6400,
+                    "duration": 200,
+                    "entry_count": 2,
+                    "entries": [
+                        {
+                            "value": 0.1,
+                            "start_time": 6200,
+                            "duration": 0,
+                            "had_recent_input": False,
+                            "sources": [],
+                            "source_count": 0,
+                            "sources_truncated": False,
+                        },
+                        {
+                            "value": 0.15,
+                            "start_time": 6400,
+                            "duration": 0,
+                            "had_recent_input": False,
+                            "sources": [],
+                            "source_count": 0,
+                            "sources_truncated": False,
+                        },
+                    ],
+                    "entries_truncated": False,
+                },
+            }
+        ),
+    )
+
+    result = diagnostics.vitals(client, "http://s.test/vitals.html")
+
+    source = next(
+        params["expression"]
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate" and "reduceLayoutShift" in params.get("expression", "")
+    )
+    assert "start - current.last_time < 1000" in source
+    assert "start - current.start_time < 5000" in source
+    assert "raw_sum" in source
+    assert result["metrics"]["cls"]["value"] == 0.25
+    assert result["metrics"]["cls"]["raw_sum"] == 0.35
+    assert result["metrics"]["cls"]["winning_window"]["entry_count"] == 2
 
 
 def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, client):
@@ -2082,7 +2434,10 @@ def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, clie
     http://*.test — a deliberate divergence from the old fnmatch matcher,
     which used to refuse it, now pinned."""
     mock.on_eval("window.location.href", "http://s.test:80/vitals.html")
-    mock.on_eval("__cdpxVitals", json.dumps({"lcp": 5, "cls": 0.0, "inp": 1}))
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot({"lcp": 5, "cls": 0.0, "inp": 1, "raw_sum": 0.0, "winning_window": None}),
+    )
     mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
     res = diagnostics.vitals(
         client,
@@ -2092,7 +2447,7 @@ def test_vitals_click_accepts_explicit_default_port_in_current_origin(mock, clie
     )
     #: the policy's canonical matcher normalizes the default port: click allowed
     assert mock.commands_for("Input.dispatchMouseEvent")
-    assert res["inp"] == 1
+    assert res["metrics"]["inp"]["value"] == 1
 
 
 def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
@@ -2117,10 +2472,10 @@ def test_profiler_fails_fast_on_navigation_error(mock, client, monkeypatch):
 def test_vitals_rechecks_redirected_origin_before_click(mock, client):
     """Even after an allowed navigation, a redirection outside the permitted
     origins blocks the INP click: the mutation is re-judged against the real
-    URL."""
+    URL, and the redirected document is never touched by the collector."""
     mock.on_eval("window.location.href", "https://prod.example/redirected")
     #: the mutation is refused based on the real destination, not the requested URL
-    with pytest.raises(ValueError, match="origin rejected"):
+    with pytest.raises(PolicyError, match="origin rejected"):
         diagnostics.vitals(
             client,
             "http://allowed.test/vitals.html",
@@ -2129,6 +2484,459 @@ def test_vitals_rechecks_redirected_origin_before_click(mock, client):
         )
     #: no click was emitted toward the hijacked page
     assert mock.commands_for("Input.dispatchMouseEvent") == []
+    #: no isolated world was created and no collector snapshot was read on
+    #: the forbidden document: the refusal precedes any measurement
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_fails_loudly_when_collector_cannot_be_read(mock, client):
+    """A collector that cannot produce its snapshot fails the capture
+    instead of degrading into a silent zero report."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        {"raw": {"exceptionDetails": {"text": "ReferenceError: __cdpxVitalsRead is not defined"}}},
+    )
+    with pytest.raises(js.JSException, match="ReferenceError"):
+        diagnostics.collect_vitals(client, settle=0)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"schema": "cdpx.vitals/v1"}, "schema mismatch"),
+        ({"collector_version": 1}, "version mismatch"),
+        ({"document_observed": False}, "did not observe"),
+        ({"metrics": None}, "metrics block missing"),
+        ({"metrics": {"cls": -0.1}}, "cls: outside physical bounds"),
+        ({"metrics": {"raw_sum": float("nan")}}, "finite"),
+        ({"metrics": {"cls": 0.5, "raw_sum": 0.1}}, "incoherent"),
+        ({"metrics": {"total_entries": -3}}, "non-negative"),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 0,
+                        "entries": [{"value": 0.1}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "entry_count below retained entries",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 5,
+                        "entries": [],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "entry_count above total_entries",
+        ),
+        (
+            {"metrics": {"cls": 0.1, "raw_sum": 0.1, "total_entries": 1, "winning_window": None}},
+            "without a winning window",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.2,
+                    "raw_sum": 0.2,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.1, "had_recent_input": False}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "winning_window.value differs from cls",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 4,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.1, "had_recent_input": False}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "duration differs from end_time - start_time",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.1, "had_recent_input": True}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "retains an entry with had_recent_input",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [{"value": 0.05, "had_recent_input": False}],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "sum of its retained entries",
+        ),
+        (
+            {"metrics": {"cls": 0.0, "raw_sum": 0.1, "total_entries": 0, "winning_window": None}},
+            "raw_sum above zero without eligible entries",
+        ),
+        (
+            {
+                "metrics": {
+                    "cls": 0.1,
+                    "raw_sum": 0.1,
+                    "total_entries": 1,
+                    "winning_window": {
+                        "value": 0.1,
+                        "start_time": 0,
+                        "end_time": 10,
+                        "duration": 10,
+                        "entry_count": 1,
+                        "entries": [
+                            {
+                                "value": 0.1,
+                                "had_recent_input": False,
+                                "sources": [
+                                    {
+                                        "node": {
+                                            "tag": 12,
+                                            "id": "i",
+                                            "classes": [],
+                                            "selector": "#i",
+                                        }
+                                    }
+                                ],
+                                "source_count": 1,
+                            }
+                        ],
+                        "entries_truncated": False,
+                    },
+                }
+            },
+            "entries.sources.node.tag: string required",
+        ),
+        ({"errors": "nope"}, "errors block: list required"),
+        ({"dropped_entries": -1}, "dropped_entries: non-negative integer required"),
+        ({"arm_scope": "whenever"}, "arm_scope: document-start or capture-time required"),
+        (
+            {"context": {"navigation_type": "navigate", "viewport": {"width": 1, "height": 1}}},
+            "document binding missing from collector snapshot",
+        ),
+        (
+            {"context": {"document_url": "http://s.test/", "time_origin": "yesterday"}},
+            "time_origin: finite number required",
+        ),
+    ],
+)
+def test_vitals_refuses_tampered_or_incoherent_snapshots(mock, client, overrides, reason):
+    """Snapshots with a missing marker, negative, non-finite, over-bound or
+    incoherent values are refused: the result is unavailable with a reason,
+    never a plausible-looking zero."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot(**overrides))
+    res = diagnostics.collect_vitals(client, settle=0)
+    assert res["status"] == "unavailable"
+    assert res["metrics"] is None
+    assert reason in res["unavailable_reason"], res["unavailable_reason"]
+    assert res["collector"]["errors"]
+
+
+def test_vitals_bounds_entries_sources_and_strings(mock, client):
+    """Entry, source, class and string limits are enforced by the
+    normalization with coherent truncation metadata."""
+    oversized_entry = {
+        "value": 0.01,
+        "start_time": 100.0,
+        "duration": 0.0,
+        "had_recent_input": False,
+        "sources": [
+            {
+                "node": {
+                    "tag": "div",
+                    "id": "i" * 200,
+                    "classes": [f"c{n}" for n in range(8)],
+                    "selector": "#" + "s" * 400,
+                },
+                "previous_rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+                "current_rect": {"x": 0, "y": 5, "width": 10, "height": 10},
+            }
+            for _ in range(8)
+        ],
+        "source_count": 8,
+        "sources_truncated": True,
+    }
+    winning = {
+        "value": 0.6,
+        "start_time": 100.0,
+        "end_time": 200.0,
+        "duration": 100.0,
+        "entry_count": 60,
+        "entries": [dict(oversized_entry, start_time=100.0 + n) for n in range(60)],
+        "entries_truncated": True,
+    }
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            {"cls": 0.6, "raw_sum": 0.9, "total_entries": 60, "winning_window": winning}
+        ),
+    )
+    res = diagnostics.collect_vitals(client, settle=0)
+    window = res["metrics"]["cls"]["winning_window"]
+    assert window["entry_count"] == 60
+    assert len(window["entries"]) == diagnostics.MAX_CLS_ENTRIES
+    assert window["entries_truncated"] is True
+    first = window["entries"][0]
+    assert len(first["sources"]) == diagnostics.MAX_CLS_SOURCES_PER_ENTRY
+    assert first["source_count"] == 8 and first["sources_truncated"] is True
+    node = first["sources"][0]["node"]
+    assert len(node["id"]) == 120
+    assert len(node["selector"]) == 240
+    assert node["classes"] == [f"c{n}" for n in range(diagnostics.MAX_CLS_CLASSES_PER_NODE)]
+
+
+def test_vitals_settle_keeps_passive_events_buffered(mock, client):
+    """A vitals capture must not consume console/network events owed to the
+    passive collectors: the settle wait buffers without draining."""
+    mock.script_console([{"type": "error", "args": [{"value": "boom"}], "timestamp": 1.0}])
+    client.send("Runtime.enable")
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
+    diagnostics.collect_vitals(client, settle=0.2)
+    #: the console event was buffered by the settle wait, not consumed
+    assert any(ev["method"] == "Runtime.consoleAPICalled" for ev in client.events)
+    #: a second capture leaves it intact as well
+    diagnostics.collect_vitals(client, settle=0.1)
+    assert any(ev["method"] == "Runtime.consoleAPICalled" for ev in client.events)
+
+
+def test_vitals_reuses_isolated_world_across_captures(mock, client):
+    """Successive captures reuse the same isolated world: one collector, no
+    duplicated observers, and nothing registered for future documents."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
+    handle = diagnostics.install_vitals_observer(client)
+    diagnostics.collect_vitals(client, settle=0, handle=handle)
+    diagnostics.collect_vitals(client, settle=0, handle=handle)
+    assert len(mock.commands_for("Page.createIsolatedWorld")) == 1
+    snapshot_calls = [
+        params
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate" and "__cdpxVitalsRead()" in params.get("expression", "")
+    ]
+    assert len(snapshot_calls) == 2
+    #: no new-document script: no instrumentation can leak into navigations
+    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument") == []
+    #: without a handle, each capture arms its own world
+    diagnostics.collect_vitals(client, settle=0)
+    assert len(mock.commands_for("Page.createIsolatedWorld")) == 2
+
+
+def test_vitals_rearms_after_context_loss(mock, client, monkeypatch):
+    """A navigation destroys the previous execution context: the next
+    capture re-arms the collector transparently and still measures."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
+    handle = diagnostics.install_vitals_observer(client)
+    real_send = client.send
+    reads = {"n": 0}
+
+    def send(method, params=None, **kwargs):
+        if method == "Runtime.evaluate" and "__cdpxVitalsRead()" in (params or {}).get(
+            "expression", ""
+        ):
+            reads["n"] += 1
+            if reads["n"] == 1:
+                raise CDPError(-32000, "Cannot find context with specified id")
+        return real_send(method, params, **kwargs)
+
+    monkeypatch.setattr(client, "send", send)
+    res = diagnostics.collect_vitals(client, settle=0, handle=handle)
+    assert res["status"] == "measured"
+    assert len(mock.commands_for("Page.createIsolatedWorld")) == 2
+
+
+def test_vitals_refuses_forbidden_redirect_before_any_collector_read(mock, client):
+    """An allowed URL that HTTP-redirects to a forbidden origin is refused
+    immediately after the navigation: no isolated world is created and no
+    collector snapshot is read on the forbidden document."""
+    mock.on_eval("window.location.href", "https://prod.example/redirected")
+    with pytest.raises(PolicyError, match="origin rejected"):
+        diagnostics.vitals(client, "http://allowed.test/vitals.html", origins="http://*.test")
+    assert mock.commands_for("Page.createIsolatedWorld") == []
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_refuses_forbidden_click_destination_before_collector_read(mock, client):
+    """A click that leads to a forbidden origin is judged right after the
+    interaction: the collector armed on the allowed document is never read
+    on the hijacked document."""
+    mock.on_eval(
+        "window.location.href", "http://allowed.test/vitals.html", "https://prod.example/hijacked"
+    )
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    with pytest.raises(PolicyError, match="origin rejected"):
+        diagnostics.vitals(
+            client,
+            "http://allowed.test/vitals.html",
+            click_selector="#go",
+            origins="http://*.test",
+        )
+    #: the click happened, but the hijacked document was never read
+    assert mock.commands_for("Input.dispatchMouseEvent")
+    assert not any(
+        "__cdpxVitalsRead()" in params.get("expression", "")
+        for (_target, method, params) in mock.commands
+        if method == "Runtime.evaluate"
+    )
+
+
+def test_vitals_reports_partial_when_the_browser_announces_dropped_entries(mock, client):
+    """A browser that abandoned buffered entries degrades the report to
+    'partial' instead of presenting a truncated history as a full measure."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot({"cls": 0.1, "raw_sum": 0.1}, dropped_entries=7),
+    )
+    res = diagnostics.collect_vitals(client, settle=0)
+    assert res["status"] == "partial"
+    assert res["partial_reasons"]
+    assert "7" in res["partial_reasons"][0]
+    assert res["metrics"]["cls"]["value"] == 0.1
+    assert res["collector"]["dropped_entries"] == 7
+
+
+def test_vitals_marks_unsupported_entry_types_instead_of_silent_zeros(mock, client):
+    """An entry type the browser does not implement is reported as
+    'unsupported' with a null value, never as a measured zero, and its
+    absence does not invalidate the correctly measured CLS."""
+    mock.on_eval(
+        "__cdpxVitalsRead()",
+        vitals_snapshot(
+            {"inp": 0, "lcp": 0},
+            supported={"lcp": False, "layout_shift": True, "event_timing": False},
+        ),
+    )
+    res = diagnostics.collect_vitals(client, settle=0)
+    assert res["status"] == "measured"
+    assert res["metrics"]["lcp"] == {"status": "unsupported", "value": None}
+    assert res["metrics"]["inp"] == {"status": "unsupported", "value": None}
+    assert res["metrics"]["cls"] == {
+        "status": "measured",
+        "value": 0.1,
+        "raw_sum": 0.15,
+        "total_entries": 2,
+        "ignored_recent_input": 0,
+        "winning_window": res["metrics"]["cls"]["winning_window"],
+    }
+    assert res["collector"]["supported"] == {
+        "lcp": False,
+        "layout_shift": True,
+        "event_timing": False,
+    }
+
+
+def test_vitals_registers_and_releases_the_new_document_collector(mock, client):
+    """Journey arming registers the collector for future documents and the
+    release removes the registration: no instrumentation survives the run."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot(arm_scope="document-start"))
+    handle = diagnostics.install_vitals_observer(client, for_future_documents=True)
+    assert handle["script_id"] == "SCRIPT-1"
+    assert mock.commands_for("Page.addScriptToEvaluateOnNewDocument") == [
+        {"source": diagnostics.VITALS_COLLECTOR_SOURCE, "worldName": "cdpx-vitals"}
+    ]
+    res = diagnostics.collect_vitals(client, settle=0, handle=handle)
+    assert res["collector"]["arm_scope"] == "document-start"
+    diagnostics.release_vitals_collector(client, handle)
+    assert mock.commands_for("Page.removeScriptToEvaluateOnNewDocument") == [
+        {"identifier": "SCRIPT-1"}
+    ]
+    assert handle == {}
+    #: releasing twice is a no-op
+    diagnostics.release_vitals_collector(client, handle)
+    assert len(mock.commands_for("Page.removeScriptToEvaluateOnNewDocument")) == 1
+
+
+def test_vitals_threads_the_global_timeout_budget(mock, client, monkeypatch):
+    """--timeout is the budget of the whole vitals command: every CDP call
+    after the navigation carries an explicit remaining-time timeout."""
+    mock.on_eval("__cdpxVitalsRead()", vitals_snapshot())
+    mock.on_eval("getBoundingClientRect", json.dumps({"x": 0, "y": 0, "width": 10, "height": 10}))
+    calls: list[tuple[str, dict, float | None]] = []
+    real_send = client.send
+
+    def send(method, params=None, timeout=None):
+        calls.append((method, params or {}, timeout))
+        return real_send(method, params, timeout=timeout)
+
+    monkeypatch.setattr(client, "send", send)
+    diagnostics.vitals(client, "http://s.test/vitals.html", timeout=5, click_selector="#inp-button")
+    for method in ("Browser.getVersion", "Page.getFrameTree", "Page.createIsolatedWorld"):
+        budgets = [timeout for name, _p, timeout in calls if name == method]
+        assert budgets and all(timeout is not None for timeout in budgets), method
+    collector_evals = [
+        timeout
+        for name, params, timeout in calls
+        if name == "Runtime.evaluate" and "__cdpx" in params.get("expression", "")
+    ]
+    #: the collector install and the snapshot read are budget-bound too
+    assert collector_evals and all(timeout is not None for timeout in collector_evals)
 
 
 def test_a11y_compacts_ax_tree(mock, client):

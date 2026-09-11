@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture: CLS session windows</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    .spacer { height: 1px; background: #146; }
+    #shift-target { display: block; height: 180px; background: #ddd; }
+  </style>
+</head>
+<body>
+  <h1>CLS session windows</h1>
+  <div id="first-spacer" class="spacer"></div>
+  <div id="second-spacer" class="spacer"></div>
+  <main id="shift-target" class="attributed">attributed shift target</main>
+  <script>
+    setTimeout(() => {
+      document.getElementById('first-spacer').style.height = '80px';
+    }, 80);
+    setTimeout(() => {
+      document.getElementById('first-spacer').style.height = '140px';
+    }, 180);
+    setTimeout(() => {
+      document.getElementById('second-spacer').style.height = '45px';
+    }, 1400);
+  </script>
+</body>
+</html>
