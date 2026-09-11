@@ -49,7 +49,15 @@ class EvalAction:
     verb: str = "eval"
 
 
-type BrowserAction = GotoAction | WaitAction | ClickAction | TypeAction | KeyAction | EvalAction
+@dataclass(frozen=True)
+class ViewportAction:
+    profile: str
+    verb: str = "viewport"
+
+
+type BrowserAction = (
+    GotoAction | WaitAction | ClickAction | TypeAction | KeyAction | EvalAction | ViewportAction
+)
 
 
 def parse_action(argv: list[str]) -> BrowserAction:
@@ -93,4 +101,8 @@ def action_argv(action: BrowserAction) -> list[str]:
         return [action.verb, action.selector, action.text, *flags]
     if isinstance(action, KeyAction):
         return [action.verb, action.key]
-    return [action.verb, action.expression]
+    if isinstance(action, EvalAction):
+        return [action.verb, action.expression]
+    if isinstance(action, ViewportAction):
+        return [action.verb, action.profile]
+    raise AssertionError(f"unhandled action: {action!r}")

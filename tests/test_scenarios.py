@@ -275,6 +275,47 @@ def test_parse_scenario_accepts_desktop_emulation_preset():
     assert metrics["deviceScaleFactor"] == 1
 
 
+def test_scenario_viewport_step_applies_device_metrics(mock, tmp_path):
+    """A viewport step switches device metrics mid-journey (single run): the
+    evidence lanes capture the desktop and mobile variants of one outcome
+    without a second supervised session."""
+    scenario = scenarios.parse(
+        {
+            "name": "dual_variant_capture",
+            "context": {"base_url": "http://shop.test", "emulation": "desktop"},
+            "steps": [
+                {"label": "open", "goto": "/product"},
+                {"viewport": "mobile"},
+                {"viewport": "desktop"},
+            ],
+        }
+    )
+
+    with client_for(mock) as client:
+        result = scenarios.run(
+            client, scenario, evidence_root=tmp_path, settle=0.01, context=orchestration()
+        )
+
+    assert result["verdict"] == "pass"
+    overrides = mock.commands_for("Emulation.setDeviceMetricsOverride")
+    assert overrides == [
+        {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+        {"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": True},
+        {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+    ]
+
+
+def test_parse_rejects_unknown_viewport_profile():
+    with pytest.raises(scenarios.ScenarioUsageError, match="viewport"):
+        scenarios.parse(
+            {
+                "name": "bad_viewport",
+                "context": {"base_url": "http://shop.test"},
+                "steps": [{"viewport": "tablet"}],
+            }
+        )
+
+
 def test_parse_attributed_vitals_journey_with_bounded_wait_and_interception():
     scenario = scenarios.parse(
         {

@@ -24,6 +24,7 @@ from cdpx.action_model import (
     GotoAction,
     KeyAction,
     TypeAction,
+    ViewportAction,
 )
 from cdpx.artifacts import ArtifactClassification, ArtifactEntry, SecureArtifactWriter
 from cdpx.cdp_types import CDPEvent
@@ -62,6 +63,7 @@ STEP_ACTIONS = {
     "eval",
     "wait_text",
     "wait_ms",
+    "viewport",
 }
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
 ASSERTIONS = {"no_console_errors", "network_errors_max", "text_contains"}
@@ -1081,6 +1083,11 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             raise ScenarioUsageError(
                 f"{prefix}{verb} must be an integer between 0 and {MAX_WAIT_MS}"
             )
+    elif verb == "viewport":
+        if value not in emulation.VIEWPORT_PROFILES:
+            raise ScenarioUsageError(
+                f"{prefix}{verb} must be one of: {', '.join(emulation.VIEWPORT_PROFILES)}"
+            )
     elif verb in {"type", "frame_type"}:
         if isinstance(value, dict):
             fields = {"selector", "secret_ref"}
@@ -1217,6 +1224,8 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
             operation = ScenarioOperation(step, action=ClickAction(step.value))
         elif step.verb == "key":
             operation = ScenarioOperation(step, action=KeyAction(step.value))
+        elif step.verb == "viewport":
+            operation = ScenarioOperation(step, action=ViewportAction(step.value))
         elif step.verb == "eval":
             operation = ScenarioOperation(step, action=EvalAction(step.value))
         elif step.verb == "type":

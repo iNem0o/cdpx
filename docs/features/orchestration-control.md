@@ -449,10 +449,14 @@ Supported executable schema (`cdpx.scenario/v1`):
   Fetch after each action, and aggregate bounded hits plus matched/effective
   counts in the result.
 - Steps: `goto`, `wait_visible`, `click`, `type`, `frame_type`, `key`, `eval`,
-  `wait_text`, `wait_ms`. `wait_ms` is a 0..60000 integer and must fit the
+  `wait_text`, `wait_ms`, `viewport`. `wait_ms` is a 0..60000 integer and must fit the
   per-step scenario `--timeout`. `wait_visible` requires an element that is attached,
   rendered, visible and has a non-zero box; its deadline is the bounded
-  scenario `--timeout`. `type` accepts only
+  scenario `--timeout`. `viewport` is `desktop` or `mobile` and applies that
+  profile's device metrics (desktop 1440x900 scale factor 1, mobile 390x844
+  scale factor 3) from that step onward — evidence lanes capture the desktop
+  and mobile variants of one outcome in a single run; it carries no UA,
+  network or CPU override. `type` accepts only
   `{selector, secret_ref, clear, mode}` and prevalidates the environment
   reference. `mode` defaults to `insert_text`; `key_events` emits a trusted
   key sequence for each printable ASCII character so segmented controls can
