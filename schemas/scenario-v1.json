@@ -24,7 +24,7 @@
           "minLength": 1,
           "description": "HTTP(S) base URL. Supports ${NAME}, ${NAME:-default}, and $$ environment interpolation during scenario compilation."
         },
-        "emulation": {"enum": ["mobile", "slow-3g", "cpu-4x"]},
+        "emulation": {"enum": ["desktop", "mobile", "slow-3g", "cpu-4x"]},
         "intercept": {
           "type": "array",
           "maxItems": 20,

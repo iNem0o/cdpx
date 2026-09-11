@@ -240,10 +240,11 @@ the hosting page.
 
 ### `cdpx emulate`
 
-Synopsis: `cdpx emulate [mobile|slow-3g|cpu-4x] [--reset] [-- <action ...>]`
+Synopsis: `cdpx emulate [mobile|desktop|slow-3g|cpu-4x] [--reset] [-- <action ...>]`
 
 Applies an emulation preset — `mobile` (viewport 390x844, deviceScaleFactor
-3, UA `cdpx-mobile/1.0`), `slow-3g` (400 ms latency, 50 KiB/s throughput
+3, UA `cdpx-mobile/1.0`), `desktop` (viewport 1440x900, deviceScaleFactor 1,
+no UA override), `slow-3g` (400 ms latency, 50 KiB/s throughput
 upstream and downstream) or `cpu-4x` (CPU throttled 4x) — then, in composed
 form, executes an action within the same CDP connection. Use case: check
 that a page stays usable on mobile or on a degraded network. The composed
@@ -254,7 +255,7 @@ http://demo.test/`).
 
 Command-specific options:
 
-- `preset` (positional, optional): `mobile`, `slow-3g` or `cpu-4x`.
+- `preset` (positional, optional): `mobile`, `desktop`, `slow-3g` or `cpu-4x`.
 - `--reset`: restores the default state — device metrics, user-agent, network
   conditions and CPU rate. Used without a preset.
 - `action` (after `--`): composed action executed under emulation —
@@ -441,7 +442,7 @@ Supported executable schema (`cdpx.scenario/v1`):
   `${NAME}`, `${NAME:-default}` and `$$`. Expansion happens during scenario
   compilation, before the strict session origin preflight; an undefined
   variable is an exit-2 usage error that names the variable.
-- `context.emulation`: optional, `mobile`, `slow-3g` or `cpu-4x`, applied
+- `context.emulation`: optional, `desktop`, `mobile`, `slow-3g` or `cpu-4x`, applied
   within the same CDP connection as the steps.
 - `context.intercept`: optional list of at most 20 normal interception rules.
   They wrap every `goto` and trusted `click`, require `privileged`, clean up

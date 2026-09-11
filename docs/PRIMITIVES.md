@@ -144,7 +144,7 @@ cdpx dom-diff -- click "#submit-btn"
 | CLI | Use case | Why |
 |---|---|---|
 | `cdpx intercept --rule "PATTERN => 503\|block\|continue" [--] goto <url>\|click <selector>` | mock/block requests during a navigation or trusted click | interception is armed before the composed action and explicitly removed afterward |
-| `cdpx emulate mobile\|slow-3g\|cpu-4x [--reset] [-- <action>]` | mobile device, network/CPU throttling | composed form mandatory to act under emulation: overrides die with the connection |
+| `cdpx emulate mobile\|desktop\|slow-3g\|cpu-4x [--reset] [-- <action>]` | mobile device, desktop viewport, network/CPU throttling | composed form mandatory to act under emulation: overrides die with the connection |
 | `cdpx frame <selector>` | read inside a same-origin iframe — the selector targets an element **inside** the iframe's document, not the `<iframe>` tag | embedded content (payment, consent) |
 | `cdpx record [-o j.ndjson] -- <action>` | run ONE action and write a redacted `cdpx.record/v2` log | `type` replayable via `@env:NAME`; eval/sensitive literals not replayable |
 | `cdpx replay <j.ndjson>` | pre-validate then replay, stop at first divergence | rereads the actual URL after navigation and before mutation; `--max-actions` budget |

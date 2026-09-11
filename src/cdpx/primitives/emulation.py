@@ -7,6 +7,14 @@ from typing import Any
 from cdpx.client import CDPClient
 
 PRESETS: dict[str, dict[str, Any]] = {
+    "desktop": {
+        "metrics": {
+            "width": 1440,
+            "height": 900,
+            "deviceScaleFactor": 1,
+            "mobile": False,
+        },
+    },
     "mobile": {
         "metrics": {
             "width": 390,

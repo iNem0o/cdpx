@@ -10,7 +10,7 @@ from cdpx.artifacts import scan_canaries
 from cdpx.cli import main
 from cdpx.client import CDPClient
 from cdpx.orchestration import OrchestrationContext
-from cdpx.primitives import profiler
+from cdpx.primitives import emulation, profiler
 
 
 def client_for(mock):
@@ -255,6 +255,24 @@ def test_parse_scenario_with_step_capture():
     assert scenario.name == "checkout_guest_add_to_cart"
     assert scenario.emulation == "mobile"
     assert [capture.kind for capture in scenario.steps[0].capture] == ["screenshot", "console"]
+
+
+def test_parse_scenario_accepts_desktop_emulation_preset():
+    """The desktop preset (1440x900, scale factor 1) is a first-class context
+    emulation value: evidence capture lanes rely on it for PC-sized proofs."""
+    scenario = scenarios.parse(
+        {
+            "name": "evidence_desktop_capture",
+            "context": {"base_url": "http://shop.localhost", "emulation": "desktop"},
+            "steps": [{"goto": "/produit/42"}],
+        }
+    )
+
+    assert scenario.emulation == "desktop"
+    assert scenario.emulation in emulation.PRESETS
+    metrics = emulation.PRESETS["desktop"]["metrics"]
+    assert metrics["width"] == 1440 and metrics["height"] == 900
+    assert metrics["deviceScaleFactor"] == 1
 
 
 def test_parse_attributed_vitals_journey_with_bounded_wait_and_interception():
