@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from cdpx.action_model import VIEWPORT_PROFILES
 from cdpx.client import CDPClient
-
-VIEWPORT_PROFILES = ("desktop", "mobile")
 
 PRESETS: dict[str, dict[str, Any]] = {
     "desktop": {
