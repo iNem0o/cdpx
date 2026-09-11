@@ -50,7 +50,7 @@ cdpx uses semantic versioning.
   interception rules, scenario digest).
 - **`vitals` CLS semantics (migration from v1):** before this change the top-level
   `cls` field was a raw sum of layout-shift entries; it is now the official
-  maximum session window. Old `cls` value → new `metrics.raw_sum`; new
+  maximum session window. Old `cls` value → new `metrics.cls.raw_sum`; new
   `metrics.cls` → official maximum session window over eligible entries
   (`hadRecentInput` excluded from both). The `schema` field lets consumers
   distinguish the contracts. `metrics.lcp` and `metrics.inp` are documented

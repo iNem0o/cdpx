@@ -2258,6 +2258,33 @@ def vitals_snapshot(metric_updates: dict | None = None, **overrides) -> dict:
     }
     if metric_updates is not None:
         snapshot["metrics"].update(metric_updates)
+    # A partial `metrics` override merges into the valid defaults (and a
+    # partial winning window/entry merges into the valid default one), so
+    # each tampering case fails on ITS targeted validation instead of an
+    # incidental missing-field error; `metrics: None` stays a full
+    # replacement (metrics block missing).
+    overrides = dict(overrides)
+    if isinstance(overrides.get("metrics"), dict):
+        metrics = overrides.pop("metrics")
+        absent = object()
+        window = metrics.pop("winning_window", absent)
+        snapshot["metrics"].update(metrics)
+        default_window = snapshot["metrics"]["winning_window"]
+        if window is absent:
+            pass
+        elif window is None:
+            snapshot["metrics"]["winning_window"] = None
+        elif isinstance(window, dict):
+            entries = window.pop("entries", None)
+            default_window.update(window)
+            if isinstance(entries, list):
+                default_entries = default_window["entries"]
+                default_window["entries"] = [
+                    {**default_entries[min(i, len(default_entries) - 1)], **entry}
+                    if isinstance(entry, dict)
+                    else entry
+                    for i, entry in enumerate(entries)
+                ]
     snapshot.update(overrides)
     return snapshot
 
@@ -2485,7 +2512,7 @@ def test_vitals_fails_loudly_when_collector_cannot_be_read(mock, client):
         ({"collector_version": 1}, "version mismatch"),
         ({"document_observed": False}, "did not observe"),
         ({"metrics": None}, "metrics block missing"),
-        ({"metrics": {"cls": -0.1}}, "negative"),
+        ({"metrics": {"cls": -0.1}}, "cls: outside physical bounds"),
         ({"metrics": {"raw_sum": float("nan")}}, "finite"),
         ({"metrics": {"cls": 0.5, "raw_sum": 0.1}}, "incoherent"),
         ({"metrics": {"total_entries": -3}}, "non-negative"),
@@ -2666,7 +2693,7 @@ def test_vitals_refuses_tampered_or_incoherent_snapshots(mock, client, overrides
     res = diagnostics.collect_vitals(client, settle=0)
     assert res["status"] == "unavailable"
     assert res["metrics"] is None
-    assert res["unavailable_reason"]
+    assert reason in res["unavailable_reason"], res["unavailable_reason"]
     assert res["collector"]["errors"]
 
 

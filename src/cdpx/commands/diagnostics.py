@@ -247,8 +247,10 @@ def register_commands(
     )
     parser.set_defaults(func=cmd_intercept)
 
-    parser = sub.add_parser("emulate", help="mobile/network/CPU emulation (+ composed action)")
-    parser.add_argument("preset", nargs="?", choices=["mobile", "slow-3g", "cpu-4x"])
+    parser = sub.add_parser(
+        "emulate", help="mobile/desktop/network/CPU emulation (+ composed action)"
+    )
+    parser.add_argument("preset", nargs="?", choices=["desktop", "mobile", "slow-3g", "cpu-4x"])
     parser.add_argument("--reset", action="store_true")
     parser.add_argument(
         "action", nargs=argparse.REMAINDER, help="-- goto <url> | click <sel> | ..."

@@ -768,6 +768,13 @@ DISPATCH_CASES = [
         lambda d: d["applied"] is True,
     ),
     (
+        "emulate-desktop",
+        ["emulate", "desktop"],
+        {},
+        "Emulation.setDeviceMetricsOverride",
+        lambda d: d["preset"] == "desktop" and d["applied"] is True,
+    ),
+    (
         "dom-diff",
         ["dom-diff", "--", "eval", "1 + 1"],
         {"__cdpx_dom_snapshot": json.dumps(["<body>"])},

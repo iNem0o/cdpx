@@ -1542,6 +1542,7 @@ def _capture_one(
                 navigation_source=run_state.last_navigation_source,
                 navigation_step=run_state.last_navigation_step,
                 measurement_environment=run_state.measurement_environment,
+                origin_guard=lambda: _assert_current_origin(client, run_state.allowed_origins),
             ),
         )
         run_state.artifacts.append(_artifact("vitals", label, entry, run_state.evidence_dir))

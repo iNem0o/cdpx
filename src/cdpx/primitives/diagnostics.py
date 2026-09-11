@@ -599,9 +599,12 @@ def _vitals_result(
     metrics, metric_errors = _normalize_metrics(snapshot.get("metrics"), supported)
     errors.extend(metric_errors)
     measured = not errors
-    if measured and allowed_origins and document_url is not None:
-        # The binding is judged like any other navigation: a snapshot read
-        # from a document outside the run's policy is never returned.
+    # The binding is judged like any other navigation — BEFORE any metric
+    # validity shortcut: a snapshot read from a document outside the run's
+    # policy is never returned, even when metric errors already degrade the
+    # report to "unavailable" (a race with the last origin check must not
+    # turn a forbidden document into a persistable result).
+    if allowed_origins and document_url is not None:
         assert_url_allowed(document_url, allowed_origins)
     status = "unavailable"
     partial_reasons: list[str] = []
