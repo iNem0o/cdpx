@@ -3,7 +3,7 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
-## [Unreleased]
+## [0.3.0] — 2026-09-12
 
 ### Added
 
@@ -22,6 +22,17 @@ cdpx uses semantic versioning.
   reporting matched/effective counts.
 - `eval --file` and `eval --stdin` accept UTF-8 scripts up to 1,000,000 bytes
   and report source kind plus SHA-256 without echoing the script.
+- A `desktop` emulation preset (1440x900, scale factor 1) is available for
+  `emulate desktop` and as a scenario context, alongside `mobile`, for
+  switching viewport profiles mid-journey.
+- `cdpx rgaa` adds an integrity-checked offline RGAA 4.1.2 catalog with all
+  13 themes, 106 criteria and 258 official tests; conservative page verdicts;
+  passive, interactive and privileged scopes; an isolated advisory axe-core
+  provider; and deterministic declared multi-page sample validation/runs.
+- Public RGAA result/sample schemas, an exhaustive generated 258-row
+  automation matrix, provenance/security/architecture records, protocol mock
+  coverage and accessible/regressed real-Chromium fixtures document and prove
+  the new workflow without ever claiming automatic certification.
 
 ### Changed
 
@@ -64,18 +75,51 @@ cdpx uses semantic versioning.
 - Named keys accept unambiguous case-insensitive aliases and report their
   canonical spelling.
 
+### Fixed
+
+- RGAA native probes now run in an isolated execution world, preserve incomplete
+  and truncated coverage as review work, use one deadline/action budget, retain
+  reports after collector or page errors, and avoid automatic contrast, focus,
+  spacing, accessible-name, and applicability conclusions from partial evidence.
+- RGAA sample parsing rejects YAML ambiguity, symlink traversal, empty or
+  duplicate test selections, while public result bounding preserves every
+  normative test/criterion/theme/page array and publishes all RGAA schemas.
+- RGAA qualification now exercises passive, interactive, privileged, hybrid,
+  and multi-page flows in real Chromium. It fixes invalid focus/text-spacing
+  probe syntax, makes direct navigation failures return complete error reports,
+  shares navigation and axe work across the global deadline, rejects explicit
+  empty CLI selections and non-regular manifest inputs without blocking, and
+  keeps the 32-command proof/site inventory synchronized.
+- RGAA origin-policy violations now escape every collector and stop samples;
+  operational failures emit a complete report with exit 1 and an explicit
+  execution status. Exact document identity is checked between collectors,
+  open shadow roots no longer break passive scans, environment hashing is
+  bounded, and focus/key/text-spacing cleanup outcomes are reported.
+- RGAA 8.1.1 now resolves doctype presence only, while missing root language
+  for 8.3.1 stays under review. Partial sample coverage cannot aggregate to a
+  pass, normative catalog/sample plans ignore generic list truncation, and
+  non-text YAML keys fail as clean usage errors.
+- RGAA environment fingerprints are now hashed outside the page and work on
+  non-secure HTTP development origins. Navigation `errorText` responses keep
+  complete direct/sample reports, absent and empty titles are distinguished
+  for 8.6.1, and YAML sample test IDs are normalized one item at a time.
+- RGAA probe timeouts no longer terminate target-wide JavaScript, focus
+  restoration retains id-less controls inside nested open shadow roots, AX
+  evidence uses a bounded root query, action plans include navigation, and all
+  bounded result variants remain valid against their published schemas.
+- RGAA final verification now preserves complete JSON and collected evidence on
+  deadline expiry. Passive/spacing probes share node and byte budgets and use
+  Chromium execution timeouts; focus/key cleanup has an independent guarded
+  budget. Environment components, AX target correlation, manual-scan URLs and
+  sample validation action/collector plans are now reported unambiguously.
+- RGAA initial verification and axe provider failures now preserve the full
+  report; title, raw attribute and ancestor evidence is bounded without false
+  automatic failures, finalization severity is monotone, and axe receives a
+  renderer-side deadline.
+
 ## [0.2.0] — 2026-08-30
 
 ### Added
-
-- `cdpx rgaa` adds an integrity-checked offline RGAA 4.1.2 catalog with all
-  13 themes, 106 criteria and 258 official tests; conservative page verdicts;
-  passive, interactive and privileged scopes; an isolated advisory axe-core
-  provider; and deterministic declared multi-page sample validation/runs.
-- Public RGAA result/sample schemas, an exhaustive generated 258-row
-  automation matrix, provenance/security/architecture records, protocol mock
-  coverage and accessible/regressed real-Chromium fixtures document and prove
-  the new workflow without ever claiming automatic certification.
 
 - Scenario `profiler` captures now accept explicit panels and an optional
   request selector over path prefix, Document/XHR/Fetch type and HTTP method.
@@ -118,46 +162,6 @@ cdpx uses semantic versioning.
   Bookworm security after the previous pinned package left the repository.
 
 ### Fixed
-
-- RGAA native probes now run in an isolated execution world, preserve incomplete
-  and truncated coverage as review work, use one deadline/action budget, retain
-  reports after collector or page errors, and avoid automatic contrast, focus,
-  spacing, accessible-name, and applicability conclusions from partial evidence.
-- RGAA sample parsing rejects YAML ambiguity, symlink traversal, empty or
-  duplicate test selections, while public result bounding preserves every
-  normative test/criterion/theme/page array and publishes all RGAA schemas.
-- RGAA qualification now exercises passive, interactive, privileged, hybrid,
-  and multi-page flows in real Chromium. It fixes invalid focus/text-spacing
-  probe syntax, makes direct navigation failures return complete error reports,
-  shares navigation and axe work across the global deadline, rejects explicit
-  empty CLI selections and non-regular manifest inputs without blocking, and
-  keeps the 32-command proof/site inventory synchronized.
-- RGAA origin-policy violations now escape every collector and stop samples;
-  operational failures emit a complete report with exit 1 and an explicit
-  execution status. Exact document identity is checked between collectors,
-  open shadow roots no longer break passive scans, environment hashing is
-  bounded, and focus/key/text-spacing cleanup outcomes are reported.
-- RGAA 8.1.1 now resolves doctype presence only, while missing root language
-  for 8.3.1 stays under review. Partial sample coverage cannot aggregate to a
-  pass, normative catalog/sample plans ignore generic list truncation, and
-  non-text YAML keys fail as clean usage errors.
-- RGAA environment fingerprints are now hashed outside the page and work on
-  non-secure HTTP development origins. Navigation `errorText` responses keep
-  complete direct/sample reports, absent and empty titles are distinguished
-  for 8.6.1, and YAML sample test IDs are normalized one item at a time.
-- RGAA probe timeouts no longer terminate target-wide JavaScript, focus
-  restoration retains id-less controls inside nested open shadow roots, AX
-  evidence uses a bounded root query, action plans include navigation, and all
-  bounded result variants remain valid against their published schemas.
-- RGAA final verification now preserves complete JSON and collected evidence on
-  deadline expiry. Passive/spacing probes share node and byte budgets and use
-  Chromium execution timeouts; focus/key cleanup has an independent guarded
-  budget. Environment components, AX target correlation, manual-scan URLs and
-  sample validation action/collector plans are now reported unambiguously.
-- RGAA initial verification and axe provider failures now preserve the full
-  report; title, raw attribute and ancestor evidence is bounded without false
-  automatic failures, finalization severity is monotone, and axe receives a
-  renderer-side deadline.
 
 - Composed `type` actions now consume one timeout across actionability,
   preparation, optional clearing and trusted key events, so a long referenced
