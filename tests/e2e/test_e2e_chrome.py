@@ -2177,17 +2177,20 @@ def test_rgaa_name_sources_cover_shadow_image_and_external_form_controls(page):
           document.body.innerHTML = '<form id="checkout"></form>' +
             '<input type="image" form="checkout" alt="Send" style="width:20px;height:20px">' +
             '<button form="checkout" style="width:20px;height:20px"></button>' +
-            '<div id="host"></div>';
+            '<label for="duplicate">Wrong tree</label><div id="host"></div>';
           const root = document.querySelector('#host').attachShadow({mode: 'open'});
           root.innerHTML = '<span id="label">Shadow action</span>' +
-            '<a href="#" aria-labelledby="label" style="display:block;width:20px;height:20px"></a>';
+            '<a href="#" aria-labelledby="label" ' +
+            'style="display:block;width:20px;height:20px"></a>' +
+            '<input id="duplicate" style="width:20px;height:20px">';
         })()""",
     )
 
-    report = rgaa_scan(c, selected_tests=("6.1.1", "11.9.1"))
+    report = rgaa_scan(c, selected_tests=("6.1.1", "11.1.1", "11.9.1"))
     results = {test["id"]: test for test in report["tests"]}
 
     assert results["6.1.1"]["findings"] == []
+    assert len(results["11.1.1"]["findings"]) == 1
     assert len(results["11.9.1"]["findings"]) == 1
 
 

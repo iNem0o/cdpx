@@ -170,8 +170,9 @@ PASSIVE_PROBE = r"""
   const labelIndex = new Map();
   for (const label of elements) {
     if (!label.matches("label[for]")) continue;
-    const id = cut(label.getAttribute("for"), 256);
-    if (id && !labelIndex.has(id)) labelIndex.set(id, label);
+    const id = cut(label.getAttribute("for"), 256), root = label.getRootNode();
+    if (!labelIndex.has(root)) labelIndex.set(root, new Map());
+    if (id && !labelIndex.get(root).has(id)) labelIndex.get(root).set(id, label);
   }
   const implicitLabel = (element) => {
     let current = element.parentElement, depth = 0;
@@ -186,7 +187,7 @@ PASSIVE_PROBE = r"""
   const fieldsFound = elements.filter((element) => element.matches(fieldSelector) && exposed(element));
   const fields = group(fieldsFound, (element) => {
     const id = cut(element.getAttribute("id"), 256);
-    const explicit = id ? labelIndex.get(id) : null, implicit = implicitLabel(element);
+    const explicit = id ? labelIndex.get(element.getRootNode())?.get(id) : null, implicit = implicitLabel(element);
     return {target: structuralPath(element), tag: cut(element.localName, 64), role: cut(element.getAttribute("role"), 64),
       explicit_label: Boolean(explicit && boundedText(explicit)),
       implicit_label: Boolean(implicit && boundedText(implicit)),
