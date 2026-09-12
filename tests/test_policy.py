@@ -187,7 +187,7 @@ def test_command_authority_matrix(command, expected):
         (TypeAction("#name", "Ada"), Authority.INTERACTION),
         (KeyAction("Enter"), Authority.INTERACTION),
         (EvalAction("document.title"), Authority.PRIVILEGED),
-        (ViewportAction("mobile"), Authority.OBSERVATION),
+        (ViewportAction("mobile"), Authority.PRIVILEGED),
     ],
 )
 def test_typed_action_authority_matrix(action, expected):

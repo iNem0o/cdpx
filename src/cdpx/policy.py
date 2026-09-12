@@ -230,14 +230,12 @@ def action_authority(action: BrowserAction) -> Authority:
         return Authority.OBSERVATION
     if isinstance(action, ClickAction | TypeAction | KeyAction):
         return Authority.INTERACTION
-    if isinstance(action, EvalAction):
+    if isinstance(action, EvalAction | ViewportAction):
+        # A viewport override resizes the window: resize handlers fire, lazy
+        # content loads and responsive layouts change — it can affect page
+        # behavior and reads layout geometry. Like the CLI `emulate` command,
+        # emulation stays behind privileged authority (HARNESS.md).
         return Authority.PRIVILEGED
-    if isinstance(action, ViewportAction):
-        # A closed-preset device-metrics override reads nothing, acts on no
-        # page element and changes no application state: it configures the
-        # observation instrument (the window) itself — the native bounded
-        # alternative to the viewport-preparing eval the contract allows.
-        return Authority.OBSERVATION
     raise PolicyError(f"action not classified by policy: {action!r}")
 
 

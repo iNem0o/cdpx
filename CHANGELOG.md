@@ -10,10 +10,10 @@ cdpx uses semantic versioning.
 - `scenario` preflight rejected `viewport` steps: `ViewportAction` was
   missing from the action authority matrix, so any scenario carrying a
   viewport step failed with "preflighted action list required". The step is
-  classified as observation authority: a closed-preset device-metrics
-  override reads nothing and acts on no page element — it configures the
-  observation instrument itself, like the viewport-preparing `eval` the
-  contract allows.
+  classified as **privileged** authority, like the CLI `emulate` command:
+  a device-metrics override resizes the window — resize handlers fire and
+  responsive layouts change — and emulation stays behind privileged
+  authority per HARNESS.md.
 
 ## [0.3.0] — 2026-09-12
 
