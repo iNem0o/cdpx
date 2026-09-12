@@ -20,6 +20,7 @@ from cdpx.action_model import (
     GotoAction,
     KeyAction,
     TypeAction,
+    ViewportAction,
     WaitAction,
 )
 from cdpx.cdp_types import DiscoveryTarget
@@ -213,7 +214,15 @@ def authority_for(command: str) -> Authority:
     raise PolicyError(f"unhandled authority mode: {semantics.authority_mode}")
 
 
-_ACTION_TYPES = (GotoAction, WaitAction, ClickAction, TypeAction, KeyAction, EvalAction)
+_ACTION_TYPES = (
+    GotoAction,
+    WaitAction,
+    ClickAction,
+    TypeAction,
+    KeyAction,
+    EvalAction,
+    ViewportAction,
+)
 
 
 def action_authority(action: BrowserAction) -> Authority:
@@ -221,7 +230,11 @@ def action_authority(action: BrowserAction) -> Authority:
         return Authority.OBSERVATION
     if isinstance(action, ClickAction | TypeAction | KeyAction):
         return Authority.INTERACTION
-    if isinstance(action, EvalAction):
+    if isinstance(action, EvalAction | ViewportAction):
+        # A viewport override resizes the window: resize handlers fire, lazy
+        # content loads and responsive layouts change — it can affect page
+        # behavior and reads layout geometry. Like the CLI `emulate` command,
+        # emulation stays behind privileged authority (HARNESS.md).
         return Authority.PRIVILEGED
     raise PolicyError(f"action not classified by policy: {action!r}")
 

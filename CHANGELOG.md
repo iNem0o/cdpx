@@ -3,6 +3,18 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [0.3.1] — 2026-09-12
+
+### Fixed
+
+- `scenario` preflight rejected `viewport` steps: `ViewportAction` was
+  missing from the action authority matrix, so any scenario carrying a
+  viewport step failed with "preflighted action list required". The step is
+  classified as **privileged** authority, like the CLI `emulate` command:
+  a device-metrics override resizes the window — resize handlers fire and
+  responsive layouts change — and emulation stays behind privileged
+  authority per HARNESS.md.
+
 ## [0.3.0] — 2026-09-12
 
 ### Added
