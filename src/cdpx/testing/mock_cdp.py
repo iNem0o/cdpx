@@ -79,6 +79,7 @@ class MockCDP:
         self.fetch_resolution_script: list[dict] = []  # events emitted during a Fetch verdict
         self.fetch_disable_script: list[dict] = []  # events emitted after Fetch.disable responds
         self.new_document_scripts: dict[str, str] = {}  # identifier -> registered source
+        self._world_context_ids: dict[str, int] = {}
         self._rgaa_world_targets: set[str] = set()
         # Direct target WebSockets are distinct CDP sessions; Fetch state does not
         # leak from a disconnected client to the next client for the same target.
@@ -355,12 +356,14 @@ class MockCDP:
             )
 
         if method == "Page.createIsolatedWorld":
-            # Keep old RGAA mock context contracts while main's vitals tests use
-            # a stable context id of 1 for their isolated world.
             world = params.get("worldName")
             if isinstance(world, str) and world.startswith("__cdpx_rgaa"):
                 self._rgaa_world_targets.add(tid)
-            return {"executionContextId": 1 if world == "cdpx-vitals" else 42}, None, events
+            if world == "cdpx-vitals":
+                return {"executionContextId": 1}, None, events
+            name = world if isinstance(world, str) else ""
+            context_id = self._world_context_ids.setdefault(name, 42 + len(self._world_context_ids))
+            return {"executionContextId": context_id}, None, events
         if method == "Page.addScriptToEvaluateOnNewDocument":
             identifier = f"SCRIPT-{len(self.new_document_scripts) + 1}"
             self.new_document_scripts[identifier] = params.get("source", "")

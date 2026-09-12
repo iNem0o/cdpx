@@ -15,5 +15,6 @@ bounded. Page and sample documents expose `execution_status`,
 `audit_findings_present`, and action use; sample page reports use page-local
 counts while the sample top level carries the cumulative count. Page reports
 separate browser/page-fingerprint environment status and publish bounded probe
-metrics. Sample plans expose global and per-page action budgets and collectors;
-sample results expose collector status for finalization errors.
+metrics. Sample plans validate every page entry and expose its selected tests,
+collectors, required authority, and per-page action budget; sample results expose
+collector status for finalization errors.

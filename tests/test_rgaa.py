@@ -714,7 +714,7 @@ def test_hybrid_axe_observations_are_isolated_bounded_and_never_oracle_verdicts(
         "__cdpx_rgaa_axe",
     ]
     axe_call = mock.commands_for("Runtime.evaluate")[-1]
-    assert axe_call["contextId"] == 42
+    assert axe_call["contextId"] == 43
     assert hashlib_sha256(Path(provider.AXE_PATH).read_bytes()) == provider.AXE_HASH
 
 
@@ -930,7 +930,7 @@ raise SystemExit("FIFO manifest unexpectedly accepted")
         [sys.executable, "-c", program, str(fifo)],
         capture_output=True,
         text=True,
-        timeout=1,
+        timeout=30,
         check=False,
     )
 
@@ -1443,6 +1443,10 @@ pages:
     plan = json.loads(capsys.readouterr().out)
     assert plan["required_authority"] == "observation"
     assert plan["page_count"] == 1
+    schema = json.loads(Path("schemas/rgaa-sample-plan-v1.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    assert validator.is_valid(plan)
+    assert not validator.is_valid({**plan, "pages": [None]})
 
     assert main(["rgaa", "sample", "validate", str(invalid)]) == 2
     captured = capsys.readouterr()

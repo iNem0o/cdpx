@@ -2168,6 +2168,29 @@ def test_rgaa_native_probe_walks_nested_open_shadow_roots(page):
     )
 
 
+def test_rgaa_name_sources_cover_shadow_image_and_external_form_controls(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(
+        c,
+        """(() => {
+          document.body.innerHTML = '<form id="checkout"></form>' +
+            '<input type="image" form="checkout" alt="Send" style="width:20px;height:20px">' +
+            '<button form="checkout" style="width:20px;height:20px"></button>' +
+            '<div id="host"></div>';
+          const root = document.querySelector('#host').attachShadow({mode: 'open'});
+          root.innerHTML = '<span id="label">Shadow action</span>' +
+            '<a href="#" aria-labelledby="label" style="display:block;width:20px;height:20px"></a>';
+        })()""",
+    )
+
+    report = rgaa_scan(c, selected_tests=("6.1.1", "11.9.1"))
+    results = {test["id"]: test for test in report["tests"]}
+
+    assert results["6.1.1"]["findings"] == []
+    assert len(results["11.9.1"]["findings"]) == 1
+
+
 def test_rgaa_environment_hash_works_on_non_secure_http_origin(page):
     c, base = page
     port = base.rsplit(":", 1)[1]

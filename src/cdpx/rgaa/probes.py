@@ -140,7 +140,8 @@ PASSIVE_PROBE = r"""
   });
   const referencedText = (element, attribute) => {
     const ids = cut(element.getAttribute(attribute), 500).split(/\s+/).filter(Boolean).slice(0, 16);
-    return cut(ids.map((id) => { const target = document.getElementById(id); return target ? boundedText(target) : ""; }).join(" "));
+    const root = element.getRootNode();
+    return cut(ids.map((id) => { const target = root.getElementById(id); return target ? boundedText(target) : ""; }).join(" "));
   };
   const descendantImageAlt = (element) => {
     let found = false;
@@ -158,7 +159,8 @@ PASSIVE_PROBE = r"""
     if (cut(element.getAttribute("title"))) sources.push("title");
     if (boundedText(element)) sources.push("descendant-text");
     if (descendantImageAlt(element)) sources.push("descendant-image-alt");
-    if (element instanceof HTMLInputElement && cut(element.value)) sources.push("input-value");
+    if (element instanceof HTMLInputElement && element.type === "image" && cut(element.getAttribute("alt"))) sources.push("input-image-alt");
+    if (element instanceof HTMLInputElement && ["submit", "reset", "button"].includes(element.type) && cut(element.value)) sources.push("input-value");
     return sources;
   };
 
@@ -193,7 +195,8 @@ PASSIVE_PROBE = r"""
   });
   const linksFound = elements.filter((element) => element.matches("a[href],area[href],[role=link]") && exposed(element));
   const links = group(linksFound, (element) => ({target: structuralPath(element), name_sources: nameSources(element)}));
-  const buttonsFound = elements.filter((element) => element.matches("form button,form input[type=submit],form input[type=reset],form input[type=button],form input[type=image],form [role=button]") && exposed(element));
+  const formButtonSelector = "button,input[type=submit],input[type=reset],input[type=button],input[type=image]";
+  const buttonsFound = elements.filter((element) => ((element.matches(formButtonSelector) && element.form) || element.matches("form [role=button]")) && exposed(element));
   const buttons = group(buttonsFound, (element) => ({target: structuralPath(element), name_sources: nameSources(element)}));
 
   const parseColor = (value) => {
