@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from cdpx.client import CDPClient
+from cdpx.client import CDPClient, CDPError, CDPTimeout, CDPTransportError
 from cdpx.policy import assert_url_allowed, origin_from_url, parse_exact_origin
 
 OriginGuard = Callable[[Callable[[], float] | None], None]
@@ -579,26 +579,61 @@ def press_key(
     key: str,
     *,
     remaining: Callable[[], float] | None = None,
+    after_key_down: Callable[[], None] | None = None,
+    cleanup_remaining: Callable[[], float] | None = None,
+    before_key_up: Callable[[], None] | None = None,
+    cleanup_status: dict[str, str] | None = None,
 ) -> dict:
     canonical = KEY_ALIASES.get(key.casefold())
     if canonical is None:
         raise ValueError(f"unsupported key: {key} (available: {', '.join(KEY_MAP)})")
     params = KEY_MAP[canonical]
     down = {"type": "rawKeyDown", **{k: v for k, v in params.items() if k != "text"}}
-    _send(client, "Input.dispatchKeyEvent", down, remaining=remaining)
-    if "text" in params:
-        _send(
-            client,
-            "Input.dispatchKeyEvent",
-            {"type": "char", "text": params["text"], "key": params["key"]},
-            remaining=remaining,
-        )
-    _send(
-        client,
-        "Input.dispatchKeyEvent",
-        {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
-        remaining=remaining,
-    )
+    cleanup_timeout = cleanup_remaining or remaining
+    pending_error: BaseException | None = None
+    key_down_attempted = False
+    if cleanup_status is not None:
+        cleanup_status["key_up"] = "not_attempted"
+    try:
+        # Resolve the local deadline before marking the event as attempted.
+        # Once client.send starts, a response timeout can still mean Chromium
+        # applied rawKeyDown, so cleanup must then dispatch keyUp.
+        down_timeout = remaining() if remaining is not None else None
+        key_down_attempted = True
+        if down_timeout is None:
+            client.send("Input.dispatchKeyEvent", down)
+        else:
+            client.send("Input.dispatchKeyEvent", down, timeout=down_timeout)
+        if after_key_down is not None:
+            after_key_down()
+        if "text" in params:
+            _send(
+                client,
+                "Input.dispatchKeyEvent",
+                {"type": "char", "text": params["text"], "key": params["key"]},
+                remaining=remaining,
+            )
+    except BaseException as error:
+        pending_error = error
+        raise
+    finally:
+        if key_down_attempted:
+            try:
+                if before_key_up is not None:
+                    before_key_up()
+                _send(
+                    client,
+                    "Input.dispatchKeyEvent",
+                    {"type": "keyUp", **{k: v for k, v in params.items() if k != "text"}},
+                    remaining=cleanup_timeout,
+                )
+                if cleanup_status is not None:
+                    cleanup_status["key_up"] = "completed"
+            except CDPError, CDPTimeout, CDPTransportError:
+                if cleanup_status is not None:
+                    cleanup_status["key_up"] = "failed"
+                if pending_error is None:
+                    raise
     result = {"pressed": canonical}
     if canonical != key:
         result["requested"] = key

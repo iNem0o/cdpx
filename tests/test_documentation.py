@@ -41,7 +41,7 @@ def test_real_documentation_catalog_publishes_references_and_all_features():
     feature_docs = [item for item in catalog["documents"] if item["kind"] == "feature"]
     #: every feature sheet of the repository is published as body-only HTML
     #: (no front-matter) and stays attached to its feature_id
-    assert len(feature_docs) == 8
+    assert len(feature_docs) == 9
     assert all(item["feature_id"] for item in feature_docs)
     assert all(item["html"].lstrip().startswith("<h2") for item in feature_docs)
 
@@ -61,14 +61,14 @@ def test_catalog_tree_follows_filesystem_and_applies_labels():
     catalog = build_documentation_catalog()
     tree = catalog["tree"]
 
-    #: every filesystem level receives its human label, and the eight
+    #: every filesystem level receives its human label, and the nine
     #: sheets are filed under the feature specifications node
     assert tree["label"] == "Product documentation"
     docs = next(child for child in tree["children"] if child["path"] == "docs")
     assert docs["label"] == "References"
     features = next(child for child in docs["children"] if child["path"] == "docs/features")
     assert features["label"] == "Feature specifications"
-    assert len(features["documents"]) == 8
+    assert len(features["documents"]) == 9
 
 
 def _write_config(root: Path, include: str) -> None:

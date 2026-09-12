@@ -79,10 +79,14 @@ class MockCDP:
         self.fetch_resolution_script: list[dict] = []  # events emitted during a Fetch verdict
         self.fetch_disable_script: list[dict] = []  # events emitted after Fetch.disable responds
         self.new_document_scripts: dict[str, str] = {}  # identifier -> registered source
+        self._world_context_ids: dict[str, int] = {}
+        self._rgaa_world_targets: set[str] = set()
         # Direct target WebSockets are distinct CDP sessions; Fetch state does not
         # leak from a disconnected client to the next client for the same target.
         self._fetch_enabled_sessions: set[tuple[str, object]] = set()
         self.error_methods: set[str] = set()  # methods that respond with a CDP error
+        self.navigate_error_text: str | None = None
+        self.navigate_error_texts: deque[str | None] = deque()
         self.cookies: list[dict] = [dict(c) for c in DEFAULT_COOKIES]
         self._server: Server | None = None
         self._requested_port = port
@@ -112,6 +116,10 @@ class MockCDP:
 
     def script_network(self, events: list[dict]) -> None:
         self.network_script = events
+
+    def script_navigation_error_text(self, *values: str | None) -> None:
+        """Return valid Page.navigate results whose optional errorText is scripted."""
+        self.navigate_error_texts = deque(values)
 
     def script_click_network(self, events: list[dict]) -> None:
         self.click_network_script = events
@@ -263,11 +271,28 @@ class MockCDP:
             for substring, values in self.eval_rules:
                 if substring in expr:
                     value = values.popleft() if len(values) > 1 else values[0]
+                    if isinstance(value, dict) and "error" in value:
+                        return None, {"code": -32000, "message": str(value["error"])}, events
                     if isinstance(value, dict) and "raw" in value:
                         return value["raw"], None, events
                     return {"result": {"type": type(value).__name__, "value": value}}, None, events
             if "window.location.href" in expr:
                 value = self.targets.get(tid, {}).get("url", "about:blank")
+                return {"result": {"type": "str", "value": value}}, None, events
+            if "__cdpx_rgaa_environment" in expr:
+                value = json.dumps(
+                    {
+                        "user_agent": "MockCDP",
+                        "locale": "en",
+                        "viewport": {"width": 800, "height": 600},
+                        "media": {},
+                        "dom_material_base64": "PGh0bWw+",
+                        "nodes_examined": 1,
+                        "bytes_examined": 6,
+                        "truncated": False,
+                        "hash_complete": True,
+                    }
+                )
                 return {"result": {"type": "str", "value": value}}, None, events
             return {"result": {"type": "string", "value": "mock"}}, None, events
 
@@ -280,12 +305,37 @@ class MockCDP:
             url = params.get("url", "")
             if tid in self.targets:
                 self.targets[tid]["url"] = url
+            error_text = self.navigate_error_text
+            if self.navigate_error_texts:
+                error_text = (
+                    self.navigate_error_texts.popleft()
+                    if len(self.navigate_error_texts) > 1
+                    else self.navigate_error_texts[0]
+                )
+            if error_text is not None:
+                return (
+                    {
+                        "frameId": "FRAME1",
+                        "loaderId": "LOADER1",
+                        "errorText": error_text,
+                    },
+                    None,
+                    events,
+                )
             events.extend(self.network_script)
             events.append({"method": "Page.domContentEventFired", "params": {"timestamp": 1.0}})
             events.append({"method": "Page.loadEventFired", "params": {"timestamp": 1.2}})
             return {"frameId": "FRAME1", "loaderId": "LOADER1"}, None, events
 
         if method == "Page.getFrameTree":
+            main_url = self.targets.get(tid, {}).get("url", "about:blank")
+            if tid in self._rgaa_world_targets:
+                for substring, values in self.eval_rules:
+                    if "window.location.href" in substring:
+                        scripted = values.popleft() if len(values) > 1 else values[0]
+                        if isinstance(scripted, str):
+                            main_url = scripted
+                        break
             child_frames = []
             for frame_id, urls in self.frame_urls.items():
                 url = urls.popleft() if len(urls) > 1 else urls[0]
@@ -293,7 +343,8 @@ class MockCDP:
             frame_tree: dict[str, Any] = {
                 "frame": {
                     "id": "FRAME1",
-                    "url": self.targets.get(tid, {}).get("url", "about:blank"),
+                    "loaderId": "LOADER1",
+                    "url": main_url,
                 }
             }
             if child_frames:
@@ -305,10 +356,14 @@ class MockCDP:
             )
 
         if method == "Page.createIsolatedWorld":
-            # One stable isolated execution context per target is enough for
-            # the deterministic protocol contract; real Chrome re-uses the
-            # world registered under the same worldName.
-            return {"executionContextId": 1}, None, events
+            world = params.get("worldName")
+            if isinstance(world, str) and world.startswith("__cdpx_rgaa"):
+                self._rgaa_world_targets.add(tid)
+            if world == "cdpx-vitals":
+                return {"executionContextId": 1}, None, events
+            name = world if isinstance(world, str) else ""
+            context_id = self._world_context_ids.setdefault(name, 42 + len(self._world_context_ids))
+            return {"executionContextId": context_id}, None, events
         if method == "Page.addScriptToEvaluateOnNewDocument":
             identifier = f"SCRIPT-{len(self.new_document_scripts) + 1}"
             self.new_document_scripts[identifier] = params.get("source", "")
@@ -319,9 +374,20 @@ class MockCDP:
                 self.new_document_scripts.pop(removed, None)
             return {}, None, events
         if method == "Browser.getVersion":
-            return {"product": "Chrome/126.0.0.0", "Browser": "cdpx-mock/1.0"}, None, events
+            return (
+                {
+                    "product": "Chrome/126.0.0.0",
+                    "Browser": "cdpx-mock/1.0",
+                    "userAgent": "MockCDP",
+                    "jsVersion": "mock",
+                    "protocolVersion": "1.3",
+                },
+                None,
+                events,
+            )
+
         if method == "DOM.getDocument":
-            return {"root": {"nodeId": 1}}, None, events
+            return {"root": {"nodeId": 1, "backendNodeId": 1}}, None, events
 
         if method == "DOM.querySelector":
             selector = params.get("selector")
@@ -368,6 +434,8 @@ class MockCDP:
             return {"data": base64.b64encode(TINY_PDF).decode()}, None, events
         if method == "Performance.getMetrics":
             return {"metrics": DEFAULT_METRICS}, None, events
+        if method == "Accessibility.enable":
+            return {}, None, events
         if method == "Accessibility.getFullAXTree":
             return (
                 {
@@ -376,6 +444,12 @@ class MockCDP:
                         {"role": {"value": "button"}, "name": {"value": "Envoyer"}},
                     ]
                 },
+                None,
+                events,
+            )
+        if method == "Accessibility.getPartialAXTree":
+            return (
+                {"nodes": [{"role": {"value": "RootWebArea"}, "name": {"value": "Fixture"}}]},
                 None,
                 events,
             )

@@ -1403,14 +1403,14 @@ def test_render_html_size_stays_bounded():
     vendored = len(mermaid) + len(xterm)
     shell_and_content = len(html) - vendored
     # Mermaid vendored ~3.5 MB; xterm adds ~0.3 MB. The cockpit shell/CSS/JS
-    # plus the embedded feature/provenance/changelog content must stay
-    # marginal on their own: the vitals contract rework (cdpx.vitals/v2,
-    # collector availability, bounded interception totals) grew the change
-    # record, and this breakdown keeps that growth visible and attributable.
+    # plus embedded feature/provenance/changelog content must stay marginal on
+    # their own. Current growth is the explicit vitals and RGAA proof record,
+    # including adversarial DOM, cleanup/title/raw-attribute, focus, exact
+    # document guards and spacing-cleanup qualification.
     assert len(mermaid) < 3_600_000
     assert len(xterm) < 320_000
-    assert shell_and_content < 720_000
-    assert len(html) < 4_640_000
+    assert shell_and_content < 820_000
+    assert len(html) < 4_740_000
 
 
 def test_cockpit_names_each_proof_kind_explicitly():

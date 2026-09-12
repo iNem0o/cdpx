@@ -128,7 +128,7 @@ complete teardown on Ctrl-C.
 
 ## Command surface
 
-The 31 commands are grouped below. `cdpx --help` documents common options,
+The command families are grouped below. `cdpx --help` documents common options,
 and [docs/PRIMITIVES.md](docs/PRIMITIVES.md) provides the full contract and
 examples.
 
@@ -138,12 +138,12 @@ examples.
 | DOM and input | `cdpx eval`, `cdpx text`, `cdpx html`, `cdpx count`, `cdpx click`, `cdpx type`, `cdpx key` |
 | Capture and observation | `cdpx screenshot`, `cdpx pdf`, `cdpx console`, `cdpx network`, `cdpx metrics` |
 | State | `cdpx cookies`, `cdpx storage` |
-| Audits | `cdpx seo`, `cdpx vitals`, `cdpx a11y`, `cdpx coverage` |
+| Audits | `cdpx seo`, `cdpx vitals`, `cdpx a11y`, `cdpx coverage`, `cdpx rgaa` |
 | Developer diagnostics | `cdpx profiler`, `cdpx dom-diff` |
 | Orchestration | `cdpx intercept`, `cdpx emulate`, `cdpx frame`, `cdpx record`, `cdpx replay`, `cdpx scenario` |
 | Supervision | `cdpx session` |
 
-The eight feature specifications connect these commands to concrete
+The feature specifications connect these commands to concrete
 workflows:
 
 - [Navigation and synchronization](docs/features/browser-navigation.md)
@@ -151,6 +151,7 @@ workflows:
 - [Capture and observability](docs/features/browser-capture-observability.md)
 - [State and session](docs/features/state-session.md)
 - [SEO, performance and accessibility](docs/features/seo-performance-accessibility.md)
+- [RGAA catalog, page scans and declared samples](docs/features/rgaa-audit.md)
 - [Symfony profiler and DOM diff](docs/features/dev-profiler-diff.md)
 - [Interception and orchestration](docs/features/orchestration-control.md)
 - [Harness and proof cockpit](docs/features/harness-proof-cockpit.md)

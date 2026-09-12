@@ -54,6 +54,11 @@ PAGES_MARKERS = {
     "/vitals-journey.html": ['id="widget-host"', 'id="load-widget"'],
     "/coverage.html": ['href="/coverage.css"', 'src="/coverage.js"'],
     "/seo-edge.html": ["Duplicate product", "{invalid json"],
+    "/rgaa.html": ["Compte de démonstration", 'title="Aide contextuelle"', 'for="email"'],
+    "/rgaa-broken.html": ["Régression RGAA déterministe", 'id="unlabelled"'],
+    "/rgaa-focus-drift.html": ['data-keydowns="0"'],
+    "/rgaa-hostile.html": ["Sans titre", "Object.defineProperty"],
+    "/rgaa-shadow.html": ['id="component"', 'id="nested"', 'type="button"'],
 }
 
 

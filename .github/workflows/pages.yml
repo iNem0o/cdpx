@@ -11,6 +11,7 @@ on:
       - "schemas/cdpx.schema.json"
       - "schemas/scenario-v1.json"
       - "schemas/scenario-fragment-v1.json"
+      - "schemas/rgaa-*.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -47,6 +48,7 @@ jobs:
           cp schemas/cdpx.schema.json site/schema/cdpx-v1.json
           cp schemas/scenario-v1.json site/schema/scenario-v1.json
           cp schemas/scenario-fragment-v1.json site/schema/scenario-fragment-v1.json
+          cp schemas/rgaa-*.json site/schema/
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload the site artifact

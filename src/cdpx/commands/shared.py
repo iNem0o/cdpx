@@ -72,8 +72,19 @@ def assert_session_current(
     *,
     timeout: float | None = None,
 ) -> None:
+    verified_session_url(args, client, timeout=timeout)
+
+
+def verified_session_url(
+    args: CommandInvocation,
+    client: CDPClient,
+    *,
+    timeout: float | None = None,
+) -> str:
     context = execution(args)
-    assert_url_allowed(current_http_url(client, timeout=timeout), context.origins)
+    current = current_http_url(client, timeout=timeout)
+    assert_url_allowed(current, context.origins)
+    return current
 
 
 def artifact_path(
@@ -178,6 +189,16 @@ def safe_output(args: CommandInvocation, data: Any) -> Any:
 
 def emit_json(args: CommandInvocation, data: Any) -> None:
     shaped = output.bound(safe_output(args, data), full=args.options.full, limit=args.options.limit)
+    if args.options.pretty:
+        print(json.dumps(shaped, indent=2, ensure_ascii=False))
+    else:
+        print(json.dumps(shaped, ensure_ascii=False, separators=(",", ":")))
+
+
+def emit_rgaa_json(args: CommandInvocation, data: Any) -> None:
+    shaped = output.bound_rgaa(
+        safe_output(args, data), full=args.options.full, limit=args.options.limit
+    )
     if args.options.pretty:
         print(json.dumps(shaped, indent=2, ensure_ascii=False))
     else:

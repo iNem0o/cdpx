@@ -110,6 +110,23 @@ def test_scenario_and_fragment_schemas_publish_the_composition_contract():
     assert scenario["properties"]["artifacts"]["maxContains"] == 1
 
 
+def test_rgaa_result_and_sample_schemas_publish_prudent_contracts():
+    result = json.loads(Path("schemas/rgaa-result-v1.json").read_text(encoding="utf-8"))
+    sample = json.loads(Path("schemas/rgaa-sample-v1.json").read_text(encoding="utf-8"))
+
+    assert result["$id"].endswith("/schema/rgaa-result-v1.json")
+    assert result["properties"]["summary"]["properties"]["certification_claim"] == {"const": False}
+    assert result["properties"]["tests"]["minItems"] == 258
+    assert sample["$id"].endswith("/schema/rgaa-sample-v1.json")
+    assert sample["properties"]["pages"]["maxItems"] == 50
+    assert sample["properties"]["pages"]["items"]["properties"]["tests"]["minItems"] == 1
+    published = {path.name: path for path in Path("schemas").glob("rgaa-*.json")}
+    packaged = {path.name: path for path in Path("src/cdpx/schemas").glob("rgaa-*.json")}
+    assert published and set(published) == set(packaged)
+    for name, path in published.items():
+        assert packaged[name].read_bytes() == path.read_bytes()
+
+
 def test_portable_scripts_are_posix_and_shellcheck_clean():
     scripts = [
         Path("cdpx"),

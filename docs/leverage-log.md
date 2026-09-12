@@ -1,5 +1,103 @@
 # Leverage log
 
+- Session-Key: feat/rgaa-audit-engine@199c492
+  - Symptom: host `pytest` could not parse the repository's Python 3.14
+    exception syntax under Python 3.12; after running through the canonical
+    Docker portal, the first local gate passed all functional tests but the
+    three newly documented RGAA Chromium proofs exceeded the cockpit's fixed
+    HTML size ceiling by 2,670 bytes.
+  - Root cause (missing capability): this repository requires its pinned
+    Python 3.14 image, and every explicit runtime scenario is embedded in the
+    self-contained proof cockpit governed by a bounded size budget.
+  - Fix encoded (doc/script/lint): validation stayed behind `./dev`; the RGAA
+    feature sheet explicitly attaches focus reversibility, exact-document and
+    spacing-cleanup runtime proofs, while the cockpit ceiling/comment includes
+    only that justified evidence increment.
+  - Verification (command/CI): `./dev check-local` passed 1,088 tests with
+    90.13% line and 79.24% branch coverage; `./dev check` returned `ok: true`
+    for all 1,170 tests/scenarios (1,088 unit/contract, 73 Chrome, 7 Symfony
+    and 2 Shopware), with zero proof failures.
+
+- Session-Key: feat/rgaa-audit-engine@e9fd8f4
+  - Symptom: the first full gate passed all functional suites but rejected two
+    new RGAA Chromium hardening cases as undocumented; after mapping them, the
+    cockpit HTML exceeded its explicit size ceiling by 909 bytes.
+  - Root cause (missing capability): runtime scenarios require an exact
+    feature-sheet attachment, and each newly documented proof is embedded in
+    the self-contained cockpit report governed by a fixed size budget.
+  - Fix encoded (doc/script/lint): the RGAA scenario now names the title and
+    raw-attribute/ancestor-bound Chromium cases, and the cockpit ceiling/comment
+    includes that justified qualification pack.
+  - Verification (command/CI): `./dev check-local` passed 1,081 tests; the
+    final `./dev check` returned `ok: true` for all 1,160 tests/scenarios
+    (1,081 unit/contract, 70 Chrome, 7 Symfony and 2 Shopware), with 90.04%
+    line coverage, 79.31% branch coverage and zero proof failures.
+
+- Session-Key: feat/rgaa-audit-engine@5943702
+  - Symptom: the first complete gate passed every functional suite but rejected
+    the four parameterized RGAA adversarial-DOM cases as undocumented; an
+    earlier loaded run also let a 10 ms interception-test deadline expire
+    during setup instead of at its mocked click boundary.
+  - Root cause (missing capability): exact scenario entries do not match pytest
+    parameter suffixes, and the interception regression allowed no setup
+    headroom under full-proof load.
+  - Fix encoded (doc/script/lint): the RGAA scenario uses a trailing wildcard
+    for the parameterized case, while the interception test gives setup a
+    deterministic one-second budget and keeps the mocked click as the tested
+    timeout boundary.
+  - Verification (command/CI): `./dev check-local` passed 1,072 tests with
+    89.98% line and 79.07% branch coverage; the repeated `./dev check` returned
+    `ok: true` for 1,072 unit/contract, 68 Chrome, 7 Symfony and 2 Shopware
+    tests, with zero proof failures.
+
+- Session-Key: feat/rgaa-audit-engine@05533db
+  - Symptom: the first complete gate passed all 1,132 functional tests but the
+    proof inventory rejected four new RGAA Chromium cases as undocumented and
+    the navigation `errorText` CLI case as lacking a command transcript.
+  - Root cause (missing capability): the RGAA feature scenario uses an exact
+    runtime-test allowlist, and a successful test invocation does not itself
+    create the command evidence required for an installed-CLI proof.
+  - Fix encoded (doc/script/lint): the feature sheet now maps all four
+    adversarial Chromium tests explicitly, and the CLI navigation-error test
+    attaches its captured stdout/stderr/exit result through the evidence
+    fixture.
+  - Verification (command/CI): the repeated `./dev check` returned `ok: true`
+    for 1,061 unit/contract, 62 Chrome, 7 Symfony and 2 Shopware tests, with
+    zero proof failures.
+
+- Session-Key: feat/rgaa-audit-engine@30dd6b4
+  - Symptom: the first complete gate passed every functional suite but the
+    proof cockpit rejected the new installed-CLI RGAA scenario because it had
+    no exact command transcript; the next run then exposed one unformatted
+    test signature.
+  - Root cause (missing capability): invoking the installed binary in a real
+    Chromium test proves behavior but does not by itself attach evidence to the
+    documented scenario, and the final test edit had not passed the formatter.
+  - Fix encoded (doc/script/lint): the black-box scenario now attaches its
+    catalog command result through the proof fixture, and the complete source,
+    test and tools tree is formatter-clean.
+  - Verification (command/CI): `./dev check` returned `ok: true` for all 1,110
+    tests (1,043 unit, 58 Chrome, 7 Symfony and 2 Shopware), with zero skips,
+    failures, unavailable suites or proof violations.
+
+- Session-Key: feat/rgaa-audit-engine@54fd352
+  - Symptom: the protocol mock accepted invalid asynchronous focus and
+    text-spacing JavaScript that real Chromium rejected; the first complete
+    proof then passed every test but stayed red because the hostile RGAA
+    runtime case was attached only through a broad feature glob.
+  - Root cause (missing capability): the mock validates CDP shape rather than
+    JavaScript syntax, the interactive/privileged RGAA paths had no direct
+    Chromium scenario, and the hostile-world test lacked an exact documented
+    scenario attachment.
+  - Fix encoded (doc/script/lint): real-Chromium tests now execute passive,
+    hostile, interactive, privileged, hybrid and multi-page RGAA flows; the
+    feature sheet maps each runtime case explicitly, while focused regressions
+    cover global deadlines, complete navigation/collector error reports,
+    explicit empty selections and non-blocking special-file rejection.
+  - Verification (command/CI): `./dev check-local` passed 1,028 tests before
+    the final CLI addition; the subsequent `./dev check` passed all 1,094 tests
+    (1,029 unit, 56 Chrome, 7 Symfony and 2 Shopware), with zero skips/failures,
+    89.91% line coverage, 79.06% branch coverage and zero proof violation.
 - Session-Key: web-core-vitals@ca7c2d1
   - Symptom: `cdpx vitals` summed layout shifts instead of applying the
     official CLS session-window algorithm, and one-shot primitives could not

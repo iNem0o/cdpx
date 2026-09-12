@@ -126,6 +126,42 @@ cdpx seo https://shop.example.test/collection/dresses
 cdpx vitals http://shop.localhost/ --click "#add-to-cart"
 ```
 
+## RGAA evidence workflow — [sheet](features/rgaa-audit.md)
+
+| CLI | Use case | Why |
+|---|---|---|
+| `cdpx rgaa catalog [--tests IDS]` | inspect the pinned official 4.1.2 inventory | keeps provenance, 13/106/258 cardinalities and automation powers reviewable without a browser |
+| `cdpx rgaa scan [url] [--scope ...] [--engine ...] [--tests IDS]` | collect page-level findings/evidence and conservative test verdicts | distinguishes proven failures/passes from review, manual work, errors and exclusions |
+| `cdpx rgaa sample validate FILE` | compile a declared multi-page sample without Chrome | closes URL/test/budget/authority drift before effects |
+| `cdpx rgaa sample run FILE` | run and conservatively aggregate the declared pages | no implicit crawler or hidden sample selection |
+
+All 258 official tests remain in each result. The native engine owns RGAA
+semantics; optional axe-core observations are offline, isolated and advisory.
+Every aggregation publishes `certification_claim: false`. Page and sample
+results also publish `execution_status: complete|partial|error` and
+`audit_findings_present`; operational failure, including
+`Page.navigate.errorText`, still writes the full JSON report on stdout but
+exits `1`. Proven non-conformance after a completed audit remains exit `0`.
+DOM fingerprints are hashed by cdpx from bounded page material, so the
+documented plain-HTTP `.test` workflow does not require a secure context.
+Initial and final verification failures preserve full JSON. Environment sub-statuses
+separate browser metadata from page fingerprinting; probe statuses expose
+node/byte/truncation/execution-timeout bounds; incomplete title extraction
+cannot prove 8.6.1 failure, and advisory axe execution is renderer-bounded.
+Focus interaction is guarded by exact document identity around every trusted
+key event; spacing cleanup always reports structured attempted/completed/error
+state, including primary-probe failures. Sample page failures distinguish
+navigation, initial verification, and scanner initialization.
+Sample validation publishes
+global and per-page action budgets plus enabled collectors before Chrome opens.
+
+```bash
+cdpx rgaa catalog --tests 2.1.1,8.3.1
+cdpx rgaa scan http://app.test/ --scope passive --engine native
+cdpx rgaa sample validate audit/rgaa-sample.yml
+cdpx rgaa sample run audit/rgaa-sample.yml
+```
+
 ## Developer diagnostics — [sheet](features/dev-profiler-diff.md)
 
 | CLI | Use case | Why |

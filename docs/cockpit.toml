@@ -19,6 +19,7 @@ include = [
   "docs/TROUBLESHOOTING.md",
   "docs/architecture/decisions/*.md",
   "docs/features/*.md",
+  "docs/rgaa/*.md",
 ]
 
 exclude = []
@@ -28,3 +29,4 @@ exclude = []
 "docs" = "References"
 "docs/features" = "Feature specifications"
 "docs/architecture/decisions" = "Architecture decisions"
+"docs/rgaa" = "RGAA implementation pack"

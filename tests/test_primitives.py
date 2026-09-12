@@ -63,6 +63,32 @@ def test_navigate_waits_load(mock, client):
     assert mock.commands_for("Page.navigate") == [{"url": "http://site.test/page"}]
 
 
+def test_navigate_shares_one_deadline_across_protocol_calls(monkeypatch):
+    """Page.enable, Page.navigate and the lifecycle wait consume one budget."""
+
+    class TimedClient:
+        def __init__(self):
+            self.timeouts = []
+
+        def send(self, method, params=None, timeout=30.0):
+            self.timeouts.append(timeout)
+            if method == "Page.navigate":
+                return {"frameId": "FRAME1", "loaderId": "LOADER1"}
+            return {}
+
+        def wait_event(self, name, timeout=30.0):
+            self.timeouts.append(timeout)
+            return {"method": name}
+
+    ticks = iter((0.0, 1.0, 2.0, 3.0, 4.0))
+    monkeypatch.setattr(nav.time, "monotonic", lambda: next(ticks))
+    timed = TimedClient()
+
+    nav.navigate(cast(CDPClient, timed), "http://site.test/page", timeout=10.0)
+
+    assert timed.timeouts == [9.0, 8.0, 7.0]
+
+
 def test_navigate_raises_typed_error_with_failed_result(client, monkeypatch):
     real_send = client.send
 
@@ -716,6 +742,70 @@ def test_press_key_backspace_sequence(mock, client):
         "rawKeyDown",
         "keyUp",
     ]
+
+
+def test_press_key_uses_independent_cleanup_budget_after_deadline(mock, client):
+    cleanup: dict[str, str] = {}
+
+    with pytest.raises(CDPTimeout, match="functional deadline"):
+        inputs.press_key(
+            client,
+            "Tab",
+            remaining=lambda: 1.0,
+            after_key_down=lambda: (_ for _ in ()).throw(CDPTimeout("functional deadline")),
+            cleanup_remaining=lambda: 0.5,
+            cleanup_status=cleanup,
+        )
+
+    assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == [
+        "rawKeyDown",
+        "keyUp",
+    ]
+    assert cleanup["key_up"] == "completed"
+
+
+def test_press_key_cleans_up_when_raw_key_down_times_out_after_effect(mock, client, monkeypatch):
+    original_send = client.send
+    cleanup: dict[str, str] = {}
+
+    def timeout_after_key_down(method, params=None, timeout=None):
+        result = original_send(method, params, timeout)
+        if method == "Input.dispatchKeyEvent" and params["type"] == "rawKeyDown":
+            raise CDPTimeout("key down response timeout")
+        return result
+
+    monkeypatch.setattr(client, "send", timeout_after_key_down)
+
+    with pytest.raises(CDPTimeout, match="key down response timeout"):
+        inputs.press_key(
+            client,
+            "Tab",
+            remaining=lambda: 1.0,
+            cleanup_remaining=lambda: 0.5,
+            cleanup_status=cleanup,
+        )
+
+    assert [event["type"] for event in mock.commands_for("Input.dispatchKeyEvent")] == [
+        "rawKeyDown",
+        "keyUp",
+    ]
+    assert cleanup["key_up"] == "completed"
+
+
+def test_press_key_sends_nothing_when_local_deadline_expires_before_key_down(mock, client):
+    cleanup: dict[str, str] = {}
+
+    with pytest.raises(CDPTimeout, match="deadline before key down"):
+        inputs.press_key(
+            client,
+            "Tab",
+            remaining=lambda: (_ for _ in ()).throw(CDPTimeout("deadline before key down")),
+            cleanup_remaining=lambda: 0.5,
+            cleanup_status=cleanup,
+        )
+
+    assert mock.commands_for("Input.dispatchKeyEvent") == []
+    assert cleanup["key_up"] == "not_attempted"
 
 
 @pytest.mark.parametrize(
@@ -2086,7 +2176,7 @@ def test_intercept_click_action_timeout_still_disables_fetch(mock, client, monke
     def exhausted_click(_client, selector, button="left", *, remaining=None):
         del selector, button
         assert remaining is not None
-        raise CDPTimeout("interception timeout after 0.01s")
+        raise CDPTimeout("interception timeout during click")
 
     monkeypatch.setattr(inputs, "click", exhausted_click)
 
@@ -2096,7 +2186,9 @@ def test_intercept_click_action_timeout_still_disables_fetch(mock, client, monke
             "#slow",
             rules=["* => block"],
             allowed_origins=("http://s.test",),
-            timeout=0.01,
+            # Leave setup headroom under loaded CI; the mocked click is the
+            # deterministic timeout boundary exercised by this test.
+            timeout=1.0,
             settle=0.01,
         )
 

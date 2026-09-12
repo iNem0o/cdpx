@@ -25,12 +25,20 @@ def evaluate(
     return_by_value: bool = True,
     *,
     timeout: float | None = None,
+    context_id: int | None = None,
 ) -> Any:
     params = {
         "expression": expression,
         "returnByValue": return_by_value,
         "awaitPromise": await_promise,
     }
+    if context_id is not None:
+        params["contextId"] = context_id
+    if timeout is not None:
+        # Runtime.TimeDelta is expressed in milliseconds. This bounds the
+        # renderer execution itself; the transport timeout alone only stops
+        # waiting for a response and can leave JavaScript running.
+        params["timeout"] = max(1.0, timeout * 1000)
     res = (
         client.send("Runtime.evaluate", params)
         if timeout is None

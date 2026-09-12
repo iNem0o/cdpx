@@ -23,7 +23,7 @@ import pytest
 
 from cdpx import discovery, proof, scenarios
 from cdpx.action_model import ClickAction, GotoAction, TypeAction
-from cdpx.client import CDPClient
+from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.primitives import (
     actions,
@@ -41,6 +41,11 @@ from cdpx.primitives import (
     recording,
     state,
 )
+from cdpx.rgaa import scanner as rgaa_scanner
+from cdpx.rgaa.plan import ExecutionBudget
+from cdpx.rgaa.sample import compile_sample as compile_rgaa_sample
+from cdpx.rgaa.sample import run_sample as run_rgaa_sample
+from cdpx.rgaa.scanner import scan as rgaa_scan
 from cdpx.session import SessionManifest, start_session, stop_session
 from cdpx.testing.e2e import (
     attach_cli_run,
@@ -91,6 +96,7 @@ def chrome():
             "--no-first-run",
             "--no-sandbox",
             "--disable-gpu",
+            "--host-resolver-rules=MAP app.test 127.0.0.1",
         ],
         stdout=subprocess.DEVNULL,
         stderr=stderr,
@@ -1808,7 +1814,7 @@ def test_cockpit_run_view_lists_commands_timeline_and_casts(page, cockpit_report
     proves=["CLI surface and validation matrix render from the embedded payload."],
 )
 def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
-    """The CLI view lists the 31 real subcommands with their feature
+    """The CLI view lists the 32 real subcommands with their feature
     attachment, and the Validation view renders the capability matrix,
     coverage by module, risks and accepted unknowns."""
     client, _base = page
@@ -1825,10 +1831,10 @@ def test_cockpit_cli_and_validation_views(page, cockpit_report, evidence_case):
         " body: document.querySelector('#app tbody').textContent,"
         " mapped: !!document.querySelector('#app tbody a[href=\"#/features/demo-checkout\"]')})",
     )
-    #: the CLI contract (31 real subcommands, extracted from the real
+    #: the CLI contract (32 real subcommands, extracted from the real
     #: binary's help) is visible as-is in the cockpit
-    assert cli_view["rows"] == 31
-    assert "31 cdpx subcommands" in cli_view["intro"]
+    assert cli_view["rows"] == 32
+    assert "32 cdpx subcommands" in cli_view["intro"]
     assert "cdpx goto" in cli_view["body"] and "cdpx tabs" in cli_view["body"]
     #: each entrypoint shows its attachment: link to the feature when it
     #: exists, explicit mention otherwise
@@ -2094,6 +2100,653 @@ def test_a11y_and_frame_real(page):
     assert tree["count"] > 0
     #: the text read does come from the child document, not the host page
     assert frames.frame_text(c, "#child-marker")["text"] == "Iframe content"
+
+
+@pytest.mark.scenario(
+    feature="rgaa-audit",
+    journey="scan-rendered-page",
+    scenario_id="rgaa-audit.resolve-deterministic-subset",
+    proves=[
+        "The pinned RGAA catalog stays exhaustive while real Chromium proves "
+        "clear structural failures."
+    ],
+)
+def test_rgaa_native_scan_real(page, evidence_case):
+    """The native engine resolves only its modeled subset in real Chromium;
+    every other official test remains visible and unresolved."""
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    baseline = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
+    baseline_tests = {test["id"]: test for test in baseline["tests"]}
+    assert baseline["summary"]["official_tests"] == 258
+    assert baseline_tests["8.3.1"]["verdict"] == "pass"
+    assert all(
+        baseline_tests[test_id]["verdict"] == "needs_review"
+        for test_id in ("2.1.1", "3.2.1", "11.1.1")
+    )
+    assert baseline_tests["1.1.1"]["verdict"] == "not_tested"
+
+    nav.navigate(c, f"{base}/rgaa-broken.html")
+    broken = rgaa_scan(c, selected_tests=("2.1.1", "3.2.1", "8.3.1", "11.1.1"))
+    broken_tests = {test["id"]: test for test in broken["tests"]}
+    assert broken_tests["2.1.1"]["verdict"] == "fail"
+    assert broken_tests["8.3.1"]["verdict"] == "needs_review"
+    assert all(
+        broken_tests[test_id]["verdict"] == "needs_review" for test_id in ("3.2.1", "11.1.1")
+    )
+    assert broken["summary"]["certification_claim"] is False
+    if evidence_case is not None:
+        evidence_case.attach_json(
+            "RGAA baseline and controlled regression",
+            {"baseline": baseline["summary"], "regression": broken["summary"]},
+        )
+
+
+def test_rgaa_native_probe_isolated_from_hostile_main_world(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-hostile.html")
+    report = rgaa_scan(c, selected_tests=("2.1.1",))
+    result = next(test for test in report["tests"] if test["id"] == "2.1.1")
+    assert result["verdict"] == "fail"
+    assert report["collector_status"]["passive-dom-css"]["isolated_world"] is True
+
+
+def test_rgaa_native_probe_walks_nested_open_shadow_roots(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+
+    report = rgaa_scan(
+        c,
+        selected_tests=("2.1.1", "3.2.1", "6.1.1", "11.1.1", "11.9.1"),
+    )
+    assert report["execution_status"] == "complete"
+    assert report["collector_status"]["passive-dom-css"]["status"] == "ok"
+    assert all(
+        test["verdict"] != "error"
+        for test in report["tests"]
+        if test["id"] in {"2.1.1", "3.2.1", "6.1.1", "11.1.1", "11.9.1"}
+    )
+
+
+def test_rgaa_name_sources_cover_shadow_image_and_external_form_controls(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(
+        c,
+        """(() => {
+          document.body.innerHTML = '<form id="checkout"></form>' +
+            '<input type="image" form="checkout" alt="Send" style="width:20px;height:20px">' +
+            '<button form="checkout" style="width:20px;height:20px"></button>' +
+            '<label for="duplicate">Wrong tree</label><div id="host"></div>';
+          const root = document.querySelector('#host').attachShadow({mode: 'open'});
+          root.innerHTML = '<span id="label">Shadow action</span>' +
+            '<a href="#" aria-labelledby="label" ' +
+            'style="display:block;width:20px;height:20px"></a>' +
+            '<input id="duplicate" style="width:20px;height:20px">';
+        })()""",
+    )
+
+    report = rgaa_scan(c, selected_tests=("6.1.1", "11.1.1", "11.9.1"))
+    results = {test["id"]: test for test in report["tests"]}
+
+    assert results["6.1.1"]["findings"] == []
+    assert len(results["11.1.1"]["findings"]) == 1
+    assert len(results["11.9.1"]["findings"]) == 1
+
+
+def test_rgaa_environment_hash_works_on_non_secure_http_origin(page):
+    c, base = page
+    port = base.rsplit(":", 1)[1]
+    url = f"http://app.test:{port}/rgaa.html"
+    nav.navigate(c, url)
+
+    assert js.evaluate(c, "globalThis.isSecureContext") is False
+    report = rgaa_scan(c, selected_tests=("8.1.1",))
+
+    assert report["execution_status"] == "complete"
+    assert report["collector_status"]["environment"]["status"] == "ok"
+    assert len(report["environment"]["page"]["dom_sha256"]) == 64
+
+
+def test_rgaa_probe_timeout_does_not_interrupt_main_world_javascript(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(c, "globalThis.__cdpxMainTicks = 0; setInterval(() => __cdpxMainTicks++, 10)")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    with pytest.raises((CDPError, CDPTimeout)):
+        rgaa_scanner._load_probe(
+            c,
+            context_id,
+            "(() => { const end = performance.now() + 1000; "
+            "while (performance.now() < end) {} "
+            "globalThis.__cdpxLateProbeEffect = true; return '{}'; })()",
+            ExecutionBudget.start(0.2),
+        )
+
+    time.sleep(0.1)
+    assert js.evaluate(c, "globalThis.__cdpxMainTicks") > 0
+    assert (
+        js.evaluate(
+            c,
+            "globalThis.__cdpxLateProbeEffect === true",
+            context_id=context_id,
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("setup", "scope", "test_id"),
+    [
+        (
+            "document.body.replaceChildren(Object.assign(document.createElement('p'), "
+            "{textContent: 'X'.repeat(20_000_000)}))",
+            "privileged",
+            "10.12.1",
+        ),
+        (
+            "document.body.innerHTML='<a href=/ id=target></a>'; "
+            "document.querySelector('#target').append(...Array.from({length: 6000}, "
+            "() => document.createElement('span')))",
+            "passive",
+            "6.1.1",
+        ),
+        (
+            "document.body.replaceChildren(...Array.from({length: 6001}, (_, index) => "
+            "Object.assign(document.createElement('button'), {textContent: String(index)})))",
+            "passive",
+            "11.9.1",
+        ),
+        (
+            "document.body.innerHTML = Array.from({length: 500}, (_, index) => "
+            "`<label for=f${index}>Field ${index}</label><input id=f${index}>`).join('')",
+            "passive",
+            "11.1.1",
+        ),
+    ],
+)
+def test_rgaa_adversarial_dom_work_is_bounded(page, setup, scope, test_id):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(c, setup)
+
+    report = rgaa_scan(c, scope=scope, selected_tests=(test_id,), timeout=10)
+    collector_name = "text-spacing" if test_id == "10.12.1" else "passive-dom-css"
+    collector = report["collector_status"][collector_name]
+
+    assert collector["nodes_examined"] <= 5000
+    assert collector["bytes_examined"] <= 262144
+    assert collector["execution_timed_out"] is False
+    assert collector["subtree_truncated"] is True
+
+
+def test_rgaa_title_evidence_is_independent_and_truncation_never_fails(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(
+        c,
+        "document.title = 'Titre parfaitement pertinent'; "
+        "document.body.replaceChildren(...Array.from({length: 6000}, "
+        "() => document.createElement('span')))",
+    )
+
+    report = rgaa_scan(c, selected_tests=("8.6.1",), timeout=10)
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+    assert result["verdict"] == "needs_review"
+    assert result["evidence"][0]["title"] == "Titre parfaitement pertinent"
+    assert result["evidence"][0]["evidence_complete"] is True
+
+    js.evaluate(c, "document.title = ' '.repeat(300) + 'Titre pertinent'")
+    report = rgaa_scan(c, selected_tests=("8.6.1",), timeout=10)
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+    assert result["verdict"] == "needs_review"
+    assert result["evidence"][0]["title"] == "Titre pertinent"
+    assert result["evidence"][0]["evidence_complete"] is True
+
+    js.evaluate(c, "document.title = ' '.repeat(5000) + 'Titre hors frontière'")
+    report = rgaa_scan(c, selected_tests=("8.6.1",), timeout=10)
+    result = next(test for test in report["tests"] if test["id"] == "8.6.1")
+    assert result["verdict"] == "needs_review"
+    assert result["findings"] == []
+    assert result["evidence"][0]["value_truncated"] is True
+    assert result["evidence"][0]["evidence_complete"] is False
+
+
+def test_rgaa_passive_probe_bounds_raw_attributes_and_ancestor_walks(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    js.evaluate(
+        c,
+        "(() => { const input = document.createElement('input'); "
+        "input.setAttribute('role', 'A'.repeat(2_000_000)); "
+        "document.body.replaceChildren(input); let root = document.body; "
+        "for (let index = 0; index < 2000; index++) { "
+        "const wrapper = document.createElement('div'); wrapper.append('x'); "
+        "root.append(wrapper); root = wrapper; } return true; })()",
+    )
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    observation = rgaa_scanner._load_probe(
+        c, context_id, rgaa_scanner.PASSIVE_PROBE, ExecutionBudget.start(10)
+    )
+
+    assert len(observation["fields"]["items"][0]["role"]) <= 64
+    assert observation["nodes_examined"] <= 5000
+    assert observation["bytes_examined"] <= 262144
+    assert observation["subtree_truncated"] is True
+
+
+def test_rgaa_focus_and_key_cleanup_survive_expired_functional_deadline(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    js.evaluate(
+        c,
+        "(() => { document.addEventListener('keydown', () => { "
+        "const end = performance.now() + 750; while (performance.now() < end) {} "
+        "}, {once: true, capture: true}); return true; })()",
+    )
+
+    report = rgaa_scan(c, scope="interactive", selected_tests=("10.7.1",), timeout=0.5)
+    focus = report["collector_status"]["focus"]
+
+    assert report["execution_status"] == "partial"
+    assert focus["key_up"] == "completed"
+    assert focus["focus_restoration"] == "completed"
+
+
+def test_rgaa_focus_restoration_runs_when_blur_response_times_out(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+    js.evaluate(
+        c,
+        "(() => { let button = document.activeElement; "
+        "while (button?.shadowRoot?.activeElement) button = button.shadowRoot.activeElement; "
+        "const nativeBlur = button.blur.bind(button); button.blur = () => { nativeBlur(); "
+        "const end = performance.now() + 750; while (performance.now() < end) {} }; "
+        "return true; })()",
+        context_id=context_id,
+    )
+
+    focus = rgaa_scanner._collect_focus(
+        c,
+        context_id,
+        ExecutionBudget.start(0.5),
+        identity,
+        None,
+    )
+
+    assert focus["focus_reset"] == "failed"
+    assert focus["focus_restoration"] == "completed"
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+
+def test_rgaa_focus_deadline_before_reset_preserves_initial_focus(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    class ExpiringBeforeResetBudget:
+        def __init__(self):
+            self.calls = 0
+
+        def remaining(self):
+            self.calls += 1
+            if self.calls >= 3:
+                raise CDPTimeout("RGAA global deadline exceeded before focus reset")
+            return 1.0
+
+        def consume(self, _label):
+            raise AssertionError("focus traversal must not start")
+
+    focus = rgaa_scanner._collect_focus(
+        c,
+        context_id,
+        ExpiringBeforeResetBudget(),
+        identity,
+        lambda _remaining: None,
+    )
+
+    assert focus["focus_reset"] == "not_attempted"
+    assert focus["focus_restoration"] == "not_possible"
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+
+def test_rgaa_same_origin_document_drift_blocks_tab(page, monkeypatch):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    destination = f"{base}/rgaa-focus-drift.html"
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+    original_evaluate = rgaa_scanner.js.evaluate
+
+    def navigate_after_reset(client, expression, *args, **kwargs):
+        result = original_evaluate(client, expression, *args, **kwargs)
+        if "__cdpx_rgaa_focus_reset" in expression:
+            nav.navigate(client, destination, timeout=2)
+        return result
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", navigate_after_reset)
+
+    with pytest.raises(rgaa_scanner.DocumentStateDrift):
+        rgaa_scanner._collect_focus(
+            c,
+            context_id,
+            ExecutionBudget.start(5),
+            identity,
+            None,
+        )
+
+    assert rgaa_scanner._document_identity(c, 2).url == destination
+    assert js.evaluate(c, "document.body.dataset.keydowns") == "0"
+
+
+def test_rgaa_focus_restores_idless_control_in_nested_shadow_root(page):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa-shadow.html")
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+    report = rgaa_scan(c, scope="interactive", selected_tests=("10.7.1",), timeout=10)
+
+    assert report["collector_status"]["focus"]["focus_restoration"] == "completed"
+    assert (
+        js.evaluate(
+            c,
+            "document.querySelector('#component').shadowRoot.querySelector('#nested')"
+            ".shadowRoot.activeElement?.localName",
+        )
+        == "button"
+    )
+
+
+def test_rgaa_spacing_cleanup_outcomes_match_document_state(page, monkeypatch):
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+    original_load_probe = rgaa_scanner._load_probe
+    original_evaluate = rgaa_scanner.js.evaluate
+
+    def inject_style_then_timeout(client, context, expression, budget, **kwargs):
+        if "__cdpx_rgaa_text_spacing_v2" not in expression:
+            return original_load_probe(client, context, expression, budget, **kwargs)
+        original_evaluate(
+            client,
+            "(() => { const style = document.createElement('style'); "
+            "style.setAttribute('data-cdpx-rgaa-spacing', 'timeout'); "
+            "globalThis.__cdpxRgaaSpacingStyle = style; document.head.appendChild(style); "
+            "return true; })()",
+            context_id=context,
+        )
+        raise CDPTimeout("text-spacing probe timed out")
+
+    monkeypatch.setattr(rgaa_scanner, "_load_probe", inject_style_then_timeout)
+    with pytest.raises(rgaa_scanner.SpacingCollectorError) as successful_cleanup:
+        rgaa_scanner._collect_spacing(c, context_id, ExecutionBudget.start(2))
+    assert successful_cleanup.value.cleanup == {"attempted": True, "completed": True}
+    assert js.evaluate(c, "document.querySelectorAll('[data-cdpx-rgaa-spacing]').length") == 0
+
+    def fail_cleanup_before_send(client, expression, *args, **kwargs):
+        if "__cdpx_rgaa_text_spacing_cleanup" in expression:
+            raise CDPTimeout("cleanup timed out before send")
+        return original_evaluate(client, expression, *args, **kwargs)
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", fail_cleanup_before_send)
+    with pytest.raises(rgaa_scanner.SpacingCollectorError) as failed_cleanup:
+        rgaa_scanner._collect_spacing(c, context_id, ExecutionBudget.start(2))
+    assert failed_cleanup.value.cleanup["attempted"] is True
+    assert failed_cleanup.value.cleanup["completed"] is False
+    assert "cleanup timed out" in failed_cleanup.value.cleanup["error"]
+    assert js.evaluate(c, "document.querySelectorAll('[data-cdpx-rgaa-spacing]').length") == 1
+
+    monkeypatch.setattr(rgaa_scanner.js, "evaluate", original_evaluate)
+    nav.navigate(c, f"{base}/rgaa.html")
+    identity = rgaa_scanner._document_identity(c, 2)
+    context_id = rgaa_scanner._isolated_world(c, ExecutionBudget.start(2), identity)
+
+    def navigate_after_probe(client, context, expression, budget, **kwargs):
+        observation = original_load_probe(client, context, expression, budget, **kwargs)
+        if "__cdpx_rgaa_text_spacing_v2" in expression:
+            nav.navigate(client, f"{base}/rgaa-focus-drift.html", timeout=2)
+        return observation
+
+    monkeypatch.setattr(rgaa_scanner, "_load_probe", navigate_after_probe)
+    observation = rgaa_scanner._collect_spacing(c, context_id, ExecutionBudget.start(5))
+
+    assert observation["cleanup"]["attempted"] is True
+    assert observation["cleanup"]["completed"] is False
+    assert observation["cleanup"]["error"]
+    assert js.evaluate(c, "document.querySelectorAll('[data-cdpx-rgaa-spacing]').length") == 0
+
+
+def test_rgaa_cli_navigation_error_text_keeps_full_report(managed_cli_session, evidence_case):
+    manifest, path = managed_cli_session
+    unavailable = free_loopback_port()
+
+    proc = run_cli(
+        manifest,
+        path,
+        "--timeout",
+        "5",
+        "rgaa",
+        "scan",
+        f"http://127.0.0.1:{unavailable}/unreachable",
+        "--tests",
+        "8.1.1",
+    )
+    attach_cli_run(evidence_case, "RGAA navigation errorText report", proc)
+
+    assert proc.returncode == 1 and proc.stderr == ""
+    report = json.loads(proc.stdout)
+    assert report["execution_status"] == "error"
+    assert report["collector_status"]["page-navigation"]["status"] == "error"
+    assert len(report["tests"]) == 258
+
+
+def test_rgaa_installed_cli_covers_catalog_scopes_and_samples(cli_page, tmp_path, evidence_case):
+    manifest, path, base = cli_page
+
+    catalog_proc = run_cli(manifest, path, "--limit", "1", "rgaa", "catalog")
+    attach_cli_run(evidence_case, "RGAA complete catalog through installed CLI", catalog_proc)
+    catalog = successful_json(catalog_proc)
+    assert len(catalog["tests"]) == 258
+
+    passive = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa-shadow.html",
+            "--tests",
+            "2.1.1,8.3.1",
+            timeout=30,
+        )
+    )
+    assert passive["execution_status"] == "complete"
+
+    interactive = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa.html",
+            "--scope",
+            "interactive",
+            "--tests",
+            "10.7.1",
+            timeout=30,
+        )
+    )
+    assert interactive["collector_status"]["focus"]["status"] == "ok"
+
+    privileged = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa.html",
+            "--scope",
+            "privileged",
+            "--tests",
+            "10.12.1",
+            timeout=30,
+        )
+    )
+    assert privileged["collector_status"]["text-spacing"]["status"] == "ok"
+
+    hybrid = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "20",
+            "rgaa",
+            "scan",
+            f"{base}/rgaa.html",
+            "--engine",
+            "hybrid",
+            "--tests",
+            "1.1.1",
+            timeout=30,
+        )
+    )
+    assert hybrid["providers"][0]["status"] == "ok"
+
+    sample = tmp_path / "rgaa-cli-sample.yml"
+    sample.write_text(
+        f"""schema: cdpx.rgaa.sample/v1
+pages:
+  - id: baseline
+    url: {base}/rgaa.html
+    tests: [2.1.1, 8.3.1]
+  - id: shadow
+    url: {base}/rgaa-shadow.html
+    tests: [2.1.1, 8.3.1]
+""",
+        encoding="utf-8",
+    )
+    plan = successful_json(
+        run_cli(manifest, path, "--limit", "1", "rgaa", "sample", "validate", str(sample))
+    )
+    assert plan["page_count"] == len(plan["pages"]) == 2
+    sample_result = successful_json(
+        run_cli(
+            manifest,
+            path,
+            "--timeout",
+            "30",
+            "rgaa",
+            "sample",
+            "run",
+            str(sample),
+            timeout=40,
+        )
+    )
+    assert sample_result["execution_status"] == "complete"
+    assert len(sample_result["pages"]) == 2
+
+
+def test_rgaa_interactive_privileged_and_hybrid_scopes_real(page):
+    """Every RGAA scope and the advisory provider execute in real Chromium."""
+    c, base = page
+    nav.navigate(c, f"{base}/rgaa.html")
+
+    interactive = rgaa_scan(
+        c,
+        scope="interactive",
+        selected_tests=("10.7.1", "12.8.1"),
+        timeout=10,
+    )
+    interactive_tests = {test["id"]: test for test in interactive["tests"]}
+    assert interactive["collector_status"]["focus"]["status"] == "ok", interactive[
+        "collector_status"
+    ]["focus"]
+    assert interactive["actions_used"] > 0
+    assert interactive_tests["10.7.1"]["verdict"] == "needs_review"
+    assert interactive_tests["12.8.1"]["verdict"] == "needs_review"
+
+    privileged = rgaa_scan(
+        c,
+        scope="privileged",
+        selected_tests=("10.12.1",),
+        timeout=10,
+    )
+    spacing = next(test for test in privileged["tests"] if test["id"] == "10.12.1")
+    assert privileged["collector_status"]["text-spacing"]["status"] == "ok"
+    assert spacing["verdict"] == "needs_review"
+
+    hybrid = rgaa_scan(c, engine="hybrid", selected_tests=("1.1.1",), timeout=15)
+    image_alt = next(test for test in hybrid["tests"] if test["id"] == "1.1.1")
+    assert hybrid["providers"][0]["name"] == "axe-core"
+    assert hybrid["providers"][0]["status"] == "ok"
+    assert hybrid["providers"][0]["authority"] == "advisory"
+    assert image_alt["verdict"] == "needs_review"
+
+
+def test_rgaa_declared_sample_runs_multiple_real_pages(page, tmp_path):
+    c, base = page
+    manifest = tmp_path / "rgaa-sample.yml"
+    manifest.write_text(
+        f"""schema: cdpx.rgaa.sample/v1
+scope: passive
+engine: native
+pages:
+  - id: baseline
+    url: {base}/rgaa.html
+    tests: [2.1.1, 8.3.1]
+  - id: regression
+    url: {base}/rgaa-broken.html
+    tests: [2.1.1, 8.3.1]
+""",
+        encoding="utf-8",
+    )
+
+    result = run_rgaa_sample(c, compile_rgaa_sample(manifest), timeout=15)
+    tests = {test["id"]: test for test in result["tests"]}
+
+    assert [page_result["page_id"] for page_result in result["pages"]] == [
+        "baseline",
+        "regression",
+    ]
+    assert all(len(page_result["report"]["tests"]) == 258 for page_result in result["pages"])
+    assert tests["2.1.1"]["verdict"] == "fail"
+    assert tests["8.3.1"]["verdict"] == "needs_review"
+    assert result["summary"]["certification_claim"] is False
 
 
 def test_coverage_real(page):

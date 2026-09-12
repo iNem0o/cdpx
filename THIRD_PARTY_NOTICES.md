@@ -27,3 +27,28 @@ under `src/cdpx/proofing/vendor/`.
 - Vendored stylesheet SHA-256: `f7f724aea2bb620a6482bfb8e4bdecfae1152b0c7facef55fbda61f3b6cfedb2`
 
 See `src/cdpx/proofing/vendor/LICENSE.xterm` for the complete license text.
+
+## RGAA 4.1.2 official content
+
+The RGAA criteria, methodologies and glossary are reproduced from the DINUM
+repository `DISIC/accessibilite.numerique.gouv.fr` at commit
+`ca4019f95073b6cbd2482a16e9f12b52d8de678d`. The repository states that its
+content, except identified third-party material, is published under
+**Licence Ouverte 2.0**. Exact file hashes and roles are stored in
+`src/cdpx/rgaa/data/4.1.2/source-manifest.json`.
+
+- Source: `https://github.com/DISIC/accessibilite.numerique.gouv.fr`
+- License: `https://www.etalab.gouv.fr/licence-ouverte-open-licence/`
+
+## axe-core
+
+The optional RGAA hybrid engine embeds the unmodified axe-core 4.10.3 browser
+bundle for offline advisory WCAG observations. axe-core is distributed under
+the Mozilla Public License 2.0.
+
+- Package: `axe-core@4.10.3`
+- Source archive: `https://registry.npmjs.org/axe-core/-/axe-core-4.10.3.tgz`
+- Vendored bundle SHA-256: `880970c081707360e64f34cea25ff91892f5bc95675b0776925b9709dd8a68bb`
+
+See `src/cdpx/rgaa/vendor/LICENSE.axe-core` and
+`src/cdpx/rgaa/vendor/LICENSE-3RD-PARTY.axe-core` for the complete notices.
