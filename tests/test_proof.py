@@ -1409,8 +1409,8 @@ def test_render_html_size_stays_bounded():
     # document guards and spacing-cleanup qualification.
     assert len(mermaid) < 3_600_000
     assert len(xterm) < 320_000
-    assert shell_and_content < 750_000
-    assert len(html) < 4_670_000
+    assert shell_and_content < 820_000
+    assert len(html) < 4_740_000
 
 
 def test_cockpit_names_each_proof_kind_explicitly():

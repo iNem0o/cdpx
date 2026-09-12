@@ -327,7 +327,7 @@ TEXT_SPACING_PROBE = r"""
     if (remaining <= 0) { subtreeTruncated = true; break; }
     const raw = String(walker.currentNode.nodeValue || ""), bounded = raw.slice(0, Math.min(1024, Math.floor(remaining / 3)));
     bytesExamined += encoder.encode(bounded).byteLength;
-    if (raw.length > bounded.length) subtreeTruncated = true;
+    if (raw.length > bounded.length) { subtreeTruncated = true; continue; }
     if (!bounded.trim() || !element || seen.has(element)) continue;
     const rect = element.getBoundingClientRect(), computed = getComputedStyle(element);
     if (rect.width <= 0 || rect.height <= 0 || computed.display === "none" || computed.visibility === "hidden") continue;
