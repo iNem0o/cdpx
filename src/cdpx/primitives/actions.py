@@ -19,11 +19,12 @@ from cdpx.action_model import (
     GotoAction,
     KeyAction,
     TypeAction,
+    ViewportAction,
     WaitAction,
     parse_action,
 )
 from cdpx.client import CDPClient, CDPError, CDPTimeout, validate_time_budget
-from cdpx.primitives import inputs, js, nav
+from cdpx.primitives import emulation, inputs, js, nav
 
 
 def run_action_argv(client: CDPClient, argv: list[str], timeout: float = 30.0) -> dict:
@@ -68,6 +69,8 @@ def run_action(
         return inputs.press_key(client, action.key)
     if isinstance(action, EvalAction):
         return {"value": js.evaluate(client, action.expression, await_promise=True)}
+    if isinstance(action, ViewportAction):
+        return emulation.set_viewport(client, action.profile)
     raise AssertionError(f"unhandled action: {action!r}")
 
 

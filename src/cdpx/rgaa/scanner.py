@@ -965,7 +965,7 @@ def _finish(
         execution_failures
         and not any(status.get("status") == "ok" for status in collectors.values())
         and not any(status.get("status") == "ok" for status in providers)
-    ):
+    ) or collectors.get("document-state", {}).get("status") == "error":
         execution_status = "error"
     environment_status = {
         "browser": (

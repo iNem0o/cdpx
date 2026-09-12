@@ -166,6 +166,11 @@ KEY_MAP = {
     "ArrowRight": {"key": "ArrowRight", "code": "ArrowRight", "windowsVirtualKeyCode": 39},
     "Delete": {"key": "Delete", "code": "Delete", "windowsVirtualKeyCode": 46},
 }
+KEY_ALIASES = {name.casefold(): name for name in KEY_MAP}
+#: A future key whose casefolded name collides with an existing one would
+#: silently shadow the previous alias; fail at import instead.
+if len(KEY_ALIASES) != len(KEY_MAP):  # pragma: no cover - import-time guard
+    raise RuntimeError("duplicate casefolded key alias in KEY_MAP")
 
 
 class ElementNotFound(RuntimeError):
@@ -579,9 +584,10 @@ def press_key(
     before_key_up: Callable[[], None] | None = None,
     cleanup_status: dict[str, str] | None = None,
 ) -> dict:
-    if key not in KEY_MAP:
+    canonical = KEY_ALIASES.get(key.casefold())
+    if canonical is None:
         raise ValueError(f"unsupported key: {key} (available: {', '.join(KEY_MAP)})")
-    params = KEY_MAP[key]
+    params = KEY_MAP[canonical]
     down = {"type": "rawKeyDown", **{k: v for k, v in params.items() if k != "text"}}
     cleanup_timeout = cleanup_remaining or remaining
     pending_error: BaseException | None = None
@@ -628,4 +634,7 @@ def press_key(
                     cleanup_status["key_up"] = "failed"
                 if pending_error is None:
                     raise
-    return {"pressed": key}
+    result = {"pressed": canonical}
+    if canonical != key:
+        result["requested"] = key
+    return result

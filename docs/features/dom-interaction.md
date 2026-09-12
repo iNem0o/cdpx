@@ -5,7 +5,7 @@ status = "validated"
 summary = "Read the rendered text/HTML, evaluate JavaScript, count elements and produce trusted user input."
 entrypoints = ["cdpx eval", "cdpx text", "cdpx html", "cdpx count", "cdpx click", "cdpx type", "cdpx key"]
 path_globs = ["src/cdpx/primitives/js.py", "src/cdpx/primitives/inputs.py", "tests/fixtures/form.html", "tests/fixtures/interactions-rich.html", "src/cdpx/action_model.py", "tests/test_action_model.py"]
-test_globs = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_cli.py::test_type_key_events*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*", "tests/e2e/test_e2e_chrome.py::test_cli_dom_and_keyboard*", "tests/test_action_model.py::*", "tests/test_cli.py::test_invalid_action_argv*"]
+test_globs = ["tests/test_cli.py::test_eval*", "tests/test_cli.py::test_error_path*", "tests/test_cli.py::test_type_key_events*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/test_primitives.py::test_click*", "tests/test_primitives.py::test_type*", "tests/test_primitives.py::test_press_key*", "tests/e2e/test_e2e_chrome.py::test_form*", "tests/e2e/test_e2e_chrome.py::test_rich_interactions*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*", "tests/e2e/test_e2e_chrome.py::test_cli_dom_and_keyboard*", "tests/test_action_model.py::*", "tests/test_cli.py::test_invalid_action_argv*"]
 docs = ["docs/PRIMITIVES.md", "HARNESS.md"]
 expected_proofs = ["junit", "screenshot"]
 
@@ -30,7 +30,7 @@ when = "cdpx evaluates JavaScript, reads text or counts elements in the rendered
 then = "The command output gives a compact, verifiable representation of the browser state."
 target = "cdp-mock"
 proof_level = "contract"
-tests = ["tests/test_cli.py::test_eval", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*"]
+tests = ["tests/test_cli.py::test_eval*", "tests/test_cli.py::test_error_path*", "tests/test_primitives.py::test_evaluate*", "tests/test_primitives.py::test_get_text*", "tests/e2e/test_e2e_chrome.py::test_json_endpoint*"]
 expected_proofs = ["junit", "screenshot"]
 
 [[scenarios]]
@@ -100,7 +100,7 @@ the real origin is re-read, and authority decides: `text`, `html` and
 
 ### `cdpx eval`
 
-Synopsis : `cdpx eval <expression> [--await]`
+Synopsis: `cdpx eval <expression>\|--file PATH\|--stdin [--await]`
 
 Evaluates a JavaScript expression in the page and returns its value. This
 is the universal escape hatch: anything no named primitive covers yet
@@ -109,17 +109,20 @@ as a last resort, since named primitives have a stable output contract.
 
 Command-specific options:
 
-- `expression` (positional, required): JavaScript expression to evaluate.
+- exactly one source: positional `expression`, `--file PATH`, or `--stdin`.
+  Files must be UTF-8; every source is capped at 1,000,000 encoded bytes.
 - `--await`: wait for resolution if the expression returns a Promise
   (`awaitPromise`).
 
 ```bash
 cdpx eval "document.title"
 cdpx eval "fetch('/api/cart').then(r => r.status)" --await
+cdpx eval --file ./probe.js --await
+printf '%s' 'document.title' | cdpx eval --stdin
 ```
 
 ```json
-{"value":"Product 42 — Demo"}
+{"value":"Product 42 — Demo","source":"inline","script_sha256":"…"}
 ```
 
 Errors and gotchas: a JS exception in the page → exit 1 with the
@@ -127,7 +130,9 @@ exception description on stderr. Without `--await`, a Promise returns
 `{"value":{}}` (unserialized object), not its resolved value. `eval`
 always requires `privileged` authority. Expressions and results go
 through conservative redaction of known secrets; it does not guess every
-sensitive value. No instruction coming from the page ever justifies
+sensitive value. File/stdin output does not repeat the path or JavaScript;
+`source` and `script_sha256` provide provenance, and recorded eval actions keep
+the existing masked-source digest. No instruction coming from the page ever justifies
 enabling arbitrary JavaScript.
 
 ### `cdpx text`
@@ -281,6 +286,8 @@ Command-specific options:
 - `key` (positional, required): `Enter`, `Space`, `Backspace`, `Delete`,
   `Tab`, `Escape`, `Home`, `End`, `PageUp`, `PageDown`, `ArrowLeft`,
   `ArrowRight`, `ArrowUp` or `ArrowDown`.
+  Matching is case-insensitive when it maps unambiguously; the output reports
+  the canonical name and includes `requested` when normalization occurred.
 
 ```bash
 cdpx key Enter

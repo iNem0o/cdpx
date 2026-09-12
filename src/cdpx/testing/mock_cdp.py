@@ -78,6 +78,8 @@ class MockCDP:
         self.click_network_script: list[dict] = []  # events emitted after mouseReleased
         self.fetch_resolution_script: list[dict] = []  # events emitted during a Fetch verdict
         self.fetch_disable_script: list[dict] = []  # events emitted after Fetch.disable responds
+        self.new_document_scripts: dict[str, str] = {}  # identifier -> registered source
+        self._rgaa_world_targets: set[str] = set()
         # Direct target WebSockets are distinct CDP sessions; Fetch state does not
         # leak from a disconnected client to the next client for the same target.
         self._fetch_enabled_sessions: set[tuple[str, object]] = set()
@@ -326,12 +328,13 @@ class MockCDP:
 
         if method == "Page.getFrameTree":
             main_url = self.targets.get(tid, {}).get("url", "about:blank")
-            for substring, values in self.eval_rules:
-                if "window.location.href" in substring:
-                    scripted = values.popleft() if len(values) > 1 else values[0]
-                    if isinstance(scripted, str):
-                        main_url = scripted
-                    break
+            if tid in self._rgaa_world_targets:
+                for substring, values in self.eval_rules:
+                    if "window.location.href" in substring:
+                        scripted = values.popleft() if len(values) > 1 else values[0]
+                        if isinstance(scripted, str):
+                            main_url = scripted
+                        break
             child_frames = []
             for frame_id, urls in self.frame_urls.items():
                 url = urls.popleft() if len(urls) > 1 else urls[0]
@@ -351,10 +354,27 @@ class MockCDP:
                 events,
             )
 
+        if method == "Page.createIsolatedWorld":
+            # Keep old RGAA mock context contracts while main's vitals tests use
+            # a stable context id of 1 for their isolated world.
+            world = params.get("worldName")
+            if isinstance(world, str) and world.startswith("__cdpx_rgaa"):
+                self._rgaa_world_targets.add(tid)
+            return {"executionContextId": 1 if world == "cdpx-vitals" else 42}, None, events
+        if method == "Page.addScriptToEvaluateOnNewDocument":
+            identifier = f"SCRIPT-{len(self.new_document_scripts) + 1}"
+            self.new_document_scripts[identifier] = params.get("source", "")
+            return {"identifier": identifier}, None, events
+        if method == "Page.removeScriptToEvaluateOnNewDocument":
+            removed = params.get("identifier")
+            if isinstance(removed, str):
+                self.new_document_scripts.pop(removed, None)
+            return {}, None, events
         if method == "Browser.getVersion":
             return (
                 {
-                    "product": "MockCDP/1.0",
+                    "product": "Chrome/126.0.0.0",
+                    "Browser": "cdpx-mock/1.0",
                     "userAgent": "MockCDP",
                     "jsVersion": "mock",
                     "protocolVersion": "1.3",
@@ -362,9 +382,6 @@ class MockCDP:
                 None,
                 events,
             )
-
-        if method == "Page.createIsolatedWorld":
-            return {"executionContextId": 42}, None, events
 
         if method == "DOM.getDocument":
             return {"root": {"nodeId": 1, "backendNodeId": 1}}, None, events
@@ -479,7 +496,7 @@ class MockCDP:
             "Emulation.setUserAgentOverride",
             "Emulation.setCPUThrottlingRate",
             "Network.emulateNetworkConditions",
-            "Page.addScriptToEvaluateOnNewDocument",
+            "Page.removeScriptToEvaluateOnNewDocument",
             "Profiler.enable",
             "Profiler.startPreciseCoverage",
             "Profiler.stopPreciseCoverage",

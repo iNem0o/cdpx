@@ -3,6 +3,67 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- `vitals` now reports a versioned `cdpx.vitals/v3` result: collector
+  availability (`status`, `document_observed`, `arm_scope`, `supported`,
+  `dropped_entries`, `errors`), per-metric availability, interaction record,
+  document binding (requested/final URL, time origin, navigation
+  source/step, main-frame scope, viewport, capture timestamp, browser
+  version) and bounded winning-window entries with DOM sources and
+  before/current rectangles. The collector runs inside a CDP isolated world:
+  page JavaScript cannot falsify it. A capture without an observable
+  collector reports `status: "unavailable"` with a reason instead of a
+  silent zero.
+- Scenarios can capture `vitals`, use a bounded `wait_ms`, and apply existing
+  interception rules around journey navigations and trusted clicks while
+  reporting matched/effective counts.
+- `eval --file` and `eval --stdin` accept UTF-8 scripts up to 1,000,000 bytes
+  and report source kind plus SHA-256 without echoing the script.
+
+### Changed
+
+- **`vitals` contract v3 (migration from `cdpx.vitals/v2`):** `metrics` is
+  now a map of per-metric availability entries (`{"status": "measured" |
+  "unsupported", "value": ...}`; the `cls` entry keeps `raw_sum`,
+  `total_entries`, `ignored_recent_input` and `winning_window`), so an entry
+  type the browser does not implement is reported `"unsupported"` with a
+  null value instead of a silent zero. `status` gains `"partial"` for
+  browser-announced dropped performance entries (`partial_reasons`, metrics
+  attached) beside `"measured"` and `"unavailable"`; arming/reading failures
+  now fail the command instead of being reported as `"unavailable"`.
+  `collector` replaces the always-true `installed` flag with `arm_scope`
+  (`document-start` | `capture-time`) and `dropped_entries`; `interaction`
+  distinguishes a requested click that produced no observable entry
+  (`requested`/`observed`/`entry_count`); `document` reads the final URL
+  atomically with the metrics, adds `performance.timeOrigin` and, in
+  scenarios, keeps the requested URL distinct from the displayed one with
+  the navigation source (`goto`/`click`/`redirect`/`current-document`) and
+  the step that produced it. The standalone `cdpx vitals` command arms the
+  collector BEFORE the optional `--click` (the Event Timing observer is live
+  during the interaction) and judges the real origin immediately after the
+  navigation and the interaction — a forbidden document is never measured;
+  scenario vitals captures register the collector before the first
+  navigation and embed a `measurement_environment` block (emulation,
+  interception rules, scenario digest).
+- **`vitals` CLS semantics (migration from v1):** before this change the top-level
+  `cls` field was a raw sum of layout-shift entries; it is now the official
+  maximum session window. Old `cls` value → new `metrics.cls.raw_sum`; new
+  `metrics.cls` → official maximum session window over eligible entries
+  (`hadRecentInput` excluded from both). The `schema` field lets consumers
+  distinguish the contracts. `metrics.lcp` and `metrics.inp` are documented
+  as approximate signals, not the official LCP/INP algorithms.
+- Interception hits are bounded at the source: recorded hits are capped per
+  action (URLs capped too) while `hits_total`/`hits_limit`/`hits_truncated`
+  keep the exact totals; scenario step results no longer duplicate the
+  bounded aggregate.
+- A `vitals` settle wait no longer consumes buffered console/network events
+  owed to passive collectors.
+- Named keys accept unambiguous case-insensitive aliases and report their
+  canonical spelling.
+
 ## [0.2.0] — 2026-08-30
 
 ### Added

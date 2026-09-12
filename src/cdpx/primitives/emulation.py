@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from cdpx.action_model import VIEWPORT_PROFILES
 from cdpx.client import CDPClient
 
 PRESETS: dict[str, dict[str, Any]] = {
+    "desktop": {
+        "metrics": {
+            "width": 1440,
+            "height": 900,
+            "deviceScaleFactor": 1,
+            "mobile": False,
+        },
+    },
     "mobile": {
         "metrics": {
             "width": 390,
@@ -26,6 +35,18 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "cpu-4x": {"cpu": 4},
 }
+
+
+def set_viewport(client: CDPClient, profile: str) -> dict[str, Any]:
+    """Applies the device-metrics part of a viewport profile (desktop or
+    mobile) without network/CPU/UA side effects. Scenario steps use it to
+    switch viewport mid-journey — e.g. capture the desktop and mobile
+    variants of one evidence outcome in a single run."""
+    if profile not in VIEWPORT_PROFILES:
+        raise ValueError(f"unknown viewport profile: {profile}")
+    client.send("Network.enable")
+    client.send("Emulation.setDeviceMetricsOverride", dict(PRESETS[profile]["metrics"]))
+    return {"profile": profile, "applied": True}
 
 
 def emulate(client: CDPClient, preset: str | None = None, reset: bool = False) -> dict[str, Any]:

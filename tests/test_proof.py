@@ -1386,8 +1386,10 @@ def test_strip_inline_content_keeps_excerpts_but_drops_bodies(tmp_path):
 
 
 def test_render_html_size_stays_bounded():
-    """The complete HTML report stays under a known size ceiling: any
-    shell/CSS/JS drift beyond the Mermaid margin breaks the build."""
+    """The complete HTML report stays under a known size ceiling with a
+    per-section breakdown: the vendored bundles are bounded separately from
+    the shell and the embedded content, so any growth is attributable to a
+    section instead of silently absorbed by one adjustable constant."""
     summary = proof.build_summary(
         [_ok_command()],
         _minimal_suite(".proof/unit-junit.xml"),
@@ -1395,17 +1397,20 @@ def test_render_html_size_stays_bounded():
         scenario_evidence=empty_scenario_evidence(),
         cast_entries=generated_casts(),
     )
-    # Mermaid vendored ~3.5 MB; the cockpit shell/CSS/JS must stay marginal.
-    # The feature/provenance/changelog margin covers the explicit Symfony,
-    # Shopware and RGAA runtime scenarios, including the RGAA implementation
-    # pack, adversarial DOM/cleanup/title/raw-attribute qualification,
-    # focus reversibility, exact document guards and spacing cleanup outcomes,
-    # targeted scenario profiler capture, bounded profiler probing and
-    # documented maintenance fixes. These prevent broad test globs from being
-    # mistaken for runtime proof while keeping the public change record inside
-    # the cockpit.
-    #: beyond the ceiling, an asset grew without justification: the gate blocks it
-    assert len(proof.render_html(summary)) < 4_617_000
+    html = proof.render_html(summary)
+    mermaid = proof._mermaid_bundle()
+    xterm = proof._xterm_bundle() + proof._xterm_css()
+    vendored = len(mermaid) + len(xterm)
+    shell_and_content = len(html) - vendored
+    # Mermaid vendored ~3.5 MB; xterm adds ~0.3 MB. The cockpit shell/CSS/JS
+    # plus embedded feature/provenance/changelog content must stay marginal on
+    # their own. Current growth is the explicit vitals and RGAA proof record,
+    # including adversarial DOM, cleanup/title/raw-attribute, focus, exact
+    # document guards and spacing-cleanup qualification.
+    assert len(mermaid) < 3_600_000
+    assert len(xterm) < 320_000
+    assert shell_and_content < 750_000
+    assert len(html) < 4_670_000
 
 
 def test_cockpit_names_each_proof_kind_explicitly():

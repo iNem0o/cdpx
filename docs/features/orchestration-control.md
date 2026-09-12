@@ -2,7 +2,7 @@
 id = "orchestration-control"
 title = "Interception, emulation and orchestration"
 status = "validated"
-summary = "Control network behavior around navigation or trusted clicks, emulate device constraints, read iframes, run business scenarios and record/replay bounded browser actions."
+summary = "Control network behavior around navigation or trusted clicks, emulate device constraints, capture attributed vitals in journeys, read iframes, run business scenarios and record/replay bounded browser actions."
 entrypoints = ["cdpx intercept", "cdpx emulate", "cdpx frame", "cdpx record", "cdpx replay", "cdpx scenario"]
 path_globs = ["src/cdpx/primitives/actions.py", "src/cdpx/primitives/inputs.py", "src/cdpx/primitives/emulation.py", "src/cdpx/primitives/interception.py", "src/cdpx/primitives/recording.py", "src/cdpx/journal.py", "src/cdpx/scenarios.py", "src/cdpx/scenario_compiler.py", "schemas/scenario-*.json", "tests/fixtures/interactions-rich.html", "tests/fixtures/intercept.html", "tests/fixtures/iframe.html", "tests/fixtures/scenarios/*.yml", "tests/fixtures/scenarios/fragments/*.yml", "tests/test_journal.py", "tests/test_scenarios.py", "src/cdpx/orchestration.py"]
 test_globs = ["tests/test_primitives.py::test_intercept*", "tests/test_cli.py::test_intercept*", "tests/test_primitives.py::test_emulate*", "tests/test_primitives.py::test_frame*", "tests/test_primitives.py::test_record*", "tests/test_primitives.py::test_replay*", "tests/test_primitives.py::test_run_action*", "tests/test_primitives.py::test_origin_guard*", "tests/test_cli.py::test_record*", "tests/test_cli.py::test_replay*", "tests/test_cli.py::test_emulate*", "tests/test_journal.py::*", "tests/test_scenarios.py::*", "tests/test_security_integration.py::test_missing_secret_ref_is_rejected_before_any_cdp_effect", "tests/e2e/test_e2e_chrome.py::test_intercept*", "tests/e2e/test_e2e_chrome.py::test_key_events*", "tests/e2e/test_e2e_chrome.py::test_record_replay*", "tests/e2e/test_e2e_chrome.py::test_emulate*", "tests/e2e/test_e2e_chrome.py::test_origin_guard*", "tests/e2e/test_e2e_chrome.py::test_declarative_scenario*", "tests/e2e/test_e2e_chrome.py::test_cli_slow_3g*", "tests/e2e/test_e2e_symfony.py::test_declarative_scenarios*", "tests/e2e/test_e2e_shopware.py::test_scenario_targets_real_shopware_fetch_profiler"]
@@ -204,17 +204,20 @@ cdpx intercept --rule "*api/echo* => 503" --settle 1 click "#request-button"
 ```
 
 ```json
-{"url":"http://demo.test/","rules":["*api* => 503"],"hits":[{"url":"http://demo.test/","action":"continue"},{"url":"http://demo.test/api/health","action":"503"}],"count":2,"settle":1.0}
+{"url":"http://demo.test/","rules":["*api* => 503"],"hits":[{"url":"http://demo.test/","action":"continue"},{"url":"http://demo.test/api/health","action":"503"}],"count":2,"hits_total":2,"hits_limit":200,"hits_truncated":false,"settle":1.0}
 ```
 
 Click result:
 
 ```json
-{"action":{"argv":["click","#request-button"],"result":{"clicked":"#request-button","x":412.5,"y":318.0}},"rules":["*api/echo* => 503"],"hits":[{"url":"http://demo.test/api/echo","action":"503"}],"count":1,"matched_count":1,"effective_count":1,"settle":1.0}
+{"action":{"argv":["click","#request-button"],"result":{"clicked":"#request-button","x":412.5,"y":318.0}},"rules":["*api/echo* => 503"],"hits":[{"url":"http://demo.test/api/echo","action":"503"}],"count":1,"hits_total":1,"hits_limit":200,"hits_truncated":false,"matched_count":1,"effective_count":1,"settle":1.0}
 ```
 
-For click composition, `count` is the number of requests paused by Fetch,
-`matched_count` is the number matched by an explicit rule (including an
+For click composition, `count` is the number of recorded hits (bounded at
+200 per action with URLs capped at 2048 characters), `hits_total` is the real
+number of paused requests, and `hits_truncated` announces when recording was
+capped while every request was still resolved. `matched_count` is the number
+matched by an explicit rule (including an
 explicit `continue`), and `effective_count` counts status fulfillments and
 blocks. A valid rule with no match is a successful command with
 `matched_count:0` and `effective_count:0`; callers can make that an assertion
@@ -229,16 +232,19 @@ click, or stabilization exceeds `--timeout`, the command exits 1. Every
 observed paused request receives a decision, and `Fetch.disable` runs in a
 `finally` path on success or failure; a cleanup failure is itself an execution
 error, with connection closure as the transport fallback. `intercept` requires
-`privileged`; a `click` also requires the current page origin to be allowed.
-The main document is intercepted during `goto`, so an overly broad rule
-(`* => 503`) can replace the hosting page.
+`privileged`; both routes judge the top-level document against the session
+origin allowlist BEFORE any rule can affect it: a forbidden document
+(redirected or click-triggered) continues untouched and the command fails.
+Within an allowed origin, an overly broad rule (`* => 503`) can still replace
+the hosting page.
 
 ### `cdpx emulate`
 
-Synopsis: `cdpx emulate [mobile|slow-3g|cpu-4x] [--reset] [-- <action ...>]`
+Synopsis: `cdpx emulate [mobile|desktop|slow-3g|cpu-4x] [--reset] [-- <action ...>]`
 
 Applies an emulation preset — `mobile` (viewport 390x844, deviceScaleFactor
-3, UA `cdpx-mobile/1.0`), `slow-3g` (400 ms latency, 50 KiB/s throughput
+3, UA `cdpx-mobile/1.0`), `desktop` (viewport 1440x900, deviceScaleFactor 1,
+no UA override), `slow-3g` (400 ms latency, 50 KiB/s throughput
 upstream and downstream) or `cpu-4x` (CPU throttled 4x) — then, in composed
 form, executes an action within the same CDP connection. Use case: check
 that a page stays usable on mobile or on a degraded network. The composed
@@ -249,7 +255,7 @@ http://demo.test/`).
 
 Command-specific options:
 
-- `preset` (positional, optional): `mobile`, `slow-3g` or `cpu-4x`.
+- `preset` (positional, optional): `mobile`, `desktop`, `slow-3g` or `cpu-4x`.
 - `--reset`: restores the default state — device metrics, user-agent, network
   conditions and CPU rate. Used without a preset.
 - `action` (after `--`): composed action executed under emulation —
@@ -418,7 +424,7 @@ Synopsis: `cdpx scenario run <file.yml> [--settle S]` or
 `cdpx scenario validate <file.yml>`
 
 Runs a declarative YAML business scenario against the targeted tab. The
-scenario describes a context (`base_url`, optional emulation), a suite of
+scenario describes a context (`base_url`, optional emulation/interception), a suite of
 steps, assertions, final proofs and, if needed, proofs to collect at key
 moments of the run (`capture` on a step). The output is always a single
 JSON object with `verdict` (`pass` or `fail`), `findings`, `steps`,
@@ -436,12 +442,21 @@ Supported executable schema (`cdpx.scenario/v1`):
   `${NAME}`, `${NAME:-default}` and `$$`. Expansion happens during scenario
   compilation, before the strict session origin preflight; an undefined
   variable is an exit-2 usage error that names the variable.
-- `context.emulation`: optional, `mobile`, `slow-3g` or `cpu-4x`, applied
+- `context.emulation`: optional, `desktop`, `mobile`, `slow-3g` or `cpu-4x`, applied
   within the same CDP connection as the steps.
+- `context.intercept`: optional list of at most 20 normal interception rules.
+  They wrap every `goto` and trusted `click`, require `privileged`, clean up
+  Fetch after each action, and aggregate bounded hits plus matched/effective
+  counts in the result.
 - Steps: `goto`, `wait_visible`, `click`, `type`, `frame_type`, `key`, `eval`,
-  `wait_text`. `wait_visible` requires an element that is attached,
+  `wait_text`, `wait_ms`, `viewport`. `wait_ms` is a 0..60000 integer and must fit the
+  per-step scenario `--timeout`. `wait_visible` requires an element that is attached,
   rendered, visible and has a non-zero box; its deadline is the bounded
-  scenario `--timeout`. `type` accepts only
+  scenario `--timeout`. `viewport` is `desktop` or `mobile` and applies that
+  profile's device metrics (desktop 1440x900 scale factor 1, mobile 390x844
+  scale factor 3) from that step onward — evidence lanes capture the desktop
+  and mobile variants of one outcome in a single run; it carries no UA,
+  network or CPU override. `type` accepts only
   `{selector, secret_ref, clear, mode}` and prevalidates the environment
   reference. `mode` defaults to `insert_text`; `key_events` emits a trusted
   key sequence for each printable ASCII character so segmented controls can
@@ -467,7 +482,16 @@ Supported executable schema (`cdpx.scenario/v1`):
   the scenario `--timeout`; expiration stops before the next browser effect.
   Clearing is deliberately unsupported.
 - `capture` on a step: a list among `screenshot`, `console`, `network`,
-  `profiler`. These proofs are collected immediately after the step, even
+  `profiler`, `vitals`. A vitals capture reads a collector that was
+  registered before the first navigation (every journey document is
+  instrumented from its first script, and the registration is removed when
+  the run ends); the internal `cdpx.vitals/v3` JSON contains the availability
+  status, per-metric availability, the document binding (requested URL kept
+  distinct from the displayed URL, with the navigation source and the step
+  that produced it), the measurement environment (emulation, interception
+  rules, scenario digest), official session-window CLS, `raw_sum`, the
+  winning entries, sources and rectangles.
+  These proofs are collected immediately after the step, even
   if the step fails. `profiler` also accepts the structured form documented
   below; only one profiler capture is allowed at each checkpoint.
 - Assertions: `no_console_errors`, `network_errors_max`, `text_contains`.
@@ -490,6 +514,7 @@ name: checkout_guest_add_to_cart
 context:
   base_url: "${APP_URL:-http://shop.localhost}"
   emulation: mobile
+  intercept: ["*optional-widget.js* => block"]
 steps:
   - label: product_page
     goto: /product/42
@@ -502,6 +527,7 @@ steps:
       secret_ref: CHECKOUT_PASSWORD
       clear: true
   - wait_text: ['[data-testid="cart-count"]', '1']
+  - wait_ms: 750
 assertions:
   - no_console_errors: true
   - network_errors_max: 0
@@ -511,6 +537,7 @@ artifacts:
   - console
   - network
   - profiler
+  - vitals
 ```
 
 A profiler capture may select panels and the last observed request matching
@@ -634,8 +661,10 @@ runs, console, network and profiler collected by `cdpx scenario run`.
   connection (Chrome behavior, verified e2e on Chrome 151). `cdpx emulate
   mobile` alone therefore has no lasting effect — always use the composed
   form `cdpx emulate mobile -- goto http://demo.test/`.
-- `intercept` composes with one `goto <url>` or `click <selector>` action; it
-  does not wrap `type`, `key`, `eval`, or a full journey.
+- The standalone `intercept` command composes with one `goto` or `click`.
+  Scenario `context.intercept` reuses those typed rules across a journey but
+  still applies them only around `goto` and `click`, not `type`, `key` or
+  `eval`.
 - `frame` only reads same-origin iframes (a cross-origin iframe's
   `contentDocument` is inaccessible) and returns the first match. Scenario
   `frame_type` can focus and type into a single-field cross-origin iframe but

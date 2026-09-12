@@ -24,6 +24,7 @@ from cdpx.policy import (
     command_semantics,
     max_authority,
 )
+from cdpx.primitives import js
 from cdpx.security import (
     RedactionContext,
     redact_tree,
@@ -59,15 +60,8 @@ def orchestration(args: CommandInvocation) -> OrchestrationContext:
 
 
 def current_http_url(client: CDPClient, *, timeout: float | None = None) -> str:
-    response = (
-        client.send("Page.getFrameTree")
-        if timeout is None
-        else client.send("Page.getFrameTree", timeout=timeout)
-    )
-    tree = response.get("frameTree", {})
-    frame = tree.get("frame", {}) if isinstance(tree, dict) else {}
-    current = frame.get("url") if isinstance(frame, dict) else None
-    if not isinstance(current, str) or not current:
+    current = js.evaluate(client, "window.location.href", timeout=timeout)
+    if not isinstance(current, str):
         raise PolicyError("session: current URL undeterminable")
     return current
 
@@ -277,6 +271,7 @@ def preflight_scenario(args: CommandInvocation, prepared: scenarios.PreparedScen
     required = preflight_actions(args, scenario_actions)
     if (
         scenario_spec.emulation
+        or scenario_spec.intercept_rules
         or scenarios.has_capture(scenario_spec.artifacts, "profiler")
         or any(scenarios.has_capture(step.capture, "profiler") for step in scenario_spec.steps)
     ):

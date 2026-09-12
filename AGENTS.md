@@ -40,6 +40,9 @@ development Chrome. See `docs/PRIMITIVES.md` for the public catalog.
    disposable Chrome profiles.
 6. The mock follows the real protocol. Browser protocol changes require mock,
    client and test updates together.
+7. This repository is open source and public. Never commit development reports
+   or private source data; information derived from private material must be
+   fully anonymized before it enters the repository.
 
 ## Repository map
 

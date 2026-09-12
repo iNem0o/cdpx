@@ -2748,6 +2748,7 @@ def test_intercept_real_fulfill_block_continue(page):
             "*api/status/500* => 204",
             "*api/slow* => block",
         ],
+        allowed_origins=("http://127.0.0.1:*",),
         settle=1.0,
     )
     actions = {hit["action"] for hit in res["hits"]}
@@ -2878,16 +2879,372 @@ def test_intercept_click_real_leaves_forbidden_document_untouched(cli_page, evid
         cli_json(session, "goto", f"{base}/intercept.html")
 
 
+def test_intercept_goto_real_leaves_forbidden_redirect_untouched(cli_page, evidence_case):
+    """An allowed URL that redirects to a forbidden origin is judged by the
+    origin guard BEFORE any rule can affect the redirected document: the
+    forbidden document continues intact, no rule is applied to it and the
+    command fails."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    #: the rule targets ONLY the forbidden redirected document: the initial
+    #: allowed document passes untouched, so the redirect actually happens
+    #: and the guard must judge the forbidden document before any rule.
+    proc = run_cli(
+        manifest,
+        path,
+        "intercept",
+        "--rule",
+        "*localhost* => 503",
+        "--settle",
+        "0.5",
+        "goto",
+        f"{base}/api/redirect-external",
+    )
+    attach_cli_run(evidence_case, "intercept-goto-forbidden-redirect", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            main_title = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
+                    break
+                time.sleep(0.05)
+            #: the forbidden document was continued intact: the fixture title
+            #: proves the global 503 rule never reached it
+            assert current_url.startswith("http://localhost:")
+            assert main_title == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "intercept-forbidden-redirect-continued")
+    finally:
+        cli_json(session, "goto", f"{base}/intercept.html")
+
+
+def test_vitals_real_forbidden_redirect_never_measures_the_document(cli_page, evidence_case):
+    """An allowed URL that HTTP-redirects to a forbidden origin is refused
+    immediately after the navigation: the command fails before creating the
+    isolated world or reading any collector snapshot, and the forbidden
+    document continues untouched."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    proc = run_cli(manifest, path, "vitals", f"{base}/api/redirect-external")
+    attach_cli_run(evidence_case, "vitals-forbidden-redirect", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            main_title = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
+                    break
+                time.sleep(0.05)
+            #: the forbidden document was never disturbed by the measurement
+            assert current_url.startswith("http://localhost:")
+            assert main_title == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "vitals-forbidden-redirect-continued")
+    finally:
+        cli_json(session, "goto", f"{base}/intercept.html")
+
+
+def test_vitals_real_forbidden_click_destination_never_measures_the_document(
+    cli_page, evidence_case
+):
+    """A click that leads to a forbidden origin is judged immediately after
+    the interaction: the collector armed on the allowed document is never
+    read on the hijacked document and the command fails."""
+    manifest, path, base = cli_page
+    session = (manifest, path)
+    cli_json(session, "goto", f"{base}/intercept.html")
+
+    proc = run_cli(
+        manifest,
+        path,
+        "vitals",
+        f"{base}/intercept.html",
+        "--click",
+        "#forbidden-navigation",
+        "--settle",
+        "1.0",
+    )
+    attach_cli_run(evidence_case, "vitals-forbidden-click-destination", proc)
+
+    try:
+        assert proc.returncode == 1 and not proc.stdout
+        assert "origin rejected" in proc.stderr
+
+        with CDPClient(manifest.websocket_url, timeout=10) as client:
+            deadline = time.monotonic() + 3
+            current_url = ""
+            main_title = ""
+            while time.monotonic() < deadline:
+                current_url = js.evaluate(client, "window.location.href") or ""
+                main_title = js.get_text(client, "#main-title")["text"] or ""
+                if current_url.startswith("http://localhost:") and main_title == "cdpx fixtures":
+                    break
+                time.sleep(0.05)
+            #: the forbidden document was reached by the click and left intact
+            assert current_url.startswith("http://localhost:")
+            assert main_title == "cdpx fixtures"
+            attach_screenshot(evidence_case, client, "vitals-forbidden-click-continued")
+    finally:
+        cli_json(session, "goto", f"{base}/intercept.html")
+
+
 def test_vitals_real_with_interaction(page):
-    """The Web Vitals (LCP, CLS, INP) are measured on a real page, the INP
-    being triggered by a synthetic click whose trace the page keeps."""
+    """The Web Vitals signals are measured on a real page through the
+    isolated-world collector, the INP being triggered by a synthetic click
+    whose trace the page keeps."""
     c, base = page
     res = diagnostics.vitals(c, f"{base}/vitals.html", click_selector="#inp-button", settle=1.0)
-    #: all three metrics are present and plausible (never negative)
-    assert set(res) == {"url", "lcp", "cls", "inp"}
-    assert res["lcp"] >= 0 and res["cls"] >= 0 and res["inp"] >= 0
+    #: the measurement succeeded and carries its availability status
+    assert res["status"] == "measured"
+    assert res["schema"] == "cdpx.vitals/v3"
+    assert res["collector"]["document_observed"] is True
+    assert res["collector"]["supported"] == {
+        "lcp": True,
+        "layout_shift": True,
+        "event_timing": True,
+    }
+    assert res["collector"]["errors"] == []
+    assert res["collector"]["dropped_entries"] == 0
+    #: all metrics are present with their per-metric availability
+    metrics = res["metrics"]
+    assert set(metrics) == {"lcp", "cls", "inp"}
+    assert all(metric["status"] == "measured" for metric in metrics.values())
+    assert metrics["lcp"]["value"] >= 0
+    assert metrics["cls"]["value"] >= 0
+    assert metrics["cls"]["raw_sum"] >= metrics["cls"]["value"]
+    assert metrics["inp"]["value"] >= 0
+    #: the proof is bound to the real document, not just the requested URL
+    assert res["url"].endswith("/vitals.html")
+    assert res["document"]["document_url"].endswith("/vitals.html")
+    assert res["document"]["navigation_source"] == "goto"
+    assert res["document"]["frame_scope"] == "main-frame"
+    assert res["document"]["viewport"]["width"] > 0
+    assert isinstance(res["document"]["time_origin"], int | float)
+    assert res["captured_at"].endswith("Z")
     #: the interaction that feeds the INP genuinely reached the page
     assert js.evaluate(c, "document.body.dataset.clicked") == "1"
+    #: the main world cannot see the collector: no falsification surface
+    assert js.evaluate(c, "typeof __cdpxVitalsRead") == "undefined"
+    assert js.evaluate(c, "typeof window.__cdpxVitals") == "undefined"
+
+
+def test_vitals_real_interaction_entry_is_observed(page):
+    """A controlled interaction of 48 ms (inside the 16..103 ms window the
+    Event Timing API exposes) produces a real observed entry because the
+    collector is armed BEFORE the click: the INP approximation is a measured
+    duration, never a late-observer silent zero."""
+    c, base = page
+    res = diagnostics.vitals(
+        c, f"{base}/vitals-interaction.html", click_selector="#slow-button", settle=1.0
+    )
+    assert res["status"] == "measured"
+    assert res["interaction"]["requested"] is True
+    assert res["interaction"]["observed"] is True
+    assert res["interaction"]["entry_count"] >= 1
+    inp = res["metrics"]["inp"]
+    assert inp["status"] == "measured"
+    assert 16 <= inp["value"] <= 103
+    assert js.evaluate(c, "document.body.dataset.interacted") == "1"
+
+
+def test_vitals_real_uses_cls_session_window_and_attributes_source(page):
+    """Two groups of fixture shifts separated by more than one second prove
+    that CLS is the winning session window rather than the visit-wide sum."""
+    client, base = page
+
+    result = diagnostics.vitals(client, f"{base}/vitals-windows.html", settle=2.0)
+
+    metrics = result["metrics"]
+    assert metrics["cls"]["value"] > 0
+    assert metrics["cls"]["raw_sum"] > metrics["cls"]["value"]
+    assert metrics["cls"]["total_entries"] >= 3
+    window = metrics["cls"]["winning_window"]
+    assert window is not None
+    assert window["entry_count"] >= 2
+    assert window["entries_truncated"] is False
+    sources = [source for entry in window["entries"] for source in entry["sources"]]
+    assert sources
+    assert any(source["node"] for source in sources)
+    assert any(source["previous_rect"] != source["current_rect"] for source in sources)
+
+
+def _reduce_entries_in_fresh_document(client, entries):
+    """Arm the collector in a fresh document and feed it synthetic entries
+    through the shipped pure reducer, then return the snapshot."""
+    nav.navigate(client, "about:blank", timeout=10)
+    handle = diagnostics.install_vitals_observer(client)
+    expression = (
+        "(() => { const entries = "
+        + json.dumps(entries)
+        + "; for (const entry of entries) globalThis.__cdpxVitalsReduce(entry);"
+        " return __cdpxVitalsRead(); })()"
+    )
+    response = client.send(
+        "Runtime.evaluate",
+        {"expression": expression, "contextId": handle["context_id"], "returnByValue": True},
+    )
+    assert "exceptionDetails" not in response, response
+    return response["result"]["value"]
+
+
+def test_vitals_cls_reducer_boundaries_in_real_chrome(page):
+    """The exact shipped reducer is executed in a real Chrome against
+    synthetic entries at the session-window boundaries: 999.999 ms stays in
+    the window, 1000 ms opens a new one; 4999.999 ms from the window start
+    stays, 5000 ms opens a new one; ties keep the first window;
+    hadRecentInput entries neither join nor extend a window; malformed
+    entries are ignored."""
+    client, _base = page
+
+    #: 1000 ms gap boundary
+    snapshot = _reduce_entries_in_fresh_document(
+        client,
+        [
+            {"value": 0.1, "startTime": 0, "hadRecentInput": False},
+            {"value": 0.2, "startTime": 999.999, "hadRecentInput": False},
+        ],
+    )
+    assert snapshot["metrics"]["cls"] == pytest.approx(0.3)
+    assert snapshot["metrics"]["winning_window"]["entry_count"] == 2
+    snapshot = _reduce_entries_in_fresh_document(
+        client,
+        [
+            {"value": 0.1, "startTime": 0, "hadRecentInput": False},
+            {"value": 0.2, "startTime": 999.999, "hadRecentInput": False},
+            {"value": 0.4, "startTime": 1999.999, "hadRecentInput": False},
+        ],
+    )
+    assert snapshot["metrics"]["cls"] == pytest.approx(0.4)
+    assert snapshot["metrics"]["winning_window"]["entry_count"] == 1
+    assert snapshot["metrics"]["raw_sum"] == pytest.approx(0.7)
+
+    #: 5000 ms span boundary with sub-second gaps
+    sequence = [
+        {"value": 0.1 + 0.1 * n, "startTime": 900 * n, "hadRecentInput": False} for n in range(6)
+    ]
+    snapshot = _reduce_entries_in_fresh_document(
+        client,
+        sequence
+        + [
+            {"value": 0.05, "startTime": 4999.999, "hadRecentInput": False},
+        ],
+    )
+    assert snapshot["metrics"]["winning_window"]["entry_count"] == 7
+    assert snapshot["metrics"]["cls"] == pytest.approx(2.15)
+    snapshot = _reduce_entries_in_fresh_document(
+        client,
+        sequence
+        + [
+            {"value": 0.05, "startTime": 5000, "hadRecentInput": False},
+        ],
+    )
+    assert snapshot["metrics"]["winning_window"]["entry_count"] == 6
+    assert snapshot["metrics"]["cls"] == pytest.approx(2.1)
+    assert snapshot["metrics"]["total_entries"] == 7
+
+    #: equal window values keep the first window
+    snapshot = _reduce_entries_in_fresh_document(
+        client,
+        [
+            {"value": 0.3, "startTime": 0, "hadRecentInput": False},
+            {"value": 0.3, "startTime": 1000, "hadRecentInput": False},
+        ],
+    )
+    assert snapshot["metrics"]["cls"] == pytest.approx(0.3)
+    assert snapshot["metrics"]["winning_window"]["start_time"] == 0
+
+    #: hadRecentInput and malformed entries never join or extend a window
+    snapshot = _reduce_entries_in_fresh_document(
+        client,
+        [
+            {"value": 0.1, "startTime": 0, "hadRecentInput": False},
+            {"value": 0.5, "startTime": 100, "hadRecentInput": True},
+            {"value": "oops", "startTime": 200, "hadRecentInput": False},
+            {"value": -1, "startTime": 250, "hadRecentInput": False},
+            {"value": 0.2, "startTime": 300, "hadRecentInput": False},
+        ],
+    )
+    metrics = snapshot["metrics"]
+    assert metrics["total_entries"] == 2
+    assert metrics["ignored_recent_input"] == 1
+    assert metrics["raw_sum"] == pytest.approx(0.3)
+    assert metrics["cls"] == pytest.approx(0.3)
+    assert metrics["winning_window"]["entry_count"] == 2
+    assert metrics["winning_window"]["start_time"] == 0
+
+
+def test_vitals_real_ignores_shift_within_recent_input(page):
+    """A shift fired synchronously after a trusted click carries
+    hadRecentInput and is excluded, while a delayed shift on the same page
+    is counted: both paths are proven against real Chrome."""
+    client, base = page
+    res = diagnostics.vitals(
+        client,
+        f"{base}/vitals-recent-input.html",
+        click_selector="#shift-button",
+        settle=1.5,
+    )
+    assert res["status"] == "measured"
+    metrics = res["metrics"]["cls"]
+    assert metrics["ignored_recent_input"] >= 1
+    assert metrics["total_entries"] >= 1
+    assert metrics["raw_sum"] > 0
+    window = metrics["winning_window"]
+    assert window is not None
+    assert window["entry_count"] >= 1
+    assert all(entry["had_recent_input"] is False for entry in window["entries"])
+
+
+def test_vitals_real_ignores_page_tampering(page):
+    """A page that predefines window.__cdpxVitals, reassigns it, floods it
+    with thousands of entries and replaces JSON.stringify cannot falsify the
+    proof: the collector lives in an isolated world and reports its own
+    honest measurement."""
+    client, base = page
+    nav.navigate(client, f"{base}/vitals-tamper.html", timeout=10)
+    time.sleep(0.4)
+    res = diagnostics.collect_vitals(client, settle=0.5, requested_url=f"{base}/vitals-tamper.html")
+    assert res["status"] == "measured"
+    metrics = res["metrics"]["cls"]
+    #: the falsified near-zero CLS never surfaces: the real shift is reported
+    assert metrics["value"] > 0.01
+    assert metrics["winning_window"] is not None
+    #: the flooded/negative fields and the 5000-entry array are absent
+    assert "flood" not in metrics
+    assert "negative" not in metrics
+    assert len(json.dumps(res)) < 20_000
+    #: the main world still only sees the page's own fake object
+    assert js.evaluate(client, "typeof __cdpxVitalsRead") == "undefined"
+    assert js.evaluate(client, "typeof window.__cdpxVitals") == "object"
+
+
+def test_vitals_real_repeated_captures_stay_stable(page):
+    """Successive measurements in the same connection do not accumulate
+    observers or double-count buffered entries."""
+    client, base = page
+    first = diagnostics.vitals(client, f"{base}/vitals-windows.html", settle=1.5)
+    second = diagnostics.vitals(client, f"{base}/vitals-windows.html", settle=1.5)
+    for res in (first, second):
+        assert res["status"] == "measured"
+        assert res["metrics"]["cls"]["value"] > 0
+        assert res["metrics"]["cls"]["total_entries"] >= 3
+    assert second["metrics"]["cls"]["total_entries"] == first["metrics"]["cls"]["total_entries"]
+    assert second["metrics"]["cls"]["raw_sum"] == pytest.approx(first["metrics"]["cls"]["raw_sum"])
 
 
 @pytest.mark.scenario(
@@ -3114,8 +3471,13 @@ def attach_scenario_run(evidence_case, result: dict, label: str) -> None:
             evidence_case.attach_file(
                 path,
                 f"{label}-{artifact['label']}-{artifact['type']}",
-                artifact["type"],
+                "json" if artifact["type"] == "vitals" else artifact["type"],
             )
+
+
+def scenario_artifact_json(result: dict, kind: str) -> dict:
+    artifact = next(item for item in result["artifacts"] if item["type"] == kind)
+    return json.loads(Path(artifact["path"]).read_text(encoding="utf-8"))
 
 
 @pytest.mark.scenario(
@@ -3151,6 +3513,79 @@ def test_declarative_scenario_static_form_real(
     #: the checkpoint and end-of-flow visual proofs are indeed collected
     assert any(artifact["label"] == "form_page" for artifact in result["artifacts"])
     assert any(artifact["label"] == "final" for artifact in result["artifacts"])
+
+
+@pytest.mark.scenario(
+    feature="seo-performance-accessibility",
+    journey="measure-vitals",
+    scenario_id="seo-performance-accessibility.attribute-late-cls-and-block-cause",
+    target="chrome",
+    proof_level="runtime",
+    proves=[
+        "A scenario attributes a late layout shift after scroll without raw CDP access.",
+        "A scenario-scoped blocking rule proves causality and reports its effective match.",
+    ],
+)
+def test_scenario_attributes_late_cls_and_proves_blocked_control(
+    managed_cli_session, fixtures_http, tmp_path, evidence_case
+):
+    """The causal proof is repeated: two active runs and two blocked runs
+    must agree, so the verdict does not rest on a single lucky measurement."""
+    active_path = materialize_scenario(
+        "vitals_journey_active.yml", fixtures_http.base_url, tmp_path
+    )
+    blocked_path = materialize_scenario(
+        "vitals_journey_blocked.yml", fixtures_http.base_url, tmp_path
+    )
+    active_runs = []
+    blocked_runs = []
+    for repetition in range(2):
+        active_code, active, active_err = run_scenario_cli(
+            managed_cli_session, active_path, timeout=5
+        )
+        attach_scenario_run(evidence_case, active, f"vitals-journey-active-{repetition}")
+        assert active_code == 0, active_err
+        active_vitals = scenario_artifact_json(active, "vitals")
+        assert active_vitals["status"] == "measured"
+        assert active_vitals["metrics"]["cls"]["value"] > 0
+        active_cls = active_vitals["metrics"]["cls"]
+        assert active_cls["raw_sum"] >= active_cls["value"]
+        active_window = active_vitals["metrics"]["cls"]["winning_window"]
+        assert active_window is not None
+        sources = [source for entry in active_window["entries"] for source in entry["sources"]]
+        assert any(
+            source["node"] and source["node"]["id"] == "shifted-content" for source in sources
+        )
+        #: the journey document was instrumented from its first script
+        assert active_vitals["collector"]["arm_scope"] == "document-start"
+        #: each proof is bound to the journey's document
+        assert active_vitals["document"]["requested_url"].endswith("/vitals-journey.html")
+        assert active_vitals["document"]["document_url"].endswith("/vitals-journey.html")
+        assert active_vitals["document"]["navigation_source"] == "goto"
+        #: the artifact is self-sufficient about the measurement conditions
+        environment = active_vitals["measurement_environment"]
+        assert environment["emulation"] is None
+        assert environment["interception_active"] is False
+        assert isinstance(environment["scenario_sha256"], str) and environment["scenario_sha256"]
+        active_runs.append(active_vitals["metrics"])
+
+        blocked_code, blocked, blocked_err = run_scenario_cli(
+            managed_cli_session, blocked_path, timeout=5
+        )
+        attach_scenario_run(evidence_case, blocked, f"vitals-journey-blocked-{repetition}")
+        assert blocked_code == 0, blocked_err
+        blocked_vitals = scenario_artifact_json(blocked, "vitals")
+        assert blocked_vitals["status"] == "measured"
+        assert blocked_vitals["metrics"]["cls"]["value"] == 0
+        assert blocked_vitals["measurement_environment"]["interception_active"] is True
+        assert blocked["interception"]["matched_count"] == 1
+        assert blocked["interception"]["effective_count"] == 1
+        assert any(hit["action"] == "block" for hit in blocked["interception"]["hits"])
+        blocked_runs.append(blocked_vitals["metrics"])
+
+    #: the repeated control/variant runs agree: the causal contrast is stable
+    assert all(run["cls"]["value"] > 0 for run in active_runs)
+    assert all(run["cls"]["value"] == 0 for run in blocked_runs)
 
 
 @pytest.mark.scenario(

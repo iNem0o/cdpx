@@ -24,7 +24,7 @@
   },
   "$defs": {
     "artifact": {
-      "enum": ["screenshot", "console", "network", "profiler"]
+      "enum": ["screenshot", "console", "network", "profiler", "vitals"]
     },
     "capture": {
       "type": "array",
@@ -279,6 +279,16 @@
         "capture": {"$ref": "#/$defs/capture"}
       }
     },
+    "waitMsStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wait_ms"],
+      "properties": {
+        "wait_ms": {"type": "integer", "minimum": 0, "maximum": 60000},
+        "label": {"$ref": "#/$defs/label"},
+        "capture": {"$ref": "#/$defs/capture"}
+      }
+    },
     "step": {
       "oneOf": [
         {"$ref": "#/$defs/includeStep"},
@@ -289,7 +299,8 @@
         {"$ref": "#/$defs/frameTypeStep"},
         {"$ref": "#/$defs/keyStep"},
         {"$ref": "#/$defs/evalStep"},
-        {"$ref": "#/$defs/waitTextStep"}
+        {"$ref": "#/$defs/waitTextStep"},
+        {"$ref": "#/$defs/waitMsStep"}
       ]
     }
   }

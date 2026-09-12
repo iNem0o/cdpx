@@ -219,7 +219,8 @@ def vitals_diagnostics(c: CDPClient) -> dict:
         c,
         """
 JSON.stringify((() => {
-  const vitals = window.__cdpxVitals || {};
+  // cdpx's vitals collector lives in a CDP isolated world and is
+  // deliberately invisible here; this probe reads the page's own metadata.
   const meta = window.__cdpxVitalsMeta || {};
   const thresholds = meta.thresholds || {};
   const rate = (metric, value) => {
@@ -239,11 +240,6 @@ JSON.stringify((() => {
   const bucket = (predicate) => resources.filter(predicate);
   return {
     thresholds,
-    core_web_vitals: {
-      lcp: {value_ms: vitals.lcp || 0, rating: rate('lcp', vitals.lcp || 0)},
-      inp: {value_ms: vitals.inp || 0, rating: rate('inp', vitals.inp || 0)},
-      cls: {value: vitals.cls || 0, rating: rate('cls', vitals.cls || 0)}
-    },
     lcp_attribution: meta.lcp || {},
     navigation_timing: {
       ttfb_ms: Math.max(0, Math.round((nav.responseStart || 0) - (nav.requestStart || 0))),

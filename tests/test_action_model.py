@@ -8,6 +8,7 @@ from cdpx.action_model import (
     GotoAction,
     KeyAction,
     TypeAction,
+    ViewportAction,
     WaitAction,
     action_argv,
     parse_action,
@@ -27,6 +28,7 @@ from cdpx.action_model import (
             TypeAction("#code", "012345", mode="key_events"),
         ),
         (["key", "Enter"], KeyAction("Enter")),
+        (["viewport", "desktop"], ViewportAction("desktop")),
         (
             ["eval", "document.title", "||", "'untitled'"],
             EvalAction("document.title || 'untitled'"),

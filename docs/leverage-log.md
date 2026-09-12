@@ -98,6 +98,24 @@
     the final CLI addition; the subsequent `./dev check` passed all 1,094 tests
     (1,029 unit, 56 Chrome, 7 Symfony and 2 Shopware), with zero skips/failures,
     89.91% line coverage, 79.06% branch coverage and zero proof violation.
+- Session-Key: web-core-vitals@ca7c2d1
+  - Symptom: `cdpx vitals` summed layout shifts instead of applying the
+    official CLS session-window algorithm, and one-shot primitives could not
+    attribute a late shift and its network cause in one supervised journey.
+  - Root cause (missing capability): cdpx provides a supervised Chrome and
+    useful point primitives, but has no attributed journey-level vitals
+    collector or resumable experiment runner, and its current CLS calculation
+    is not valid for long visits.
+  - Fix encoded (doc/script/lint):
+    `vitals` now implements bounded official CLS windows and attribution,
+    while scenarios add pre-navigation vitals, bounded delay and matched
+    interception controls. `eval --file/--stdin` removes quoting hazards and
+    named keys normalize unambiguous casing. Public documentation and fixtures
+    describe only generic contracts and synthetic data; private development
+    inputs remain outside the repository.
+  - Verification (command/CI): documentation consistency plus
+    the skill validator, `./dev check-local` and the mandatory `./dev check`
+    are required before commit.
 
 - Session-Key: next-release@643eea8
   - Symptom: invoking host `pytest` failed during collection on the project's

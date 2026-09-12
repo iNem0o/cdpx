@@ -24,13 +24,25 @@ from cdpx.action_model import (
     GotoAction,
     KeyAction,
     TypeAction,
+    ViewportAction,
 )
 from cdpx.artifacts import ArtifactClassification, ArtifactEntry, SecureArtifactWriter
 from cdpx.cdp_types import CDPEvent
 from cdpx.client import CDPClient, CDPError, CDPTimeout
 from cdpx.orchestration import OrchestrationContext
 from cdpx.policy import PolicyError, assert_url_allowed, parse_exact_origin
-from cdpx.primitives import actions, capture, dev, emulation, inputs, js, nav, profiler
+from cdpx.primitives import (
+    actions,
+    capture,
+    dev,
+    diagnostics,
+    emulation,
+    inputs,
+    interception,
+    js,
+    nav,
+    profiler,
+)
 from cdpx.runtime_config import ConfigurationError, interpolate_environment_text
 from cdpx.security import (
     MASK,
@@ -50,10 +62,14 @@ STEP_ACTIONS = {
     "key",
     "eval",
     "wait_text",
+    "wait_ms",
+    "viewport",
 }
 STEP_KEYS = STEP_ACTIONS | {"label", "capture"}
 ASSERTIONS = {"no_console_errors", "network_errors_max", "text_contains"}
-ARTIFACTS = {"screenshot", "console", "network", "profiler"}
+ARTIFACTS = {"screenshot", "console", "network", "profiler", "vitals"}
+MAX_WAIT_MS = 60_000
+MAX_INTERCEPTION_HITS = 200
 PROFILER_RESOURCE_TYPES = {"document", "xhr", "fetch"}
 _HTTP_METHOD_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 SCENARIO_SCHEMA = "cdpx.scenario/v1"
@@ -169,6 +185,7 @@ class Scenario:
     name: str
     base_url: str
     emulation: str | None
+    intercept_rules: tuple[str, ...]
     steps: list[ScenarioStep]
     assertions: list[dict[str, Any]]
     artifacts: list[CaptureSpec]
@@ -179,9 +196,10 @@ class Scenario:
 class ScenarioOperation:
     step: ScenarioStep
     action: BrowserAction | None = None
-    wait_kind: Literal["visible", "text"] | None = None
+    wait_kind: Literal["visible", "text", "delay"] | None = None
     selector: str | None = None
     expected: str | None = None
+    delay_ms: int = 0
     frame_origin: str | None = None
     frame_candidates: tuple[tuple[str, str, str], ...] = ()
     frame_mode: str = "insert_text"
@@ -204,8 +222,25 @@ class ScenarioRun:
     steps: list[dict[str, Any]] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
-    last_url: str | None = None
+    #: Document binding of the current measurement target, kept separately:
+    #: the URL requested by the last goto, the URL actually displayed, and
+    #: how the displayed document was reached (goto | click | redirect |
+    #: current-document) with the step that produced it.
+    last_requested_url: str | None = None
+    last_document_url: str | None = None
+    last_navigation_source: str = "current-document"
+    last_navigation_step: str | None = None
     composition: ScenarioComposition | None = None
+    interception_rules: tuple[str, ...] = ()
+    interception_hits: list[dict[str, Any]] = field(default_factory=list)
+    interception_count: int = 0
+    interception_matched_count: int = 0
+    interception_effective_count: int = 0
+    vitals_handle: dict[str, Any] = field(default_factory=dict)
+    browser_version: str | None = None
+    #: Origin policy and reproduction conditions embedded in vitals artifacts.
+    allowed_origins: tuple[str, ...] = ()
+    measurement_environment: dict[str, Any] | None = None
 
     def finding(
         self,
@@ -236,6 +271,15 @@ class ScenarioRun:
         }
         if self.composition is not None:
             result["composition"] = self.composition.as_dict()
+        if self.interception_rules:
+            result["interception"] = {
+                "rules": list(self.interception_rules),
+                "hits": self.interception_hits,
+                "count": self.interception_count,
+                "hits_truncated": self.interception_count > len(self.interception_hits),
+                "matched_count": self.interception_matched_count,
+                "effective_count": self.interception_effective_count,
+            }
         return result
 
 
@@ -506,7 +550,7 @@ def parse(
         raise ScenarioUsageError(f"{where}unexpected scenario schema: {schema}")
     name = _required_str(raw, "name", where)
     context = _required_dict(raw, "context", where)
-    _unknown(context, {"base_url", "emulation"}, f"{where}context.")
+    _unknown(context, {"base_url", "emulation", "intercept"}, f"{where}context.")
     raw_base_url = _required_str(context, "base_url", f"{where}context.")
     if environ is None:
         environ = os.environ
@@ -523,6 +567,7 @@ def parse(
     emulation_preset = context.get("emulation")
     if emulation_preset is not None and emulation_preset not in emulation.PRESETS:
         raise ScenarioUsageError(f"{where}context.emulation unknown: {emulation_preset}")
+    intercept_rules = _parse_intercept_rules(context.get("intercept", []), where)
     steps = _parse_steps(raw.get("steps"), where, sources=step_sources)
     assertions = _parse_assertions(raw.get("assertions", []), where)
     artifacts = _parse_artifacts(raw.get("artifacts", []), where, "artifacts")
@@ -531,6 +576,7 @@ def parse(
         name=name,
         base_url=base_url,
         emulation=emulation_preset,
+        intercept_rules=intercept_rules,
         steps=steps,
         assertions=assertions,
         artifacts=artifacts,
@@ -572,6 +618,7 @@ def validation_result(scenario: Scenario) -> dict[str, Any]:
         steps.append(item)
     if (
         scenario.emulation
+        or scenario.intercept_rules
         or has_capture(scenario.artifacts, "profiler")
         or any(has_capture(step.capture, "profiler") for step in scenario.steps)
     ):
@@ -632,50 +679,81 @@ def run(
         writer.run_dir,
         writer,
         composition=scenario_spec.composition,
+        interception_rules=scenario_spec.intercept_rules,
     )
     collector = PassiveCollector(context)
     collector.enable(client)
+    run_state.browser_version = diagnostics.browser_version(client)
     if scenario_spec.emulation:
         emulation.emulate(client, scenario_spec.emulation)
+    run_state.allowed_origins = tuple(allowed_origins)
+    run_state.measurement_environment = _vitals_measurement_environment(scenario_spec)
 
-    origin_allowed = True
-    for operation in prepared.operations:
-        step_ok, origin_allowed = _execute_scenario_operation(
-            client,
-            operation,
-            scenario_spec,
-            allowed_origins,
-            run_state,
-            collector,
-            redaction,
-            timeout=timeout,
-            settle=settle,
-        )
-        if not step_ok:
-            break
+    try:
+        try:
+            # Baseline document binding: a first-step click that navigates
+            # must be detectable against the document the scenario started on.
+            run_state.last_document_url = _current_url(client)
+        except ACTION_ERRORS:
+            pass
+        if _has_vitals_capture(scenario_spec):
+            # The collector is registered BEFORE the first navigation so every
+            # journey document is instrumented from its first script; the
+            # registration is removed before the run reports its result.
+            run_state.vitals_handle = diagnostics.install_vitals_observer(
+                client,
+                for_future_documents=True,
+            )
 
-    collector.drain(client, settle)
-    if origin_allowed:
-        origin_allowed = _record_current_origin(
-            client,
-            allowed_origins,
-            run_state,
-            redaction,
-            step="final",
-            error_path="$.final.origin_error",
-        )
-    if origin_allowed:
-        _run_assertions(client, collector, run_state, scenario_spec.assertions)
-        origin_allowed = _record_current_origin(
-            client,
-            allowed_origins,
-            run_state,
-            redaction,
-            step="assertions",
-            error_path="$.assertions.origin_error",
-        )
-    if origin_allowed:
-        _capture_many(client, collector, run_state, scenario_spec.artifacts, "final", None, timeout)
+        origin_allowed = True
+        for operation in prepared.operations:
+            step_ok, origin_allowed = _execute_scenario_operation(
+                client,
+                operation,
+                scenario_spec,
+                allowed_origins,
+                run_state,
+                collector,
+                redaction,
+                timeout=timeout,
+                settle=settle,
+            )
+            if not step_ok:
+                break
+
+        collector.drain(client, settle)
+        if origin_allowed:
+            origin_allowed = _record_current_origin(
+                client,
+                allowed_origins,
+                run_state,
+                redaction,
+                step="final",
+                error_path="$.final.origin_error",
+            )
+        if origin_allowed:
+            _run_assertions(client, collector, run_state, scenario_spec.assertions)
+            origin_allowed = _record_current_origin(
+                client,
+                allowed_origins,
+                run_state,
+                redaction,
+                step="assertions",
+                error_path="$.assertions.origin_error",
+            )
+        if origin_allowed:
+            _capture_many(
+                client,
+                collector,
+                run_state,
+                scenario_spec.artifacts,
+                "final",
+                None,
+                timeout,
+            )
+    finally:
+        if run_state.vitals_handle:
+            diagnostics.release_vitals_collector(client, run_state.vitals_handle)
     result = redact_tree(run_state.as_dict(), context=redaction)
     writer.write_json(
         "scenario-result.json",
@@ -708,11 +786,23 @@ def _execute_scenario_operation(
     if step.source is not None:
         record["source"] = step.source.as_dict()
     started = time.monotonic()
+    previous_document_url = run_state.last_document_url
     try:
         _assert_origin(client, scenario, step, allowed_origins)
-        result = _run_operation(client, operation, timeout, allowed_origins)
         if step.verb == "goto":
-            run_state.last_url = _absolute_url(scenario.base_url, step.value)
+            # The requested URL is recorded even when the navigation fails:
+            # the binding distinguishes what was asked from what is displayed.
+            run_state.last_requested_url = _absolute_url(scenario.base_url, step.value)
+        result = _run_operation(
+            client,
+            operation,
+            timeout,
+            settle,
+            allowed_origins,
+            scenario.intercept_rules,
+        )
+        if scenario.intercept_rules and step.verb in {"goto", "click"}:
+            _record_interception(run_state, step, result)
         record["result"] = _persistable_step_result(step, result, redaction)
     except ACTION_ERRORS as error:
         record["ok"] = False
@@ -737,7 +827,8 @@ def _execute_scenario_operation(
         step=step.label,
         error_path="$.step.origin_error",
         record=record,
-        update_last_url=step.verb == "goto",
+        verb=step.verb,
+        previous_document_url=previous_document_url,
     )
     if origin_allowed:
         _capture_many(
@@ -761,7 +852,8 @@ def _record_current_origin(
     step: str,
     error_path: str,
     record: dict[str, Any] | None = None,
-    update_last_url: bool = False,
+    verb: str | None = None,
+    previous_document_url: str | None = None,
 ) -> bool:
     try:
         actual_url = _assert_current_origin(client, allowed_origins)
@@ -772,8 +864,25 @@ def _record_current_origin(
             record["error"] = safe_error
         run_state.finding("origin_refused", safe_error, step=step)
         return False
-    if update_last_url:
-        run_state.last_url = actual_url
+    run_state.last_document_url = actual_url
+    goto_completed = verb == "goto" and (record is None or record.get("ok") is not False)
+    if goto_completed:
+        # A successful goto (re)binds the journey to the document it asked for.
+        run_state.last_navigation_source = (
+            "redirect" if actual_url != run_state.last_requested_url else "goto"
+        )
+        run_state.last_navigation_step = step
+        return True
+    if previous_document_url is None or actual_url == previous_document_url:
+        # Same document (or no baseline to compare against): a non-goto step
+        # cannot prove that it navigated, so the existing binding is kept.
+        return True
+    # A navigation the step triggered indirectly: a trusted click, or a
+    # script-driven redirect. The proof binds to the document the step
+    # opened, not to the last goto.
+    run_state.last_navigation_source = "click" if verb == "click" else "redirect"
+    run_state.last_navigation_step = step
+    run_state.last_requested_url = None
     return True
 
 
@@ -861,6 +970,24 @@ def _parse_artifacts(value: Any, where: str, field_name: str) -> list[CaptureSpe
     if sum(capture.kind == "profiler" for capture in captures) > 1:
         raise ScenarioUsageError(f"{where}{field_name}: profiler capture must be unique")
     return captures
+
+
+def _parse_intercept_rules(value: Any, where: str) -> tuple[str, ...]:
+    field = f"{where}context.intercept"
+    if not isinstance(value, list):
+        raise ScenarioUsageError(f"{field} must be a list")
+    if not value:
+        return ()
+    if any(not isinstance(rule, str) or not rule for rule in value):
+        raise ScenarioUsageError(f"{field} entries must be non-empty strings")
+    if len(value) > 20:
+        raise ScenarioUsageError(f"{field} accepts at most 20 rules")
+    try:
+        for rule in value:
+            interception.parse_intercept_rule(rule)
+    except ValueError as error:
+        raise ScenarioUsageError(f"{field}: {error}") from error
+    return tuple(value)
 
 
 def _parse_capture_item(value: Any, field: str) -> CaptureSpec:
@@ -951,6 +1078,16 @@ def _validate_step_value(verb: str, value: Any, prefix: str) -> None:
             raise ScenarioUsageError(f"{prefix}{verb} must be a non-empty string")
     elif verb == "wait_text":
         _require_pair(value, f"{prefix}{verb}")
+    elif verb == "wait_ms":
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= MAX_WAIT_MS:
+            raise ScenarioUsageError(
+                f"{prefix}{verb} must be an integer between 0 and {MAX_WAIT_MS}"
+            )
+    elif verb == "viewport":
+        if value not in emulation.VIEWPORT_PROFILES:
+            raise ScenarioUsageError(
+                f"{prefix}{verb} must be one of: {', '.join(emulation.VIEWPORT_PROFILES)}"
+            )
     elif verb in {"type", "frame_type"}:
         if isinstance(value, dict):
             fields = {"selector", "secret_ref"}
@@ -1081,10 +1218,14 @@ def prepare(scenario: Scenario, context: OrchestrationContext) -> PreparedScenar
                 selector=selector,
                 expected=expected,
             )
+        elif step.verb == "wait_ms":
+            operation = ScenarioOperation(step, wait_kind="delay", delay_ms=step.value)
         elif step.verb == "click":
             operation = ScenarioOperation(step, action=ClickAction(step.value))
         elif step.verb == "key":
             operation = ScenarioOperation(step, action=KeyAction(step.value))
+        elif step.verb == "viewport":
+            operation = ScenarioOperation(step, action=ViewportAction(step.value))
         elif step.verb == "eval":
             operation = ScenarioOperation(step, action=EvalAction(step.value))
         elif step.verb == "type":
@@ -1140,7 +1281,9 @@ def _run_operation(
     client: CDPClient,
     operation: ScenarioOperation,
     timeout: float,
+    settle: float,
     allowed_origins: tuple[str, ...],
+    intercept_rules: tuple[str, ...],
 ) -> dict:
     if operation.step.verb == "frame_type":
         deadline = time.monotonic() + timeout
@@ -1170,6 +1313,24 @@ def _run_operation(
             key_delay_ms=operation.frame_key_delay_ms,
             remaining=remaining,
         )
+    if isinstance(operation.action, GotoAction) and intercept_rules:
+        return interception.intercept_goto(
+            client,
+            operation.action.url,
+            rules=list(intercept_rules),
+            timeout=timeout,
+            settle=settle,
+            allowed_origins=allowed_origins,
+        )
+    if isinstance(operation.action, ClickAction) and intercept_rules:
+        return interception.intercept_click(
+            client,
+            operation.action.selector,
+            rules=list(intercept_rules),
+            allowed_origins=allowed_origins,
+            timeout=timeout,
+            settle=settle,
+        )
     if operation.action is not None:
         return actions.run_action(
             client,
@@ -1188,7 +1349,37 @@ def _run_operation(
         and operation.expected is not None
     ):
         return _wait_text(client, operation.selector, operation.expected, timeout)
+    if operation.wait_kind == "delay":
+        seconds = operation.delay_ms / 1000
+        if seconds > timeout:
+            raise CDPTimeout(
+                f"scenario wait_ms {operation.delay_ms} exceeds step timeout {timeout}s"
+            )
+        time.sleep(seconds)
+        return {"waited_ms": operation.delay_ms}
     raise ScenarioUsageError(f"operation not materialized: {operation.step.label}")
+
+
+def _record_interception(
+    run_state: ScenarioRun,
+    step: ScenarioStep,
+    result: dict[str, Any],
+) -> None:
+    hits = result.get("hits")
+    if isinstance(hits, list):
+        for hit in hits:
+            if isinstance(hit, dict) and len(run_state.interception_hits) < MAX_INTERCEPTION_HITS:
+                run_state.interception_hits.append({**hit, "step": step.label})
+    hits_total = result.get("hits_total")
+    if hits_total is None:
+        hits_total = len(hits) if isinstance(hits, list) else 0
+    run_state.interception_count += _non_negative_int(hits_total)
+    run_state.interception_matched_count += _non_negative_int(result.get("matched_count"))
+    run_state.interception_effective_count += _non_negative_int(result.get("effective_count"))
+
+
+def _non_negative_int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _type_action(value: Any, *, context: RedactionContext) -> TypeAction:
@@ -1238,6 +1429,11 @@ def _persistable_step_result(
 ) -> dict[str, Any]:
     if step.verb != "eval":
         safe = redact_tree(result, context=context)
+        if isinstance(safe, dict) and "hits" in safe:
+            # The bounded aggregate lives in result["interception"]; step
+            # results must not duplicate it (or the raw wire traffic).
+            safe = {key: value for key, value in safe.items() if key != "hits"}
+            safe["hits_omitted"] = True
         return safe if isinstance(safe, dict) else {"redacted": True}
     context.mark(f"$.steps[{step.index}].result.value")
     return {"value": MASK, "value_masked": True}
@@ -1333,6 +1529,24 @@ def _capture_one(
         entry = run_state.writer.write_json(f"{stem}.json", collector.network())
         run_state.artifacts.append(_artifact("network", label, entry, run_state.evidence_dir))
         return
+    if kind == "vitals":
+        entry = run_state.writer.write_json(
+            f"{stem}.json",
+            diagnostics.collect_vitals(
+                client,
+                settle=0,
+                handle=run_state.vitals_handle,
+                requested_url=run_state.last_requested_url,
+                browser_version=run_state.browser_version,
+                allowed_origins=run_state.allowed_origins or None,
+                navigation_source=run_state.last_navigation_source,
+                navigation_step=run_state.last_navigation_step,
+                measurement_environment=run_state.measurement_environment,
+                origin_guard=lambda: _assert_current_origin(client, run_state.allowed_origins),
+            ),
+        )
+        run_state.artifacts.append(_artifact("vitals", label, entry, run_state.evidence_dir))
+        return
     if kind == "profiler":
         try:
             profiler_result = collector.profiler(client, timeout, artifact.profiler)
@@ -1343,7 +1557,7 @@ def _capture_one(
                 step=label,
             )
             return
-        if profiler_result is None and run_state.last_url:
+        if profiler_result is None and run_state.last_document_url:
             panels = (
                 list(artifact.profiler.panels)
                 if artifact.profiler is not None and artifact.profiler.panels is not None
@@ -1351,7 +1565,7 @@ def _capture_one(
             )
             profiler_result = dev.profiler(
                 client,
-                run_state.last_url,
+                run_state.last_document_url,
                 panels=panels,
                 timeout=timeout,
                 context=collector.context,
@@ -1387,6 +1601,34 @@ def _artifact(
         "sha256": entry.sha256,
         "classification": entry.classification,
         "upload_allowed": entry.upload_allowed,
+    }
+
+
+def _has_vitals_capture(scenario: Scenario) -> bool:
+    return has_capture(scenario.artifacts, "vitals") or any(
+        has_capture(step.capture, "vitals") for step in scenario.steps
+    )
+
+
+def _vitals_measurement_environment(scenario: Scenario) -> dict[str, Any]:
+    """Reproduction conditions embedded in scenario vitals artifacts.
+
+    A CLS measurement depends on the emulation (load order under network/CPU
+    throttling) and on the interception rules applied around the journey; the
+    artifact carries them plus the scenario digest so the proof is
+    self-sufficient without its scenario-result.json sibling.
+    """
+    preset = (
+        dict(emulation.PRESETS[scenario.emulation])
+        if scenario.emulation in emulation.PRESETS
+        else None
+    )
+    return {
+        "emulation": scenario.emulation,
+        "emulation_profile": preset,
+        "interception_active": bool(scenario.intercept_rules),
+        "interception_rules": list(scenario.intercept_rules),
+        "scenario_sha256": scenario.composition.sha256 if scenario.composition else None,
     }
 
 
