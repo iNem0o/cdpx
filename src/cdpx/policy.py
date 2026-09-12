@@ -20,6 +20,7 @@ from cdpx.action_model import (
     GotoAction,
     KeyAction,
     TypeAction,
+    ViewportAction,
     WaitAction,
 )
 from cdpx.cdp_types import DiscoveryTarget
@@ -213,7 +214,15 @@ def authority_for(command: str) -> Authority:
     raise PolicyError(f"unhandled authority mode: {semantics.authority_mode}")
 
 
-_ACTION_TYPES = (GotoAction, WaitAction, ClickAction, TypeAction, KeyAction, EvalAction)
+_ACTION_TYPES = (
+    GotoAction,
+    WaitAction,
+    ClickAction,
+    TypeAction,
+    KeyAction,
+    EvalAction,
+    ViewportAction,
+)
 
 
 def action_authority(action: BrowserAction) -> Authority:
@@ -223,6 +232,12 @@ def action_authority(action: BrowserAction) -> Authority:
         return Authority.INTERACTION
     if isinstance(action, EvalAction):
         return Authority.PRIVILEGED
+    if isinstance(action, ViewportAction):
+        # A closed-preset device-metrics override reads nothing, acts on no
+        # page element and changes no application state: it configures the
+        # observation instrument (the window) itself — the native bounded
+        # alternative to the viewport-preparing eval the contract allows.
+        return Authority.OBSERVATION
     raise PolicyError(f"action not classified by policy: {action!r}")
 
 

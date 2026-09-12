@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from cdpx.action_model import ClickAction, EvalAction, GotoAction, KeyAction, TypeAction, WaitAction
+from cdpx.action_model import (
+    ClickAction,
+    EvalAction,
+    GotoAction,
+    KeyAction,
+    TypeAction,
+    ViewportAction,
+    WaitAction,
+)
 from cdpx.policy import (
     Authority,
     ExecutionContext,
@@ -179,6 +187,7 @@ def test_command_authority_matrix(command, expected):
         (TypeAction("#name", "Ada"), Authority.INTERACTION),
         (KeyAction("Enter"), Authority.INTERACTION),
         (EvalAction("document.title"), Authority.PRIVILEGED),
+        (ViewportAction("mobile"), Authority.OBSERVATION),
     ],
 )
 def test_typed_action_authority_matrix(action, expected):
