@@ -3,6 +3,18 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 cdpx uses semantic versioning.
 
+## [0.3.1] — 2026-09-12
+
+### Fixed
+
+- `scenario` preflight rejected `viewport` steps: `ViewportAction` was
+  missing from the action authority matrix, so any scenario carrying a
+  viewport step failed with "preflighted action list required". The step is
+  classified as observation authority: a closed-preset device-metrics
+  override reads nothing and acts on no page element — it configures the
+  observation instrument itself, like the viewport-preparing `eval` the
+  contract allows.
+
 ## [0.3.0] — 2026-09-12
 
 ### Added
