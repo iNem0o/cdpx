@@ -2,7 +2,7 @@
   "type": "project",
   "require": {
     "php": ">=8.3",
-    "doctrine/doctrine-bundle": "^2.13",
+    "doctrine/doctrine-bundle": "^3.3",
     "doctrine/orm": "^3.3",
     "symfony/framework-bundle": "^7.3",
     "symfony/http-client": "^7.3",
